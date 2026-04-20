@@ -9,5 +9,8 @@
     "start": "bun dist/index.js",
     "lint": "eslint src --ext .ts",
     "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ai-app-template/agent": "workspace:*"
   }
 }

@@ -11,11 +11,14 @@
     "dev": "turbo run dev --parallel",
     "build": "turbo run build",
     "lint": "turbo run lint",
+    "minimax:smoke": "bun scripts/minimax-smoke.ts",
+    "stage1:smoke": "bun scripts/stage1-smoke.ts",
     "typecheck": "turbo run typecheck",
     "format": "prettier --check .",
     "format:write": "prettier --write ."
   },
   "devDependencies": {
+    "@anthropic-ai/sdk": "^0.90.0",
     "@eslint/js": "10.0.1",
     "@types/node": "25.5.0",
     "@types/react": "19.2.14",

@@ -10,13 +10,11 @@
 ## 推荐主栈
 
 - 语言：`TypeScript`
-- Monorepo：`Bun workspace` + `Turborepo`
 - Web：`Next.js` `App Router`
 - API：独立 `Hono` 服务 + `Zod` + `OpenAPI`
-- Agent：`LangGraph.js`
+- 
 - 数据层：`PostgreSQL` + `Drizzle ORM` + `drizzle-kit`
 - 鉴权：`Better Auth`
-- 异步任务：`pg-boss`
 - 向量能力：按需使用 `pgvector`
 - 后续 iOS：`Expo` + `Expo Router`
 
@@ -24,6 +22,4 @@
 
 - Web 与 API 尽早分清边界，避免后续多端接入时再拆
 - 公共契约优先以 `OpenAPI` 为核心，不把整个公共 API 绑死在 `tRPC`
-- 能基于 `PostgreSQL` 解决的问题，`MVP` 阶段尽量不额外引入新中间件
 - 多端复用重点放在 schema、domain、SDK、agent 能力与 tokens
-- 模板默认值应方便复制后快速替换，不应把未来项目绑定在单一业务语义上

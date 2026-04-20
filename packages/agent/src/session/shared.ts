@@ -1,0 +1,100 @@
+import path from "node:path";
+
+import type { ConversationBlock, LoopState, SessionSnapshot, SessionState } from "../types.js";
+
+export function createSessionState(
+  loopState: LoopState = "waiting for input"
+): SessionState {
+  return {
+    loopState,
+    turnCount: 0,
+    lastError: null,
+    pendingToolCallIds: []
+  };
+}
+
+export function createSnapshot(input: {
+  sessionId: string;
+  workingDirectory: string;
+  model: string;
+}): SessionSnapshot {
+  return {
+    sessionId: input.sessionId,
+    workingDirectory: input.workingDirectory,
+    model: input.model,
+    messages: [],
+    sessionState: createSessionState(),
+    inputTokensCount: 0,
+    promptCacheKey: "",
+    updatedAt: new Date().toISOString()
+  };
+}
+
+export function cloneSnapshot(snapshot: SessionSnapshot): SessionSnapshot {
+  return structuredClone(snapshot);
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+export function isConversationBlock(value: unknown): value is ConversationBlock {
+  if (!isPlainRecord(value) || typeof value.kind !== "string") {
+    return false;
+  }
+
+  if (value.kind === "user" || value.kind === "assistant") {
+    return typeof value.id === "string" && typeof value.content === "string";
+  }
+
+  if (value.kind === "tool call") {
+    return (
+      typeof value.id === "string" &&
+      typeof value.toolCallId === "string" &&
+      typeof value.toolName === "string" &&
+      isPlainRecord(value.input) &&
+      typeof value.state === "string"
+    );
+  }
+
+  if (value.kind === "tool result") {
+    return (
+      typeof value.id === "string" &&
+      typeof value.toolCallId === "string" &&
+      typeof value.toolName === "string" &&
+      typeof value.output === "string" &&
+      typeof value.isError === "boolean" &&
+      typeof value.state === "string"
+    );
+  }
+
+  return false;
+}
+
+export function isSessionSnapshot(value: unknown): value is SessionSnapshot {
+  if (!isPlainRecord(value)) {
+    return false;
+  }
+
+  return (
+    typeof value.sessionId === "string" &&
+    typeof value.workingDirectory === "string" &&
+    typeof value.model === "string" &&
+    Array.isArray(value.messages) &&
+    value.messages.every(isConversationBlock) &&
+    isPlainRecord(value.sessionState) &&
+    typeof value.sessionState.loopState === "string" &&
+    typeof value.sessionState.turnCount === "number" &&
+    typeof value.sessionState.lastError !== "undefined" &&
+    Array.isArray(value.sessionState.pendingToolCallIds) &&
+    typeof value.inputTokensCount === "number" &&
+    typeof value.promptCacheKey === "string" &&
+    typeof value.updatedAt === "string"
+  );
+}
+
+export function resolveWorkingDirectory(
+  workingDirectory: string | undefined
+): string {
+  return path.resolve(workingDirectory ?? process.cwd());
+}
