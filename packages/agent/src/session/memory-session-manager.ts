@@ -14,11 +14,22 @@ export class MemorySessionManager implements SessionManager {
   private readonly sessions = new Map<string, SessionSnapshot>();
 
   async createSession(input: CreateSessionInput = {}): Promise<SessionSnapshot> {
-    const snapshot = createSnapshot({
+    const createSnapshotInput: {
+      sessionId: string;
+      workingDirectory: string;
+      model: string;
+      userId?: string;
+    } = {
       sessionId: randomUUID(),
       workingDirectory: resolveWorkingDirectory(input.workingDirectory),
       model: input.model ?? "MiniMax-M2.7"
-    });
+    };
+
+    if (typeof input.userId === "string" && input.userId.length > 0) {
+      createSnapshotInput.userId = input.userId;
+    }
+
+    const snapshot = createSnapshot(createSnapshotInput);
 
     this.sessions.set(snapshot.sessionId, cloneSnapshot(snapshot));
     return cloneSnapshot(snapshot);
@@ -126,6 +137,19 @@ export class MemorySessionManager implements SessionManager {
       sessionState: {
         ...snapshot.sessionState,
         lastError
+      }
+    }));
+  }
+
+  async updateContext(
+    sessionId: string,
+    patch: Partial<SessionSnapshot["context"]>
+  ): Promise<SessionSnapshot> {
+    return this.updateSession(sessionId, (snapshot) => ({
+      ...snapshot,
+      context: {
+        ...snapshot.context,
+        ...structuredClone(patch)
       }
     }));
   }

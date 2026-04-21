@@ -7,6 +7,7 @@ import {
   toRelativeWorkspacePath,
   walkFiles
 } from "./workspace.js";
+import { createToolResult, failureResult, successResult } from "./tool-result.js";
 
 export function createSearchTextTool(workingDirectory: string): RuntimeTool {
   return {
@@ -32,15 +33,40 @@ export function createSearchTextTool(workingDirectory: string): RuntimeTool {
       required: ["query"],
       additionalProperties: false
     },
+    validate(input) {
+      const query = input.query;
+      if (typeof query === "string" && query.trim()) {
+        return { ok: true, value: input };
+      }
+
+      return {
+        ok: false,
+        issues: [
+          {
+            field: "query",
+            issue: "query is required."
+          }
+        ]
+      };
+    },
     async execute(input) {
       const query = typeof input.query === "string" ? input.query.trim() : "";
 
       if (!query) {
-        return {
-          state: "failed",
-          content: buildJsonResult({ error: "Missing search query." }),
-          error: "Missing search query."
-        };
+        return failureResult(
+          createToolResult({
+            ok: false,
+            code: "INVALID_TOOL_INPUT",
+            message: "Missing search query.",
+            validationErrors: [
+              {
+                field: "query",
+                issue: "query is required."
+              }
+            ]
+          }),
+          "[search_text] invalid input\n- query: query is required."
+        );
       }
 
       const searchRoot =
@@ -100,21 +126,30 @@ export function createSearchTextTool(workingDirectory: string): RuntimeTool {
           }
         }
 
-        return {
-          state: "success",
-          content: buildJsonResult({
-            root: toRelativeWorkspacePath(workingDirectory, absoluteRoot),
-            query,
-            matches
-          })
+        const result = {
+          root: toRelativeWorkspacePath(workingDirectory, absoluteRoot),
+          query,
+          matches
         };
+        return successResult(
+          createToolResult({
+            ok: true,
+            code: "SEARCH_TEXT_OK",
+            message: "Text search completed.",
+            data: result
+          }),
+          `[search_text] success\n- matches: ${matches.length}`
+        );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        return {
-          state: "failed",
-          content: buildJsonResult({ error: message }),
-          error: message
-        };
+        return failureResult(
+          createToolResult({
+            ok: false,
+            code: "SEARCH_TEXT_FAILED",
+            message
+          }),
+          `[search_text] failed\n- ${message}`
+        );
       }
     }
   };

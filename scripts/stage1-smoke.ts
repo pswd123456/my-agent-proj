@@ -4,22 +4,24 @@ import { fileURLToPath } from "node:url";
 
 import {
   createAgentRuntime,
-  createDefaultToolRegistry,
+  createWorkspaceToolRegistry,
   createFileSessionManager,
   createPromptBuilder,
   resolveSessionStateDirectory,
   type AnthropicCompatibleClient,
   type AnthropicMessage
 } from "../packages/agent/src/index.ts";
+import { createMemoryRoutineRepository } from "../packages/db/src/index.ts";
 
 const workspaceRoot = fileURLToPath(new URL("..", import.meta.url));
 const smokeRoot = resolveSessionStateDirectory(workspaceRoot, "stage1-smoke");
 await rm(smokeRoot, { recursive: true, force: true });
 const sessionManager = createFileSessionManager(smokeRoot);
 const promptBuilder = createPromptBuilder();
-const toolRegistry = createDefaultToolRegistry({
+const toolRegistry = createWorkspaceToolRegistry({
   workingDirectory: workspaceRoot
 });
+const routineRepository = createMemoryRoutineRepository();
 
 const calls: AnthropicMessage[][] = [];
 
@@ -30,7 +32,7 @@ const fakeClient: AnthropicCompatibleClient = {
 
       assert.equal(input.model, "MiniMax-M2.7");
       assert.ok(
-        input.system.includes("You are a minimal TypeScript agent runtime.")
+        input.system.includes("You are a scheduling agent for a CLI-first routine manager.")
       );
       assert.equal(input.tools.length, 3);
 
@@ -73,6 +75,7 @@ const runtime = createAgentRuntime({
   client: fakeClient,
   model: "MiniMax-M2.7",
   sessionManager,
+  routineRepository,
   toolRegistry,
   promptBuilder,
   maxTurns: 4,

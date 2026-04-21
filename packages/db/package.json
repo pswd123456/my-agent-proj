@@ -17,7 +17,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "drizzle-orm": "0.45.1"
+    "@ai-app-template/domain": "workspace:*",
+    "drizzle-orm": "0.45.1",
+    "postgres": "3.4.7"
   },
   "devDependencies": {
     "drizzle-kit": "0.31.10"

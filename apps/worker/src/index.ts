@@ -4,24 +4,39 @@ import { fileURLToPath } from "node:url";
 import {
   createAgentRuntime,
   createDefaultToolRegistry,
-  createFileSessionManager,
   createFileTraceManager,
   createMiniMaxRuntime,
+  createPostgresSessionManager,
   createPromptBuilder,
   resolveToolChoice,
   resolveSessionStateDirectory
 } from "@ai-app-template/agent";
+import {
+  createPostgresDatabase,
+  createPostgresRoutineRepository,
+  ensureProductSchema,
+  resolveDatabaseUrl
+} from "@ai-app-template/db";
 
 const logLevel = process.env.WORKER_LOG_LEVEL ?? "info";
 const workspaceRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const stateDirectory = resolveSessionStateDirectory(workspaceRoot);
-const sessionManager = createFileSessionManager(stateDirectory);
 const traceManager = createFileTraceManager(stateDirectory);
 const promptBuilder = createPromptBuilder();
 const miniMaxRuntime = createMiniMaxRuntime(process.env);
 const toolChoice = resolveToolChoice(process.env);
 const pollIntervalMs = Number(process.env.WORKER_POLL_INTERVAL_MS ?? 30_000);
 const staleSessionMs = Number(process.env.WORKER_STALE_SESSION_MS ?? 120_000);
+const databaseUrl = resolveDatabaseUrl(process.env);
+
+if (!databaseUrl) {
+  throw new Error("DATABASE_URL is required for product1.");
+}
+
+const database = createPostgresDatabase(databaseUrl);
+await ensureProductSchema(database);
+const routineRepository = createPostgresRoutineRepository(database);
+const sessionManager = createPostgresSessionManager(database);
 
 console.log(`[worker] ready (logLevel=${logLevel})`);
 
@@ -50,9 +65,8 @@ async function recoverPendingSessions(): Promise<void> {
       client: miniMaxRuntime.client,
       model: session.model,
       sessionManager,
-      toolRegistry: createDefaultToolRegistry({
-        workingDirectory: session.workingDirectory
-      }),
+      routineRepository,
+      toolRegistry: createDefaultToolRegistry({ routineRepository }),
       traceManager,
       promptBuilder,
       maxTurns: 6,

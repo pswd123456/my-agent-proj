@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 
+import type { RoutineRepository } from "@ai-app-template/db";
+
 import type {
   AnthropicCompatibleClient,
   AnthropicContentBlock,
@@ -27,6 +29,7 @@ export interface AgentRuntimeOptions {
   client: AnthropicCompatibleClient;
   model: string;
   sessionManager: SessionManager;
+  routineRepository: RoutineRepository;
   toolRegistry: ToolRegistry;
   traceManager?: TraceManager;
   promptBuilder?: PromptBuilder;
@@ -184,14 +187,21 @@ export class AgentRuntime {
   }
 
   async createSession(
-    input: { workingDirectory?: string; model?: string } = {}
+    input: { workingDirectory?: string; model?: string; userId?: string } = {}
   ): ReturnType<SessionManager["createSession"]> {
-    const createInput: { workingDirectory?: string; model?: string } = {
+    const createInput: {
+      workingDirectory?: string;
+      model?: string;
+      userId?: string;
+    } = {
       model: input.model ?? this.options.model
     };
 
     if (typeof input.workingDirectory === "string") {
       createInput.workingDirectory = input.workingDirectory;
+    }
+    if (typeof input.userId === "string" && input.userId.length > 0) {
+      createInput.userId = input.userId;
     }
 
     return this.options.sessionManager.createSession(createInput);
@@ -210,11 +220,19 @@ export class AgentRuntime {
       throw new Error(`Unknown session: ${input.sessionId}`);
     }
 
+    const hadPendingConfirmationAtStart = Boolean(
+      session.context.pendingConfirmationPayload
+    );
+
     if (input.message) {
       session = await this.options.sessionManager.appendBlock(
         session.sessionId,
         buildUserBlockContent(input.message)
       );
+      session = await this.options.sessionManager.updateContext(session.sessionId, {
+        lastUserMessage: input.message,
+        status: "running"
+      });
     }
 
     session = await this.options.sessionManager.setLoopState(
@@ -226,6 +244,7 @@ export class AgentRuntime {
     let stopReason: string | null = null;
     let toolCallCount = 0;
     let toolResultCount = 0;
+    const toolOutputs: RunSessionResult["toolOutputs"] = [];
 
     for (let turn = 0; turn < maxTurns; turn += 1) {
       const turnCount = turn + 1;
@@ -369,7 +388,14 @@ export class AgentRuntime {
           const tool = this.options.toolRegistry.get(toolCall.name);
           const context: ToolExecutionContext = {
             sessionId: session.sessionId,
-            workingDirectory: session.workingDirectory
+            userId: session.context.userId,
+            workingDirectory: session.workingDirectory,
+            routineRepository: this.options.routineRepository,
+            sessionManager: this.options.sessionManager,
+            sessionContext: {
+              status: session.context.status,
+              currentDateContext: session.context.currentDateContext
+            }
           };
 
           if (!tool) {
@@ -396,11 +422,64 @@ export class AgentRuntime {
               output: errorText,
               isError: true
             });
+            toolOutputs.push({
+              toolCallId: toolCall.id,
+              toolName: toolCall.name,
+              content: errorText,
+              displayText: `[${toolCall.name}] failed\n- ${errorText}`,
+              isError: true
+            });
+            continue;
+          }
+
+          const validation = tool.validate(
+            toolCall.input as Record<string, JsonValue>
+          );
+          if (!validation.ok) {
+            const validationText = JSON.stringify(
+              {
+                ok: false,
+                code: "INVALID_TOOL_INPUT",
+                message: "Tool input validation failed.",
+                validationErrors: validation.issues ?? []
+              },
+              null,
+              2
+            );
+            session = await this.options.sessionManager.appendBlock(
+              session.sessionId,
+              buildToolResultBlock({
+                id: toolCall.id,
+                name: toolCall.name,
+                content: validationText,
+                isError: true
+              })
+            );
+            session = await this.options.sessionManager.setLastError(
+              session.sessionId,
+              "Tool input validation failed."
+            );
+            toolResultCount += 1;
+            await appendTrace(this.options.traceManager, session.sessionId, {
+              kind: "tool_result",
+              turnCount,
+              toolCallId: toolCall.id,
+              toolName: toolCall.name,
+              output: validationText,
+              isError: true
+            });
+            toolOutputs.push({
+              toolCallId: toolCall.id,
+              toolName: toolCall.name,
+              content: validationText,
+              displayText: `[${toolCall.name}] invalid input`,
+              isError: true
+            });
             continue;
           }
 
           const result = await tool.execute(
-            toolCall.input as Record<string, JsonValue>,
+            (validation.value ?? toolCall.input) as Record<string, JsonValue>,
             context
           );
 
@@ -424,6 +503,13 @@ export class AgentRuntime {
             toolCallId: toolCall.id,
             toolName: toolCall.name,
             output: result.content,
+            isError: result.state === "failed"
+          });
+          toolOutputs.push({
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+            content: result.content,
+            displayText: result.displayText,
             isError: result.state === "failed"
           });
         }
@@ -458,6 +544,27 @@ export class AgentRuntime {
           session.sessionId,
           null
         );
+        if (
+          hadPendingConfirmationAtStart &&
+          input.message &&
+          session.context.pendingConfirmationPayload
+        ) {
+          session = await this.options.sessionManager.updateContext(
+            session.sessionId,
+            {
+              pendingConfirmationPayload: null,
+              pendingConflictSummary: null,
+              status: "completed"
+            }
+          );
+        } else if (session.context.status === "running") {
+          session = await this.options.sessionManager.updateContext(
+            session.sessionId,
+            {
+              status: "completed"
+            }
+          );
+        }
         await appendTrace(this.options.traceManager, session.sessionId, {
           kind: "turn_end",
           turnCount,
@@ -469,7 +576,8 @@ export class AgentRuntime {
           status: "completed",
           stopReason,
           toolCallCount,
-          toolResultCount
+          toolResultCount,
+          toolOutputs
         };
       }
 
@@ -492,7 +600,8 @@ export class AgentRuntime {
         status: "failed",
         stopReason,
         toolCallCount,
-        toolResultCount
+        toolResultCount,
+        toolOutputs
       };
     }
 
@@ -510,6 +619,11 @@ export class AgentRuntime {
       []
     );
     session = await this.options.sessionManager.setLastError(session.sessionId, null);
+    if (session.context.status === "running") {
+      session = await this.options.sessionManager.updateContext(session.sessionId, {
+        status: "completed"
+      });
+    }
     await appendTrace(this.options.traceManager, session.sessionId, {
       kind: "fallback",
       turnCount: maxTurns,
@@ -528,7 +642,8 @@ export class AgentRuntime {
       status: "completed",
       stopReason: "max_turns",
       toolCallCount,
-      toolResultCount
+      toolResultCount,
+      toolOutputs
     };
   }
 }

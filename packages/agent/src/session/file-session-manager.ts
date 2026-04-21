@@ -63,11 +63,22 @@ export class FileSessionManager implements SessionManager {
 
   async createSession(input: CreateSessionInput = {}): Promise<SessionSnapshot> {
     const sessionId = randomUUID();
-    const snapshot = createSnapshot({
+    const createSnapshotInput: {
+      sessionId: string;
+      workingDirectory: string;
+      model: string;
+      userId?: string;
+    } = {
       sessionId,
       workingDirectory: resolveWorkingDirectory(input.workingDirectory),
       model: input.model ?? "MiniMax-M2.7"
-    });
+    };
+
+    if (typeof input.userId === "string" && input.userId.length > 0) {
+      createSnapshotInput.userId = input.userId;
+    }
+
+    const snapshot = createSnapshot(createSnapshotInput);
 
     await this.writeSnapshotFile(snapshot);
     return cloneSnapshot(snapshot);
@@ -195,6 +206,19 @@ export class FileSessionManager implements SessionManager {
       sessionState: {
         ...snapshot.sessionState,
         lastError
+      }
+    }));
+  }
+
+  async updateContext(
+    sessionId: string,
+    patch: Partial<SessionSnapshot["context"]>
+  ): Promise<SessionSnapshot> {
+    return this.updateSession(sessionId, (snapshot) => ({
+      ...snapshot,
+      context: {
+        ...snapshot.context,
+        ...structuredClone(patch)
       }
     }));
   }

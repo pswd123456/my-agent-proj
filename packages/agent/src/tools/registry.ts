@@ -1,7 +1,16 @@
 import type { AnthropicToolDefinition } from "../model.js";
 
+import type { RoutineRepository } from "@ai-app-template/db";
+
+import { createAskForConfirmationTool } from "./ask-for-confirmation.js";
+import { createCreateRoutineTool } from "./create-routine.js";
+import { createDeleteRoutineTool } from "./delete-routine.js";
+import { createEditRoutineTool } from "./edit-routine.js";
+import { createListRoutineByDateTool } from "./list-routine-by-date.js";
+import { createListRoutineByWeekTool } from "./list-routine-by-week.js";
 import { createListDirectoryTool } from "./list-directory.js";
 import { createReadFileTool } from "./read-file.js";
+import { createSearchRoutineByOclockTool } from "./search-routine-by-oclock.js";
 import { createSearchTextTool } from "./search-text.js";
 import type { RuntimeTool } from "./runtime-tool.js";
 
@@ -32,12 +41,27 @@ export class ToolRegistry {
   }
 }
 
-export function createDefaultToolRegistry(options: {
+export function createWorkspaceToolRegistry(options: {
   workingDirectory: string;
 }): ToolRegistry {
   const registry = new ToolRegistry();
   registry.register(createReadFileTool(options.workingDirectory));
   registry.register(createListDirectoryTool(options.workingDirectory));
   registry.register(createSearchTextTool(options.workingDirectory));
+  return registry;
+}
+
+export function createDefaultToolRegistry(options: {
+  routineRepository: RoutineRepository;
+}): ToolRegistry {
+  void options;
+  const registry = new ToolRegistry();
+  registry.register(createCreateRoutineTool());
+  registry.register(createEditRoutineTool());
+  registry.register(createDeleteRoutineTool());
+  registry.register(createSearchRoutineByOclockTool());
+  registry.register(createListRoutineByWeekTool());
+  registry.register(createListRoutineByDateTool());
+  registry.register(createAskForConfirmationTool());
   return registry;
 }

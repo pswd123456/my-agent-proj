@@ -1,3 +1,5 @@
+import type { ScheduleSessionContext } from "@ai-app-template/domain";
+
 import type { CreateSessionInput, SessionSnapshot } from "../types.js";
 
 import type { ConversationBlock, LoopState } from "../types.js";
@@ -29,5 +31,9 @@ export interface SessionManager {
   setLastError(
     sessionId: string,
     lastError: string | null
+  ): Promise<SessionSnapshot>;
+  updateContext(
+    sessionId: string,
+    patch: Partial<ScheduleSessionContext>
   ): Promise<SessionSnapshot>;
 }

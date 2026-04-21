@@ -6,6 +6,7 @@ import {
   normalizeWorkspacePath,
   toRelativeWorkspacePath
 } from "./workspace.js";
+import { createToolResult, failureResult, successResult } from "./tool-result.js";
 
 export function createListDirectoryTool(workingDirectory: string): RuntimeTool {
   return {
@@ -22,6 +23,9 @@ export function createListDirectoryTool(workingDirectory: string): RuntimeTool {
       },
       additionalProperties: false
     },
+    validate(input) {
+      return { ok: true, value: input };
+    },
     async execute(input) {
       const rawPath =
         typeof input.path === "string" && input.path.length > 0
@@ -33,36 +37,49 @@ export function createListDirectoryTool(workingDirectory: string): RuntimeTool {
         const stat = await fs.stat(absolutePath);
 
         if (!stat.isDirectory()) {
-          return {
-            state: "failed",
-            content: buildJsonResult({ error: "Target is not a directory." }),
-            error: "Target is not a directory."
-          };
+          return failureResult(
+            createToolResult({
+              ok: false,
+              code: "TARGET_NOT_DIRECTORY",
+              message: "Target is not a directory."
+            }),
+            "[list_directory] failed\n- target is not a directory"
+          );
         }
 
         const entries = await fs.readdir(absolutePath, {
           withFileTypes: true
         });
 
-        return {
-          state: "success",
-          content: buildJsonResult({
-            path: toRelativeWorkspacePath(workingDirectory, absolutePath),
-            entries: entries
-              .map((entry) => ({
-                name: entry.name,
-                kind: entry.isDirectory() ? "directory" : "file"
-              }))
-              .sort((left, right) => left.name.localeCompare(right.name))
-          })
+        const result = {
+          path: toRelativeWorkspacePath(workingDirectory, absolutePath),
+          entries: entries
+            .map((entry) => ({
+              name: entry.name,
+              kind: entry.isDirectory() ? "directory" : "file"
+            }))
+            .sort((left, right) => left.name.localeCompare(right.name))
         };
+
+        return successResult(
+          createToolResult({
+            ok: true,
+            code: "DIRECTORY_LIST_OK",
+            message: "Directory listed successfully.",
+            data: result
+          }),
+          `[list_directory] success\n- ${result.path}`
+        );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        return {
-          state: "failed",
-          content: buildJsonResult({ error: message }),
-          error: message
-        };
+        return failureResult(
+          createToolResult({
+            ok: false,
+            code: "LIST_DIRECTORY_FAILED",
+            message
+          }),
+          `[list_directory] failed\n- ${message}`
+        );
       }
     }
   };

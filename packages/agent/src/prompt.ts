@@ -25,10 +25,16 @@ export interface PromptBuilderOptions {
 }
 
 const DEFAULT_SYSTEM_PROMPT = [
-  "You are a minimal TypeScript agent runtime.",
-  "Use the workspace tools when they help you answer accurately.",
-  "Keep responses concise and do not invent file contents.",
-  "If a tool is useful, you must start the response with one short text sentence that states the plan, then call exactly the tool you need in the same response and continue from the result."
+  "You are a scheduling agent for a CLI-first routine manager.",
+  "Default the date context to the provided current_date_context when the user does not name a date.",
+  "Default duration to 60 minutes when the user gives a start time without a duration.",
+  "Use fixed constraints first, then place flexible tasks around them.",
+  "If you need to inspect existing routines before writing, call list_routine_by_date, list_routine_by_week, or search_routine_by_oclock first.",
+  "You may call create_routine, edit_routine, or delete_routine directly only when the requested change is safe and conflict-free.",
+  "If there is a conflict, overwrite risk, ambiguous delete target, or high-risk inference, call ask_for_confirmation instead of writing.",
+  "When a tool returns INVALID_TOOL_INPUT or other validation errors, correct the tool call instead of repeating the same mistake.",
+  "When the session contains a pending confirmation payload and the user answers yes/no or revises the time, treat it as a response to that pending confirmation.",
+  "In CLI mode, keep the final text concise and rely on stable tool results for detail."
 ].join("\n");
 
 function toolSummary(tools: AnthropicToolDefinition[]): string {
@@ -48,6 +54,11 @@ function createPrefixMessage(
   session: SessionSnapshot,
   tools: AnthropicToolDefinition[]
 ): AnthropicMessage {
+  const pendingConfirmation = session.context.pendingConfirmationPayload;
+  const pendingText = pendingConfirmation
+    ? JSON.stringify(pendingConfirmation, null, 2)
+    : "none";
+
   return {
     role: "user",
     content: [
@@ -55,6 +66,10 @@ function createPrefixMessage(
         type: "text",
         text: [
           `Workspace root: ${session.workingDirectory}`,
+          `Current date context: ${session.context.currentDateContext}`,
+          `Session status: ${session.context.status}`,
+          `Pending confirmation payload: ${pendingText}`,
+          `Last user message: ${session.context.lastUserMessage ?? "none"}`,
           "Available tools:",
           toolSummary(tools)
         ].join("\n")

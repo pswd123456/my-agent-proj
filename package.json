@@ -12,6 +12,8 @@
     "build": "turbo run build",
     "lint": "turbo run lint",
     "minimax:smoke": "bun scripts/minimax-smoke.ts",
+    "product1:cli": "bun scripts/product1-cli.ts",
+    "product1:smoke": "bun scripts/product1-smoke.ts",
     "stage1:smoke": "bun scripts/stage1-smoke.ts",
     "typecheck": "turbo run typecheck",
     "format": "prettier --check .",

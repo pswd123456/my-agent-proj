@@ -1,5 +1,7 @@
 import path from "node:path";
 
+import type { ScheduleSessionContext } from "@ai-app-template/domain";
+
 import type { ConversationBlock, LoopState, SessionSnapshot, SessionState } from "../types.js";
 
 export function createSessionState(
@@ -17,11 +19,13 @@ export function createSnapshot(input: {
   sessionId: string;
   workingDirectory: string;
   model: string;
+  userId?: string;
 }): SessionSnapshot {
   return {
     sessionId: input.sessionId,
     workingDirectory: input.workingDirectory,
     model: input.model,
+    context: createScheduleSessionContext(input.userId),
     messages: [],
     sessionState: createSessionState(),
     inputTokensCount: 0,
@@ -32,6 +36,24 @@ export function createSnapshot(input: {
 
 export function cloneSnapshot(snapshot: SessionSnapshot): SessionSnapshot {
   return structuredClone(snapshot);
+}
+
+function resolveCurrentDateContext(now = new Date()): string {
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export function createScheduleSessionContext(userId = "cli-user"): ScheduleSessionContext {
+  return {
+    userId,
+    status: "waiting_for_user_input",
+    currentDateContext: resolveCurrentDateContext(),
+    pendingConfirmationPayload: null,
+    pendingConflictSummary: null,
+    lastUserMessage: null
+  };
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
@@ -80,6 +102,13 @@ export function isSessionSnapshot(value: unknown): value is SessionSnapshot {
     typeof value.sessionId === "string" &&
     typeof value.workingDirectory === "string" &&
     typeof value.model === "string" &&
+    isPlainRecord(value.context) &&
+    typeof value.context.userId === "string" &&
+    typeof value.context.status === "string" &&
+    typeof value.context.currentDateContext === "string" &&
+    Object.prototype.hasOwnProperty.call(value.context, "pendingConfirmationPayload") &&
+    Object.prototype.hasOwnProperty.call(value.context, "pendingConflictSummary") &&
+    Object.prototype.hasOwnProperty.call(value.context, "lastUserMessage") &&
     Array.isArray(value.messages) &&
     value.messages.every(isConversationBlock) &&
     isPlainRecord(value.sessionState) &&

@@ -7,6 +7,7 @@ import {
   readTextFileWithLimit,
   toRelativeWorkspacePath
 } from "./workspace.js";
+import { createToolResult, failureResult, successResult } from "./tool-result.js";
 
 export function createReadFileTool(workingDirectory: string): RuntimeTool {
   return {
@@ -28,14 +29,39 @@ export function createReadFileTool(workingDirectory: string): RuntimeTool {
       required: ["path"],
       additionalProperties: false
     },
+    validate(input) {
+      const path = input.path;
+      if (typeof path === "string" && path.length > 0) {
+        return { ok: true, value: input };
+      }
+
+      return {
+        ok: false,
+        issues: [
+          {
+            field: "path",
+            issue: "path is required."
+          }
+        ]
+      };
+    },
     async execute(input) {
       const rawPath = input.path;
       if (typeof rawPath !== "string" || rawPath.length === 0) {
-        return {
-          state: "failed",
-          content: buildJsonResult({ error: "Missing file path." }),
-          error: "Missing file path."
-        };
+        return failureResult(
+          createToolResult({
+            ok: false,
+            code: "INVALID_TOOL_INPUT",
+            message: "Missing file path.",
+            validationErrors: [
+              {
+                field: "path",
+                issue: "path is required."
+              }
+            ]
+          }),
+          "[read_file] invalid input\n- path: path is required."
+        );
       }
 
       const maxCharacters =
@@ -48,11 +74,14 @@ export function createReadFileTool(workingDirectory: string): RuntimeTool {
         const stat = await fs.stat(absolutePath);
 
         if (!stat.isFile()) {
-          return {
-            state: "failed",
-            content: buildJsonResult({ error: "Target is not a file." }),
-            error: "Target is not a file."
-          };
+          return failureResult(
+            createToolResult({
+              ok: false,
+              code: "TARGET_NOT_FILE",
+              message: "Target is not a file."
+            }),
+            "[read_file] failed\n- target is not a file"
+          );
         }
 
         const { text, truncated } = await readTextFileWithLimit(
@@ -60,21 +89,32 @@ export function createReadFileTool(workingDirectory: string): RuntimeTool {
           maxCharacters
         );
 
-        return {
-          state: "success",
-          content: buildJsonResult({
-            path: toRelativeWorkspacePath(workingDirectory, absolutePath),
-            truncated,
-            content: text
-          })
-        };
+        return successResult(
+          createToolResult({
+            ok: true,
+            code: "FILE_READ_OK",
+            message: "File read successfully.",
+            data: {
+              path: toRelativeWorkspacePath(workingDirectory, absolutePath),
+              truncated,
+              content: text
+            }
+          }),
+          `[read_file] success\n- ${toRelativeWorkspacePath(
+            workingDirectory,
+            absolutePath
+          )}`
+        );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        return {
-          state: "failed",
-          content: buildJsonResult({ error: message }),
-          error: message
-        };
+        return failureResult(
+          createToolResult({
+            ok: false,
+            code: "READ_FILE_FAILED",
+            message
+          }),
+          `[read_file] failed\n- ${message}`
+        );
       }
     }
   };

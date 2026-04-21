@@ -1,3 +1,5 @@
+import type { ScheduleSessionContext } from "@ai-app-template/domain";
+
 export type LoopState =
   | "running"
   | "interrupted"
@@ -64,6 +66,7 @@ export interface SessionSnapshot {
   sessionId: string;
   workingDirectory: string;
   model: string;
+  context: ScheduleSessionContext;
   messages: ConversationBlock[];
   sessionState: SessionState;
   inputTokensCount: number;
@@ -74,6 +77,7 @@ export interface SessionSnapshot {
 export interface CreateSessionInput {
   workingDirectory?: string;
   model?: string;
+  userId?: string;
 }
 
 export interface RunSessionInput {
@@ -89,4 +93,13 @@ export interface RunSessionResult {
   stopReason: string | null;
   toolCallCount: number;
   toolResultCount: number;
+  toolOutputs: ToolOutputSummary[];
+}
+
+export interface ToolOutputSummary {
+  toolCallId: string;
+  toolName: string;
+  content: string;
+  displayText: string;
+  isError: boolean;
 }

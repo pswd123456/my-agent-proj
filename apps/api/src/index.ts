@@ -5,7 +5,7 @@ import { z } from "zod";
 import {
   createAgentRuntime,
   createDefaultToolRegistry,
-  createFileSessionManager,
+  createPostgresSessionManager,
   createMiniMaxRuntime,
   createPromptBuilder,
   createFileTraceManager,
@@ -13,22 +13,38 @@ import {
   resolveSessionStateDirectory,
   type SessionSnapshot
 } from "@ai-app-template/agent";
+import {
+  createPostgresDatabase,
+  createPostgresRoutineRepository,
+  ensureProductSchema,
+  resolveDatabaseUrl
+} from "@ai-app-template/db";
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const workspaceRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const stateDirectory = resolveSessionStateDirectory(workspaceRoot);
-const sessionManager = createFileSessionManager(stateDirectory);
 const traceManager = createFileTraceManager(stateDirectory);
 const promptBuilder = createPromptBuilder();
 const miniMaxRuntime = createMiniMaxRuntime(process.env);
 const toolChoice = resolveToolChoice(process.env);
+const databaseUrl = resolveDatabaseUrl(process.env);
+
+if (!databaseUrl) {
+  throw new Error("DATABASE_URL is required for product1.");
+}
+
+const database = createPostgresDatabase(databaseUrl);
+await ensureProductSchema(database);
+const routineRepository = createPostgresRoutineRepository(database);
+const sessionManager = createPostgresSessionManager(database);
 
 const app = new Hono();
 
 const createSessionBodySchema = z.object({
-  workingDirectory: z.string().optional()
+  workingDirectory: z.string().optional(),
+  userId: z.string().optional()
 });
 
 const executeSessionBodySchema = z.object({
@@ -52,9 +68,8 @@ function createRuntime(session: SessionSnapshot) {
     client: miniMaxRuntime.client,
     model: session.model,
     sessionManager,
-    toolRegistry: createDefaultToolRegistry({
-      workingDirectory: session.workingDirectory
-    }),
+    routineRepository,
+    toolRegistry: createDefaultToolRegistry({ routineRepository }),
     traceManager,
     promptBuilder,
     maxTurns: 6,
@@ -94,12 +109,16 @@ app.post("/sessions", async (c) => {
   const createInput: {
     workingDirectory: string;
     model?: string;
+    userId?: string;
   } = {
     workingDirectory: buildWorkingDirectory(body.workingDirectory)
   };
 
   if (miniMaxRuntime) {
     createInput.model = miniMaxRuntime.model;
+  }
+  if (body.userId) {
+    createInput.userId = body.userId;
   }
 
   const session = await sessionManager.createSession(createInput);

@@ -22,6 +22,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@ai-app-template/agent": "workspace:*",
+        "@ai-app-template/db": "workspace:*",
         "@hono/node-server": "1.19.11",
         "hono": "4.12.9",
         "zod": "4.3.6",
@@ -44,21 +45,27 @@
       "version": "0.1.0",
       "dependencies": {
         "@ai-app-template/agent": "workspace:*",
+        "@ai-app-template/db": "workspace:*",
       },
     },
     "packages/agent": {
       "name": "@ai-app-template/agent",
       "version": "0.1.0",
       "dependencies": {
+        "@ai-app-template/db": "workspace:*",
+        "@ai-app-template/domain": "workspace:*",
         "@anthropic-ai/sdk": "^0.90.0",
         "@langchain/langgraph": "1.2.5",
+        "zod": "4.3.6",
       },
     },
     "packages/db": {
       "name": "@ai-app-template/db",
       "version": "0.1.0",
       "dependencies": {
+        "@ai-app-template/domain": "workspace:*",
         "drizzle-orm": "0.45.1",
+        "postgres": "3.4.7",
       },
       "devDependencies": {
         "drizzle-kit": "0.31.10",
@@ -561,6 +568,8 @@
     "picomatch": ["picomatch@4.0.4", "https://registry.npmmirror.com/picomatch/-/picomatch-4.0.4.tgz", {}, "sha512-QP88BAKvMam/3NxH6vj2o21R6MjxZUAd6nlwAS/pnGvN9IVLocLHxGYIzFhg6fUQ+5th6P4dv4eW9jX3DSIj7A=="],
 
     "postcss": ["postcss@8.5.8", "https://registry.npmmirror.com/postcss/-/postcss-8.5.8.tgz", { "dependencies": { "nanoid": "3.3.11", "picocolors": "1.1.1", "source-map-js": "1.2.1" } }, "sha512-OW/rX8O/jXnm82Ey1k44pObPtdblfiuWnrd8X7GJ7emImCOstunGbXUpp7HdBrFQX6rJzn3sPT397Wp5aCwCHg=="],
+
+    "postgres": ["postgres@3.4.7", "https://registry.npmmirror.com/postgres/-/postgres-3.4.7.tgz", {}, "sha512-Jtc2612XINuBjIl/QTWsV5UvE8UHuNblcO3vVADSrKsrc6RqGX6lOW1cEo3CM2v0XG4Nat8nI+YM7/f26VxXLw=="],
 
     "prelude-ls": ["prelude-ls@1.2.1", "https://registry.npmmirror.com/prelude-ls/-/prelude-ls-1.2.1.tgz", {}, "sha512-vkcDPrRZo1QZLbn5RLGPpg/WmIQ65qoWWhcGKf/b5eplkkarX0m9z8ppCat4mlOqUsWpyNuYgO3VRyrYHSzX5g=="],
 
