@@ -81,6 +81,32 @@ export class MemorySessionManager implements SessionManager {
     }));
   }
 
+  async setTurnCount(
+    sessionId: string,
+    turnCount: number
+  ): Promise<SessionSnapshot> {
+    return this.updateSession(sessionId, (snapshot) => ({
+      ...snapshot,
+      sessionState: {
+        ...snapshot.sessionState,
+        turnCount: Math.max(0, Math.floor(turnCount))
+      }
+    }));
+  }
+
+  async setPendingToolCallIds(
+    sessionId: string,
+    pendingToolCallIds: string[]
+  ): Promise<SessionSnapshot> {
+    return this.updateSession(sessionId, (snapshot) => ({
+      ...snapshot,
+      sessionState: {
+        ...snapshot.sessionState,
+        pendingToolCallIds: [...pendingToolCallIds]
+      }
+    }));
+  }
+
   async addInputTokens(
     sessionId: string,
     inputTokens: number
@@ -120,3 +146,6 @@ export class MemorySessionManager implements SessionManager {
   }
 }
 
+export function createMemorySessionManager(): MemorySessionManager {
+  return new MemorySessionManager();
+}

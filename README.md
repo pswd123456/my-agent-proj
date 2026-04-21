@@ -23,6 +23,20 @@
 - [架构文档目录](./docs/architecture/README.md)
 - [设计系统总览](./docs/design-system/README.md)
 
+## Agent Runtime 调试
+
+起一个新 session 并看 trace，最小流程是：
+
+1. 先加载本地环境变量并启动 API，例如 `set -a; source .env; set +a; API_PORT=3101 bun apps/api/src/index.ts`
+2. 用 `POST /sessions` 创建 session
+3. 用 `POST /sessions/:sessionId/execute` 发一条任务消息
+4. 用 `GET /sessions/:sessionId/trace` 读取 trace
+5. 也可以直接看 `tmp/agent-sessions/sessions/<sessionId>.trace.jsonl`
+
+这个仓库里，`thinking` 只写进 trace，不会回灌到下一轮 `messages`。
+如果要显式控制工具选择，可以设置 `ANTHROPIC_TOOL_CHOICE`：
+`auto`、`any`、`none` 或 `tool:<name>`。
+
 ## 本地开发
 
 ```bash

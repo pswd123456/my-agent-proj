@@ -8,6 +8,9 @@ import {
   createFileSessionManager,
   createMiniMaxRuntime,
   createPromptBuilder,
+  createFileTraceManager,
+  resolveToolChoice,
+  resolveSessionStateDirectory,
   type SessionSnapshot
 } from "@ai-app-template/agent";
 
@@ -15,10 +18,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const workspaceRoot = fileURLToPath(new URL("../../../", import.meta.url));
-const stateDirectory = path.join(workspaceRoot, "tmp", "agent-sessions");
+const stateDirectory = resolveSessionStateDirectory(workspaceRoot);
 const sessionManager = createFileSessionManager(stateDirectory);
+const traceManager = createFileTraceManager(stateDirectory);
 const promptBuilder = createPromptBuilder();
 const miniMaxRuntime = createMiniMaxRuntime(process.env);
+const toolChoice = resolveToolChoice(process.env);
 
 const app = new Hono();
 
@@ -50,9 +55,11 @@ function createRuntime(session: SessionSnapshot) {
     toolRegistry: createDefaultToolRegistry({
       workingDirectory: session.workingDirectory
     }),
+    traceManager,
     promptBuilder,
     maxTurns: 6,
-    maxTokens: 512
+    maxTokens: 512,
+    ...(toolChoice ? { toolChoice } : {})
   });
 }
 
@@ -144,6 +151,17 @@ app.post("/sessions/:sessionId/snapshot", async (c) => {
   }
 
   return c.json({ snapshot: session });
+});
+
+app.get("/sessions/:sessionId/trace", async (c) => {
+  const sessionId = c.req.param("sessionId");
+  const session = await sessionManager.getSession(sessionId);
+  if (!session) {
+    return c.json({ error: "Session not found." }, 404);
+  }
+
+  const events = await traceManager.readEvents(sessionId);
+  return c.json({ sessionId, events });
 });
 
 app.post("/sessions/:sessionId/recover", async (c) => {

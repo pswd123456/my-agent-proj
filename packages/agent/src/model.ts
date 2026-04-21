@@ -13,6 +13,12 @@ export interface AnthropicContentTextBlock {
   text: string;
 }
 
+export interface AnthropicContentThinkingBlock {
+  type: "thinking";
+  thinking: string;
+  signature: string;
+}
+
 export interface AnthropicContentToolUseBlock {
   type: "tool_use";
   id: string;
@@ -29,6 +35,7 @@ export interface AnthropicContentToolResultBlock {
 
 export type AnthropicContentBlock =
   | AnthropicContentTextBlock
+  | AnthropicContentThinkingBlock
   | AnthropicContentToolUseBlock
   | AnthropicContentToolResultBlock;
 
@@ -42,6 +49,12 @@ export interface AnthropicToolDefinition {
   description: string;
   input_schema: Record<string, unknown>;
 }
+
+export type AnthropicToolChoice =
+  | { type: "auto" }
+  | { type: "any" }
+  | { type: "none" }
+  | { type: "tool"; name: string };
 
 export interface AnthropicMessageUsage {
   input_tokens?: number;
@@ -62,6 +75,7 @@ export interface AnthropicCompatibleClient {
       system: string;
       messages: AnthropicMessage[];
       tools: AnthropicToolDefinition[];
+      tool_choice?: AnthropicToolChoice;
     }): Promise<AnthropicMessageResponse>;
   };
 }
@@ -76,6 +90,29 @@ export interface MiniMaxRuntime {
   client: AnthropicCompatibleClient;
   model: string;
   config: MiniMaxRuntimeConfig;
+}
+
+export function resolveToolChoice(
+  env: NodeJS.ProcessEnv = process.env
+): AnthropicToolChoice | undefined {
+  const raw = env.ANTHROPIC_TOOL_CHOICE ?? env.TOOL_CHOICE;
+  if (!raw) {
+    return undefined;
+  }
+
+  const value = raw.trim();
+  if (value === "auto" || value === "any" || value === "none") {
+    return { type: value };
+  }
+
+  if (value.startsWith("tool:")) {
+    const name = value.slice("tool:".length).trim();
+    if (name) {
+      return { type: "tool", name };
+    }
+  }
+
+  return undefined;
 }
 
 export function resolveMiniMaxRuntimeConfig(

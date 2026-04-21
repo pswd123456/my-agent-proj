@@ -1,7 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
+import { rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -9,12 +7,14 @@ import {
   createDefaultToolRegistry,
   createFileSessionManager,
   createPromptBuilder,
+  resolveSessionStateDirectory,
   type AnthropicCompatibleClient,
   type AnthropicMessage
 } from "../packages/agent/src/index.ts";
 
 const workspaceRoot = fileURLToPath(new URL("..", import.meta.url));
-const smokeRoot = await mkdtemp(path.join(os.tmpdir(), "my-agent-proj-stage1-"));
+const smokeRoot = resolveSessionStateDirectory(workspaceRoot, "stage1-smoke");
+await rm(smokeRoot, { recursive: true, force: true });
 const sessionManager = createFileSessionManager(smokeRoot);
 const promptBuilder = createPromptBuilder();
 const toolRegistry = createDefaultToolRegistry({

@@ -1,59 +1,42 @@
+import { randomUUID } from "node:crypto";
+
 import type {
   AnthropicCompatibleClient,
   AnthropicContentBlock,
-  AnthropicMessage
+  AnthropicMessage,
+  AnthropicToolChoice
 } from "./model.js";
-import { createPromptBuilder, type PromptBuilder } from "./prompt.js";
+import {
+  createPromptBuilder,
+  toAnthropicMessages,
+  type PromptBuilder
+} from "./prompt.js";
 import type {
   ConversationBlock,
   JsonValue,
   RunSessionInput,
-  RunSessionResult
+  RunSessionResult,
+  SessionSnapshot
 } from "./types.js";
 import type { SessionManager } from "./session.js";
 import type { ToolExecutionContext } from "./tools/runtime-tool.js";
 import type { ToolRegistry } from "./tools/registry.js";
-import { randomUUID } from "node:crypto";
+import type { TraceManager } from "./trace.js";
 
 export interface AgentRuntimeOptions {
   client: AnthropicCompatibleClient;
   model: string;
   sessionManager: SessionManager;
   toolRegistry: ToolRegistry;
+  traceManager?: TraceManager;
   promptBuilder?: PromptBuilder;
   maxTurns?: number;
   maxTokens?: number;
+  toolChoice?: AnthropicToolChoice;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function extractText(blocks: AnthropicContentBlock[]): string {
-  return blocks
-    .filter((block): block is Extract<AnthropicContentBlock, { type: "text" }> =>
-      block.type === "text"
-    )
-    .map((block) => block.text)
-    .join("\n")
-    .trim();
-}
-
-function extractToolCalls(blocks: AnthropicContentBlock[]): Array<{
-  id: string;
-  name: string;
-  input: Record<string, unknown>;
-}> {
-  return blocks
-    .filter(
-      (block): block is Extract<AnthropicContentBlock, { type: "tool_use" }> =>
-        block.type === "tool_use"
-    )
-    .map((block) => ({
-      id: block.id,
-      name: block.name,
-      input: isRecord(block.input) ? block.input : {}
-    }));
 }
 
 function buildUserBlockContent(message: string): ConversationBlock {
@@ -108,48 +91,89 @@ function buildToolResultBlock(input: {
   };
 }
 
-function toAnthropicMessages(blocks: ConversationBlock[]): AnthropicMessage[] {
-  return blocks.map((block) => {
-    if (block.kind === "user") {
-      return {
-        role: "user",
-        content: [{ type: "text", text: block.content }]
-      };
-    }
+function extractToolCalls(blocks: AnthropicContentBlock[]): Array<{
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+}> {
+  return blocks
+    .filter(
+      (block): block is Extract<AnthropicContentBlock, { type: "tool_use" }> =>
+        block.type === "tool_use"
+    )
+    .map((block) => ({
+      id: block.id,
+      name: block.name,
+      input: isRecord(block.input) ? block.input : {}
+    }));
+}
 
-    if (block.kind === "assistant") {
-      return {
-        role: "assistant",
-        content: [{ type: "text", text: block.content }]
-      };
-    }
+function extractThinkingBlocks(blocks: AnthropicContentBlock[]): Array<{
+  text: string;
+  signature: string;
+}> {
+  return blocks
+    .filter(
+      (
+        block
+      ): block is Extract<AnthropicContentBlock, { type: "thinking" }> =>
+        block.type === "thinking"
+    )
+    .map((block) => ({
+      text: block.thinking,
+      signature: block.signature
+    }));
+}
 
-    if (block.kind === "tool call") {
-      return {
-        role: "assistant",
-        content: [
-          {
-            type: "tool_use",
-            id: block.toolCallId,
-            name: block.toolName,
-            input: block.input
-          }
-        ]
-      };
-    }
+function summarizeBlock(block: ConversationBlock): string {
+  if (block.kind === "user" || block.kind === "assistant") {
+    return `${block.kind}: ${block.content}`;
+  }
 
-    return {
-      role: "user",
-      content: [
-        {
-          type: "tool_result",
-          tool_use_id: block.toolCallId,
-          content: block.output,
-          is_error: block.isError
-        }
-      ]
-    };
-  });
+  if (block.kind === "tool call") {
+    return `tool call: ${block.toolName}`;
+  }
+
+  return `tool result: ${block.toolName}`;
+}
+
+function buildFallbackAnswer(
+  session: Pick<SessionSnapshot, "messages" | "sessionState">,
+  maxTurns: number
+): string {
+  const recentBlocks = session.messages.slice(-6).map(summarizeBlock);
+  const lines = [
+    `I reached the turn limit after ${session.sessionState.turnCount}/${maxTurns} turns.`,
+    "I stopped here to avoid looping forever, but I can continue from the latest state."
+  ];
+
+  if (recentBlocks.length > 0) {
+    lines.push(`Recent steps:\n- ${recentBlocks.join("\n- ")}`);
+  }
+
+  if (session.sessionState.lastError) {
+    lines.push(`Last error: ${session.sessionState.lastError}`);
+  }
+
+  if (session.sessionState.pendingToolCallIds.length > 0) {
+    lines.push(
+      `Pending tool calls: ${session.sessionState.pendingToolCallIds.join(", ")}`
+    );
+  }
+
+  return lines.join("\n");
+}
+
+async function appendTrace(
+  traceManager: TraceManager | undefined,
+  sessionId: string,
+  event: Parameters<TraceManager["appendEvent"]>[1]
+): Promise<void> {
+  if (!traceManager) {
+    return;
+  }
+
+  await traceManager.appendEvent(sessionId, event);
 }
 
 export class AgentRuntime {
@@ -204,22 +228,56 @@ export class AgentRuntime {
     let toolResultCount = 0;
 
     for (let turn = 0; turn < maxTurns; turn += 1) {
+      const turnCount = turn + 1;
       session = await this.options.sessionManager.saveSession(session);
-      const promptEnvelope = this.promptBuilder.build(session, this.options.toolRegistry);
+      session = await this.options.sessionManager.setTurnCount(
+        session.sessionId,
+        turnCount
+      );
+
+      const promptEnvelope = this.promptBuilder.build(
+        session,
+        this.options.toolRegistry
+      );
       session = await this.options.sessionManager.setPromptCacheKey(
         session.sessionId,
         promptEnvelope.cacheKey
       );
 
+      await appendTrace(this.options.traceManager, session.sessionId, {
+        kind: "turn_start",
+        turnCount,
+        session: {
+          sessionId: session.sessionId,
+          workingDirectory: session.workingDirectory,
+          model: session.model,
+          sessionState: session.sessionState
+        }
+      });
+      await appendTrace(this.options.traceManager, session.sessionId, {
+        kind: "prompt",
+        turnCount,
+        system: promptEnvelope.system,
+        prefixMessages: promptEnvelope.prefixMessages,
+        messages: promptEnvelope.messages,
+        tools: promptEnvelope.tools,
+        toolChoice: this.options.toolChoice ?? null,
+        cacheKey: promptEnvelope.cacheKey
+      });
+
       const response = await this.options.client.messages.create({
         model: session.model,
         max_tokens: this.options.maxTokens ?? 512,
         system: promptEnvelope.system,
-        messages: [...promptEnvelope.prefixMessages, ...toAnthropicMessages(session.messages)],
-        tools: promptEnvelope.tools
+        messages: [...promptEnvelope.prefixMessages, ...promptEnvelope.messages],
+        tools: promptEnvelope.tools,
+        ...(this.options.toolChoice
+          ? { tool_choice: this.options.toolChoice }
+          : {})
       });
 
       const usageTokens = response.usage?.input_tokens ?? 0;
+      const outputTokens = response.usage?.output_tokens ?? 0;
       if (usageTokens > 0) {
         session = await this.options.sessionManager.addInputTokens(
           session.sessionId,
@@ -228,21 +286,79 @@ export class AgentRuntime {
       }
 
       const responseBlocks = response.content ?? [];
-      const text = extractText(responseBlocks);
-      const toolCalls = extractToolCalls(responseBlocks);
       stopReason = response.stop_reason ?? null;
+      await appendTrace(this.options.traceManager, session.sessionId, {
+        kind: "response",
+        turnCount,
+        stopReason,
+        usage: {
+          inputTokens: usageTokens,
+          outputTokens
+        },
+        content: structuredClone(responseBlocks) as unknown as JsonValue
+      });
 
-      if (text) {
-        session = await this.options.sessionManager.appendBlock(
-          session.sessionId,
-          buildAssistantBlockContent(text)
-        );
+      const thinkingBlocks = extractThinkingBlocks(responseBlocks);
+      for (const thinkingBlock of thinkingBlocks) {
+        await appendTrace(this.options.traceManager, session.sessionId, {
+          kind: "thinking",
+          turnCount,
+          text: thinkingBlock.text,
+          signature: thinkingBlock.signature
+        });
       }
 
-      if (toolCalls.length > 0) {
+      const toolCalls = extractToolCalls(responseBlocks);
+      const assistantTexts: string[] = [];
+      const pendingToolCallIds: string[] = [];
+
+      for (const block of responseBlocks) {
+        if (block.type === "text") {
+          assistantTexts.push(block.text);
+          session = await this.options.sessionManager.appendBlock(
+            session.sessionId,
+            buildAssistantBlockContent(block.text)
+          );
+          await appendTrace(this.options.traceManager, session.sessionId, {
+            kind: "assistant_text",
+            turnCount,
+            text: block.text
+          });
+          continue;
+        }
+
+        if (block.type !== "tool_use") {
+          continue;
+        }
+
+        const toolInput = isRecord(block.input) ? block.input : {};
+        pendingToolCallIds.push(block.id);
+        toolCallCount += 1;
+        session = await this.options.sessionManager.appendBlock(
+          session.sessionId,
+          buildToolCallBlock({
+            id: block.id,
+            name: block.name,
+            toolInput
+          })
+        );
+        await appendTrace(this.options.traceManager, session.sessionId, {
+          kind: "tool_call",
+          turnCount,
+          toolCallId: block.id,
+          toolName: block.name,
+          input: toolInput
+        });
+      }
+
+      if (pendingToolCallIds.length > 0) {
         session = await this.options.sessionManager.setLoopState(
           session.sessionId,
           "waiting for tool result"
+        );
+        session = await this.options.sessionManager.setPendingToolCallIds(
+          session.sessionId,
+          pendingToolCallIds
         );
         session = await this.options.sessionManager.setLastError(
           session.sessionId,
@@ -250,17 +366,6 @@ export class AgentRuntime {
         );
 
         for (const toolCall of toolCalls) {
-          toolCallCount += 1;
-          session = await this.options.sessionManager.appendBlock(
-            session.sessionId,
-            buildToolCallBlock({
-              id: toolCall.id,
-              name: toolCall.name,
-              toolInput: toolCall.input
-            })
-          );
-          session = await this.options.sessionManager.saveSession(session);
-
           const tool = this.options.toolRegistry.get(toolCall.name);
           const context: ToolExecutionContext = {
             sessionId: session.sessionId,
@@ -283,6 +388,14 @@ export class AgentRuntime {
               errorText
             );
             toolResultCount += 1;
+            await appendTrace(this.options.traceManager, session.sessionId, {
+              kind: "tool_result",
+              turnCount,
+              toolCallId: toolCall.id,
+              toolName: toolCall.name,
+              output: errorText,
+              isError: true
+            });
             continue;
           }
 
@@ -305,21 +418,51 @@ export class AgentRuntime {
             result.state === "failed" ? result.error ?? result.content : null
           );
           toolResultCount += 1;
+          await appendTrace(this.options.traceManager, session.sessionId, {
+            kind: "tool_result",
+            turnCount,
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+            output: result.content,
+            isError: result.state === "failed"
+          });
         }
 
+        session = await this.options.sessionManager.setPendingToolCallIds(
+          session.sessionId,
+          []
+        );
+        session = await this.options.sessionManager.setLoopState(
+          session.sessionId,
+          "running"
+        );
+        await appendTrace(this.options.traceManager, session.sessionId, {
+          kind: "turn_end",
+          turnCount,
+          loopState: "running"
+        });
         continue;
       }
 
-      if (text) {
-        finalAnswer = text;
+      if (assistantTexts.length > 0) {
+        finalAnswer = assistantTexts.join("\n").trim();
         session = await this.options.sessionManager.setLoopState(
           session.sessionId,
           "completed"
+        );
+        session = await this.options.sessionManager.setPendingToolCallIds(
+          session.sessionId,
+          []
         );
         session = await this.options.sessionManager.setLastError(
           session.sessionId,
           null
         );
+        await appendTrace(this.options.traceManager, session.sessionId, {
+          kind: "turn_end",
+          turnCount,
+          loopState: "completed"
+        });
         return {
           session,
           finalAnswer,
@@ -338,6 +481,11 @@ export class AgentRuntime {
         session.sessionId,
         "Model returned no text or tool call."
       );
+      await appendTrace(this.options.traceManager, session.sessionId, {
+        kind: "turn_end",
+        turnCount,
+        loopState: "failed"
+      });
       return {
         session,
         finalAnswer: null,
@@ -348,20 +496,37 @@ export class AgentRuntime {
       };
     }
 
+    finalAnswer = buildFallbackAnswer(session, maxTurns);
+    session = await this.options.sessionManager.appendBlock(
+      session.sessionId,
+      buildAssistantBlockContent(finalAnswer)
+    );
     session = await this.options.sessionManager.setLoopState(
       session.sessionId,
-      "failed"
+      "completed"
     );
-    session = await this.options.sessionManager.setLastError(
+    session = await this.options.sessionManager.setPendingToolCallIds(
       session.sessionId,
-      "Maximum turns reached."
+      []
     );
+    session = await this.options.sessionManager.setLastError(session.sessionId, null);
+    await appendTrace(this.options.traceManager, session.sessionId, {
+      kind: "fallback",
+      turnCount: maxTurns,
+      reason: "max_turns",
+      summary: finalAnswer
+    });
+    await appendTrace(this.options.traceManager, session.sessionId, {
+      kind: "turn_end",
+      turnCount: maxTurns,
+      loopState: "completed"
+    });
 
     return {
       session,
       finalAnswer,
-      status: "failed",
-      stopReason,
+      status: "completed",
+      stopReason: "max_turns",
       toolCallCount,
       toolResultCount
     };

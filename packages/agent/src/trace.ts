@@ -1,0 +1,170 @@
+import { promises as fs } from "node:fs";
+import path from "node:path";
+
+import type { AnthropicMessage, AnthropicToolChoice } from "./model.js";
+import type { JsonValue, SessionSnapshot } from "./types.js";
+
+export interface TracePromptEvent {
+  kind: "prompt";
+  turnCount: number;
+  system: string;
+  prefixMessages: AnthropicMessage[];
+  messages: AnthropicMessage[];
+  tools: Array<{
+    name: string;
+    description: string;
+    input_schema: Record<string, unknown>;
+  }>;
+  toolChoice: AnthropicToolChoice | null;
+  cacheKey: string;
+}
+
+export interface TraceResponseEvent {
+  kind: "response";
+  turnCount: number;
+  stopReason: string | null;
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+  };
+  content: JsonValue;
+}
+
+export interface TraceTurnStartEvent {
+  kind: "turn_start";
+  turnCount: number;
+  session: Pick<
+    SessionSnapshot,
+    "sessionId" | "workingDirectory" | "model" | "sessionState"
+  >;
+}
+
+export interface TraceTextEvent {
+  kind: "assistant_text";
+  turnCount: number;
+  text: string;
+}
+
+export interface TraceThinkingEvent {
+  kind: "thinking";
+  turnCount: number;
+  text: string;
+  signature: string;
+}
+
+export interface TraceToolCallEvent {
+  kind: "tool_call";
+  turnCount: number;
+  toolCallId: string;
+  toolName: string;
+  input: Record<string, JsonValue>;
+}
+
+export interface TraceToolResultEvent {
+  kind: "tool_result";
+  turnCount: number;
+  toolCallId: string;
+  toolName: string;
+  output: string;
+  isError: boolean;
+}
+
+export interface TraceFallbackEvent {
+  kind: "fallback";
+  turnCount: number;
+  reason: string;
+  summary: string;
+}
+
+export interface TraceTurnEndEvent {
+  kind: "turn_end";
+  turnCount: number;
+  loopState: SessionSnapshot["sessionState"]["loopState"];
+}
+
+export type TraceEvent =
+  | TracePromptEvent
+  | TraceResponseEvent
+  | TraceTurnStartEvent
+  | TraceTextEvent
+  | TraceThinkingEvent
+  | TraceToolCallEvent
+  | TraceToolResultEvent
+  | TraceFallbackEvent
+  | TraceTurnEndEvent;
+
+export interface TraceRecord {
+  sessionId: string;
+  createdAt: string;
+  event: TraceEvent;
+}
+
+export interface TraceManager {
+  appendEvent(sessionId: string, event: TraceEvent): Promise<void>;
+  readEvents(sessionId: string): Promise<TraceRecord[]>;
+}
+
+export class FileTraceManager implements TraceManager {
+  constructor(private readonly baseDirectory: string) {}
+
+  private get tracesDirectory(): string {
+    return path.resolve(this.baseDirectory, "sessions");
+  }
+
+  private tracePath(sessionId: string): string {
+    return path.join(this.tracesDirectory, `${sessionId}.trace.jsonl`);
+  }
+
+  private async ensureDirectories(): Promise<void> {
+    await fs.mkdir(this.tracesDirectory, { recursive: true });
+  }
+
+  async appendEvent(sessionId: string, event: TraceEvent): Promise<void> {
+    await this.ensureDirectories();
+    const record: TraceRecord = {
+      sessionId,
+      createdAt: new Date().toISOString(),
+      event: structuredClone(event)
+    };
+
+    await fs.appendFile(
+      this.tracePath(sessionId),
+      `${JSON.stringify(record)}\n`,
+      "utf8"
+    );
+  }
+
+  async readEvents(sessionId: string): Promise<TraceRecord[]> {
+    try {
+      const raw = await fs.readFile(this.tracePath(sessionId), "utf8");
+      return raw
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .flatMap((line) => {
+          try {
+            const parsed = JSON.parse(line) as TraceRecord;
+            if (
+              parsed &&
+              typeof parsed.sessionId === "string" &&
+              typeof parsed.createdAt === "string" &&
+              typeof parsed.event === "object" &&
+              parsed.event !== null
+            ) {
+              return [parsed];
+            }
+          } catch {
+            return [];
+          }
+
+          return [];
+        });
+    } catch {
+      return [];
+    }
+  }
+}
+
+export function createFileTraceManager(baseDirectory: string): FileTraceManager {
+  return new FileTraceManager(baseDirectory);
+}

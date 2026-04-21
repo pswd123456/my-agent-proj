@@ -98,3 +98,10 @@ export function resolveWorkingDirectory(
 ): string {
   return path.resolve(workingDirectory ?? process.cwd());
 }
+
+export function resolveSessionStateDirectory(
+  workspaceRoot: string,
+  scope = "agent-sessions"
+): string {
+  return path.join(path.resolve(workspaceRoot), "tmp", scope);
+}

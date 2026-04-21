@@ -5,16 +5,21 @@ import {
   createAgentRuntime,
   createDefaultToolRegistry,
   createFileSessionManager,
+  createFileTraceManager,
   createMiniMaxRuntime,
-  createPromptBuilder
+  createPromptBuilder,
+  resolveToolChoice,
+  resolveSessionStateDirectory
 } from "@ai-app-template/agent";
 
 const logLevel = process.env.WORKER_LOG_LEVEL ?? "info";
 const workspaceRoot = fileURLToPath(new URL("../../../", import.meta.url));
-const stateDirectory = path.join(workspaceRoot, "tmp", "agent-sessions");
+const stateDirectory = resolveSessionStateDirectory(workspaceRoot);
 const sessionManager = createFileSessionManager(stateDirectory);
+const traceManager = createFileTraceManager(stateDirectory);
 const promptBuilder = createPromptBuilder();
 const miniMaxRuntime = createMiniMaxRuntime(process.env);
+const toolChoice = resolveToolChoice(process.env);
 const pollIntervalMs = Number(process.env.WORKER_POLL_INTERVAL_MS ?? 30_000);
 const staleSessionMs = Number(process.env.WORKER_STALE_SESSION_MS ?? 120_000);
 
@@ -48,9 +53,11 @@ async function recoverPendingSessions(): Promise<void> {
       toolRegistry: createDefaultToolRegistry({
         workingDirectory: session.workingDirectory
       }),
+      traceManager,
       promptBuilder,
       maxTurns: 6,
-      maxTokens: 512
+      maxTokens: 512,
+      ...(toolChoice ? { toolChoice } : {})
     });
 
     await runtime.run({

@@ -17,6 +17,11 @@ export interface SessionManager {
     sessionId: string,
     promptCacheKey: string
   ): Promise<SessionSnapshot>;
+  setTurnCount(sessionId: string, turnCount: number): Promise<SessionSnapshot>;
+  setPendingToolCallIds(
+    sessionId: string,
+    pendingToolCallIds: string[]
+  ): Promise<SessionSnapshot>;
   addInputTokens(
     sessionId: string,
     inputTokens: number
