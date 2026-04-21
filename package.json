@@ -8,13 +8,17 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "turbo run dev --parallel",
+    "dev": "set -a && . ./.env && set +a && turbo run dev --parallel",
     "build": "turbo run build",
     "lint": "turbo run lint",
     "minimax:smoke": "bun scripts/minimax-smoke.ts",
     "product1:cli": "bun scripts/product1-cli.ts",
     "product1:smoke": "bun scripts/product1-smoke.ts",
     "stage1:smoke": "bun scripts/stage1-smoke.ts",
+    "ui1:api-smoke": "bun scripts/ui1-api-smoke.ts",
+    "ui1:postgres-smoke": "bun scripts/ui1-postgres-smoke.ts",
+    "ui1:runtime-smoke": "bun scripts/ui1-runtime-smoke.ts",
+    "ui1:web-smoke": "bun scripts/ui1-web-smoke.ts",
     "typecheck": "turbo run typecheck",
     "format": "prettier --check .",
     "format:write": "prettier --write ."

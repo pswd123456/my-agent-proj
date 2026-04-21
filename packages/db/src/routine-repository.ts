@@ -42,6 +42,7 @@ export interface RoutineRepository {
     patch: UpdateRoutineRecordInput
   ): Promise<RoutineRecord | null>;
   remove(userId: string, routineId: string): Promise<RoutineRecord | null>;
+  resetAll(userId: string): Promise<number>;
   listByDateRange(
     userId: string,
     startDate: string,
@@ -115,7 +116,10 @@ function mapRoutineRow(row: RoutineRow): RoutineRecord {
   };
 }
 
-function buildRangeDates(startDate: string, endDate: string): {
+function buildRangeDates(
+  startDate: string,
+  endDate: string
+): {
   startAt: Date;
   endAt: Date;
 } {
@@ -203,7 +207,10 @@ export class PostgresRoutineRepository implements RoutineRepository {
     return mapRoutineRow(created);
   }
 
-  async getById(userId: string, routineId: string): Promise<RoutineRecord | null> {
+  async getById(
+    userId: string,
+    routineId: string
+  ): Promise<RoutineRecord | null> {
     const rows = await this.sql<RoutineRow[]>`
       select *
       from routines
@@ -257,7 +264,10 @@ export class PostgresRoutineRepository implements RoutineRepository {
     return rows[0] ? mapRoutineRow(rows[0]) : null;
   }
 
-  async remove(userId: string, routineId: string): Promise<RoutineRecord | null> {
+  async remove(
+    userId: string,
+    routineId: string
+  ): Promise<RoutineRecord | null> {
     const rows = await this.sql<RoutineRow[]>`
       update routines
       set
@@ -270,6 +280,20 @@ export class PostgresRoutineRepository implements RoutineRepository {
     `;
 
     return rows[0] ? mapRoutineRow(rows[0]) : null;
+  }
+
+  async resetAll(userId: string): Promise<number> {
+    const rows = await this.sql<Array<{ id: string }>>`
+      update routines
+      set
+        status = ${"deleted"},
+        updated_at = now()
+      where user_id = ${userId}
+        and status = ${"active"}
+      returning id
+    `;
+
+    return rows.length;
   }
 
   async listByDateRange(
@@ -291,7 +315,10 @@ export class PostgresRoutineRepository implements RoutineRepository {
     return sortRoutinesByStartAt(rows.map(mapRoutineRow));
   }
 
-  async listByWeek(userId: string, weekStartDate: string): Promise<RoutineRecord[]> {
+  async listByWeek(
+    userId: string,
+    weekStartDate: string
+  ): Promise<RoutineRecord[]> {
     const weekStart = new Date(`${weekStartDate}T00:00:00`);
     const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000 - 1);
     const rows = await this.sql<RoutineRow[]>`
@@ -412,9 +439,14 @@ export class MemoryRoutineRepository implements RoutineRepository {
     return routine;
   }
 
-  async getById(userId: string, routineId: string): Promise<RoutineRecord | null> {
+  async getById(
+    userId: string,
+    routineId: string
+  ): Promise<RoutineRecord | null> {
     const routine = this.routines.get(routineId);
-    return routine && routine.userId === userId ? structuredClone(routine) : null;
+    return routine && routine.userId === userId
+      ? structuredClone(routine)
+      : null;
   }
 
   async update(
@@ -456,7 +488,10 @@ export class MemoryRoutineRepository implements RoutineRepository {
     return structuredClone(updated);
   }
 
-  async remove(userId: string, routineId: string): Promise<RoutineRecord | null> {
+  async remove(
+    userId: string,
+    routineId: string
+  ): Promise<RoutineRecord | null> {
     const existing = await this.getById(userId, routineId);
     if (!existing || existing.status !== "active") {
       return null;
@@ -469,6 +504,25 @@ export class MemoryRoutineRepository implements RoutineRepository {
     };
     this.routines.set(deleted.id, deleted);
     return structuredClone(deleted);
+  }
+
+  async resetAll(userId: string): Promise<number> {
+    let removed = 0;
+
+    for (const [routineId, routine] of this.routines.entries()) {
+      if (routine.userId !== userId || routine.status !== "active") {
+        continue;
+      }
+
+      this.routines.set(routineId, {
+        ...routine,
+        status: "deleted",
+        updatedAt: new Date().toISOString()
+      });
+      removed += 1;
+    }
+
+    return removed;
   }
 
   async listByDateRange(
@@ -488,11 +542,18 @@ export class MemoryRoutineRepository implements RoutineRepository {
     ).map((routine) => structuredClone(routine));
   }
 
-  async listByWeek(userId: string, weekStartDate: string): Promise<RoutineRecord[]> {
+  async listByWeek(
+    userId: string,
+    weekStartDate: string
+  ): Promise<RoutineRecord[]> {
     const startDate = weekStartDate;
     const weekEnd = new Date(`${weekStartDate}T00:00:00`);
     weekEnd.setDate(weekEnd.getDate() + 6);
-    return this.listByDateRange(userId, startDate, weekEnd.toISOString().slice(0, 10));
+    return this.listByDateRange(
+      userId,
+      startDate,
+      weekEnd.toISOString().slice(0, 10)
+    );
   }
 
   async searchByTime(

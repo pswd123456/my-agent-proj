@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 
-import type { CreateSessionInput, ConversationBlock, LoopState, SessionSnapshot } from "../types.js";
+import type {
+  CreateSessionInput,
+  ConversationBlock,
+  LoopState,
+  SessionSnapshot
+} from "../types.js";
 
 import type { SessionManager } from "./contracts.js";
 import {
@@ -12,8 +17,11 @@ import {
 
 export class MemorySessionManager implements SessionManager {
   private readonly sessions = new Map<string, SessionSnapshot>();
+  private readonly activeRuns = new Map<string, { runId: string; startedAt: number }>();
 
-  async createSession(input: CreateSessionInput = {}): Promise<SessionSnapshot> {
+  async createSession(
+    input: CreateSessionInput = {}
+  ): Promise<SessionSnapshot> {
     const createSnapshotInput: {
       sessionId: string;
       workingDirectory: string;
@@ -42,6 +50,14 @@ export class MemorySessionManager implements SessionManager {
 
   async listSessions(): Promise<SessionSnapshot[]> {
     return [...this.sessions.values()].map(cloneSnapshot);
+  }
+
+  async isExecutionActive(sessionId: string): Promise<boolean> {
+    return this.activeRuns.has(sessionId);
+  }
+
+  async deleteSession(sessionId: string): Promise<boolean> {
+    return this.sessions.delete(sessionId);
   }
 
   async saveSession(snapshot: SessionSnapshot): Promise<SessionSnapshot> {
@@ -152,6 +168,53 @@ export class MemorySessionManager implements SessionManager {
         ...structuredClone(patch)
       }
     }));
+  }
+
+  async acquireExecution(
+    sessionId: string,
+    options: { runId: string; staleAfterMs?: number }
+  ): Promise<SessionSnapshot | null> {
+    const session = await this.getSession(sessionId);
+    if (!session) {
+      return null;
+    }
+
+    const current = this.activeRuns.get(sessionId);
+    const now = Date.now();
+    const isStale =
+      current &&
+      typeof options.staleAfterMs === "number" &&
+      options.staleAfterMs >= 0 &&
+      now - current.startedAt >= options.staleAfterMs;
+
+    if (current && !isStale) {
+      return null;
+    }
+
+    this.activeRuns.set(sessionId, {
+      runId: options.runId,
+      startedAt: now
+    });
+
+    return this.updateSession(sessionId, (snapshot) => ({
+      ...snapshot,
+      sessionState: {
+        ...snapshot.sessionState,
+        loopState: "running"
+      }
+    }));
+  }
+
+  async releaseExecution(
+    sessionId: string,
+    runId: string
+  ): Promise<SessionSnapshot | null> {
+    const current = this.activeRuns.get(sessionId);
+    if (current?.runId === runId) {
+      this.activeRuns.delete(sessionId);
+    }
+
+    return this.getSession(sessionId);
   }
 
   private async updateSession(

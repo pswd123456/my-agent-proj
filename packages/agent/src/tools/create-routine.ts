@@ -150,7 +150,6 @@ export function createCreateRoutineTool(): RuntimeTool {
       const routine = await context.routineRepository.create(createInput);
 
       await context.sessionManager.updateContext(context.sessionId, {
-        status: "completed",
         pendingConfirmationPayload: null,
         pendingConflictSummary: null
       });

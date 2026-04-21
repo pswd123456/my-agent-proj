@@ -67,6 +67,7 @@ export interface TraceToolResultEvent {
   toolName: string;
   output: string;
   isError: boolean;
+  displayText?: string;
 }
 
 export interface TraceFallbackEvent {
@@ -102,6 +103,7 @@ export interface TraceRecord {
 export interface TraceManager {
   appendEvent(sessionId: string, event: TraceEvent): Promise<void>;
   readEvents(sessionId: string): Promise<TraceRecord[]>;
+  deleteEvents(sessionId: string): Promise<void>;
 }
 
 export class FileTraceManager implements TraceManager {
@@ -163,8 +165,20 @@ export class FileTraceManager implements TraceManager {
       return [];
     }
   }
+
+  async deleteEvents(sessionId: string): Promise<void> {
+    try {
+      await fs.unlink(this.tracePath(sessionId));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
+    }
+  }
 }
 
-export function createFileTraceManager(baseDirectory: string): FileTraceManager {
+export function createFileTraceManager(
+  baseDirectory: string
+): FileTraceManager {
   return new FileTraceManager(baseDirectory);
 }

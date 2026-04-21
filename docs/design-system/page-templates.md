@@ -70,6 +70,27 @@
 - 输入区
 - 侧边上下文区
 
+#### `ConversationPage / Workbench` 变体
+
+适用场景：
+
+- 左侧需要 `session` 切换
+- 中间是主对话与流式执行
+- 右侧需要并行展示日历、trace、prompt 或调试信息
+
+结构建议：
+
+- 顶部全局状态区
+- 左侧 `session rail`
+- 中间消息流与输入区
+- 右侧只读上下文区，例如周历与调试 inspector
+
+约束：
+
+- 主消息流只保留用户、assistant 和精简后的执行活动
+- 完整 prompt、thinking、tool result 原文放到 inspector，不直接塞满消息区
+- 三栏布局在窄屏下应退化为纵向堆叠，而不是强行压缩
+
 ### `ReviewPage`
 
 适用场景：

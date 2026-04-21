@@ -4,7 +4,6 @@ import type { RoutineRepository } from "@ai-app-template/db";
 
 import type {
   AnthropicCompatibleClient,
-  AnthropicContentBlock,
   AnthropicMessage,
   AnthropicToolChoice
 } from "./model.js";
@@ -15,15 +14,14 @@ import {
 } from "./prompt.js";
 import type {
   ConversationBlock,
-  JsonValue,
   RunSessionInput,
-  RunSessionResult,
-  SessionSnapshot
+  RunSessionResult
 } from "./types.js";
 import type { SessionManager } from "./session.js";
-import type { ToolExecutionContext } from "./tools/runtime-tool.js";
 import type { ToolRegistry } from "./tools/registry.js";
 import type { TraceManager } from "./trace.js";
+import type { RunEventSink } from "./events.js";
+import { runSessionLoop } from "./runtime/run-loop.js";
 
 export interface AgentRuntimeOptions {
   client: AnthropicCompatibleClient;
@@ -36,147 +34,15 @@ export interface AgentRuntimeOptions {
   maxTurns?: number;
   maxTokens?: number;
   toolChoice?: AnthropicToolChoice;
+  eventSink?: RunEventSink;
+  executionLeaseTimeoutMs?: number;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function buildUserBlockContent(message: string): ConversationBlock {
-  return {
-    id: randomUUID(),
-    kind: "user",
-    content: message,
-    createdAt: new Date().toISOString()
-  };
-}
-
-function buildAssistantBlockContent(message: string): ConversationBlock {
-  return {
-    id: randomUUID(),
-    kind: "assistant",
-    content: message,
-    createdAt: new Date().toISOString()
-  };
-}
-
-function buildToolCallBlock(input: {
-  id: string;
-  name: string;
-  toolInput: Record<string, unknown>;
-}): ConversationBlock {
-  return {
-    id: randomUUID(),
-    kind: "tool call",
-    toolCallId: input.id,
-    toolName: input.name,
-    input: input.toolInput as Record<string, JsonValue>,
-    state: "pending",
-    createdAt: new Date().toISOString()
-  };
-}
-
-function buildToolResultBlock(input: {
-  id: string;
-  name: string;
-  content: string;
-  isError: boolean;
-}): ConversationBlock {
-  return {
-    id: randomUUID(),
-    kind: "tool result",
-    toolCallId: input.id,
-    toolName: input.name,
-    output: input.content,
-    isError: input.isError,
-    state: input.isError ? "failed" : "success",
-    createdAt: new Date().toISOString()
-  };
-}
-
-function extractToolCalls(blocks: AnthropicContentBlock[]): Array<{
-  id: string;
-  name: string;
-  input: Record<string, unknown>;
-}> {
-  return blocks
-    .filter(
-      (block): block is Extract<AnthropicContentBlock, { type: "tool_use" }> =>
-        block.type === "tool_use"
-    )
-    .map((block) => ({
-      id: block.id,
-      name: block.name,
-      input: isRecord(block.input) ? block.input : {}
-    }));
-}
-
-function extractThinkingBlocks(blocks: AnthropicContentBlock[]): Array<{
-  text: string;
-  signature: string;
-}> {
-  return blocks
-    .filter(
-      (
-        block
-      ): block is Extract<AnthropicContentBlock, { type: "thinking" }> =>
-        block.type === "thinking"
-    )
-    .map((block) => ({
-      text: block.thinking,
-      signature: block.signature
-    }));
-}
-
-function summarizeBlock(block: ConversationBlock): string {
-  if (block.kind === "user" || block.kind === "assistant") {
-    return `${block.kind}: ${block.content}`;
+export class SessionExecutionInProgressError extends Error {
+  constructor(readonly sessionId: string) {
+    super(`Session is already running: ${sessionId}`);
+    this.name = "SessionExecutionInProgressError";
   }
-
-  if (block.kind === "tool call") {
-    return `tool call: ${block.toolName}`;
-  }
-
-  return `tool result: ${block.toolName}`;
-}
-
-function buildFallbackAnswer(
-  session: Pick<SessionSnapshot, "messages" | "sessionState">,
-  maxTurns: number
-): string {
-  const recentBlocks = session.messages.slice(-6).map(summarizeBlock);
-  const lines = [
-    `I reached the turn limit after ${session.sessionState.turnCount}/${maxTurns} turns.`,
-    "I stopped here to avoid looping forever, but I can continue from the latest state."
-  ];
-
-  if (recentBlocks.length > 0) {
-    lines.push(`Recent steps:\n- ${recentBlocks.join("\n- ")}`);
-  }
-
-  if (session.sessionState.lastError) {
-    lines.push(`Last error: ${session.sessionState.lastError}`);
-  }
-
-  if (session.sessionState.pendingToolCallIds.length > 0) {
-    lines.push(
-      `Pending tool calls: ${session.sessionState.pendingToolCallIds.join(", ")}`
-    );
-  }
-
-  return lines.join("\n");
-}
-
-async function appendTrace(
-  traceManager: TraceManager | undefined,
-  sessionId: string,
-  event: Parameters<TraceManager["appendEvent"]>[1]
-): Promise<void> {
-  if (!traceManager) {
-    return;
-  }
-
-  await traceManager.appendEvent(sessionId, event);
 }
 
 export class AgentRuntime {
@@ -213,438 +79,52 @@ export class AgentRuntime {
     return this.options.sessionManager.recover(snapshot);
   }
 
-  async run(input: RunSessionInput): Promise<RunSessionResult> {
-    const maxTurns = input.maxTurns ?? this.options.maxTurns ?? 6;
+  async run(
+    input: RunSessionInput & { eventSink?: RunEventSink }
+  ): Promise<RunSessionResult> {
+    const eventSink = input.eventSink ?? this.options.eventSink;
     let session = await this.options.sessionManager.getSession(input.sessionId);
     if (!session) {
       throw new Error(`Unknown session: ${input.sessionId}`);
     }
 
-    const hadPendingConfirmationAtStart = Boolean(
-      session.context.pendingConfirmationPayload
-    );
-
-    if (input.message) {
-      session = await this.options.sessionManager.appendBlock(
-        session.sessionId,
-        buildUserBlockContent(input.message)
-      );
-      session = await this.options.sessionManager.updateContext(session.sessionId, {
-        lastUserMessage: input.message,
-        status: "running"
-      });
-    }
-
-    session = await this.options.sessionManager.setLoopState(
-      session.sessionId,
-      "running"
-    );
-
-    let finalAnswer: string | null = null;
-    let stopReason: string | null = null;
-    let toolCallCount = 0;
-    let toolResultCount = 0;
-    const toolOutputs: RunSessionResult["toolOutputs"] = [];
-
-    for (let turn = 0; turn < maxTurns; turn += 1) {
-      const turnCount = turn + 1;
-      session = await this.options.sessionManager.saveSession(session);
-      session = await this.options.sessionManager.setTurnCount(
-        session.sessionId,
-        turnCount
-      );
-
-      const promptEnvelope = this.promptBuilder.build(
-        session,
-        this.options.toolRegistry
-      );
-      session = await this.options.sessionManager.setPromptCacheKey(
-        session.sessionId,
-        promptEnvelope.cacheKey
-      );
-
-      await appendTrace(this.options.traceManager, session.sessionId, {
-        kind: "turn_start",
-        turnCount,
-        session: {
-          sessionId: session.sessionId,
-          workingDirectory: session.workingDirectory,
-          model: session.model,
-          sessionState: session.sessionState
-        }
-      });
-      await appendTrace(this.options.traceManager, session.sessionId, {
-        kind: "prompt",
-        turnCount,
-        system: promptEnvelope.system,
-        prefixMessages: promptEnvelope.prefixMessages,
-        messages: promptEnvelope.messages,
-        tools: promptEnvelope.tools,
-        toolChoice: this.options.toolChoice ?? null,
-        cacheKey: promptEnvelope.cacheKey
-      });
-
-      const response = await this.options.client.messages.create({
-        model: session.model,
-        max_tokens: this.options.maxTokens ?? 512,
-        system: promptEnvelope.system,
-        messages: [...promptEnvelope.prefixMessages, ...promptEnvelope.messages],
-        tools: promptEnvelope.tools,
-        ...(this.options.toolChoice
-          ? { tool_choice: this.options.toolChoice }
+    const runId = randomUUID();
+    const acquiredSession = await this.options.sessionManager.acquireExecution(
+      input.sessionId,
+      {
+        runId,
+        ...(typeof this.options.executionLeaseTimeoutMs === "number"
+          ? { staleAfterMs: this.options.executionLeaseTimeoutMs }
           : {})
-      });
-
-      const usageTokens = response.usage?.input_tokens ?? 0;
-      const outputTokens = response.usage?.output_tokens ?? 0;
-      if (usageTokens > 0) {
-        session = await this.options.sessionManager.addInputTokens(
-          session.sessionId,
-          usageTokens
-        );
       }
+    );
+    if (!acquiredSession) {
+      throw new SessionExecutionInProgressError(input.sessionId);
+    }
+    session = acquiredSession;
 
-      const responseBlocks = response.content ?? [];
-      stopReason = response.stop_reason ?? null;
-      await appendTrace(this.options.traceManager, session.sessionId, {
-        kind: "response",
-        turnCount,
-        stopReason,
-        usage: {
-          inputTokens: usageTokens,
-          outputTokens
-        },
-        content: structuredClone(responseBlocks) as unknown as JsonValue
-      });
-
-      const thinkingBlocks = extractThinkingBlocks(responseBlocks);
-      for (const thinkingBlock of thinkingBlocks) {
-        await appendTrace(this.options.traceManager, session.sessionId, {
-          kind: "thinking",
-          turnCount,
-          text: thinkingBlock.text,
-          signature: thinkingBlock.signature
-        });
-      }
-
-      const toolCalls = extractToolCalls(responseBlocks);
-      const assistantTexts: string[] = [];
-      const pendingToolCallIds: string[] = [];
-
-      for (const block of responseBlocks) {
-        if (block.type === "text") {
-          assistantTexts.push(block.text);
-          session = await this.options.sessionManager.appendBlock(
-            session.sessionId,
-            buildAssistantBlockContent(block.text)
-          );
-          await appendTrace(this.options.traceManager, session.sessionId, {
-            kind: "assistant_text",
-            turnCount,
-            text: block.text
-          });
-          continue;
-        }
-
-        if (block.type !== "tool_use") {
-          continue;
-        }
-
-        const toolInput = isRecord(block.input) ? block.input : {};
-        pendingToolCallIds.push(block.id);
-        toolCallCount += 1;
-        session = await this.options.sessionManager.appendBlock(
-          session.sessionId,
-          buildToolCallBlock({
-            id: block.id,
-            name: block.name,
-            toolInput
-          })
-        );
-        await appendTrace(this.options.traceManager, session.sessionId, {
-          kind: "tool_call",
-          turnCount,
-          toolCallId: block.id,
-          toolName: block.name,
-          input: toolInput
-        });
-      }
-
-      if (pendingToolCallIds.length > 0) {
-        session = await this.options.sessionManager.setLoopState(
-          session.sessionId,
-          "waiting for tool result"
-        );
-        session = await this.options.sessionManager.setPendingToolCallIds(
-          session.sessionId,
-          pendingToolCallIds
-        );
-        session = await this.options.sessionManager.setLastError(
-          session.sessionId,
-          null
-        );
-
-        for (const toolCall of toolCalls) {
-          const tool = this.options.toolRegistry.get(toolCall.name);
-          const context: ToolExecutionContext = {
-            sessionId: session.sessionId,
-            userId: session.context.userId,
-            workingDirectory: session.workingDirectory,
-            routineRepository: this.options.routineRepository,
-            sessionManager: this.options.sessionManager,
-            sessionContext: {
-              status: session.context.status,
-              currentDateContext: session.context.currentDateContext
-            }
-          };
-
-          if (!tool) {
-            const errorText = `Unknown tool: ${toolCall.name}`;
-            session = await this.options.sessionManager.appendBlock(
-              session.sessionId,
-              buildToolResultBlock({
-                id: toolCall.id,
-                name: toolCall.name,
-                content: errorText,
-                isError: true
-              })
-            );
-            session = await this.options.sessionManager.setLastError(
-              session.sessionId,
-              errorText
-            );
-            toolResultCount += 1;
-            await appendTrace(this.options.traceManager, session.sessionId, {
-              kind: "tool_result",
-              turnCount,
-              toolCallId: toolCall.id,
-              toolName: toolCall.name,
-              output: errorText,
-              isError: true
-            });
-            toolOutputs.push({
-              toolCallId: toolCall.id,
-              toolName: toolCall.name,
-              content: errorText,
-              displayText: `[${toolCall.name}] failed\n- ${errorText}`,
-              isError: true
-            });
-            continue;
-          }
-
-          const validation = tool.validate(
-            toolCall.input as Record<string, JsonValue>
-          );
-          if (!validation.ok) {
-            const validationText = JSON.stringify(
-              {
-                ok: false,
-                code: "INVALID_TOOL_INPUT",
-                message: "Tool input validation failed.",
-                validationErrors: validation.issues ?? []
-              },
-              null,
-              2
-            );
-            session = await this.options.sessionManager.appendBlock(
-              session.sessionId,
-              buildToolResultBlock({
-                id: toolCall.id,
-                name: toolCall.name,
-                content: validationText,
-                isError: true
-              })
-            );
-            session = await this.options.sessionManager.setLastError(
-              session.sessionId,
-              "Tool input validation failed."
-            );
-            toolResultCount += 1;
-            await appendTrace(this.options.traceManager, session.sessionId, {
-              kind: "tool_result",
-              turnCount,
-              toolCallId: toolCall.id,
-              toolName: toolCall.name,
-              output: validationText,
-              isError: true
-            });
-            toolOutputs.push({
-              toolCallId: toolCall.id,
-              toolName: toolCall.name,
-              content: validationText,
-              displayText: `[${toolCall.name}] invalid input`,
-              isError: true
-            });
-            continue;
-          }
-
-          const result = await tool.execute(
-            (validation.value ?? toolCall.input) as Record<string, JsonValue>,
-            context
-          );
-
-          session = await this.options.sessionManager.appendBlock(
-            session.sessionId,
-            buildToolResultBlock({
-              id: toolCall.id,
-              name: toolCall.name,
-              content: result.content,
-              isError: result.state === "failed"
-            })
-          );
-          session = await this.options.sessionManager.setLastError(
-            session.sessionId,
-            result.state === "failed" ? result.error ?? result.content : null
-          );
-          toolResultCount += 1;
-          await appendTrace(this.options.traceManager, session.sessionId, {
-            kind: "tool_result",
-            turnCount,
-            toolCallId: toolCall.id,
-            toolName: toolCall.name,
-            output: result.content,
-            isError: result.state === "failed"
-          });
-          toolOutputs.push({
-            toolCallId: toolCall.id,
-            toolName: toolCall.name,
-            content: result.content,
-            displayText: result.displayText,
-            isError: result.state === "failed"
-          });
-        }
-
-        session = await this.options.sessionManager.setPendingToolCallIds(
-          session.sessionId,
-          []
-        );
-        session = await this.options.sessionManager.setLoopState(
-          session.sessionId,
-          "running"
-        );
-        await appendTrace(this.options.traceManager, session.sessionId, {
-          kind: "turn_end",
-          turnCount,
-          loopState: "running"
-        });
-        continue;
-      }
-
-      if (assistantTexts.length > 0) {
-        finalAnswer = assistantTexts.join("\n").trim();
-        session = await this.options.sessionManager.setLoopState(
-          session.sessionId,
-          "completed"
-        );
-        session = await this.options.sessionManager.setPendingToolCallIds(
-          session.sessionId,
-          []
-        );
-        session = await this.options.sessionManager.setLastError(
-          session.sessionId,
-          null
-        );
-        if (
-          hadPendingConfirmationAtStart &&
-          input.message &&
-          session.context.pendingConfirmationPayload
-        ) {
-          session = await this.options.sessionManager.updateContext(
-            session.sessionId,
-            {
-              pendingConfirmationPayload: null,
-              pendingConflictSummary: null,
-              status: "completed"
-            }
-          );
-        } else if (session.context.status === "running") {
-          session = await this.options.sessionManager.updateContext(
-            session.sessionId,
-            {
-              status: "completed"
-            }
-          );
-        }
-        await appendTrace(this.options.traceManager, session.sessionId, {
-          kind: "turn_end",
-          turnCount,
-          loopState: "completed"
-        });
-        return {
-          session,
-          finalAnswer,
-          status: "completed",
-          stopReason,
-          toolCallCount,
-          toolResultCount,
-          toolOutputs
-        };
-      }
-
-      session = await this.options.sessionManager.setLoopState(
-        session.sessionId,
-        "failed"
-      );
-      session = await this.options.sessionManager.setLastError(
-        session.sessionId,
-        "Model returned no text or tool call."
-      );
-      await appendTrace(this.options.traceManager, session.sessionId, {
-        kind: "turn_end",
-        turnCount,
-        loopState: "failed"
-      });
-      return {
+    try {
+      return await runSessionLoop({
+        client: this.options.client,
+        sessionManager: this.options.sessionManager,
+        routineRepository: this.options.routineRepository,
+        toolRegistry: this.options.toolRegistry,
+        traceManager: this.options.traceManager,
+        promptBuilder: this.promptBuilder,
         session,
-        finalAnswer: null,
-        status: "failed",
-        stopReason,
-        toolCallCount,
-        toolResultCount,
-        toolOutputs
-      };
-    }
-
-    finalAnswer = buildFallbackAnswer(session, maxTurns);
-    session = await this.options.sessionManager.appendBlock(
-      session.sessionId,
-      buildAssistantBlockContent(finalAnswer)
-    );
-    session = await this.options.sessionManager.setLoopState(
-      session.sessionId,
-      "completed"
-    );
-    session = await this.options.sessionManager.setPendingToolCallIds(
-      session.sessionId,
-      []
-    );
-    session = await this.options.sessionManager.setLastError(session.sessionId, null);
-    if (session.context.status === "running") {
-      session = await this.options.sessionManager.updateContext(session.sessionId, {
-        status: "completed"
+        message: input.message,
+        maxTurns: input.maxTurns ?? this.options.maxTurns ?? 6,
+        maxTokens: this.options.maxTokens,
+        toolChoice: this.options.toolChoice,
+        eventSink
       });
+    } finally {
+      try {
+        await this.options.sessionManager.releaseExecution(input.sessionId, runId);
+      } catch {
+        // Ignore release failures so the primary error is preserved.
+      }
     }
-    await appendTrace(this.options.traceManager, session.sessionId, {
-      kind: "fallback",
-      turnCount: maxTurns,
-      reason: "max_turns",
-      summary: finalAnswer
-    });
-    await appendTrace(this.options.traceManager, session.sessionId, {
-      kind: "turn_end",
-      turnCount: maxTurns,
-      loopState: "completed"
-    });
-
-    return {
-      session,
-      finalAnswer,
-      status: "completed",
-      stopReason: "max_turns",
-      toolCallCount,
-      toolResultCount,
-      toolOutputs
-    };
   }
 }
 

@@ -11,7 +11,7 @@
 
 ## 第二批结构决策
 
-1. 判断是否保留 `apps/worker`
+1. 判断是否需要独立后台进程；当前默认不保留独立后台应用
 2. 判断是否保留 `packages/agent`
 3. 判断是否保留 `packages/ui`、`packages/tokens`、`packages/ui-patterns`
 4. 若短期不会做多端，先保留目录也可以，但要在文档里注明当前未启用

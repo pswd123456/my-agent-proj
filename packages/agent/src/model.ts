@@ -71,7 +71,7 @@ export interface AnthropicCompatibleClient {
   messages: {
     create(input: {
       model: string;
-      max_tokens: number;
+      max_tokens?: number;
       system: string;
       messages: AnthropicMessage[];
       tools: AnthropicToolDefinition[];

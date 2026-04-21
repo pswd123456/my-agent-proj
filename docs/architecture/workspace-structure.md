@@ -5,20 +5,21 @@
 ```text
 <project-root>/
   apps/
-    web/
     api/
+    web/
     worker/
   packages/
-    domain/
-    db/
     agent/
+    db/
+    domain/
     sdk/
-    ui/
     tokens/
     ui-patterns/
+    ui/
   docs/
     architecture/
     design-system/
+    plan/
     template/
   scripts/
   data/
@@ -31,28 +32,30 @@
 ### `apps/`
 
 - 放具体应用与部署单元
-- `web` 负责 Web MVP
-- `api` 负责对外 API 与应用层编排
-- `worker` 负责异步任务、调度与后台 agent 执行
+- `api` 是当前主入口，负责 session 生命周期、执行触发、SSE 输出、trace 查询和 routine 查询
+- `web` 是当前唯一产品层前端，主要承担工作台和调试可观测性
 
 ### `packages/`
 
 - 放跨应用复用的共享能力
-- `domain` 放领域模型与业务规则
-- `db` 放数据库 schema、迁移与持久化访问
-- `agent` 放 `LangGraph` 工作流、状态、工具与 prompts
-- `sdk` 放跨端 API 客户端与契约封装
-- `ui` 放基础组件与通用业务组件
-- `tokens` 放设计 tokens 与主题映射
-- `ui-patterns` 放页面模板与高频结构模式
+- `agent` 放 runtime、prompt、provider 适配、session 抽象、tools 和 trace
+- `db` 放数据库连接、schema 初始化和 repository
+- `domain` 放日程与 session context 等纯领域模型
+- `sdk` 放 API client、会话摘要转换和跨层类型导出
+- `tokens` 放设计 token
+- `ui-patterns` 放工作台、页面骨架等可复用模式
+- `ui` 放更细粒度的基础 UI 组件
 
 ### `docs/`
 
-- 放长期有效的约定、决策、流程说明与规则
+- `architecture/` 放架构边界、技术栈、目录分层和架构图
+- `design-system/` 放 UI 一致性、模式和 token 约定
+- `plan/` 放阶段性设计与执行文档
+- `template/` 放模板初始化和裁剪规则
 
 ### `scripts/`
 
-- 放通用工程脚本
+- 放 smoke、调试和开发期辅助脚本
 
 ### `data/`
 
@@ -60,15 +63,18 @@
 
 ### `artifacts/`
 
-- 放生成结果与构建外产物
+- 放生成结果、导出文件和需要保留的非源码产物
+- 当前仓库还未形成稳定产物目录时，可以先按需创建
 
 ### `tmp/`
 
-- 放临时文件与中间产物
+- 放临时文件、中间产物和可观测性输出
+- 当前 trace 文件默认在 `tmp/agent-sessions/sessions/<sessionId>.trace.jsonl`
 
 ## 放置原则
 
-- 应用专属逻辑留在 `apps/`
-- 共享能力优先沉淀到 `packages/`
-- 规则与决策优先沉淀到 `docs/`
-- 不要把脚本、数据和生成产物直接堆到仓库根目录
+- 应用壳层逻辑留在 `apps/`，不要把 runtime、领域规则或数据库访问反向塞回 app
+- 可跨端复用的能力优先沉淀到 `packages/`
+- 文档中应显式区分“当前已实现”和“后续预留”，避免模板期说法长期漂移
+- 构建产物和运行中间文件不应作为架构事实来源；源代码与文档才是长期权威
+- 当前 workspace 包名前缀仍为 `@ai-app-template/*`，新增代码时应先遵守现有 import 边界，再决定是否统一重命名

@@ -5,15 +5,14 @@
 ## 快速结论
 
 - 主栈：`TypeScript` + `Bun workspace` + `Turborepo`
-- Web：`Next.js`
-- API：`Hono` + `Zod` + `OpenAPI`
-- Agent：`LangGraph.js`
-- 数据层：`PostgreSQL` + `Drizzle ORM`
-- 鉴权：`Better Auth`
-- 异步任务：`pg-boss`
+- Web：`Next.js 16` + `React 19` + `Tailwind CSS 4`
+- API：`Hono` + `Zod`
+- Agent：仓库内自定义 runtime loop + MiniMax Anthropic-compatible provider
+- 数据层：`PostgreSQL` + `postgres` 驱动
 
 ## 详细文档
 
 - [项目概览](./architecture/overview.md)
+- [架构图](./architecture/diagram.md)
 - [技术栈选择](./architecture/tech-stack.md)
 - [工作目录与模块分层](./architecture/workspace-structure.md)

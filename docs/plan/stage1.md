@@ -108,7 +108,7 @@ stage 1:
 
    - `packages/agent` 负责最小 agent loop、prompt builder、session manager、tool registry 和工具抽象
    - `apps/api` 只负责对外暴露会话创建、执行触发、snapshot / recovery 之类的应用层接口
-   - `apps/worker` 只负责后台执行、重试、恢复和长任务轮询，不承载核心业务规则
+   - 当前设计不引入独立后台进程；若后续出现真实的长任务 / 异步 tool 场景，再单独补后台进程
    - 所有 prompt、状态机、工具协议尽量做成可测试的纯逻辑，不直接混在 app 入口里
 
 2. 先实现数据模型，再实现流程

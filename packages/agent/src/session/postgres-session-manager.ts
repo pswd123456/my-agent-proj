@@ -34,6 +34,8 @@ interface SessionRow {
   pending_tool_call_ids: unknown;
   input_tokens_count: number;
   prompt_cache_key: string;
+  active_run_id: string | null;
+  active_run_started_at: string | Date | null;
   updated_at: string | Date;
 }
 
@@ -63,6 +65,32 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function parseJsonValue(value: unknown): unknown {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return value;
+  }
+}
+
+function toJsonRecord(value: unknown): Record<string, JsonValue> {
+  const parsed = parseJsonValue(value);
+  return isRecord(parsed) ? (parsed as Record<string, JsonValue>) : {};
+}
+
+function toStringArray(value: unknown): string[] {
+  const parsed = parseJsonValue(value);
+  if (!Array.isArray(parsed)) {
+    return [];
+  }
+
+  return parsed.filter((item): item is string => typeof item === "string");
+}
+
 function toConversationBlock(row: SessionMessageRow): ConversationBlock {
   const createdAt = toIsoString(row.created_at);
   if (row.role === "user") {
@@ -89,10 +117,11 @@ function toConversationBlock(row: SessionMessageRow): ConversationBlock {
       kind: "tool call",
       toolCallId: row.tool_call_id ?? "",
       toolName: row.tool_name ?? "",
-      input: isRecord(row.input_json)
-        ? (row.input_json as Record<string, JsonValue>)
-        : {},
-      state: row.state === "success" || row.state === "failed" ? row.state : "pending",
+      input: toJsonRecord(row.input_json),
+      state:
+        row.state === "success" || row.state === "failed"
+          ? row.state
+          : "pending",
       createdAt
     } as ConversationBlock;
   }
@@ -104,18 +133,23 @@ function toConversationBlock(row: SessionMessageRow): ConversationBlock {
     toolName: row.tool_name ?? "",
     output: row.output_text ?? "",
     isError: Boolean(row.is_error),
-    state: row.state === "pending" || row.state === "success" ? row.state : "failed",
+    state:
+      row.state === "pending" || row.state === "success" ? row.state : "failed",
     createdAt
   };
 }
 
 function toSessionContext(row: SessionRow): ScheduleSessionContext {
-    return {
-      userId: row.user_id,
-      status: row.status as ScheduleSessionContext["status"],
-      currentDateContext: row.current_date_context,
-      pendingConfirmationPayload: isRecord(row.pending_confirmation_payload)
-      ? (row.pending_confirmation_payload as unknown as ScheduleSessionContext["pendingConfirmationPayload"])
+  const pendingConfirmationPayload = parseJsonValue(
+    row.pending_confirmation_payload
+  );
+
+  return {
+    userId: row.user_id,
+    status: row.status as ScheduleSessionContext["status"],
+    currentDateContext: row.current_date_context,
+    pendingConfirmationPayload: isRecord(pendingConfirmationPayload)
+      ? (pendingConfirmationPayload as unknown as ScheduleSessionContext["pendingConfirmationPayload"])
       : null,
     pendingConflictSummary: row.pending_conflict_summary,
     lastUserMessage: row.last_user_message
@@ -191,7 +225,9 @@ function serializeBlock(block: ConversationBlock): {
 export class PostgresSessionManager implements SessionManager {
   constructor(private readonly sql: ProductDatabaseClient) {}
 
-  async createSession(input: CreateSessionInput = {}): Promise<SessionSnapshot> {
+  async createSession(
+    input: CreateSessionInput = {}
+  ): Promise<SessionSnapshot> {
     const createSnapshotInput: {
       sessionId: string;
       workingDirectory: string;
@@ -243,11 +279,7 @@ export class PostgresSessionManager implements SessionManager {
         loopState: row.loop_state as LoopState,
         turnCount: row.turn_count,
         lastError: row.last_error,
-        pendingToolCallIds: Array.isArray(row.pending_tool_call_ids)
-          ? row.pending_tool_call_ids.filter(
-              (value): value is string => typeof value === "string"
-            )
-          : []
+        pendingToolCallIds: toStringArray(row.pending_tool_call_ids)
       },
       inputTokensCount: row.input_tokens_count,
       promptCacheKey: row.prompt_cache_key,
@@ -262,8 +294,29 @@ export class PostgresSessionManager implements SessionManager {
       order by updated_at asc
     `;
 
-    const sessions = await Promise.all(rows.map((row) => this.getSession(row.id)));
+    const sessions = await Promise.all(
+      rows.map((row) => this.getSession(row.id))
+    );
     return sessions.flatMap((session) => (session ? [session] : []));
+  }
+
+  async isExecutionActive(sessionId: string): Promise<boolean> {
+    const rows = await this.sql<Array<{ is_active: boolean }>>`
+      select (active_run_id is not null) as is_active
+      from agent_sessions
+      where id = ${sessionId}
+      limit 1
+    `;
+    return rows[0]?.is_active ?? false;
+  }
+
+  async deleteSession(sessionId: string): Promise<boolean> {
+    const rows = await this.sql<Array<{ id: string }>>`
+      delete from agent_sessions
+      where id = ${sessionId}
+      returning id
+    `;
+    return rows.length > 0;
   }
 
   async saveSession(snapshot: SessionSnapshot): Promise<SessionSnapshot> {
@@ -285,7 +338,8 @@ export class PostgresSessionManager implements SessionManager {
     const nextSnapshot = cloneSnapshot(snapshot);
     nextSnapshot.updatedAt = new Date().toISOString();
     await this.persistSession(nextSnapshot);
-    await this.sql`delete from session_messages where session_id = ${snapshot.sessionId}`;
+    await this
+      .sql`delete from session_messages where session_id = ${snapshot.sessionId}`;
     for (const [index, block] of nextSnapshot.messages.entries()) {
       await this.insertMessage(snapshot.sessionId, index, block);
     }
@@ -399,6 +453,65 @@ export class PostgresSessionManager implements SessionManager {
         ...structuredClone(patch)
       }
     }));
+  }
+
+  async acquireExecution(
+    sessionId: string,
+    options: { runId: string; staleAfterMs?: number }
+  ): Promise<SessionSnapshot | null> {
+    const staleBefore =
+      typeof options.staleAfterMs === "number" && options.staleAfterMs >= 0
+        ? new Date(Date.now() - options.staleAfterMs).toISOString()
+        : null;
+
+    const rows = staleBefore
+      ? await this.sql<Array<{ id: string }>>`
+          update agent_sessions
+          set
+            active_run_id = ${options.runId},
+            active_run_started_at = now(),
+            updated_at = now()
+          where id = ${sessionId}
+            and (
+              active_run_id is null
+              or active_run_started_at is null
+              or active_run_started_at <= ${staleBefore}
+            )
+          returning id
+        `
+      : await this.sql<Array<{ id: string }>>`
+          update agent_sessions
+          set
+            active_run_id = ${options.runId},
+            active_run_started_at = now(),
+            updated_at = now()
+          where id = ${sessionId}
+            and active_run_id is null
+          returning id
+        `;
+
+    if (rows.length === 0) {
+      return null;
+    }
+
+    return this.getSession(sessionId);
+  }
+
+  async releaseExecution(
+    sessionId: string,
+    runId: string
+  ): Promise<SessionSnapshot | null> {
+    await this.sql`
+      update agent_sessions
+      set
+        active_run_id = null,
+        active_run_started_at = null,
+        updated_at = now()
+      where id = ${sessionId}
+        and active_run_id = ${runId}
+    `;
+
+    return this.getSession(sessionId);
   }
 
   private async updateSession(

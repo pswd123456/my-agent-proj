@@ -4,17 +4,27 @@ import type { CreateSessionInput, SessionSnapshot } from "../types.js";
 
 import type { ConversationBlock, LoopState } from "../types.js";
 
+export interface AcquireExecutionOptions {
+  runId: string;
+  staleAfterMs?: number;
+}
+
 export interface SessionManager {
   createSession(input?: CreateSessionInput): Promise<SessionSnapshot>;
   getSession(sessionId: string): Promise<SessionSnapshot | null>;
   listSessions(): Promise<SessionSnapshot[]>;
+  isExecutionActive(sessionId: string): Promise<boolean>;
+  deleteSession(sessionId: string): Promise<boolean>;
   saveSession(snapshot: SessionSnapshot): Promise<SessionSnapshot>;
   recover(snapshot: SessionSnapshot): Promise<SessionSnapshot>;
   appendBlock(
     sessionId: string,
     block: ConversationBlock
   ): Promise<SessionSnapshot>;
-  setLoopState(sessionId: string, loopState: LoopState): Promise<SessionSnapshot>;
+  setLoopState(
+    sessionId: string,
+    loopState: LoopState
+  ): Promise<SessionSnapshot>;
   setPromptCacheKey(
     sessionId: string,
     promptCacheKey: string
@@ -36,4 +46,9 @@ export interface SessionManager {
     sessionId: string,
     patch: Partial<ScheduleSessionContext>
   ): Promise<SessionSnapshot>;
+  acquireExecution(
+    sessionId: string,
+    options: AcquireExecutionOptions
+  ): Promise<SessionSnapshot | null>;
+  releaseExecution(sessionId: string, runId: string): Promise<SessionSnapshot | null>;
 }

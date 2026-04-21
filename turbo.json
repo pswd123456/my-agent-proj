@@ -7,7 +7,20 @@
     },
     "dev": {
       "cache": false,
-      "persistent": true
+      "persistent": true,
+      "passThroughEnv": [
+        "DATABASE_URL",
+        "PORT",
+        "API_PORT",
+        "WEB_PORT",
+        "API_KEY",
+        "MINIMAX_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_BASE_URL",
+        "ANTHROPIC_MODEL",
+        "ANTHROPIC_TOOL_CHOICE",
+        "TOOL_CHOICE"
+      ]
     },
     "lint": {
       "dependsOn": ["^lint"],

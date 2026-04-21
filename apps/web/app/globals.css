@@ -8,12 +8,227 @@ html,
 body {
   margin: 0;
   min-height: 100%;
+  background: var(--app-bg-canvas);
 }
 
 body {
-  font-family: Arial, Helvetica, sans-serif;
+  color: var(--app-text-primary);
+  font-family: var(--app-font-sans);
+  text-rendering: optimizeLegibility;
+  transition:
+    background var(--app-motion-standard) var(--app-ease-standard),
+    color var(--app-motion-standard) var(--app-ease-standard);
 }
 
 * {
   box-sizing: border-box;
+}
+
+a {
+  color: inherit;
+}
+
+::selection {
+  background: rgba(49, 198, 160, 0.28);
+}
+
+.token-panel,
+.token-hero-card,
+.token-inset,
+.token-row,
+.token-value-pill {
+  border: 1px solid var(--app-border-subtle);
+}
+
+.token-panel,
+.token-hero-card {
+  background: var(--app-bg-surface);
+  border-radius: var(--app-radius-xl);
+  box-shadow: var(--app-shadow-md);
+}
+
+.token-panel {
+  padding: 1.5rem;
+}
+
+.token-hero-card {
+  padding: 1.5rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.token-hero-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 12rem;
+  height: 12rem;
+  background: radial-gradient(
+    circle,
+    rgba(49, 198, 160, 0.16),
+    transparent 70%
+  );
+  pointer-events: none;
+}
+
+.token-inset {
+  background: var(--app-bg-muted);
+  border-radius: var(--app-radius-lg);
+  padding: 1rem;
+}
+
+.token-layer-label,
+.token-chip,
+.token-caption,
+.token-meta,
+.token-hero-kicker {
+  color: var(--app-text-muted);
+  font-family: var(--app-font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.token-chip,
+.token-value-pill {
+  align-items: center;
+  display: inline-flex;
+  justify-content: center;
+}
+
+.token-chip {
+  border-radius: 999px;
+  padding: 0.45rem 0.85rem;
+  width: fit-content;
+}
+
+.token-section-title,
+.token-card-title {
+  color: var(--app-text-primary);
+  letter-spacing: -0.03em;
+}
+
+.token-section-title {
+  font-size: clamp(1.35rem, 2vw, 1.9rem);
+  font-weight: 600;
+  line-height: 1.08;
+  margin-top: 0.4rem;
+}
+
+.token-card-title {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.token-support {
+  color: var(--app-text-secondary);
+  line-height: 1.7;
+  margin-top: 0.45rem;
+}
+
+.token-row {
+  align-items: center;
+  background: var(--app-bg-muted);
+  border-radius: var(--app-radius-lg);
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 8rem) minmax(0, 1fr);
+  padding: 1rem;
+}
+
+.token-row-preview {
+  align-items: center;
+  display: flex;
+  min-height: 3.5rem;
+}
+
+.token-name {
+  color: var(--app-text-primary);
+  font-family: var(--app-font-mono);
+  font-size: 0.9rem;
+  line-height: 1.55;
+  word-break: break-word;
+}
+
+.token-meta {
+  grid-column: 1 / -1;
+  letter-spacing: 0.08em;
+  word-break: break-word;
+}
+
+.token-swatch,
+.token-value-preview,
+.token-shadow-preview {
+  border-radius: var(--app-radius-md);
+  height: 3rem;
+  width: 5.5rem;
+}
+
+.token-swatch,
+.token-value-preview {
+  border: 1px solid var(--app-border-strong);
+}
+
+.token-space-preview {
+  border-radius: 999px;
+  height: 0.85rem;
+}
+
+.token-shadow-preview {
+  border: 1px solid var(--app-border-subtle);
+}
+
+.token-typography-preview {
+  color: var(--app-text-primary);
+}
+
+.token-rule {
+  align-items: flex-start;
+  display: flex;
+  gap: 0.8rem;
+}
+
+.token-rule-dot {
+  background: var(--app-accent);
+  border-radius: 999px;
+  flex: 0 0 auto;
+  height: 0.55rem;
+  margin-top: 0.65rem;
+  width: 0.55rem;
+}
+
+.token-step {
+  align-items: center;
+  background: var(--app-bg-elevated);
+  border: 1px solid var(--app-border-strong);
+  border-radius: 999px;
+  color: var(--app-text-primary);
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-family: var(--app-font-mono);
+  font-size: 0.8rem;
+  height: 1.75rem;
+  justify-content: center;
+  width: 1.75rem;
+}
+
+.token-value-pill {
+  background: var(--app-bg-elevated);
+  border-radius: 999px;
+  color: var(--app-text-secondary);
+  font-family: var(--app-font-mono);
+  font-size: 0.85rem;
+  padding: 0.6rem 0.9rem;
+}
+
+@media (min-width: 768px) {
+  .token-row {
+    grid-template-columns: minmax(0, 8rem) minmax(0, 1fr) minmax(14rem, 18rem);
+  }
+
+  .token-meta {
+    grid-column: auto;
+    justify-self: end;
+    text-align: right;
+  }
 }

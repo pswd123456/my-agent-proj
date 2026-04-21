@@ -32,20 +32,15 @@
       "name": "@ai-app-template/web",
       "version": "0.1.0",
       "dependencies": {
+        "@ai-app-template/sdk": "workspace:*",
+        "@ai-app-template/tokens": "workspace:*",
+        "@ai-app-template/ui-patterns": "workspace:*",
         "@tailwindcss/postcss": "4.2.2",
         "next": "16.2.1",
         "postcss": "8.5.8",
         "react": "19.2.4",
         "react-dom": "19.2.4",
         "tailwindcss": "4.2.2",
-      },
-    },
-    "apps/worker": {
-      "name": "@ai-app-template/worker",
-      "version": "0.1.0",
-      "dependencies": {
-        "@ai-app-template/agent": "workspace:*",
-        "@ai-app-template/db": "workspace:*",
       },
     },
     "packages/agent": {
@@ -78,6 +73,10 @@
     "packages/sdk": {
       "name": "@ai-app-template/sdk",
       "version": "0.1.0",
+      "dependencies": {
+        "@ai-app-template/agent": "workspace:*",
+        "@ai-app-template/domain": "workspace:*",
+      },
     },
     "packages/tokens": {
       "name": "@ai-app-template/tokens",
@@ -118,8 +117,6 @@
     "@ai-app-template/ui-patterns": ["@ai-app-template/ui-patterns@workspace:packages/ui-patterns"],
 
     "@ai-app-template/web": ["@ai-app-template/web@workspace:apps/web"],
-
-    "@ai-app-template/worker": ["@ai-app-template/worker@workspace:apps/worker"],
 
     "@alloc/quick-lru": ["@alloc/quick-lru@5.2.0", "https://registry.npmmirror.com/@alloc/quick-lru/-/quick-lru-5.2.0.tgz", {}, "sha512-UrcABB+4bUrFABwbluTIBErXwvbsU/V7TZWfmbgJfbkwiBuziS9gxdODUyuiecfdGQ85jglMW6juS3+z5TsKLw=="],
 

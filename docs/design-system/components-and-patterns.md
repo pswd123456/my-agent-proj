@@ -45,3 +45,24 @@
 - 空状态区
 
 这些 patterns 应优先沉淀到 `packages/ui-patterns`，而不是散落在页面里。
+
+## 新增工作台模式
+
+### `SessionRail`
+
+- 用于列出、创建、选择和恢复会话
+- 单条信息优先展示 `loopState`、更新时间、最近一次用户输入
+- 冲突确认或等待态应通过统一状态提示暴露，不要让用户点进详情后才发现
+
+### `DebugInspector`
+
+- 用于承载 `Prompt / Thinking / Tools / Trace` 等调试视图
+- 默认使用 tab 切换，避免把大段 JSON 直接堆在主消息流
+- `thinking` 文本使用 muted 语义层级，不与 assistant 正文争主次
+- `tool` 视图至少显示 input、raw output 和 display text 三层信息
+
+### `ConversationWorkbench`
+
+- 这是 `ConversationPage` 的工作台骨架，而不是业务组件
+- 只负责三栏外框、section header 和 inspector shell
+- 具体业务区块，例如 session 列表、消息流、周历面板，仍应留在应用层实现

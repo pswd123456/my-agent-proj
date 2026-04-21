@@ -23,9 +23,8 @@
   - 追加式 JSONL trace，存放在 `tmp/agent-sessions/sessions/<sessionId>.trace.jsonl`。
   - 记录 `turn_start`、`prompt`、`response`、`thinking`、`assistant_text`、`tool_call`、`tool_result`、`fallback`、`turn_end`。
   - `prompt` 事件保存模型本轮真实看到的 system / prefix / messages / tools。
-- `apps/api/src/index.ts` / `apps/worker/src/index.ts`
-  - 共用同一个 session/trace 根目录。
-  - API 新增只读 `GET /sessions/:sessionId/trace` 便于直接观察上下文。
+- `apps/api/src/index.ts`
+  - API 负责暴露只读 `GET /sessions/:sessionId/trace`，便于直接观察上下文。
 
 ## maxTurns fallback
 - 当 turn budget 耗尽时，不返回错误。

@@ -2,7 +2,6 @@ import { promises as fs } from "node:fs";
 
 import type { RuntimeTool } from "./runtime-tool.js";
 import {
-  buildJsonResult,
   normalizeWorkspacePath,
   toRelativeWorkspacePath,
   walkFiles

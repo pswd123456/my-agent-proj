@@ -230,7 +230,6 @@ export function createEditRoutineTool(): RuntimeTool {
       }
 
       await context.sessionManager.updateContext(context.sessionId, {
-        status: "completed",
         pendingConfirmationPayload: null,
         pendingConflictSummary: null
       });

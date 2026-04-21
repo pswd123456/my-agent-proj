@@ -1,3 +1,4 @@
+export * from "./events.js";
 export * from "./model.js";
 export * from "./prompt.js";
 export * from "./runtime.js";

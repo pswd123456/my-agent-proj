@@ -44,9 +44,21 @@ export async function ensureProductSchema(
       pending_tool_call_ids jsonb not null default '[]'::jsonb,
       input_tokens_count integer not null default 0,
       prompt_cache_key text not null default '',
+      active_run_id text,
+      active_run_started_at timestamp,
       created_at timestamp not null default now(),
       updated_at timestamp not null default now()
     )
+  `;
+
+  await sql`
+    alter table agent_sessions
+    add column if not exists active_run_id text
+  `;
+
+  await sql`
+    alter table agent_sessions
+    add column if not exists active_run_started_at timestamp
   `;
 
   await sql`

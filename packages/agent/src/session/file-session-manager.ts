@@ -2,7 +2,12 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
-import type { CreateSessionInput, ConversationBlock, LoopState, SessionSnapshot } from "../types.js";
+import type {
+  CreateSessionInput,
+  ConversationBlock,
+  LoopState,
+  SessionSnapshot
+} from "../types.js";
 
 import type { SessionManager } from "./contracts.js";
 import {
@@ -13,6 +18,8 @@ import {
 } from "./shared.js";
 
 export class FileSessionManager implements SessionManager {
+  private readonly activeRuns = new Map<string, { runId: string; startedAt: number }>();
+
   constructor(private readonly baseDirectory: string) {}
 
   private get sessionsDirectory(): string {
@@ -27,7 +34,9 @@ export class FileSessionManager implements SessionManager {
     await fs.mkdir(this.sessionsDirectory, { recursive: true });
   }
 
-  private async readSnapshotFile(sessionId: string): Promise<SessionSnapshot | null> {
+  private async readSnapshotFile(
+    sessionId: string
+  ): Promise<SessionSnapshot | null> {
     try {
       const raw = await fs.readFile(this.snapshotPath(sessionId), "utf8");
       const parsed = JSON.parse(raw) as unknown;
@@ -61,7 +70,9 @@ export class FileSessionManager implements SessionManager {
     return nextSnapshot;
   }
 
-  async createSession(input: CreateSessionInput = {}): Promise<SessionSnapshot> {
+  async createSession(
+    input: CreateSessionInput = {}
+  ): Promise<SessionSnapshot> {
     const sessionId = randomUUID();
     const createSnapshotInput: {
       sessionId: string;
@@ -111,6 +122,22 @@ export class FileSessionManager implements SessionManager {
     return sessions.sort((left, right) =>
       left.updatedAt.localeCompare(right.updatedAt)
     );
+  }
+
+  async isExecutionActive(sessionId: string): Promise<boolean> {
+    return this.activeRuns.has(sessionId);
+  }
+
+  async deleteSession(sessionId: string): Promise<boolean> {
+    try {
+      await fs.unlink(this.snapshotPath(sessionId));
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return false;
+      }
+      throw error;
+    }
   }
 
   async saveSession(snapshot: SessionSnapshot): Promise<SessionSnapshot> {
@@ -222,8 +249,57 @@ export class FileSessionManager implements SessionManager {
       }
     }));
   }
+
+  async acquireExecution(
+    sessionId: string,
+    options: { runId: string; staleAfterMs?: number }
+  ): Promise<SessionSnapshot | null> {
+    const session = await this.getSession(sessionId);
+    if (!session) {
+      return null;
+    }
+
+    const current = this.activeRuns.get(sessionId);
+    const now = Date.now();
+    const isStale =
+      current &&
+      typeof options.staleAfterMs === "number" &&
+      options.staleAfterMs >= 0 &&
+      now - current.startedAt >= options.staleAfterMs;
+
+    if (current && !isStale) {
+      return null;
+    }
+
+    this.activeRuns.set(sessionId, {
+      runId: options.runId,
+      startedAt: now
+    });
+
+    return this.updateSession(sessionId, (snapshot) => ({
+      ...snapshot,
+      sessionState: {
+        ...snapshot.sessionState,
+        loopState: "running"
+      }
+    }));
+  }
+
+  async releaseExecution(
+    sessionId: string,
+    runId: string
+  ): Promise<SessionSnapshot | null> {
+    const current = this.activeRuns.get(sessionId);
+    if (current?.runId === runId) {
+      this.activeRuns.delete(sessionId);
+    }
+
+    return this.getSession(sessionId);
+  }
 }
 
-export function createFileSessionManager(baseDirectory: string): FileSessionManager {
+export function createFileSessionManager(
+  baseDirectory: string
+): FileSessionManager {
   return new FileSessionManager(baseDirectory);
 }
