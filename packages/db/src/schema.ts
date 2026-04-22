@@ -92,6 +92,7 @@ export async function ensureProductSchema(
       user_id text not null,
       status text not null,
       current_date_context text not null,
+      pending_permission_request jsonb,
       pending_confirmation_payload jsonb,
       pending_conflict_summary text,
       last_user_message text,
@@ -108,6 +109,11 @@ export async function ensureProductSchema(
       created_at timestamptz not null default now(),
       updated_at timestamptz not null default now()
     )
+  `;
+
+  await sql`
+    alter table agent_sessions
+    add column if not exists pending_permission_request jsonb
   `;
 
   await sql`

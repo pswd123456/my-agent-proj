@@ -10,6 +10,13 @@ const IGNORED_DIRECTORIES = new Set([
   "coverage"
 ]);
 
+export class WorkspaceSandboxError extends Error {
+  constructor(message = "Path escapes the working directory.") {
+    super(message);
+    this.name = "WorkspaceSandboxError";
+  }
+}
+
 export function normalizeWorkspacePath(
   workingDirectory: string,
   targetPath: string
@@ -19,7 +26,7 @@ export function normalizeWorkspacePath(
   const relativePath = path.relative(baseDirectory, resolvedPath);
 
   if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
-    throw new Error("Path escapes the working directory.");
+    throw new WorkspaceSandboxError();
   }
 
   return resolvedPath;
@@ -48,6 +55,35 @@ export async function readTextFileWithLimit(
     text: text.slice(0, maxCharacters),
     truncated: true
   };
+}
+
+export async function pathExists(targetPath: string): Promise<boolean> {
+  try {
+    await fs.access(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function getPathKind(
+  targetPath: string
+): Promise<"file" | "directory" | "missing"> {
+  try {
+    const stat = await fs.stat(targetPath);
+    if (stat.isDirectory()) {
+      return "directory";
+    }
+    if (stat.isFile()) {
+      return "file";
+    }
+    return "missing";
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return "missing";
+    }
+    throw error;
+  }
 }
 
 function isIgnoredDirectory(name: string): boolean {
@@ -95,4 +131,12 @@ export async function walkFiles(
 
 export function buildJsonResult(value: unknown): string {
   return JSON.stringify(value, null, 2);
+}
+
+export function truncateText(value: string, maxCharacters: number): string {
+  if (value.length <= maxCharacters) {
+    return value;
+  }
+
+  return `${value.slice(0, maxCharacters)}\n...[truncated]`;
 }

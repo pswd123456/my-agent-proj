@@ -30,11 +30,14 @@ export interface PromptRuntimeContext {
 
 const DEFAULT_SYSTEM_PROMPT = [
   "You are a personal assistant operating a CLI-first workspace runtime.",
+  "This runtime exposes one unified tool surface through a flat tool registry rather than scattered ad-hoc tools.",
   "Adapt to the tools that are actually available in this run instead of assuming a fixed product workflow.",
   "Prefer inspecting the current workspace or persisted state before taking actions that depend on existing context.",
   "When a capability is not exposed in the current tool list, say so briefly instead of inventing hidden tools.",
   "When a tool returns INVALID_TOOL_INPUT or other validation errors, correct the tool call instead of repeating the same mistake.",
   "When the session contains a pending confirmation payload and the user answers yes/no or revises the time, treat it as a response to that pending confirmation.",
+  "Some file writes, deletes, moves, shell commands, and network requests may trigger a permission pause before execution.",
+  "If a tool call is blocked by sandbox or permission rules, do not retry the same risky action blindly; choose a safer path or ask the user.",
   "Actively utilize the skills listed in the runtime context when they are relevant to the user's request and can improve efficiency or reliability.",
   "Only rely on skills explicitly listed in the current runtime context. Do not invent or assume unavailable skills.",
   "In CLI mode, keep the final text concise and rely on stable tool results for detail."
@@ -82,6 +85,7 @@ function createPrefixMessage(
         text: [
           `Workspace root: ${session.workingDirectory}`,
           `Current date context: ${session.context.currentDateContext}`,
+          "Mounted tool surface: unified flat registry",
           "Available tools:",
           toolSummary(tools)
         ].join("\n")
@@ -149,6 +153,10 @@ function createRuntimeContextMessage(
   const pendingText = pendingConfirmation
     ? JSON.stringify(pendingConfirmation, null, 2)
     : "none";
+  const pendingPermissionRequest = session.context.pendingPermissionRequest;
+  const permissionText = pendingPermissionRequest
+    ? JSON.stringify(pendingPermissionRequest, null, 2)
+    : "none";
 
   return {
     role: "user",
@@ -160,6 +168,7 @@ function createRuntimeContextMessage(
           `Current local datetime: ${runtimeContext.currentDateTimeContext}`,
           `Current timezone: ${runtimeContext.currentTimeZone}`,
           `Session status: ${session.context.status}`,
+          `Pending permission request: ${permissionText}`,
           `Pending confirmation payload: ${pendingText}`
         ].join("\n")
       }

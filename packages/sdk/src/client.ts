@@ -19,6 +19,7 @@ export interface SessionSummary {
   loopState: SessionSnapshot["sessionState"]["loopState"];
   turnCount: number;
   pendingToolCallIds: string[];
+  pendingPermission: boolean;
   pendingConfirmation: boolean;
   status: SessionSnapshot["context"]["status"];
   lastUserMessage: string | null;
@@ -88,6 +89,7 @@ function toSessionSummary(session: SessionSnapshot): SessionSummary {
     loopState: session.sessionState.loopState,
     turnCount: session.sessionState.turnCount,
     pendingToolCallIds: session.sessionState.pendingToolCallIds,
+    pendingPermission: Boolean(session.context.pendingPermissionRequest),
     pendingConfirmation: Boolean(session.context.pendingConfirmationPayload),
     status: session.context.status,
     lastUserMessage: session.context.lastUserMessage

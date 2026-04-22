@@ -25,10 +25,12 @@ import {
   buildUserBlockContent,
   extractThinkingBlocks,
   extractToolCalls,
+  renderPendingPermissionAnswer,
   renderPendingConfirmationAnswer
 } from "./blocks.js";
 import { completeLocally } from "./complete-run.js";
 import { handlePendingConfirmationReply } from "./confirmation.js";
+import { handlePendingPermissionReply } from "./permission.js";
 import { emitRunEvent, emitTraceEvent } from "./run-events.js";
 import { executeToolAction } from "./tool-execution.js";
 
@@ -54,6 +56,9 @@ export async function runSessionLoop(input: {
   const pendingConfirmationAtStart = session.context.pendingConfirmationPayload
     ? structuredClone(session.context.pendingConfirmationPayload)
     : null;
+  const pendingPermissionAtStart = session.context.pendingPermissionRequest
+    ? structuredClone(session.context.pendingPermissionRequest)
+    : null;
   const discoveredSkills = await discoverWorkspaceSkills(
     session.workingDirectory
   );
@@ -62,9 +67,32 @@ export async function runSessionLoop(input: {
   let toolCallCount = 0;
   let toolResultCount = 0;
   const toolOutputs: RunSessionResult["toolOutputs"] = [];
+  let consumedPermissionReply = false;
 
   try {
-    if (input.message) {
+    if (pendingPermissionAtStart && input.message) {
+      const handled = await handlePendingPermissionReply({
+        sessionManager: input.sessionManager,
+        routineRepository: input.routineRepository,
+        toolRegistry: input.toolRegistry,
+        traceManager: input.traceManager,
+        session,
+        message: input.message,
+        pendingPermissionRequest: pendingPermissionAtStart,
+        eventSink: input.eventSink
+      });
+      if (handled?.kind === "completed") {
+        return handled.result;
+      }
+      if (handled?.kind === "approved") {
+        consumedPermissionReply = true;
+        session = handled.session;
+        toolResultCount += handled.toolResultCount;
+        toolOutputs.push(...handled.toolOutputs);
+      }
+    }
+
+    if (input.message && !consumedPermissionReply) {
       session = await input.sessionManager.appendBlock(
         session.sessionId,
         buildUserBlockContent(input.message)
@@ -273,6 +301,23 @@ export async function runSessionLoop(input: {
           });
           session = executed.session;
           toolCallCount += 1;
+          if (executed.kind === "permission_request") {
+            return completeLocally({
+              sessionManager: input.sessionManager,
+              traceManager: input.traceManager,
+              session,
+              turnCount,
+              loopState: "waiting for input",
+              finalAnswer: renderPendingPermissionAnswer(executed.request),
+              stopReason: stopReason ?? "tool_use",
+              toolCallCount,
+              toolResultCount,
+              toolOutputs,
+              eventSink: input.eventSink,
+              clearPendingToolCallIds: false
+            });
+          }
+
           toolResultCount += 1;
           toolOutputs.push(executed.output);
         }

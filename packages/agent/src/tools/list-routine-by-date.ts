@@ -20,7 +20,11 @@ export function createListRoutineByDateTool(): RuntimeTool {
   return {
     name: "list_routine_by_date",
     description: "List routines by a date or date range.",
+    family: "schedule",
     isReadOnly: true,
+    hasExternalSideEffect: false,
+    permissionProfile: "allow",
+    sandboxProfile: "none",
     inputSchema: {
       type: "object",
       properties: {

@@ -13,6 +13,7 @@ function createSessionSnapshot(): SessionSnapshot {
     context: {
       userId: "test-user",
       status: "completed",
+      pendingPermissionRequest: null,
       pendingConfirmationPayload: null,
       pendingConflictSummary: null,
       currentDateContext: "2026-04-22",

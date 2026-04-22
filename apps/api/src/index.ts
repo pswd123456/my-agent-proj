@@ -2,7 +2,7 @@ import { serve } from "@hono/node-server";
 
 import {
   createAgentRuntime,
-  createScheduleToolRegistry,
+  createDefaultToolRegistry,
   createPostgresSessionManager,
   createMiniMaxRuntime,
   createPromptBuilder,
@@ -18,10 +18,10 @@ import {
   resolveDatabaseUrl
 } from "@ai-app-template/db";
 
-import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createApiApp } from "./app.js";
+import { resolveApiWorkingDirectory } from "./working-directory.js";
 
 const workspaceRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const stateDirectory = resolveSessionStateDirectory(workspaceRoot);
@@ -43,7 +43,7 @@ const routineRepository = createPostgresRoutineRepository(database);
 const sessionManager = createPostgresSessionManager(database);
 
 function buildWorkingDirectory(input?: string): string {
-  return input ? path.resolve(workspaceRoot, input) : workspaceRoot;
+  return resolveApiWorkingDirectory(workspaceRoot, input);
 }
 
 function createRuntime(session: SessionSnapshot) {
@@ -56,7 +56,10 @@ function createRuntime(session: SessionSnapshot) {
     model: session.model,
     sessionManager,
     routineRepository,
-    toolRegistry: createScheduleToolRegistry({ routineRepository }),
+    toolRegistry: createDefaultToolRegistry({
+      workingDirectory: session.workingDirectory,
+      routineRepository
+    }),
     traceManager,
     promptBuilder,
     maxTurns: 6,

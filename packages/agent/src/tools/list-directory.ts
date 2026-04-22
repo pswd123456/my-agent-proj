@@ -11,7 +11,11 @@ export function createListDirectoryTool(workingDirectory: string): RuntimeTool {
   return {
     name: "list_directory",
     description: "List files and folders in a workspace directory.",
+    family: "workspace-file",
     isReadOnly: true,
+    hasExternalSideEffect: false,
+    permissionProfile: "allow",
+    sandboxProfile: "workspace-rooted",
     inputSchema: {
       type: "object",
       properties: {
@@ -21,6 +25,9 @@ export function createListDirectoryTool(workingDirectory: string): RuntimeTool {
         }
       },
       additionalProperties: false
+    },
+    getSandboxTargets(input) {
+      return [typeof input.path === "string" && input.path.length > 0 ? input.path : "."];
     },
     validate(input) {
       return { ok: true, value: input };

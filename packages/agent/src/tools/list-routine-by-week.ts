@@ -17,7 +17,11 @@ export function createListRoutineByWeekTool(): RuntimeTool {
   return {
     name: "list_routine_by_week",
     description: "List routines from the provided week start date over 7 days.",
+    family: "schedule",
     isReadOnly: true,
+    hasExternalSideEffect: false,
+    permissionProfile: "allow",
+    sandboxProfile: "none",
     inputSchema: {
       type: "object",
       properties: {

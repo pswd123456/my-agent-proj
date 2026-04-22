@@ -54,7 +54,11 @@ export function createCreateRoutineTool(): RuntimeTool {
   return {
     name: "create_routine",
     description: "Create a routine when the time range is valid and conflict-free.",
+    family: "schedule",
     isReadOnly: false,
+    hasExternalSideEffect: true,
+    permissionProfile: "allow",
+    sandboxProfile: "none",
     inputSchema: {
       type: "object",
       properties: {
@@ -150,6 +154,7 @@ export function createCreateRoutineTool(): RuntimeTool {
       const routine = await context.routineRepository.create(createInput);
 
       await context.sessionManager.updateContext(context.sessionId, {
+        pendingPermissionRequest: null,
         pendingConfirmationPayload: null,
         pendingConflictSummary: null
       });

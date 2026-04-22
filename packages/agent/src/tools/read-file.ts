@@ -12,7 +12,11 @@ export function createReadFileTool(workingDirectory: string): RuntimeTool {
   return {
     name: "read_file",
     description: "Read a text file from the workspace.",
+    family: "workspace-file",
     isReadOnly: true,
+    hasExternalSideEffect: false,
+    permissionProfile: "allow",
+    sandboxProfile: "workspace-rooted",
     inputSchema: {
       type: "object",
       properties: {
@@ -27,6 +31,9 @@ export function createReadFileTool(workingDirectory: string): RuntimeTool {
       },
       required: ["path"],
       additionalProperties: false
+    },
+    getSandboxTargets(input) {
+      return [typeof input.path === "string" && input.path.length > 0 ? input.path : "."];
     },
     validate(input) {
       const path = input.path;

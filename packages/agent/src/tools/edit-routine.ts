@@ -164,7 +164,11 @@ export function createEditRoutineTool(): RuntimeTool {
     name: "edit_routine",
     description:
       "Edit an existing routine after validating the updated time range.",
+    family: "schedule",
     isReadOnly: false,
+    hasExternalSideEffect: true,
+    permissionProfile: "allow",
+    sandboxProfile: "none",
     inputSchema: {
       type: "object",
       properties: {
@@ -274,6 +278,7 @@ export function createEditRoutineTool(): RuntimeTool {
       }
 
       await context.sessionManager.updateContext(context.sessionId, {
+        pendingPermissionRequest: null,
         pendingConfirmationPayload: null,
         pendingConflictSummary: null
       });

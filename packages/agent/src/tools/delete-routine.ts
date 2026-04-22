@@ -17,7 +17,11 @@ export function createDeleteRoutineTool(): RuntimeTool {
   return {
     name: "delete_routine",
     description: "Delete an existing routine after the target is identified clearly.",
+    family: "schedule",
     isReadOnly: false,
+    hasExternalSideEffect: true,
+    permissionProfile: "allow",
+    sandboxProfile: "none",
     inputSchema: {
       type: "object",
       properties: {
@@ -81,6 +85,7 @@ export function createDeleteRoutineTool(): RuntimeTool {
       }
 
       await context.sessionManager.updateContext(context.sessionId, {
+        pendingPermissionRequest: null,
         pendingConfirmationPayload: null,
         pendingConflictSummary: null
       });

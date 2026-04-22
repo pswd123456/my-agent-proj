@@ -145,6 +145,11 @@ export async function handlePendingConfirmationReply(input: {
     });
     session = executed.session;
     toolCallCount += 1;
+    if (executed.kind !== "completed") {
+      throw new Error(
+        `Confirmation action ${invocation.toolName} unexpectedly paused for permission.`
+      );
+    }
     toolResultCount += 1;
     toolOutputs.push(executed.output);
   }

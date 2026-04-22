@@ -17,6 +17,7 @@ const baseSession = {
     userId: "web-user",
     status: "running",
     currentDateContext: "2026-04-21",
+    pendingPermissionRequest: null,
     pendingConfirmationPayload: null,
     pendingConflictSummary: null,
     lastUserMessage: "old"

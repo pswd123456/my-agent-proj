@@ -161,6 +161,21 @@ export function renderPendingConfirmationAnswer(
   return lines.join("\n");
 }
 
+export function renderPendingPermissionAnswer(
+  pendingPermissionRequest: NonNullable<
+    SessionSnapshot["context"]["pendingPermissionRequest"]
+  >
+): string {
+  const lines = [pendingPermissionRequest.summaryText];
+
+  if (pendingPermissionRequest.contextNote) {
+    lines.push(`- 说明：${pendingPermissionRequest.contextNote}`);
+  }
+
+  lines.push("回复“确认”即可继续执行，回复“取消”即可拒绝这次操作。");
+  return lines.join("\n");
+}
+
 export function normalizeConfirmationReply(message: string): string {
   return message.trim().toLowerCase().replace(/\s+/g, " ");
 }

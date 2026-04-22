@@ -18,6 +18,7 @@ export async function completeLocally(input: {
   toolOutputs: RunSessionResult["toolOutputs"];
   eventSink: RunEventSink | undefined;
   appendAssistantMessage?: boolean;
+  clearPendingToolCallIds?: boolean;
 }): Promise<RunSessionResult> {
   let session = input.session;
 
@@ -38,7 +39,9 @@ export async function completeLocally(input: {
     });
   }
 
-  session = await input.sessionManager.setPendingToolCallIds(session.sessionId, []);
+  if (input.clearPendingToolCallIds ?? true) {
+    session = await input.sessionManager.setPendingToolCallIds(session.sessionId, []);
+  }
   session = await input.sessionManager.setLastError(session.sessionId, null);
   session = await input.sessionManager.setLoopState(
     session.sessionId,

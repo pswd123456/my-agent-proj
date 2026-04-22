@@ -2,10 +2,22 @@ import type { DomainJsonValue } from "./json.js";
 
 export type ScheduleSessionStatus =
   | "running"
+  | "waiting_for_permission"
   | "waiting_for_conflict_confirmation"
   | "waiting_for_user_input"
   | "completed"
   | "failed";
+
+export type SessionToolFamily =
+  | "workspace-file"
+  | "workspace-shell"
+  | "workspace-network"
+  | "schedule";
+
+export type SessionPermissionProfile =
+  | "allow"
+  | "destructive-only"
+  | "always-ask-user";
 
 export interface PendingConfirmationItem {
   previewText: string;
@@ -26,10 +38,22 @@ export interface PendingConfirmationPayload {
   createdAt: string;
 }
 
+export interface PendingPermissionRequest {
+  toolCallId: string;
+  toolName: string;
+  toolInput: Record<string, DomainJsonValue>;
+  family: SessionToolFamily;
+  permissionProfile: SessionPermissionProfile;
+  summaryText: string;
+  contextNote?: string;
+  createdAt: string;
+}
+
 export interface ScheduleSessionContext {
   userId: string;
   status: ScheduleSessionStatus;
   currentDateContext: string;
+  pendingPermissionRequest: PendingPermissionRequest | null;
   pendingConfirmationPayload: PendingConfirmationPayload | null;
   pendingConflictSummary: string | null;
   lastUserMessage: string | null;

@@ -23,6 +23,7 @@ interface SessionRow {
   user_id: string;
   status: string;
   current_date_context: string;
+  pending_permission_request: unknown;
   pending_confirmation_payload: unknown;
   pending_conflict_summary: string | null;
   last_user_message: string | null;
@@ -146,6 +147,9 @@ function toConversationBlock(row: SessionMessageRow): ConversationBlock {
 }
 
 function toSessionContext(row: SessionRow): ScheduleSessionContext {
+  const pendingPermissionRequest = parseJsonValue(
+    row.pending_permission_request
+  );
   const pendingConfirmationPayload = parseJsonValue(
     row.pending_confirmation_payload
   );
@@ -154,6 +158,9 @@ function toSessionContext(row: SessionRow): ScheduleSessionContext {
     userId: row.user_id,
     status: row.status as ScheduleSessionContext["status"],
     currentDateContext: row.current_date_context,
+    pendingPermissionRequest: isRecord(pendingPermissionRequest)
+      ? (pendingPermissionRequest as unknown as ScheduleSessionContext["pendingPermissionRequest"])
+      : null,
     pendingConfirmationPayload: isRecord(pendingConfirmationPayload)
       ? (pendingConfirmationPayload as unknown as ScheduleSessionContext["pendingConfirmationPayload"])
       : null,
@@ -545,6 +552,7 @@ export class PostgresSessionManager implements SessionManager {
         user_id,
         status,
         current_date_context,
+        pending_permission_request,
         pending_confirmation_payload,
         pending_conflict_summary,
         last_user_message,
@@ -564,6 +572,11 @@ export class PostgresSessionManager implements SessionManager {
         ${snapshot.context.userId},
         ${snapshot.context.status},
         ${snapshot.context.currentDateContext},
+        ${
+          snapshot.context.pendingPermissionRequest
+            ? JSON.stringify(snapshot.context.pendingPermissionRequest)
+            : null
+        }::jsonb,
         ${
           snapshot.context.pendingConfirmationPayload
             ? JSON.stringify(snapshot.context.pendingConfirmationPayload)
@@ -586,6 +599,7 @@ export class PostgresSessionManager implements SessionManager {
         user_id = excluded.user_id,
         status = excluded.status,
         current_date_context = excluded.current_date_context,
+        pending_permission_request = excluded.pending_permission_request,
         pending_confirmation_payload = excluded.pending_confirmation_payload,
         pending_conflict_summary = excluded.pending_conflict_summary,
         last_user_message = excluded.last_user_message,

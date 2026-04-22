@@ -145,7 +145,11 @@ export function createAskForConfirmationTool(): RuntimeTool {
     name: "ask_for_confirmation",
     description:
       "Store and render a confirmation request when there is conflict, overwrite risk, or ambiguity.",
+    family: "schedule",
     isReadOnly: false,
+    hasExternalSideEffect: true,
+    permissionProfile: "allow",
+    sandboxProfile: "none",
     inputSchema: {
       type: "object",
       properties: {
@@ -242,6 +246,7 @@ export function createAskForConfirmationTool(): RuntimeTool {
 
       await context.sessionManager.updateContext(context.sessionId, {
         status: "waiting_for_conflict_confirmation",
+        pendingPermissionRequest: null,
         pendingConfirmationPayload: payload,
         pendingConflictSummary: parsed.data.summary_text
       });

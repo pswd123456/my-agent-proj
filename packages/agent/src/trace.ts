@@ -1,6 +1,8 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
+import type { PendingPermissionRequest } from "@ai-app-template/domain";
+
 import type { AnthropicMessage, AnthropicToolChoice } from "./model.js";
 import type {
   SkillDescriptor,
@@ -84,6 +86,38 @@ export interface TraceToolResultEvent {
   displayText?: string;
 }
 
+export interface TracePermissionRequestEvent {
+  kind: "permission_request";
+  turnCount: number;
+  toolCallId: string;
+  toolName: string;
+  request: PendingPermissionRequest;
+}
+
+export interface TracePermissionApprovedEvent {
+  kind: "permission_approved";
+  turnCount: number;
+  toolCallId: string;
+  toolName: string;
+  request: PendingPermissionRequest;
+}
+
+export interface TracePermissionRejectedEvent {
+  kind: "permission_rejected";
+  turnCount: number;
+  toolCallId: string;
+  toolName: string;
+  request: PendingPermissionRequest;
+}
+
+export interface TracePermissionBlockedEvent {
+  kind: "permission_blocked";
+  turnCount: number;
+  toolCallId: string;
+  toolName: string;
+  reason: string;
+}
+
 export interface TraceFallbackEvent {
   kind: "fallback";
   turnCount: number;
@@ -106,6 +140,10 @@ export type TraceEvent =
   | TraceThinkingEvent
   | TraceToolCallEvent
   | TraceToolResultEvent
+  | TracePermissionRequestEvent
+  | TracePermissionApprovedEvent
+  | TracePermissionRejectedEvent
+  | TracePermissionBlockedEvent
   | TraceFallbackEvent
   | TraceTurnEndEvent;
 

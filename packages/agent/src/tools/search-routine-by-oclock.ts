@@ -72,7 +72,11 @@ export function createSearchRoutineByOclockTool(): RuntimeTool {
   return {
     name: "search_routine_by_oclock",
     description: "Search routines around a specific time or time range.",
+    family: "schedule",
     isReadOnly: true,
+    hasExternalSideEffect: false,
+    permissionProfile: "allow",
+    sandboxProfile: "none",
     inputSchema: {
       type: "object",
       properties: {

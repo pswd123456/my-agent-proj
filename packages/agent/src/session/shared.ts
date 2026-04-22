@@ -50,6 +50,7 @@ export function createScheduleSessionContext(userId = "cli-user"): ScheduleSessi
     userId,
     status: "waiting_for_user_input",
     currentDateContext: resolveCurrentDateContext(),
+    pendingPermissionRequest: null,
     pendingConfirmationPayload: null,
     pendingConflictSummary: null,
     lastUserMessage: null
@@ -106,6 +107,7 @@ export function isSessionSnapshot(value: unknown): value is SessionSnapshot {
     typeof value.context.userId === "string" &&
     typeof value.context.status === "string" &&
     typeof value.context.currentDateContext === "string" &&
+    Object.prototype.hasOwnProperty.call(value.context, "pendingPermissionRequest") &&
     Object.prototype.hasOwnProperty.call(value.context, "pendingConfirmationPayload") &&
     Object.prototype.hasOwnProperty.call(value.context, "pendingConflictSummary") &&
     Object.prototype.hasOwnProperty.call(value.context, "lastUserMessage") &&
