@@ -31,6 +31,8 @@ export class MemorySessionManager implements SessionManager {
       model: string;
       userId?: string;
       yoloMode?: boolean;
+      contextWindow?: number;
+      maxTurns?: number;
     } = {
       sessionId: randomUUID(),
       workingDirectory: resolveWorkingDirectory(input.workingDirectory),
@@ -42,6 +44,12 @@ export class MemorySessionManager implements SessionManager {
     }
     if (typeof input.yoloMode === "boolean") {
       createSnapshotInput.yoloMode = input.yoloMode;
+    }
+    if (typeof input.contextWindow === "number") {
+      createSnapshotInput.contextWindow = input.contextWindow;
+    }
+    if (typeof input.maxTurns === "number") {
+      createSnapshotInput.maxTurns = input.maxTurns;
     }
 
     const snapshot = createSnapshot(createSnapshotInput);

@@ -66,6 +66,8 @@ export interface SessionSnapshot {
   sessionId: string;
   workingDirectory: string;
   model: string;
+  contextWindow: number;
+  maxTurns: number;
   context: ScheduleSessionContext;
   messages: ConversationBlock[];
   sessionState: SessionState;
@@ -79,6 +81,8 @@ export interface CreateSessionInput {
   model?: string;
   userId?: string;
   yoloMode?: boolean;
+  contextWindow?: number;
+  maxTurns?: number;
 }
 
 export interface RunSessionInput {

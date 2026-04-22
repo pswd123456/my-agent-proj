@@ -7,21 +7,51 @@ import type {
   SessionSnapshot,
   TraceManager
 } from "@ai-app-template/agent";
-import type { RoutineRepository } from "@ai-app-template/db";
+import {
+  DEFAULT_SESSION_SETTINGS_USER_ID,
+  SESSION_MAX_TURNS_LIMIT,
+  sanitizeContextWindow,
+  sanitizeSessionMaxTurns
+} from "@ai-app-template/domain";
+import type { SessionSettingsRecord } from "@ai-app-template/domain";
+import type {
+  RoutineRepository,
+  SettingsRepository
+} from "@ai-app-template/db";
 
 const createSessionBodySchema = z.object({
   workingDirectory: z.string().optional(),
   userId: z.string().optional(),
-  yoloMode: z.boolean().optional()
+  yoloMode: z.boolean().optional(),
+  contextWindow: z.number().int().min(1000).optional(),
+  maxTurns: z.number().int().min(1).optional()
 });
 
 const updateSessionSettingsBodySchema = z.object({
   yoloMode: z.boolean()
 });
 
+const updateUserSettingsBodySchema = z
+  .object({
+    workingDirectory: z.string().optional(),
+    yoloMode: z.boolean().optional(),
+    contextWindow: z.number().int().min(1000).optional(),
+    maxTurns: z.number().int().min(1).optional()
+  })
+  .refine(
+    (value) =>
+      typeof value.workingDirectory === "string" ||
+      typeof value.yoloMode === "boolean" ||
+      typeof value.contextWindow === "number" ||
+      typeof value.maxTurns === "number",
+    {
+      message: "At least one settings field is required."
+    }
+  );
+
 const executeSessionBodySchema = z.object({
   message: z.string().min(1),
-  maxTurns: z.number().int().min(1).max(20).optional()
+  maxTurns: z.number().int().min(1).max(SESSION_MAX_TURNS_LIMIT).optional()
 });
 
 const recoverSessionBodySchema = z.object({
@@ -36,11 +66,58 @@ const listRoutinesQuerySchema = z.object({
 export interface ApiAppDependencies {
   sessionManager: SessionManager;
   routineRepository: RoutineRepository;
+  settingsRepository: SettingsRepository;
   traceManager: TraceManager;
   buildWorkingDirectory(input?: string): string;
   runtimeFactory?: (session: SessionSnapshot) => AgentRuntime;
   defaultModel?: string;
+  defaultUserId?: string;
   runtimeUnavailableMessage?: string;
+}
+
+function resolveUserId(
+  dependencies: ApiAppDependencies,
+  userId: string | undefined
+): string {
+  const candidate = userId?.trim();
+  if (candidate) {
+    return candidate;
+  }
+
+  return dependencies.defaultUserId ?? DEFAULT_SESSION_SETTINGS_USER_ID;
+}
+
+function toCreateSessionInput(input: {
+  settings: SessionSettingsRecord;
+  defaultModel: string | undefined;
+  userId: string;
+  workingDirectoryOverride: string | undefined;
+  yoloModeOverride: boolean | undefined;
+  contextWindowOverride: number | undefined;
+  maxTurnsOverride: number | undefined;
+  buildWorkingDirectory: ApiAppDependencies["buildWorkingDirectory"];
+}): {
+  workingDirectory: string;
+  model?: string;
+  userId: string;
+  yoloMode: boolean;
+  contextWindow: number;
+  maxTurns: number;
+} {
+  return {
+    workingDirectory: input.buildWorkingDirectory(
+      input.workingDirectoryOverride ?? input.settings.workingDirectory
+    ),
+    ...(input.defaultModel ? { model: input.defaultModel } : {}),
+    userId: input.userId,
+    yoloMode: input.yoloModeOverride ?? input.settings.yoloMode,
+    contextWindow: sanitizeContextWindow(
+      input.contextWindowOverride ?? input.settings.contextWindow
+    ),
+    maxTurns: sanitizeSessionMaxTurns(
+      input.maxTurnsOverride ?? input.settings.maxTurns
+    )
+  };
 }
 
 function encodeSseEvent<T extends { kind: string }>(event: T): Uint8Array {
@@ -79,30 +156,51 @@ export function createApiApp(dependencies: ApiAppDependencies) {
 
   app.post("/sessions", async (c) => {
     const body = createSessionBodySchema.parse(await c.req.json());
-    const createInput: {
-      workingDirectory: string;
-      model?: string;
-      userId?: string;
-      yoloMode?: boolean;
-    } = {
-      workingDirectory: dependencies.buildWorkingDirectory(
-        body.workingDirectory
-      )
-    };
-
-    if (dependencies.defaultModel) {
-      createInput.model = dependencies.defaultModel;
-    }
-    if (body.userId) {
-      createInput.userId = body.userId;
-    }
-    if (typeof body.yoloMode === "boolean") {
-      createInput.yoloMode = body.yoloMode;
-    }
+    const userId = resolveUserId(dependencies, body.userId);
+    const settings = await dependencies.settingsRepository.getOrCreate(userId);
+    const createInput = toCreateSessionInput({
+      settings,
+      defaultModel: dependencies.defaultModel,
+      userId,
+      workingDirectoryOverride: body.workingDirectory,
+      yoloModeOverride: body.yoloMode,
+      contextWindowOverride: body.contextWindow,
+      maxTurnsOverride: body.maxTurns,
+      buildWorkingDirectory: dependencies.buildWorkingDirectory
+    });
 
     const session =
       await dependencies.sessionManager.createSession(createInput);
     return c.json({ session }, 201);
+  });
+
+  app.get("/users/:userId/settings", async (c) => {
+    const settings = await dependencies.settingsRepository.getOrCreate(
+      resolveUserId(dependencies, c.req.param("userId"))
+    );
+    return c.json({ settings });
+  });
+
+  app.patch("/users/:userId/settings", async (c) => {
+    const userId = resolveUserId(dependencies, c.req.param("userId"));
+    const body = updateUserSettingsBodySchema.parse(await c.req.json());
+    const settings = await dependencies.settingsRepository.update(userId, {
+      ...(typeof body.workingDirectory === "string"
+        ? {
+            workingDirectory: dependencies.buildWorkingDirectory(
+              body.workingDirectory
+            )
+          }
+        : {}),
+      ...(typeof body.yoloMode === "boolean"
+        ? { yoloMode: body.yoloMode }
+        : {}),
+      ...(typeof body.contextWindow === "number"
+        ? { contextWindow: body.contextWindow }
+        : {}),
+      ...(typeof body.maxTurns === "number" ? { maxTurns: body.maxTurns } : {})
+    });
+    return c.json({ settings });
   });
 
   app.get("/sessions/:sessionId", async (c) => {

@@ -10,6 +10,8 @@ function createSessionSnapshot(): SessionSnapshot {
     sessionId: "session-1",
     workingDirectory: "/tmp/workspace",
     model: "MiniMax-M2.7",
+    contextWindow: 200_000,
+    maxTurns: 50,
     context: {
       userId: "test-user",
       status: "completed",

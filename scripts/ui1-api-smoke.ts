@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 
+import { DEFAULT_SESSION_WORKING_DIRECTORY } from "../packages/domain/src/index.ts";
 import {
   createAgentRuntime,
   createScheduleToolRegistry,
@@ -11,7 +12,10 @@ import {
   type AnthropicCompatibleClient,
   type SessionSnapshot
 } from "../packages/agent/src/index.ts";
-import { createMemoryRoutineRepository } from "../packages/db/src/index.ts";
+import {
+  createMemoryRoutineRepository,
+  createMemorySettingsRepository
+} from "../packages/db/src/index.ts";
 import { createApiApp } from "../apps/api/src/app.ts";
 
 async function readSse(response: Response) {
@@ -52,6 +56,11 @@ async function readSse(response: Response) {
 
 const sessionManager = createMemorySessionManager();
 const routineRepository = createMemoryRoutineRepository();
+const settingsRepository = createMemorySettingsRepository();
+const defaultWorkspace = path.resolve(
+  process.cwd(),
+  DEFAULT_SESSION_WORKING_DIRECTORY
+);
 const traceManager = createFileTraceManager(
   resolveSessionStateDirectory(path.resolve(process.cwd()), "ui1-api-smoke")
 );
@@ -142,9 +151,10 @@ function createFakeClient(session: SessionSnapshot): AnthropicCompatibleClient {
 const app = createApiApp({
   sessionManager,
   routineRepository,
+  settingsRepository,
   traceManager,
   buildWorkingDirectory: (input) =>
-    input ? path.resolve(process.cwd(), input) : process.cwd(),
+    input ? path.resolve(process.cwd(), input) : defaultWorkspace,
   defaultModel: "MiniMax-M2.7",
   runtimeFactory(session) {
     return createAgentRuntime({

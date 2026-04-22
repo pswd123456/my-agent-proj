@@ -58,6 +58,8 @@ export class AgentRuntime {
       model?: string;
       userId?: string;
       yoloMode?: boolean;
+      contextWindow?: number;
+      maxTurns?: number;
     } = {}
   ): ReturnType<SessionManager["createSession"]> {
     const createInput: {
@@ -65,6 +67,8 @@ export class AgentRuntime {
       model?: string;
       userId?: string;
       yoloMode?: boolean;
+      contextWindow?: number;
+      maxTurns?: number;
     } = {
       model: input.model ?? this.options.model
     };
@@ -77,6 +81,12 @@ export class AgentRuntime {
     }
     if (typeof input.yoloMode === "boolean") {
       createInput.yoloMode = input.yoloMode;
+    }
+    if (typeof input.contextWindow === "number") {
+      createInput.contextWindow = input.contextWindow;
+    }
+    if (typeof input.maxTurns === "number") {
+      createInput.maxTurns = input.maxTurns;
     }
 
     return this.options.sessionManager.createSession(createInput);
@@ -122,7 +132,8 @@ export class AgentRuntime {
         promptBuilder: this.promptBuilder,
         session,
         message: input.message,
-        maxTurns: input.maxTurns ?? this.options.maxTurns ?? 6,
+        maxTurns:
+          input.maxTurns ?? session.maxTurns ?? this.options.maxTurns ?? 50,
         maxTokens: this.options.maxTokens,
         toolChoice: this.options.toolChoice,
         eventSink

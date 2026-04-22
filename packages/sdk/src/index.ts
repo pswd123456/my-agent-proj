@@ -4,7 +4,7 @@ export type {
   SessionSnapshot,
   TraceRecord
 } from "@ai-app-template/agent";
-export type { RoutineRecord } from "@ai-app-template/domain";
+export type { RoutineRecord, SessionSettingsRecord } from "@ai-app-template/domain";
 
 export type {
   ApiClientConfig,
@@ -13,6 +13,7 @@ export type {
   ResetSessionRoutinesResult,
   SessionSummary,
   StreamSessionExecutionInput,
-  UpdateSessionSettingsPayload
+  UpdateSessionSettingsPayload,
+  UpdateUserSettingsPayload
 } from "./client.js";
 export { ApiClient, createApiClient, toSessionSummary } from "./client.js";

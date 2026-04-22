@@ -13,6 +13,7 @@ import {
 } from "@ai-app-template/agent";
 import {
   createPostgresDatabase,
+  createPostgresSettingsRepository,
   createPostgresRoutineRepository,
   ensureProductSchema,
   resolveDatabaseUrl
@@ -21,7 +22,10 @@ import {
 import { fileURLToPath } from "node:url";
 
 import { createApiApp } from "./app.js";
-import { resolveApiWorkingDirectory } from "./working-directory.js";
+import {
+  ensureApiWorkingDirectory,
+  resolveApiWorkingDirectory
+} from "./working-directory.js";
 
 const workspaceRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const stateDirectory = resolveSessionStateDirectory(workspaceRoot);
@@ -39,7 +43,9 @@ if (!databaseUrl) {
 
 const database = createPostgresDatabase(databaseUrl);
 await ensureProductSchema(database);
+await ensureApiWorkingDirectory(workspaceRoot);
 const routineRepository = createPostgresRoutineRepository(database);
+const settingsRepository = createPostgresSettingsRepository(database);
 const sessionManager = createPostgresSessionManager(database);
 
 function buildWorkingDirectory(input?: string): string {
@@ -62,7 +68,7 @@ function createRuntime(session: SessionSnapshot) {
     }),
     traceManager,
     promptBuilder,
-    maxTurns: 6,
+    maxTurns: 50,
     ...(toolChoice ? { toolChoice } : {})
   });
 }
@@ -70,6 +76,7 @@ function createRuntime(session: SessionSnapshot) {
 export const app = createApiApp({
   sessionManager,
   routineRepository,
+  settingsRepository,
   traceManager,
   buildWorkingDirectory,
   ...(miniMaxRuntime ? { runtimeFactory: createRuntime } : {}),

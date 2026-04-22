@@ -93,6 +93,8 @@ export async function ensureProductSchema(
       status text not null,
       current_date_context text not null,
       yolo_mode boolean not null default false,
+      context_window integer not null default 200000,
+      max_turns integer not null default 50,
       pending_permission_request jsonb,
       pending_confirmation_payload jsonb,
       pending_conflict_summary text,
@@ -115,6 +117,16 @@ export async function ensureProductSchema(
   await sql`
     alter table agent_sessions
     add column if not exists yolo_mode boolean not null default false
+  `;
+
+  await sql`
+    alter table agent_sessions
+    add column if not exists context_window integer not null default 200000
+  `;
+
+  await sql`
+    alter table agent_sessions
+    add column if not exists max_turns integer not null default 50
   `;
 
   await sql`
@@ -146,6 +158,41 @@ export async function ensureProductSchema(
   `;
 
   await sql`
+    create table if not exists agent_settings (
+      user_id text primary key,
+      working_directory text not null,
+      yolo_mode boolean not null default false,
+      context_window integer not null default 200000,
+      max_turns integer not null default 50,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    )
+  `;
+
+  await sql`
+    alter table agent_settings
+    add column if not exists working_directory text not null default 'agent-workspace'
+  `;
+
+  await sql`
+    alter table agent_settings
+    add column if not exists yolo_mode boolean not null default false
+  `;
+
+  await sql`
+    alter table agent_settings
+    add column if not exists context_window integer not null default 200000
+  `;
+
+  await sql`
+    alter table agent_settings
+    add column if not exists max_turns integer not null default 50
+  `;
+
+  await promoteColumnToTimestamptz(sql, "agent_settings", "created_at");
+  await promoteColumnToTimestamptz(sql, "agent_settings", "updated_at");
+
+  await sql`
     create table if not exists session_messages (
       id text primary key,
       session_id text not null references agent_sessions(id) on delete cascade,
@@ -175,6 +222,11 @@ export async function ensureProductSchema(
       ),
       sessions.updated_at
     )
+  `;
+
+  await sql`
+    update agent_settings
+    set updated_at = coalesce(updated_at, now())
   `;
 
   await sql`

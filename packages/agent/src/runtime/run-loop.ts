@@ -32,6 +32,7 @@ import { completeLocally } from "./complete-run.js";
 import { handlePendingConfirmationReply } from "./confirmation.js";
 import { handlePendingPermissionReply } from "./permission.js";
 import { emitRunEvent, emitTraceEvent } from "./run-events.js";
+import { estimatePromptTokens } from "./token-budget.js";
 import { executeToolAction } from "./tool-execution.js";
 
 export async function runSessionLoop(input: {
@@ -185,6 +186,67 @@ export async function runSessionLoop(input: {
           cacheKey: promptEnvelope.cacheKey
         }
       });
+
+      const estimatedInputTokens = estimatePromptTokens(
+        promptEnvelope,
+        input.toolChoice
+      );
+      if (estimatedInputTokens > session.contextWindow) {
+        const errorMessage = [
+          `Estimated prompt input ${estimatedInputTokens} tokens exceeds the configured context window ${session.contextWindow}.`,
+          "Compaction is not available in Stage 5."
+        ].join(" ");
+        session = await input.sessionManager.updateContext(session.sessionId, {
+          status: "failed"
+        });
+        session = await input.sessionManager.setPendingToolCallIds(
+          session.sessionId,
+          []
+        );
+        session = await input.sessionManager.setLastError(
+          session.sessionId,
+          errorMessage
+        );
+        session = await input.sessionManager.setLoopState(
+          session.sessionId,
+          "failed"
+        );
+        await emitTraceEvent({
+          traceManager: input.traceManager,
+          eventSink: input.eventSink,
+          sessionId: session.sessionId,
+          event: {
+            kind: "turn_end",
+            turnCount,
+            loopState: "failed"
+          }
+        });
+        const result = {
+          session,
+          finalAnswer: null,
+          status: "failed" as const,
+          stopReason: "context_window_exceeded" as const,
+          toolCallCount,
+          toolResultCount,
+          toolOutputs
+        };
+        if (input.eventSink) {
+          await emitRunEvent(
+            input.eventSink,
+            createRunErrorEvent({
+              sessionId: session.sessionId,
+              session,
+              error: errorMessage,
+              status: "failed",
+              stopReason: "context_window_exceeded",
+              toolCallCount,
+              toolResultCount,
+              toolOutputs
+            })
+          );
+        }
+        return result;
+      }
 
       const response = await input.client.messages.create({
         model: session.model,

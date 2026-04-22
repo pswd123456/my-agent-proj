@@ -23,6 +23,7 @@
       "dependencies": {
         "@ai-app-template/agent": "workspace:*",
         "@ai-app-template/db": "workspace:*",
+        "@ai-app-template/domain": "workspace:*",
         "@hono/node-server": "1.19.11",
         "hono": "4.12.9",
         "zod": "4.3.6",
@@ -51,6 +52,7 @@
         "@ai-app-template/domain": "workspace:*",
         "@anthropic-ai/sdk": "^0.90.0",
         "@langchain/langgraph": "1.2.5",
+        "js-tiktoken": "1.0.21",
         "zod": "4.3.6",
       },
     },

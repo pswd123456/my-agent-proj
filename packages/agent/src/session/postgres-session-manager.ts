@@ -24,6 +24,8 @@ interface SessionRow {
   status: string;
   current_date_context: string;
   yolo_mode: boolean | null;
+  context_window: number;
+  max_turns: number;
   pending_permission_request: unknown;
   pending_confirmation_payload: unknown;
   pending_conflict_summary: string | null;
@@ -249,6 +251,8 @@ export class PostgresSessionManager implements SessionManager {
       model: string;
       userId?: string;
       yoloMode?: boolean;
+      contextWindow?: number;
+      maxTurns?: number;
     } = {
       sessionId: randomUUID(),
       workingDirectory: resolveWorkingDirectory(input.workingDirectory),
@@ -260,6 +264,12 @@ export class PostgresSessionManager implements SessionManager {
     }
     if (typeof input.yoloMode === "boolean") {
       createSnapshotInput.yoloMode = input.yoloMode;
+    }
+    if (typeof input.contextWindow === "number") {
+      createSnapshotInput.contextWindow = input.contextWindow;
+    }
+    if (typeof input.maxTurns === "number") {
+      createSnapshotInput.maxTurns = input.maxTurns;
     }
 
     const snapshot = createSnapshot(createSnapshotInput);
@@ -292,6 +302,8 @@ export class PostgresSessionManager implements SessionManager {
       sessionId: row.id,
       workingDirectory: row.working_directory,
       model: row.model,
+      contextWindow: row.context_window,
+      maxTurns: row.max_turns,
       context: toSessionContext(row),
       messages: messageRows.map(toConversationBlock),
       sessionState: {
@@ -559,6 +571,8 @@ export class PostgresSessionManager implements SessionManager {
         status,
         current_date_context,
         yolo_mode,
+        context_window,
+        max_turns,
         pending_permission_request,
         pending_confirmation_payload,
         pending_conflict_summary,
@@ -580,6 +594,8 @@ export class PostgresSessionManager implements SessionManager {
         ${snapshot.context.status},
         ${snapshot.context.currentDateContext},
         ${snapshot.context.yoloMode},
+        ${snapshot.contextWindow},
+        ${snapshot.maxTurns},
         ${
           snapshot.context.pendingPermissionRequest
             ? JSON.stringify(snapshot.context.pendingPermissionRequest)
@@ -608,6 +624,8 @@ export class PostgresSessionManager implements SessionManager {
         status = excluded.status,
         current_date_context = excluded.current_date_context,
         yolo_mode = excluded.yolo_mode,
+        context_window = excluded.context_window,
+        max_turns = excluded.max_turns,
         pending_permission_request = excluded.pending_permission_request,
         pending_confirmation_payload = excluded.pending_confirmation_payload,
         pending_conflict_summary = excluded.pending_conflict_summary,

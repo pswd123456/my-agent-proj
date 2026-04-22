@@ -9,6 +9,7 @@ import {
   toSessionSummary,
   type RoutineRecord,
   type RunStreamEvent,
+  type SessionSettingsRecord,
   type SessionSnapshot,
   type SessionSummary,
   type TraceRecord
@@ -38,8 +39,9 @@ const inspectorTabs = [
   { id: "trace", label: "Trace" }
 ] as const;
 
-const DEFAULT_MAX_TURNS = 6;
-const MAX_TURNS_LIMIT = 20;
+const DEFAULT_MAX_TURNS = 50;
+const MAX_TURNS_LIMIT = 200;
+const DEFAULT_CONTEXT_WINDOW = 200_000;
 
 type InspectorTabId = (typeof inspectorTabs)[number]["id"];
 
@@ -47,6 +49,13 @@ interface TurnUsageSummary {
   inputTokens: number;
   cacheReadInputTokens: number;
   cacheCreationInputTokens: number;
+}
+
+interface SettingsFormState {
+  workingDirectory: string;
+  yoloMode: boolean;
+  contextWindow: string;
+  maxTurns: string;
 }
 
 function formatTimestamp(value: string): string {
@@ -198,14 +207,6 @@ function sortSessionSummaries(snapshots: SessionSnapshot[]): SessionSummary[] {
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }
 
-function isReusableNewSession(session: SessionSnapshot): boolean {
-  return (
-    session.messages.length === 0 &&
-    !session.context.lastUserMessage &&
-    session.context.status === "waiting_for_user_input"
-  );
-}
-
 function normalizeMaxTurns(value: string): number {
   const parsed = Number.parseInt(value, 10);
   if (Number.isNaN(parsed)) {
@@ -213,6 +214,36 @@ function normalizeMaxTurns(value: string): number {
   }
 
   return Math.min(MAX_TURNS_LIMIT, Math.max(1, parsed));
+}
+
+function normalizeContextWindow(value: string): number {
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed)) {
+    return DEFAULT_CONTEXT_WINDOW;
+  }
+
+  return Math.max(1_000, parsed);
+}
+
+function toSettingsFormState(
+  settings: SessionSettingsRecord | null
+): SettingsFormState {
+  return {
+    workingDirectory: settings?.workingDirectory ?? "",
+    yoloMode: settings?.yoloMode ?? false,
+    contextWindow: String(settings?.contextWindow ?? DEFAULT_CONTEXT_WINDOW),
+    maxTurns: String(settings?.maxTurns ?? DEFAULT_MAX_TURNS)
+  };
+}
+
+function patchSettingsForm(
+  current: SettingsFormState,
+  patch: Partial<SettingsFormState>
+): SettingsFormState {
+  return {
+    ...current,
+    ...patch
+  };
 }
 
 function renderUserMessageBlock(
@@ -599,6 +630,7 @@ export function UI1Workbench() {
   const searchParams = useSearchParams();
   const requestedSessionId = searchParams.get("sessionId");
   const selectedSessionIdRef = useRef<string | null>(null);
+  const preferredUserIdRef = useRef<string | null>(null);
 
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(
@@ -621,20 +653,34 @@ export function UI1Workbench() {
   const [submitting, setSubmitting] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [createWorkingDirectory, setCreateWorkingDirectory] = useState("");
-  const [createYoloMode, setCreateYoloMode] = useState(false);
   const [creatingSession, setCreatingSession] = useState(false);
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(
     null
   );
   const [resettingRoutines, setResettingRoutines] = useState(false);
-  const [savingYoloMode, setSavingYoloMode] = useState(false);
+  const [userSettings, setUserSettings] =
+    useState<SessionSettingsRecord | null>(null);
+  const [settingsForm, setSettingsForm] = useState<SettingsFormState>(
+    toSettingsFormState(null)
+  );
+  const [loadingSettings, setLoadingSettings] = useState(false);
+  const [savingSettings, setSavingSettings] = useState(false);
   const [maxTurns, setMaxTurns] = useState(String(DEFAULT_MAX_TURNS));
   const [errorText, setErrorText] = useState<string | null>(null);
 
   useEffect(() => {
     selectedSessionIdRef.current = selectedSessionId;
   }, [selectedSessionId]);
+
+  useEffect(() => {
+    preferredUserIdRef.current =
+      currentSession?.context.userId ?? userSettings?.userId ?? null;
+  }, [currentSession, userSettings]);
+
+  function getCreateSessionPayload(): { userId?: string } {
+    const userId = preferredUserIdRef.current?.trim();
+    return userId ? { userId } : {};
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -646,7 +692,7 @@ export function UI1Workbench() {
       try {
         let snapshots = await apiClient.listSessions();
         if (!snapshots.length) {
-          const created = await apiClient.createSession();
+          const created = await apiClient.createSession(getCreateSessionPayload());
           snapshots = [created];
         }
 
@@ -694,17 +740,19 @@ export function UI1Workbench() {
 
     async function hydrateSession(sessionId: string) {
       setLoadingSession(true);
+      setLoadingSettings(true);
       setErrorText(null);
 
       try {
         const session = await apiClient.getSession(sessionId);
         const week = buildWeekRange(session.context.currentDateContext);
-        const [trace, routinesResult] = await Promise.all([
+        const [trace, routinesResult, settings] = await Promise.all([
           apiClient.getSessionTrace(sessionId),
           apiClient.listSessionRoutines(sessionId, {
             startDate: week.startDate,
             endDate: week.endDate
-          })
+          }),
+          apiClient.getUserSettings(session.context.userId)
         ]);
 
         if (cancelled) {
@@ -714,6 +762,9 @@ export function UI1Workbench() {
         setCurrentSession(session);
         setTraceRecords(trace);
         setRoutines(routinesResult.routines);
+        setUserSettings(settings);
+        setSettingsForm(toSettingsFormState(settings));
+        setMaxTurns(String(session.maxTurns));
         setSessions((current) =>
           mergeSessionSummary(current, session, toSessionSummary)
         );
@@ -724,6 +775,7 @@ export function UI1Workbench() {
       } finally {
         if (!cancelled) {
           setLoadingSession(false);
+          setLoadingSettings(false);
         }
       }
     }
@@ -736,28 +788,35 @@ export function UI1Workbench() {
   }, [selectedSessionId]);
 
   async function refreshSelectedSession(sessionId: string) {
-    const session = await apiClient.getSession(sessionId);
-    const week = buildWeekRange(session.context.currentDateContext);
-    const [trace, routinesResult] = await Promise.all([
-      apiClient.getSessionTrace(sessionId),
-      apiClient.listSessionRoutines(sessionId, {
-        startDate: week.startDate,
-        endDate: week.endDate
-      })
-    ]);
+    setLoadingSettings(true);
+    try {
+      const session = await apiClient.getSession(sessionId);
+      const week = buildWeekRange(session.context.currentDateContext);
+      const [trace, routinesResult, settings] = await Promise.all([
+        apiClient.getSessionTrace(sessionId),
+        apiClient.listSessionRoutines(sessionId, {
+          startDate: week.startDate,
+          endDate: week.endDate
+        }),
+        apiClient.getUserSettings(session.context.userId)
+      ]);
 
-    setCurrentSession(session);
-    setTraceRecords(trace);
-    setRoutines(routinesResult.routines);
-    setSessions((current) =>
-      mergeSessionSummary(current, session, toSessionSummary)
-    );
-    setStreamEvents([]);
+      setCurrentSession(session);
+      setTraceRecords(trace);
+      setRoutines(routinesResult.routines);
+      setUserSettings(settings);
+      setSettingsForm(toSettingsFormState(settings));
+      setMaxTurns(String(session.maxTurns));
+      setSessions((current) =>
+        mergeSessionSummary(current, session, toSessionSummary)
+      );
+      setStreamEvents([]);
+    } finally {
+      setLoadingSettings(false);
+    }
   }
 
   function handleOpenCreateSessionDialog() {
-    setCreateWorkingDirectory("");
-    setCreateYoloMode(false);
     setCreateDialogOpen(true);
   }
 
@@ -765,38 +824,7 @@ export function UI1Workbench() {
     try {
       setCreatingSession(true);
       setErrorText(null);
-      const normalizedWorkingDirectory = createWorkingDirectory.trim();
-
-      if (!normalizedWorkingDirectory && !createYoloMode) {
-        const snapshots = await apiClient.listSessions();
-        const reusable = [...snapshots]
-          .filter(isReusableNewSession)
-          .sort((left, right) =>
-            right.updatedAt.localeCompare(left.updatedAt)
-          )[0];
-
-        if (reusable) {
-          setSessions(sortSessionSummaries(snapshots));
-          setSelectedSessionId(reusable.sessionId);
-          setCurrentSession(reusable);
-          setTraceRecords([]);
-          setRoutines([]);
-          setStreamEvents([]);
-          router.replace(`/?sessionId=${reusable.sessionId}`, {
-            scroll: false
-          });
-          setSidebarOpen(false);
-          setCreateDialogOpen(false);
-          return;
-        }
-      }
-
-      const session = await apiClient.createSession({
-        ...(normalizedWorkingDirectory
-          ? { workingDirectory: normalizedWorkingDirectory }
-          : {}),
-        ...(createYoloMode ? { yoloMode: true } : {})
-      });
+      const session = await apiClient.createSession(getCreateSessionPayload());
       setSessions((current) =>
         mergeSessionSummary(current, session, toSessionSummary)
       );
@@ -856,7 +884,9 @@ export function UI1Workbench() {
         return;
       }
 
-      const newSession = await apiClient.createSession();
+      const newSession = await apiClient.createSession(
+        getCreateSessionPayload()
+      );
       setSessions([toSessionSummary(newSession)]);
       setSelectedSessionId(newSession.sessionId);
       setCurrentSession(newSession);
@@ -939,31 +969,39 @@ export function UI1Workbench() {
     await submitSessionMessage(reply);
   }
 
-  async function handleToggleYoloMode(checked: boolean) {
-    if (!currentSession || savingYoloMode) {
+  async function handleSaveUserSettings() {
+    if (!currentSession || savingSettings) {
       return;
     }
 
-    setSavingYoloMode(true);
+    setSavingSettings(true);
     setErrorText(null);
 
     try {
-      const updated = await apiClient.updateSessionSettings(
-        currentSession.sessionId,
+      const updated = await apiClient.updateUserSettings(
+        currentSession.context.userId,
         {
-          yoloMode: checked
+          workingDirectory: settingsForm.workingDirectory,
+          yoloMode: settingsForm.yoloMode,
+          contextWindow: normalizeContextWindow(settingsForm.contextWindow),
+          maxTurns: normalizeMaxTurns(settingsForm.maxTurns)
         }
       );
-      setCurrentSession(updated);
-      setSessions((current) =>
-        mergeSessionSummary(current, updated, toSessionSummary)
-      );
+      setUserSettings(updated);
+      setSettingsForm(toSettingsFormState(updated));
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : String(error));
     } finally {
-      setSavingYoloMode(false);
+      setSavingSettings(false);
     }
   }
+
+  const activeUserId = currentSession?.context.userId ?? userSettings?.userId;
+  const settingsMeta = loadingSettings
+    ? "syncing"
+    : activeUserId
+      ? `user ${activeUserId}`
+      : "--";
 
   async function handleResetAllRoutines() {
     if (!currentSession || resettingRoutines) {
@@ -1045,11 +1083,11 @@ export function UI1Workbench() {
                   Create Session
                 </div>
                 <div className="mt-2 text-lg font-semibold text-[var(--app-text-primary)]">
-                  新建带 Stage4 设置的会话
+                  新建会话
                 </div>
                 <p className="mt-2 text-sm leading-6 text-[var(--app-text-secondary)]">
-                  `Current working directory` 只在创建时设置，YOLO mode 为当前
-                  session 持久化开关。
+                  会话会继承当前 user settings 的默认 cwd、YOLO、context window
+                  和 max turns。
                 </p>
               </div>
               <button
@@ -1059,40 +1097,6 @@ export function UI1Workbench() {
               >
                 关闭
               </button>
-            </div>
-
-            <div className="mt-5 grid gap-4">
-              <label className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
-                <span className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
-                  Current Working Directory
-                </span>
-                <input
-                  value={createWorkingDirectory}
-                  onChange={(event) =>
-                    setCreateWorkingDirectory(event.target.value)
-                  }
-                  placeholder="留空则使用 workspace root，例如 apps/web"
-                  className="w-full rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
-                />
-              </label>
-
-              <label className="flex items-center justify-between gap-4 rounded-[var(--app-radius-lg)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_82%,transparent)] px-4 py-4">
-                <div>
-                  <div className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
-                    YOLO Mode
-                  </div>
-                  <div className="mt-2 text-sm leading-6 text-[var(--app-text-secondary)]">
-                    仅绕过可审批的文件 destructive 操作，不绕过 shell/network
-                    审批，也不绕过 sandbox block。
-                  </div>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={createYoloMode}
-                  onChange={(event) => setCreateYoloMode(event.target.checked)}
-                  className="h-5 w-5 rounded border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] text-[var(--app-status-success)]"
-                />
-              </label>
             </div>
 
             <div className="mt-6 flex justify-end gap-3">
@@ -1270,6 +1274,15 @@ export function UI1Workbench() {
                   >
                     yolo {currentSession?.context.yoloMode ? "on" : "off"}
                   </span>
+                  <span className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-3 py-1 font-mono text-[0.72rem] text-[var(--app-text-secondary)]">
+                    ctx{" "}
+                    {currentSession
+                      ? formatTokenCount(currentSession.contextWindow)
+                      : "--"}
+                  </span>
+                  <span className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-3 py-1 font-mono text-[0.72rem] text-[var(--app-text-secondary)]">
+                    session maxTurns {currentSession?.maxTurns ?? "--"}
+                  </span>
                 </div>
               </div>
             </div>
@@ -1419,28 +1432,10 @@ export function UI1Workbench() {
                           className="w-24 rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-3 py-2 text-sm text-[var(--app-text-primary)] outline-none transition focus:border-[var(--app-border-accent)]"
                         />
                       </label>
-                      <label className="flex items-center gap-2 rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-3 py-2 text-xs text-[var(--app-text-secondary)]">
-                        <span className="uppercase tracking-[0.18em]">
-                          YOLO Mode
-                        </span>
-                        <input
-                          type="checkbox"
-                          checked={currentSession?.context.yoloMode ?? false}
-                          disabled={
-                            !currentSession || savingYoloMode || submitting
-                          }
-                          onChange={(event) =>
-                            void handleToggleYoloMode(event.target.checked)
-                          }
-                          className="h-4 w-4 rounded border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] text-[var(--app-status-success)]"
-                        />
-                      </label>
                       <div className="text-xs text-[var(--app-text-muted)]">
-                        {savingYoloMode
-                          ? "正在保存 yolo mode..."
-                          : submitting
-                            ? "正在流式接收本轮事件..."
-                            : null}
+                        {submitting
+                          ? "正在流式接收本轮事件..."
+                          : "这里的 maxTurns 只覆盖当前这次 runtime.run(...)。"}
                       </div>
                     </div>
 
@@ -1465,7 +1460,160 @@ export function UI1Workbench() {
             </WorkbenchPanel>
           </div>
 
-          <div className="grid min-h-0 min-w-0 gap-4 min-[700px]:grid-rows-[auto_minmax(0,1fr)]">
+          <div className="grid min-h-0 min-w-0 gap-4 min-[700px]:grid-rows-[auto_auto_minmax(0,1fr)]">
+            <WorkbenchPanel
+              eyebrow="Settings"
+              title="用户默认设置"
+              meta={settingsMeta}
+              headerActions={
+                <button
+                  type="button"
+                  onClick={() => void handleSaveUserSettings()}
+                  disabled={
+                    !currentSession || loadingSettings || savingSettings
+                  }
+                  className="inline-flex items-center justify-center rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-3 py-1.5 text-xs font-medium text-[var(--app-text-secondary)] transition hover:border-[var(--app-status-success)] hover:text-[var(--app-status-success)] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {savingSettings ? "保存中..." : "保存 settings"}
+                </button>
+              }
+            >
+              <div className="grid gap-3">
+                <div
+                  className={getSoftBlockClass(
+                    "text-sm leading-6 text-[var(--app-text-secondary)]"
+                  )}
+                >
+                  新建会话会读取这里的默认 `cwd / yolo / context window / max
+                  turns`。保存后只影响后续新建 session，不会回写当前 session
+                  的运行态。
+                </div>
+
+                <label className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
+                  <span className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
+                    Default Working Directory
+                  </span>
+                  <input
+                    value={settingsForm.workingDirectory}
+                    onChange={(event) =>
+                      setSettingsForm((current) =>
+                        patchSettingsForm(current, {
+                          workingDirectory: event.target.value
+                        })
+                      )
+                    }
+                    placeholder="agent-workspace"
+                    className="w-full rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
+                  />
+                  <span className="text-xs leading-6 text-[var(--app-text-muted)]">
+                    留空会回到 repo 根下的 `agent-workspace/`。自定义 cwd
+                    会被解析并限制在仓库根目录内。
+                  </span>
+                </label>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
+                    <span className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
+                      Context Window
+                    </span>
+                    <input
+                      type="number"
+                      min={1_000}
+                      value={settingsForm.contextWindow}
+                      onChange={(event) =>
+                        setSettingsForm((current) =>
+                          patchSettingsForm(current, {
+                            contextWindow: event.target.value
+                          })
+                        )
+                      }
+                      onBlur={() =>
+                        setSettingsForm((current) =>
+                          patchSettingsForm(current, {
+                            contextWindow: String(
+                              normalizeContextWindow(current.contextWindow)
+                            )
+                          })
+                        )
+                      }
+                      className="w-full rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm text-[var(--app-text-primary)] outline-none transition focus:border-[var(--app-border-accent)]"
+                    />
+                  </label>
+
+                  <label className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
+                    <span className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
+                      Default Max Turns
+                    </span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={MAX_TURNS_LIMIT}
+                      value={settingsForm.maxTurns}
+                      onChange={(event) =>
+                        setSettingsForm((current) =>
+                          patchSettingsForm(current, {
+                            maxTurns: event.target.value
+                          })
+                        )
+                      }
+                      onBlur={() =>
+                        setSettingsForm((current) =>
+                          patchSettingsForm(current, {
+                            maxTurns: String(
+                              normalizeMaxTurns(current.maxTurns)
+                            )
+                          })
+                        )
+                      }
+                      className="w-full rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm text-[var(--app-text-primary)] outline-none transition focus:border-[var(--app-border-accent)]"
+                    />
+                  </label>
+                </div>
+
+                <label className="flex items-center justify-between gap-4 rounded-[var(--app-radius-lg)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_82%,transparent)] px-4 py-4">
+                  <div>
+                    <div className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
+                      YOLO Mode
+                    </div>
+                    <div className="mt-2 text-sm leading-6 text-[var(--app-text-secondary)]">
+                      仅作为新会话默认值。它只影响可审批的 destructive file
+                      操作，不会绕过 shell / network 审批和 sandbox。
+                    </div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={settingsForm.yoloMode}
+                    onChange={(event) =>
+                      setSettingsForm((current) =>
+                        patchSettingsForm(current, {
+                          yoloMode: event.target.checked
+                        })
+                      )
+                    }
+                    disabled={loadingSettings || savingSettings}
+                    className="h-5 w-5 rounded border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] text-[var(--app-status-success)]"
+                  />
+                </label>
+
+                <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-[var(--app-text-muted)]">
+                  <span>
+                    {loadingSettings
+                      ? "正在同步 user settings..."
+                      : userSettings
+                        ? `上次保存 ${formatTimestamp(userSettings.updatedAt)}`
+                        : "settings 尚未加载"}
+                  </span>
+                  <span>
+                    当前 session: cwd{" "}
+                    {formatWorkingDirectory(
+                      currentSession?.workingDirectory ?? "--"
+                    )}{" "}
+                    / yolo {currentSession?.context.yoloMode ? "on" : "off"}
+                  </span>
+                </div>
+              </div>
+            </WorkbenchPanel>
+
             <WorkbenchPanel
               eyebrow="Schedule Pack"
               title="当前日程能力视图"

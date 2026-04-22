@@ -4,7 +4,10 @@ import type {
   SessionSnapshot,
   TraceRecord
 } from "@ai-app-template/agent";
-import type { RoutineRecord } from "@ai-app-template/domain";
+import type {
+  RoutineRecord,
+  SessionSettingsRecord
+} from "@ai-app-template/domain";
 
 export interface ApiClientConfig {
   baseUrl: string;
@@ -30,10 +33,19 @@ export interface CreateSessionPayload {
   workingDirectory?: string;
   userId?: string;
   yoloMode?: boolean;
+  contextWindow?: number;
+  maxTurns?: number;
 }
 
 export interface UpdateSessionSettingsPayload {
   yoloMode: boolean;
+}
+
+export interface UpdateUserSettingsPayload {
+  workingDirectory?: string;
+  yoloMode?: boolean;
+  contextWindow?: number;
+  maxTurns?: number;
 }
 
 export interface ListSessionRoutinesResult {
@@ -233,6 +245,41 @@ export class ApiClient {
       session: SessionSnapshot;
     };
     return payload.session;
+  }
+
+  async getUserSettings(userId: string): Promise<SessionSettingsRecord> {
+    const response = await this.fetchImpl(
+      appendCacheBust(buildUrl(this.baseUrl, `/users/${userId}/settings`)),
+      {
+        cache: "no-store"
+      }
+    );
+    const payload = (await ensureOk(response).then((result) =>
+      result.json()
+    )) as {
+      settings: SessionSettingsRecord;
+    };
+    return payload.settings;
+  }
+
+  async updateUserSettings(
+    userId: string,
+    input: UpdateUserSettingsPayload
+  ): Promise<SessionSettingsRecord> {
+    const response = await this.fetchImpl(
+      buildUrl(this.baseUrl, `/users/${userId}/settings`),
+      {
+        method: "PATCH",
+        headers: toJsonHeaders(),
+        body: JSON.stringify(input)
+      }
+    );
+    const payload = (await ensureOk(response).then((result) =>
+      result.json()
+    )) as {
+      settings: SessionSettingsRecord;
+    };
+    return payload.settings;
   }
 
   async deleteSession(sessionId: string): Promise<void> {

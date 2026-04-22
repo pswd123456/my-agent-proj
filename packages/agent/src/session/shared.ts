@@ -1,6 +1,10 @@
 import path from "node:path";
 
-import type { ScheduleSessionContext } from "@ai-app-template/domain";
+import {
+  DEFAULT_CONTEXT_WINDOW,
+  DEFAULT_SESSION_MAX_TURNS,
+  type ScheduleSessionContext
+} from "@ai-app-template/domain";
 
 import type {
   ConversationBlock,
@@ -26,11 +30,15 @@ export function createSnapshot(input: {
   model: string;
   userId?: string;
   yoloMode?: boolean;
+  contextWindow?: number;
+  maxTurns?: number;
 }): SessionSnapshot {
   return {
     sessionId: input.sessionId,
     workingDirectory: input.workingDirectory,
     model: input.model,
+    contextWindow: input.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
+    maxTurns: input.maxTurns ?? DEFAULT_SESSION_MAX_TURNS,
     context: createScheduleSessionContext(input.userId, input.yoloMode),
     messages: [],
     sessionState: createSessionState(),
@@ -122,6 +130,8 @@ export function isSessionSnapshot(value: unknown): value is SessionSnapshot {
     typeof value.sessionId === "string" &&
     typeof value.workingDirectory === "string" &&
     typeof value.model === "string" &&
+    typeof value.contextWindow === "number" &&
+    typeof value.maxTurns === "number" &&
     isPlainRecord(value.context) &&
     typeof value.context.userId === "string" &&
     typeof value.context.status === "string" &&
