@@ -53,6 +53,7 @@ export interface ScheduleSessionContext {
   userId: string;
   status: ScheduleSessionStatus;
   currentDateContext: string;
+  yoloMode: boolean;
   pendingPermissionRequest: PendingPermissionRequest | null;
   pendingConfirmationPayload: PendingConfirmationPayload | null;
   pendingConflictSummary: string | null;

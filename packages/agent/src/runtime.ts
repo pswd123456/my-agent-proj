@@ -53,12 +53,18 @@ export class AgentRuntime {
   }
 
   async createSession(
-    input: { workingDirectory?: string; model?: string; userId?: string } = {}
+    input: {
+      workingDirectory?: string;
+      model?: string;
+      userId?: string;
+      yoloMode?: boolean;
+    } = {}
   ): ReturnType<SessionManager["createSession"]> {
     const createInput: {
       workingDirectory?: string;
       model?: string;
       userId?: string;
+      yoloMode?: boolean;
     } = {
       model: input.model ?? this.options.model
     };
@@ -68,6 +74,9 @@ export class AgentRuntime {
     }
     if (typeof input.userId === "string" && input.userId.length > 0) {
       createInput.userId = input.userId;
+    }
+    if (typeof input.yoloMode === "boolean") {
+      createInput.yoloMode = input.yoloMode;
     }
 
     return this.options.sessionManager.createSession(createInput);
@@ -120,7 +129,10 @@ export class AgentRuntime {
       });
     } finally {
       try {
-        await this.options.sessionManager.releaseExecution(input.sessionId, runId);
+        await this.options.sessionManager.releaseExecution(
+          input.sessionId,
+          runId
+        );
       } catch {
         // Ignore release failures so the primary error is preserved.
       }

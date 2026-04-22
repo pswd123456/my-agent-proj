@@ -15,6 +15,7 @@ export interface SessionSummary {
   sessionId: string;
   updatedAt: string;
   workingDirectory: string;
+  yoloMode: boolean;
   model: string;
   loopState: SessionSnapshot["sessionState"]["loopState"];
   turnCount: number;
@@ -28,6 +29,11 @@ export interface SessionSummary {
 export interface CreateSessionPayload {
   workingDirectory?: string;
   userId?: string;
+  yoloMode?: boolean;
+}
+
+export interface UpdateSessionSettingsPayload {
+  yoloMode: boolean;
 }
 
 export interface ListSessionRoutinesResult {
@@ -85,6 +91,7 @@ function toSessionSummary(session: SessionSnapshot): SessionSummary {
     sessionId: session.sessionId,
     updatedAt: session.updatedAt,
     workingDirectory: session.workingDirectory,
+    yoloMode: session.context.yoloMode,
     model: session.model,
     loopState: session.sessionState.loopState,
     turnCount: session.sessionState.turnCount,
@@ -198,6 +205,26 @@ export class ApiClient {
       appendCacheBust(buildUrl(this.baseUrl, `/sessions/${sessionId}`)),
       {
         cache: "no-store"
+      }
+    );
+    const payload = (await ensureOk(response).then((result) =>
+      result.json()
+    )) as {
+      session: SessionSnapshot;
+    };
+    return payload.session;
+  }
+
+  async updateSessionSettings(
+    sessionId: string,
+    input: UpdateSessionSettingsPayload
+  ): Promise<SessionSnapshot> {
+    const response = await this.fetchImpl(
+      buildUrl(this.baseUrl, `/sessions/${sessionId}/settings`),
+      {
+        method: "PATCH",
+        headers: toJsonHeaders(),
+        body: JSON.stringify(input)
       }
     );
     const payload = (await ensureOk(response).then((result) =>

@@ -11,7 +11,12 @@ import type { RoutineRepository } from "@ai-app-template/db";
 
 const createSessionBodySchema = z.object({
   workingDirectory: z.string().optional(),
-  userId: z.string().optional()
+  userId: z.string().optional(),
+  yoloMode: z.boolean().optional()
+});
+
+const updateSessionSettingsBodySchema = z.object({
+  yoloMode: z.boolean()
 });
 
 const executeSessionBodySchema = z.object({
@@ -78,6 +83,7 @@ export function createApiApp(dependencies: ApiAppDependencies) {
       workingDirectory: string;
       model?: string;
       userId?: string;
+      yoloMode?: boolean;
     } = {
       workingDirectory: dependencies.buildWorkingDirectory(
         body.workingDirectory
@@ -89,6 +95,9 @@ export function createApiApp(dependencies: ApiAppDependencies) {
     }
     if (body.userId) {
       createInput.userId = body.userId;
+    }
+    if (typeof body.yoloMode === "boolean") {
+      createInput.yoloMode = body.yoloMode;
     }
 
     const session =
@@ -105,6 +114,20 @@ export function createApiApp(dependencies: ApiAppDependencies) {
     }
 
     return c.json({ session });
+  });
+
+  app.patch("/sessions/:sessionId/settings", async (c) => {
+    const sessionId = c.req.param("sessionId");
+    const session = await dependencies.sessionManager.getSession(sessionId);
+    if (!session) {
+      return c.json({ error: "Session not found." }, 404);
+    }
+
+    const body = updateSessionSettingsBodySchema.parse(await c.req.json());
+    const updated = await dependencies.sessionManager.updateContext(sessionId, {
+      yoloMode: body.yoloMode
+    });
+    return c.json({ session: updated });
   });
 
   app.delete("/sessions/:sessionId", async (c) => {
@@ -156,12 +179,17 @@ export function createApiApp(dependencies: ApiAppDependencies) {
       const result = await runtime.run({
         sessionId,
         message: body.message,
-        ...(typeof body.maxTurns === "number" ? { maxTurns: body.maxTurns } : {})
+        ...(typeof body.maxTurns === "number"
+          ? { maxTurns: body.maxTurns }
+          : {})
       });
 
       return c.json(result);
     } catch (error) {
-      if (error instanceof Error && error.name === "SessionExecutionInProgressError") {
+      if (
+        error instanceof Error &&
+        error.name === "SessionExecutionInProgressError"
+      ) {
         return c.json({ error: error.message }, 409);
       }
       throw error;

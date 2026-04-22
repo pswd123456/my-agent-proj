@@ -47,7 +47,9 @@ export function mergeSessionSummary(
 ): SessionSummary[] {
   const next = sessions.filter((item) => item.sessionId !== session.sessionId);
   next.unshift(toSummary(session));
-  return next.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  return next.sort((left, right) =>
+    right.updatedAt.localeCompare(left.updatedAt)
+  );
 }
 
 export function flattenTraceRecords(records: TraceRecord[]): RunStreamEvent[] {
@@ -67,6 +69,17 @@ export function collectToolRows(events: RunStreamEvent[]) {
     output: string | null;
     displayText: string | null;
     isError: boolean;
+    permissionFamily: string | null;
+    permissionProfile: string | null;
+    permissionSummary: string | null;
+    permissionContextNote: string | null;
+    permissionDecision:
+      | "requested"
+      | "approved"
+      | "rejected"
+      | "blocked"
+      | null;
+    permissionReason: string | null;
   }> = [];
 
   for (const event of events) {
@@ -78,7 +91,103 @@ export function collectToolRows(events: RunStreamEvent[]) {
         input: event.input,
         output: null,
         displayText: null,
-        isError: false
+        isError: false,
+        permissionFamily: null,
+        permissionProfile: null,
+        permissionSummary: null,
+        permissionContextNote: null,
+        permissionDecision: null,
+        permissionReason: null
+      });
+      continue;
+    }
+
+    if (event.kind === "permission_request") {
+      const existing = rows.find((row) => row.toolCallId === event.toolCallId);
+      if (existing) {
+        existing.permissionFamily = event.request.family;
+        existing.permissionProfile = event.request.permissionProfile;
+        existing.permissionSummary = event.request.summaryText;
+        existing.permissionContextNote = event.request.contextNote ?? null;
+        existing.permissionDecision = "requested";
+        continue;
+      }
+
+      rows.push({
+        toolCallId: event.toolCallId,
+        toolName: event.toolName,
+        createdAt: event.createdAt,
+        input: null,
+        output: null,
+        displayText: null,
+        isError: false,
+        permissionFamily: event.request.family,
+        permissionProfile: event.request.permissionProfile,
+        permissionSummary: event.request.summaryText,
+        permissionContextNote: event.request.contextNote ?? null,
+        permissionDecision: "requested",
+        permissionReason: null
+      });
+      continue;
+    }
+
+    if (
+      event.kind === "permission_approved" ||
+      event.kind === "permission_rejected"
+    ) {
+      const existing = rows.find((row) => row.toolCallId === event.toolCallId);
+      if (existing) {
+        existing.permissionFamily = event.request.family;
+        existing.permissionProfile = event.request.permissionProfile;
+        existing.permissionSummary = event.request.summaryText;
+        existing.permissionContextNote = event.request.contextNote ?? null;
+        existing.permissionDecision =
+          event.kind === "permission_approved" ? "approved" : "rejected";
+        continue;
+      }
+
+      rows.push({
+        toolCallId: event.toolCallId,
+        toolName: event.toolName,
+        createdAt: event.createdAt,
+        input: null,
+        output: null,
+        displayText: null,
+        isError: event.kind === "permission_rejected",
+        permissionFamily: event.request.family,
+        permissionProfile: event.request.permissionProfile,
+        permissionSummary: event.request.summaryText,
+        permissionContextNote: event.request.contextNote ?? null,
+        permissionDecision:
+          event.kind === "permission_approved" ? "approved" : "rejected",
+        permissionReason: null
+      });
+      continue;
+    }
+
+    if (event.kind === "permission_blocked") {
+      const existing = rows.find((row) => row.toolCallId === event.toolCallId);
+      if (existing) {
+        existing.permissionDecision = "blocked";
+        existing.permissionReason = event.reason;
+        existing.isError = true;
+        continue;
+      }
+
+      rows.push({
+        toolCallId: event.toolCallId,
+        toolName: event.toolName,
+        createdAt: event.createdAt,
+        input: null,
+        output: null,
+        displayText: null,
+        isError: true,
+        permissionFamily: null,
+        permissionProfile: null,
+        permissionSummary: null,
+        permissionContextNote: null,
+        permissionDecision: "blocked",
+        permissionReason: event.reason
       });
       continue;
     }
@@ -102,7 +211,13 @@ export function collectToolRows(events: RunStreamEvent[]) {
       input: null,
       output: event.output,
       displayText: event.displayText ?? null,
-      isError: event.isError
+      isError: event.isError,
+      permissionFamily: null,
+      permissionProfile: null,
+      permissionSummary: null,
+      permissionContextNote: null,
+      permissionDecision: null,
+      permissionReason: null
     });
   }
 

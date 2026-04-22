@@ -17,7 +17,10 @@ import {
 
 export class MemorySessionManager implements SessionManager {
   private readonly sessions = new Map<string, SessionSnapshot>();
-  private readonly activeRuns = new Map<string, { runId: string; startedAt: number }>();
+  private readonly activeRuns = new Map<
+    string,
+    { runId: string; startedAt: number }
+  >();
 
   async createSession(
     input: CreateSessionInput = {}
@@ -27,6 +30,7 @@ export class MemorySessionManager implements SessionManager {
       workingDirectory: string;
       model: string;
       userId?: string;
+      yoloMode?: boolean;
     } = {
       sessionId: randomUUID(),
       workingDirectory: resolveWorkingDirectory(input.workingDirectory),
@@ -35,6 +39,9 @@ export class MemorySessionManager implements SessionManager {
 
     if (typeof input.userId === "string" && input.userId.length > 0) {
       createSnapshotInput.userId = input.userId;
+    }
+    if (typeof input.yoloMode === "boolean") {
+      createSnapshotInput.yoloMode = input.yoloMode;
     }
 
     const snapshot = createSnapshot(createSnapshotInput);

@@ -2,7 +2,12 @@ import path from "node:path";
 
 import type { ScheduleSessionContext } from "@ai-app-template/domain";
 
-import type { ConversationBlock, LoopState, SessionSnapshot, SessionState } from "../types.js";
+import type {
+  ConversationBlock,
+  LoopState,
+  SessionSnapshot,
+  SessionState
+} from "../types.js";
 
 export function createSessionState(
   loopState: LoopState = "waiting for input"
@@ -20,12 +25,13 @@ export function createSnapshot(input: {
   workingDirectory: string;
   model: string;
   userId?: string;
+  yoloMode?: boolean;
 }): SessionSnapshot {
   return {
     sessionId: input.sessionId,
     workingDirectory: input.workingDirectory,
     model: input.model,
-    context: createScheduleSessionContext(input.userId),
+    context: createScheduleSessionContext(input.userId, input.yoloMode),
     messages: [],
     sessionState: createSessionState(),
     inputTokensCount: 0,
@@ -35,7 +41,14 @@ export function createSnapshot(input: {
 }
 
 export function cloneSnapshot(snapshot: SessionSnapshot): SessionSnapshot {
-  return structuredClone(snapshot);
+  const cloned = structuredClone(snapshot) as SessionSnapshot;
+  return {
+    ...cloned,
+    context: {
+      ...cloned.context,
+      yoloMode: cloned.context.yoloMode ?? false
+    }
+  };
 }
 
 function resolveCurrentDateContext(now = new Date()): string {
@@ -45,11 +58,15 @@ function resolveCurrentDateContext(now = new Date()): string {
   return `${year}-${month}-${day}`;
 }
 
-export function createScheduleSessionContext(userId = "cli-user"): ScheduleSessionContext {
+export function createScheduleSessionContext(
+  userId = "cli-user",
+  yoloMode = false
+): ScheduleSessionContext {
   return {
     userId,
     status: "waiting_for_user_input",
     currentDateContext: resolveCurrentDateContext(),
+    yoloMode,
     pendingPermissionRequest: null,
     pendingConfirmationPayload: null,
     pendingConflictSummary: null,
@@ -61,7 +78,9 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-export function isConversationBlock(value: unknown): value is ConversationBlock {
+export function isConversationBlock(
+  value: unknown
+): value is ConversationBlock {
   if (!isPlainRecord(value) || typeof value.kind !== "string") {
     return false;
   }
@@ -107,9 +126,20 @@ export function isSessionSnapshot(value: unknown): value is SessionSnapshot {
     typeof value.context.userId === "string" &&
     typeof value.context.status === "string" &&
     typeof value.context.currentDateContext === "string" &&
-    Object.prototype.hasOwnProperty.call(value.context, "pendingPermissionRequest") &&
-    Object.prototype.hasOwnProperty.call(value.context, "pendingConfirmationPayload") &&
-    Object.prototype.hasOwnProperty.call(value.context, "pendingConflictSummary") &&
+    (typeof value.context.yoloMode === "boolean" ||
+      typeof value.context.yoloMode === "undefined") &&
+    Object.prototype.hasOwnProperty.call(
+      value.context,
+      "pendingPermissionRequest"
+    ) &&
+    Object.prototype.hasOwnProperty.call(
+      value.context,
+      "pendingConfirmationPayload"
+    ) &&
+    Object.prototype.hasOwnProperty.call(
+      value.context,
+      "pendingConflictSummary"
+    ) &&
     Object.prototype.hasOwnProperty.call(value.context, "lastUserMessage") &&
     Array.isArray(value.messages) &&
     value.messages.every(isConversationBlock) &&

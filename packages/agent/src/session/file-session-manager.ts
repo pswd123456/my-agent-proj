@@ -18,7 +18,10 @@ import {
 } from "./shared.js";
 
 export class FileSessionManager implements SessionManager {
-  private readonly activeRuns = new Map<string, { runId: string; startedAt: number }>();
+  private readonly activeRuns = new Map<
+    string,
+    { runId: string; startedAt: number }
+  >();
 
   constructor(private readonly baseDirectory: string) {}
 
@@ -79,6 +82,7 @@ export class FileSessionManager implements SessionManager {
       workingDirectory: string;
       model: string;
       userId?: string;
+      yoloMode?: boolean;
     } = {
       sessionId,
       workingDirectory: resolveWorkingDirectory(input.workingDirectory),
@@ -87,6 +91,9 @@ export class FileSessionManager implements SessionManager {
 
     if (typeof input.userId === "string" && input.userId.length > 0) {
       createSnapshotInput.userId = input.userId;
+    }
+    if (typeof input.yoloMode === "boolean") {
+      createSnapshotInput.yoloMode = input.yoloMode;
     }
 
     const snapshot = createSnapshot(createSnapshotInput);

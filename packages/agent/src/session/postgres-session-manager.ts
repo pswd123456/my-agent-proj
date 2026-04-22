@@ -23,6 +23,7 @@ interface SessionRow {
   user_id: string;
   status: string;
   current_date_context: string;
+  yolo_mode: boolean | null;
   pending_permission_request: unknown;
   pending_confirmation_payload: unknown;
   pending_conflict_summary: string | null;
@@ -158,6 +159,7 @@ function toSessionContext(row: SessionRow): ScheduleSessionContext {
     userId: row.user_id,
     status: row.status as ScheduleSessionContext["status"],
     currentDateContext: row.current_date_context,
+    yoloMode: row.yolo_mode ?? false,
     pendingPermissionRequest: isRecord(pendingPermissionRequest)
       ? (pendingPermissionRequest as unknown as ScheduleSessionContext["pendingPermissionRequest"])
       : null,
@@ -246,6 +248,7 @@ export class PostgresSessionManager implements SessionManager {
       workingDirectory: string;
       model: string;
       userId?: string;
+      yoloMode?: boolean;
     } = {
       sessionId: randomUUID(),
       workingDirectory: resolveWorkingDirectory(input.workingDirectory),
@@ -254,6 +257,9 @@ export class PostgresSessionManager implements SessionManager {
 
     if (typeof input.userId === "string" && input.userId.length > 0) {
       createSnapshotInput.userId = input.userId;
+    }
+    if (typeof input.yoloMode === "boolean") {
+      createSnapshotInput.yoloMode = input.yoloMode;
     }
 
     const snapshot = createSnapshot(createSnapshotInput);
@@ -552,6 +558,7 @@ export class PostgresSessionManager implements SessionManager {
         user_id,
         status,
         current_date_context,
+        yolo_mode,
         pending_permission_request,
         pending_confirmation_payload,
         pending_conflict_summary,
@@ -572,6 +579,7 @@ export class PostgresSessionManager implements SessionManager {
         ${snapshot.context.userId},
         ${snapshot.context.status},
         ${snapshot.context.currentDateContext},
+        ${snapshot.context.yoloMode},
         ${
           snapshot.context.pendingPermissionRequest
             ? JSON.stringify(snapshot.context.pendingPermissionRequest)
@@ -599,6 +607,7 @@ export class PostgresSessionManager implements SessionManager {
         user_id = excluded.user_id,
         status = excluded.status,
         current_date_context = excluded.current_date_context,
+        yolo_mode = excluded.yolo_mode,
         pending_permission_request = excluded.pending_permission_request,
         pending_confirmation_payload = excluded.pending_confirmation_payload,
         pending_conflict_summary = excluded.pending_conflict_summary,

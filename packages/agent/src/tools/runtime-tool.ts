@@ -1,8 +1,5 @@
 import type { RoutineRepository } from "@ai-app-template/db";
-import type {
-  ToolResult,
-  ToolValidationIssue
-} from "@ai-app-template/domain";
+import type { ToolResult, ToolValidationIssue } from "@ai-app-template/domain";
 
 import type { SessionManager } from "../session/contracts.js";
 import type { JsonValue, ToolState } from "../types.js";
@@ -32,6 +29,7 @@ export interface ToolExecutionContext {
   sessionContext: {
     status: string;
     currentDateContext: string;
+    yoloMode: boolean;
   };
 }
 

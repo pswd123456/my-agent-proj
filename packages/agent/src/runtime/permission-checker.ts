@@ -42,7 +42,10 @@ function buildFallbackPermissionSummary(tool: RuntimeTool): string {
   return `需要你的确认后才能执行高风险工具：${tool.name}`;
 }
 
-function buildSandboxBlockedResult(toolName: string, reason: string): PermissionBlockResult {
+function buildSandboxBlockedResult(
+  toolName: string,
+  reason: string
+): PermissionBlockResult {
   return {
     decision: "block",
     reason,
@@ -125,6 +128,14 @@ export async function checkToolPermission(input: {
     return { decision: "allow" };
   }
 
+  if (
+    input.executionContext.sessionContext.yoloMode &&
+    input.tool.family === "workspace-file" &&
+    input.tool.permissionProfile === "destructive-only"
+  ) {
+    return { decision: "allow" };
+  }
+
   const permissionRequest =
     (await input.tool.getPermissionRequest?.(
       input.toolInput,
@@ -145,7 +156,8 @@ export async function checkToolPermission(input: {
       tool: input.tool,
       toolInput: input.toolInput,
       summaryText:
-        permissionRequest?.summaryText ?? buildFallbackPermissionSummary(input.tool),
+        permissionRequest?.summaryText ??
+        buildFallbackPermissionSummary(input.tool),
       ...(permissionRequest?.contextNote
         ? { contextNote: permissionRequest.contextNote }
         : {})

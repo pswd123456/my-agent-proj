@@ -66,6 +66,14 @@ function formatDayLabel(value: string): string {
   });
 }
 
+function formatWorkingDirectory(value: string): string {
+  if (value.length <= 48) {
+    return value;
+  }
+
+  return `${value.slice(0, 24)}...${value.slice(-18)}`;
+}
+
 function stringify(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
@@ -102,8 +110,7 @@ function collectTurnUsage(
       cacheReadInputTokens:
         current.cacheReadInputTokens + event.usage.cacheReadInputTokens,
       cacheCreationInputTokens:
-        current.cacheCreationInputTokens +
-        event.usage.cacheCreationInputTokens
+        current.cacheCreationInputTokens + event.usage.cacheCreationInputTokens
     });
   }
 
@@ -126,6 +133,38 @@ function getStateTone(
   }
 
   return "text-[var(--app-text-secondary)]";
+}
+
+function getPermissionFamilyLabel(family: string): string {
+  switch (family) {
+    case "workspace-file":
+      return "workspace file";
+    case "workspace-shell":
+      return "workspace shell";
+    case "workspace-network":
+      return "workspace network";
+    case "schedule":
+      return "schedule";
+    default:
+      return family;
+  }
+}
+
+function getPermissionDecisionLabel(
+  decision: "requested" | "approved" | "rejected" | "blocked" | null
+): string {
+  switch (decision) {
+    case "requested":
+      return "waiting";
+    case "approved":
+      return "approved";
+    case "rejected":
+      return "rejected";
+    case "blocked":
+      return "blocked";
+    default:
+      return "none";
+  }
 }
 
 function getBubbleClass(kind: "user" | "assistant"): string {
@@ -355,6 +394,74 @@ function renderExecutionEvent(
     );
   }
 
+  if (
+    event.kind === "permission_request" ||
+    event.kind === "permission_approved" ||
+    event.kind === "permission_rejected"
+  ) {
+    const toneClass =
+      event.kind === "permission_approved"
+        ? "text-[var(--app-status-success)]"
+        : event.kind === "permission_rejected"
+          ? "text-[var(--app-status-danger)]"
+          : "text-[var(--app-status-warning)]";
+
+    return (
+      <article
+        key={getTimelineEventKey(event)}
+        className={getInspectorCardClass()}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
+              Permission
+            </div>
+            <div className="mt-2 text-sm font-medium text-[var(--app-text-primary)]">
+              {event.toolName}
+            </div>
+          </div>
+          <div className={`text-[0.72rem] ${toneClass}`}>
+            {event.kind.replace("permission_", "")}
+          </div>
+        </div>
+        <div className="mt-3 grid gap-2 text-sm leading-6 text-[var(--app-text-secondary)]">
+          <div>{event.request.summaryText}</div>
+          <div className="font-mono text-[0.72rem] uppercase tracking-[0.14em] text-[var(--app-text-muted)]">
+            {getPermissionFamilyLabel(event.request.family)} /{" "}
+            {event.request.permissionProfile}
+          </div>
+          {event.request.contextNote ? (
+            <div className="text-[var(--app-text-muted)]">
+              {event.request.contextNote}
+            </div>
+          ) : null}
+        </div>
+      </article>
+    );
+  }
+
+  if (event.kind === "permission_blocked") {
+    return (
+      <article
+        key={getTimelineEventKey(event)}
+        className="min-w-0 rounded-[var(--app-radius-lg)] bg-[color:color-mix(in_srgb,var(--app-status-danger)_12%,var(--app-bg-muted)_88%)] px-4 py-4 text-sm leading-7 text-[var(--app-status-danger)]"
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div className="font-mono text-[0.72rem] uppercase tracking-[0.18em]">
+            Permission Blocked
+          </div>
+          <div className="text-[0.72rem] text-[var(--app-text-muted)]">
+            {formatTimestamp(event.createdAt)}
+          </div>
+        </div>
+        <div className="mt-3 text-[var(--app-text-primary)]">
+          {event.toolName}
+        </div>
+        <div className="mt-2">{event.reason}</div>
+      </article>
+    );
+  }
+
   if (event.kind === "tool_result") {
     return (
       <article
@@ -390,7 +497,7 @@ function renderExecutionEvent(
   if (event.kind === "turn_start" || event.kind === "turn_end") {
     const turnUsage =
       event.kind === "turn_end"
-        ? turnUsageByTurnCount.get(event.turnCount) ?? null
+        ? (turnUsageByTurnCount.get(event.turnCount) ?? null)
         : null;
 
     return (
@@ -459,8 +566,7 @@ function renderExecutionEvent(
       >
         <span className="font-medium text-[var(--app-text-primary)]">
           response / input {event.usage.inputTokens} / output{" "}
-          {event.usage.outputTokens} /{" "}
-          {formatCacheUsage(event.usage)}
+          {event.usage.outputTokens} / {formatCacheUsage(event.usage)}
         </span>
         <span className="font-mono text-[var(--app-text-muted)]">
           {formatTimestamp(event.createdAt)}
@@ -514,10 +620,15 @@ export function UI1Workbench() {
   const [loadingSession, setLoadingSession] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [createWorkingDirectory, setCreateWorkingDirectory] = useState("");
+  const [createYoloMode, setCreateYoloMode] = useState(false);
+  const [creatingSession, setCreatingSession] = useState(false);
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(
     null
   );
   const [resettingRoutines, setResettingRoutines] = useState(false);
+  const [savingYoloMode, setSavingYoloMode] = useState(false);
   const [maxTurns, setMaxTurns] = useState(String(DEFAULT_MAX_TURNS));
   const [errorText, setErrorText] = useState<string | null>(null);
 
@@ -644,29 +755,48 @@ export function UI1Workbench() {
     setStreamEvents([]);
   }
 
+  function handleOpenCreateSessionDialog() {
+    setCreateWorkingDirectory("");
+    setCreateYoloMode(false);
+    setCreateDialogOpen(true);
+  }
+
   async function handleCreateSession() {
     try {
+      setCreatingSession(true);
       setErrorText(null);
-      const snapshots = await apiClient.listSessions();
-      const reusable = [...snapshots]
-        .filter(isReusableNewSession)
-        .sort((left, right) =>
-          right.updatedAt.localeCompare(left.updatedAt)
-        )[0];
+      const normalizedWorkingDirectory = createWorkingDirectory.trim();
 
-      if (reusable) {
-        setSessions(sortSessionSummaries(snapshots));
-        setSelectedSessionId(reusable.sessionId);
-        setCurrentSession(reusable);
-        setTraceRecords([]);
-        setRoutines([]);
-        setStreamEvents([]);
-        router.replace(`/?sessionId=${reusable.sessionId}`, { scroll: false });
-        setSidebarOpen(false);
-        return;
+      if (!normalizedWorkingDirectory && !createYoloMode) {
+        const snapshots = await apiClient.listSessions();
+        const reusable = [...snapshots]
+          .filter(isReusableNewSession)
+          .sort((left, right) =>
+            right.updatedAt.localeCompare(left.updatedAt)
+          )[0];
+
+        if (reusable) {
+          setSessions(sortSessionSummaries(snapshots));
+          setSelectedSessionId(reusable.sessionId);
+          setCurrentSession(reusable);
+          setTraceRecords([]);
+          setRoutines([]);
+          setStreamEvents([]);
+          router.replace(`/?sessionId=${reusable.sessionId}`, {
+            scroll: false
+          });
+          setSidebarOpen(false);
+          setCreateDialogOpen(false);
+          return;
+        }
       }
 
-      const session = await apiClient.createSession();
+      const session = await apiClient.createSession({
+        ...(normalizedWorkingDirectory
+          ? { workingDirectory: normalizedWorkingDirectory }
+          : {}),
+        ...(createYoloMode ? { yoloMode: true } : {})
+      });
       setSessions((current) =>
         mergeSessionSummary(current, session, toSessionSummary)
       );
@@ -677,8 +807,11 @@ export function UI1Workbench() {
       setStreamEvents([]);
       router.replace(`/?sessionId=${session.sessionId}`, { scroll: false });
       setSidebarOpen(false);
+      setCreateDialogOpen(false);
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCreatingSession(false);
     }
   }
 
@@ -735,13 +868,11 @@ export function UI1Workbench() {
     }
   }
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!currentSession || !message.trim() || submitting) {
+  async function submitSessionMessage(nextMessage: string) {
+    if (!currentSession || !nextMessage.trim() || submitting) {
       return;
     }
 
-    const nextMessage = message.trim();
     const sessionId = currentSession.sessionId;
     const nextMaxTurns = normalizeMaxTurns(maxTurns);
 
@@ -799,6 +930,41 @@ export function UI1Workbench() {
     }
   }
 
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await submitSessionMessage(message.trim());
+  }
+
+  async function handlePermissionQuickReply(reply: "确认" | "取消") {
+    await submitSessionMessage(reply);
+  }
+
+  async function handleToggleYoloMode(checked: boolean) {
+    if (!currentSession || savingYoloMode) {
+      return;
+    }
+
+    setSavingYoloMode(true);
+    setErrorText(null);
+
+    try {
+      const updated = await apiClient.updateSessionSettings(
+        currentSession.sessionId,
+        {
+          yoloMode: checked
+        }
+      );
+      setCurrentSession(updated);
+      setSessions((current) =>
+        mergeSessionSummary(current, updated, toSessionSummary)
+      );
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSavingYoloMode(false);
+    }
+  }
+
   async function handleResetAllRoutines() {
     if (!currentSession || resettingRoutines) {
       return;
@@ -841,6 +1007,8 @@ export function UI1Workbench() {
   const weekDates = currentSession
     ? buildWeekRange(currentSession.context.currentDateContext).dates
     : [];
+  const pendingPermissionRequest =
+    currentSession?.context.pendingPermissionRequest ?? null;
   const timelineEntries = buildTimelineItems({
     messages: currentSession?.messages ?? [],
     historyEvents,
@@ -860,6 +1028,92 @@ export function UI1Workbench() {
           onClick={() => setSidebarOpen(false)}
           className="fixed inset-0 z-30 bg-black/45"
         />
+      ) : null}
+
+      {createDialogOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+          <button
+            type="button"
+            aria-label="关闭创建会话弹窗"
+            onClick={() => setCreateDialogOpen(false)}
+            className="absolute inset-0 bg-black/55"
+          />
+          <div className="relative z-10 w-full max-w-lg rounded-[var(--app-radius-xl)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-5 py-5 shadow-[var(--app-shadow-lg)]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
+                  Create Session
+                </div>
+                <div className="mt-2 text-lg font-semibold text-[var(--app-text-primary)]">
+                  新建带 Stage4 设置的会话
+                </div>
+                <p className="mt-2 text-sm leading-6 text-[var(--app-text-secondary)]">
+                  `Current working directory` 只在创建时设置，YOLO mode 为当前
+                  session 持久化开关。
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCreateDialogOpen(false)}
+                className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-3 py-1.5 text-xs text-[var(--app-text-muted)] transition hover:border-[var(--app-border-strong)] hover:text-[var(--app-text-primary)]"
+              >
+                关闭
+              </button>
+            </div>
+
+            <div className="mt-5 grid gap-4">
+              <label className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
+                <span className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
+                  Current Working Directory
+                </span>
+                <input
+                  value={createWorkingDirectory}
+                  onChange={(event) =>
+                    setCreateWorkingDirectory(event.target.value)
+                  }
+                  placeholder="留空则使用 workspace root，例如 apps/web"
+                  className="w-full rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
+                />
+              </label>
+
+              <label className="flex items-center justify-between gap-4 rounded-[var(--app-radius-lg)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_82%,transparent)] px-4 py-4">
+                <div>
+                  <div className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
+                    YOLO Mode
+                  </div>
+                  <div className="mt-2 text-sm leading-6 text-[var(--app-text-secondary)]">
+                    仅绕过可审批的文件 destructive 操作，不绕过 shell/network
+                    审批，也不绕过 sandbox block。
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={createYoloMode}
+                  onChange={(event) => setCreateYoloMode(event.target.checked)}
+                  className="h-5 w-5 rounded border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] text-[var(--app-status-success)]"
+                />
+              </label>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setCreateDialogOpen(false)}
+                className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-4 py-2 text-sm text-[var(--app-text-secondary)] transition hover:border-[var(--app-border-strong)] hover:text-[var(--app-text-primary)]"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleCreateSession()}
+                disabled={creatingSession}
+                className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-accent)] bg-[var(--app-bg-elevated)] px-4 py-2 text-sm font-medium text-[var(--app-text-primary)] transition hover:border-[var(--app-status-success)] hover:text-[var(--app-status-success)] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {creatingSession ? "创建中..." : "创建会话"}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
 
       <aside
@@ -890,7 +1144,7 @@ export function UI1Workbench() {
             <div className="flex flex-col gap-3">
               <button
                 type="button"
-                onClick={() => void handleCreateSession()}
+                onClick={handleOpenCreateSessionDialog}
                 className="inline-flex items-center justify-center rounded-[var(--app-radius-pill)] border border-[var(--app-border-accent)] bg-[var(--app-bg-elevated)] px-4 py-2 text-sm font-medium text-[var(--app-text-primary)] transition hover:border-[var(--app-status-success)] hover:text-[var(--app-status-success)]"
               >
                 创建新会话
@@ -946,15 +1200,26 @@ export function UI1Workbench() {
                       <div className="text-xs leading-6 text-[var(--app-text-secondary)]">
                         {session.lastUserMessage ?? "还没有用户输入"}
                       </div>
-                      <div className="mt-3 flex items-center justify-between text-[0.72rem] text-[var(--app-text-muted)]">
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[0.72rem] text-[var(--app-text-muted)]">
                         <span>{formatTimestamp(session.updatedAt)}</span>
-                        {session.pendingConfirmation ? (
-                          <span className="text-[var(--app-status-warning)]">
-                            等待确认
-                          </span>
-                        ) : isActive ? (
-                          <span>当前</span>
-                        ) : null}
+                        <div className="flex flex-wrap items-center gap-2">
+                          {session.pendingPermission ? (
+                            <span className="text-[var(--app-status-warning)]">
+                              等待 permission
+                            </span>
+                          ) : null}
+                          {session.pendingConfirmation ? (
+                            <span className="text-[var(--app-status-warning)]">
+                              等待确认
+                            </span>
+                          ) : null}
+                          {session.yoloMode ? (
+                            <span className="text-[var(--app-status-success)]">
+                              yolo on
+                            </span>
+                          ) : null}
+                          {isActive ? <span>当前</span> : null}
+                        </div>
                       </div>
                     </button>
                   </article>
@@ -984,15 +1249,26 @@ export function UI1Workbench() {
                   <span className="font-mono text-[var(--app-text-primary)]">
                     {currentSession?.sessionId ?? "loading"}
                   </span>
-                  <span
-                    className={`font-medium ${getStateTone(
-                      currentSession?.sessionState.loopState ?? "idle"
-                    )}`}
-                  >
-                    {currentSession?.sessionState.loopState ?? "idle"}
-                  </span>
                   <span className="text-[var(--app-text-secondary)]">
                     {currentSession?.context.currentDateContext ?? "--"}
+                  </span>
+                  <span className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-3 py-1 text-[0.72rem] text-[var(--app-text-secondary)]">
+                    status {currentSession?.context.status ?? "--"}
+                  </span>
+                  <span className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-3 py-1 font-mono text-[0.72rem] text-[var(--app-text-secondary)]">
+                    cwd{" "}
+                    {formatWorkingDirectory(
+                      currentSession?.workingDirectory ?? "--"
+                    )}
+                  </span>
+                  <span
+                    className={`rounded-[var(--app-radius-pill)] border px-3 py-1 text-[0.72rem] ${
+                      currentSession?.context.yoloMode
+                        ? "border-[var(--app-status-success)] text-[var(--app-status-success)]"
+                        : "border-[var(--app-border-subtle)] text-[var(--app-text-muted)]"
+                    }`}
+                  >
+                    yolo {currentSession?.context.yoloMode ? "on" : "off"}
                   </span>
                 </div>
               </div>
@@ -1045,6 +1321,78 @@ export function UI1Workbench() {
                 </div>
 
                 <form onSubmit={handleSubmit} className="grid gap-3">
+                  {pendingPermissionRequest ? (
+                    <div className="rounded-[var(--app-radius-lg)] border border-[color:color-mix(in_srgb,var(--app-status-warning)_56%,var(--app-border-subtle)_44%)] bg-[color:color-mix(in_srgb,var(--app-status-warning)_12%,var(--app-bg-muted)_88%)] px-4 py-4">
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                        <div className="min-w-0">
+                          <div className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
+                            Permission Request
+                          </div>
+                          <div className="mt-2 text-sm font-medium text-[var(--app-text-primary)]">
+                            {pendingPermissionRequest.toolName}
+                          </div>
+                          <div className="mt-2 text-sm leading-7 text-[var(--app-text-secondary)]">
+                            {pendingPermissionRequest.summaryText}
+                          </div>
+                          <div className="mt-3 flex flex-wrap gap-2 text-[0.72rem]">
+                            <span className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-2.5 py-1 text-[var(--app-text-secondary)]">
+                              {getPermissionFamilyLabel(
+                                pendingPermissionRequest.family
+                              )}
+                            </span>
+                            <span className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-2.5 py-1 text-[var(--app-text-secondary)]">
+                              {pendingPermissionRequest.permissionProfile}
+                            </span>
+                            <span className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-2.5 py-1 text-[var(--app-text-secondary)]">
+                              cwd{" "}
+                              {formatWorkingDirectory(
+                                currentSession?.workingDirectory ?? "--"
+                              )}
+                            </span>
+                            <span
+                              className={`rounded-[var(--app-radius-pill)] border px-2.5 py-1 ${
+                                currentSession?.context.yoloMode
+                                  ? "border-[var(--app-status-success)] text-[var(--app-status-success)]"
+                                  : "border-[var(--app-border-subtle)] text-[var(--app-text-muted)]"
+                              }`}
+                            >
+                              yolo{" "}
+                              {currentSession?.context.yoloMode ? "on" : "off"}
+                            </span>
+                          </div>
+                          {pendingPermissionRequest.contextNote ? (
+                            <div className="mt-3 text-sm leading-6 text-[var(--app-text-muted)]">
+                              {pendingPermissionRequest.contextNote}
+                            </div>
+                          ) : null}
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void handlePermissionQuickReply("确认")
+                            }
+                            disabled={submitting}
+                            className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-accent)] bg-[var(--app-bg-elevated)] px-4 py-2 text-sm font-medium text-[var(--app-text-primary)] transition hover:border-[var(--app-status-success)] hover:text-[var(--app-status-success)] disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            确认执行
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void handlePermissionQuickReply("取消")
+                            }
+                            disabled={submitting}
+                            className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-4 py-2 text-sm text-[var(--app-text-secondary)] transition hover:border-[var(--app-status-danger)] hover:text-[var(--app-status-danger)] disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            取消
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+
                   <textarea
                     value={message}
                     onChange={(event) => setMessage(event.target.value)}
@@ -1071,10 +1419,28 @@ export function UI1Workbench() {
                           className="w-24 rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-3 py-2 text-sm text-[var(--app-text-primary)] outline-none transition focus:border-[var(--app-border-accent)]"
                         />
                       </label>
+                      <label className="flex items-center gap-2 rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-3 py-2 text-xs text-[var(--app-text-secondary)]">
+                        <span className="uppercase tracking-[0.18em]">
+                          YOLO Mode
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={currentSession?.context.yoloMode ?? false}
+                          disabled={
+                            !currentSession || savingYoloMode || submitting
+                          }
+                          onChange={(event) =>
+                            void handleToggleYoloMode(event.target.checked)
+                          }
+                          className="h-4 w-4 rounded border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] text-[var(--app-status-success)]"
+                        />
+                      </label>
                       <div className="text-xs text-[var(--app-text-muted)]">
-                        {submitting
-                          ? "正在流式接收本轮事件..."
-                          : "提交后会实时展示 thinking / tool call / tool result。"}
+                        {savingYoloMode
+                          ? "正在保存 yolo mode..."
+                          : submitting
+                            ? "正在流式接收本轮事件..."
+                            : null}
                       </div>
                     </div>
 
@@ -1321,6 +1687,27 @@ export function UI1Workbench() {
                                   {row.displayText ?? "pending"}
                                 </pre>
                               </div>
+                              {(row.permissionDecision ||
+                                row.permissionSummary ||
+                                row.permissionReason) && (
+                                <div className={getSoftBlockClass("px-3 py-3")}>
+                                  <p className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
+                                    Permission
+                                  </p>
+                                  <pre className={getDebugPreClass("surface")}>
+                                    {stringify({
+                                      decision: getPermissionDecisionLabel(
+                                        row.permissionDecision
+                                      ),
+                                      family: row.permissionFamily,
+                                      permissionProfile: row.permissionProfile,
+                                      summary: row.permissionSummary,
+                                      contextNote: row.permissionContextNote,
+                                      reason: row.permissionReason
+                                    })}
+                                  </pre>
+                                </div>
+                              )}
                             </div>
                           </article>
                         ))}

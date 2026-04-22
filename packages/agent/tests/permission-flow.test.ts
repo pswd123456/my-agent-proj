@@ -48,7 +48,9 @@ describe("Stage 4 permission flow", () => {
       if (executed.kind !== "completed") {
         throw new Error("expected completed result");
       }
-      expect(await readFile(path.join(workspaceRoot, "todo.txt"), "utf8")).toBe("new file");
+      expect(await readFile(path.join(workspaceRoot, "todo.txt"), "utf8")).toBe(
+        "new file"
+      );
       expect(executed.output.isError).toBe(false);
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true });
@@ -64,7 +66,11 @@ describe("Stage 4 permission flow", () => {
     });
 
     try {
-      await writeFile(path.join(workspaceRoot, "existing.txt"), "before", "utf8");
+      await writeFile(
+        path.join(workspaceRoot, "existing.txt"),
+        "before",
+        "utf8"
+      );
       const session = await sessionManager.createSession({
         workingDirectory: workspaceRoot,
         model: "MiniMax-M2.7",
@@ -91,13 +97,15 @@ describe("Stage 4 permission flow", () => {
       if (permissionRequest.kind !== "permission_request") {
         throw new Error("expected permission_request result");
       }
-      expect(permissionRequest.session.context.status).toBe("waiting_for_permission");
-      expect(permissionRequest.session.context.pendingPermissionRequest?.toolName).toBe(
-        "write_file"
+      expect(permissionRequest.session.context.status).toBe(
+        "waiting_for_permission"
       );
-      expect(await readFile(path.join(workspaceRoot, "existing.txt"), "utf8")).toBe(
-        "before"
-      );
+      expect(
+        permissionRequest.session.context.pendingPermissionRequest?.toolName
+      ).toBe("write_file");
+      expect(
+        await readFile(path.join(workspaceRoot, "existing.txt"), "utf8")
+      ).toBe("before");
 
       const resumed = await handlePendingPermissionReply({
         sessionManager,
@@ -115,18 +123,21 @@ describe("Stage 4 permission flow", () => {
       if (resumed?.kind !== "approved") {
         throw new Error("expected approved reply result");
       }
-      expect(await readFile(path.join(workspaceRoot, "existing.txt"), "utf8")).toBe(
-        "after"
-      );
+      expect(
+        await readFile(path.join(workspaceRoot, "existing.txt"), "utf8")
+      ).toBe("after");
       expect(resumed.toolOutputs[0]?.isError).toBe(false);
 
-      const reloaded = await sessionManager.getSession(permissionRequest.session.sessionId);
+      const reloaded = await sessionManager.getSession(
+        permissionRequest.session.sessionId
+      );
       expect(reloaded?.context.pendingPermissionRequest).toBeNull();
       expect(
         reloaded?.messages.filter((block) => block.kind === "tool call").length
       ).toBe(1);
       expect(
-        reloaded?.messages.filter((block) => block.kind === "tool result").length
+        reloaded?.messages.filter((block) => block.kind === "tool result")
+          .length
       ).toBe(1);
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true });
@@ -142,7 +153,11 @@ describe("Stage 4 permission flow", () => {
     });
 
     try {
-      await writeFile(path.join(workspaceRoot, "existing.txt"), "before", "utf8");
+      await writeFile(
+        path.join(workspaceRoot, "existing.txt"),
+        "before",
+        "utf8"
+      );
       const session = await sessionManager.createSession({
         workingDirectory: workspaceRoot,
         model: "MiniMax-M2.7",
@@ -185,11 +200,13 @@ describe("Stage 4 permission flow", () => {
       if (rejected?.kind !== "completed") {
         throw new Error("expected completed rejection result");
       }
-      expect(await readFile(path.join(workspaceRoot, "existing.txt"), "utf8")).toBe(
-        "before"
-      );
+      expect(
+        await readFile(path.join(workspaceRoot, "existing.txt"), "utf8")
+      ).toBe("before");
       expect(rejected.result.status).toBe("waiting for input");
-      expect(rejected.result.session.context.status).toBe("waiting_for_user_input");
+      expect(rejected.result.session.context.status).toBe(
+        "waiting_for_user_input"
+      );
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true });
     }
@@ -256,6 +273,72 @@ describe("Stage 4 permission flow", () => {
     }
   });
 
+  test("skips destructive file approval when yolo mode is enabled", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const sessionManager = createMemorySessionManager();
+    const routineRepository = createMemoryRoutineRepository();
+    const toolRegistry = createWorkspaceToolRegistry({
+      workingDirectory: workspaceRoot
+    });
+
+    try {
+      await writeFile(
+        path.join(workspaceRoot, "existing.txt"),
+        "before",
+        "utf8"
+      );
+      const session = await sessionManager.createSession({
+        workingDirectory: workspaceRoot,
+        model: "MiniMax-M2.7",
+        userId: "stage4-user",
+        yoloMode: true
+      });
+
+      const executed = await executeToolAction({
+        sessionManager,
+        routineRepository,
+        toolRegistry,
+        traceManager: undefined,
+        session,
+        turnCount: 1,
+        toolCallId: "call-yolo-overwrite",
+        toolName: "write_file",
+        toolInput: {
+          path: "existing.txt",
+          content: "after"
+        },
+        eventSink: undefined
+      });
+
+      expect(executed.kind).toBe("completed");
+      if (executed.kind !== "completed") {
+        throw new Error("expected completed result");
+      }
+      expect(executed.session.context.pendingPermissionRequest).toBeNull();
+      expect(
+        await readFile(path.join(workspaceRoot, "existing.txt"), "utf8")
+      ).toBe("after");
+
+      const shellRequest = await executeToolAction({
+        sessionManager,
+        routineRepository,
+        toolRegistry,
+        traceManager: undefined,
+        session: executed.session,
+        turnCount: 2,
+        toolCallId: "call-yolo-shell",
+        toolName: "run_shell_command",
+        toolInput: {
+          command: "pwd"
+        },
+        eventSink: undefined
+      });
+      expect(shellRequest.kind).toBe("permission_request");
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   test("preserves pending conflict confirmation while pausing for permission", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     const sessionManager = createMemorySessionManager();
@@ -265,7 +348,11 @@ describe("Stage 4 permission flow", () => {
     });
 
     try {
-      await writeFile(path.join(workspaceRoot, "existing.txt"), "before", "utf8");
+      await writeFile(
+        path.join(workspaceRoot, "existing.txt"),
+        "before",
+        "utf8"
+      );
       let session = await sessionManager.createSession({
         workingDirectory: workspaceRoot,
         model: "MiniMax-M2.7",
@@ -305,8 +392,12 @@ describe("Stage 4 permission flow", () => {
       if (permissionRequest.kind !== "permission_request") {
         throw new Error("expected permission_request result");
       }
-      expect(permissionRequest.session.context.status).toBe("waiting_for_permission");
-      expect(permissionRequest.session.context.pendingConfirmationPayload).not.toBeNull();
+      expect(permissionRequest.session.context.status).toBe(
+        "waiting_for_permission"
+      );
+      expect(
+        permissionRequest.session.context.pendingConfirmationPayload
+      ).not.toBeNull();
       expect(permissionRequest.session.context.pendingConflictSummary).toBe(
         "覆盖原有日程"
       );

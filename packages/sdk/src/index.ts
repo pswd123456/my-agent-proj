@@ -12,6 +12,7 @@ export type {
   ListSessionRoutinesResult,
   ResetSessionRoutinesResult,
   SessionSummary,
-  StreamSessionExecutionInput
+  StreamSessionExecutionInput,
+  UpdateSessionSettingsPayload
 } from "./client.js";
 export { ApiClient, createApiClient, toSessionSummary } from "./client.js";

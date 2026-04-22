@@ -78,6 +78,7 @@ export interface CreateSessionInput {
   workingDirectory?: string;
   model?: string;
   userId?: string;
+  yoloMode?: boolean;
 }
 
 export interface RunSessionInput {

@@ -143,7 +143,8 @@ const app = createApiApp({
   sessionManager,
   routineRepository,
   traceManager,
-  buildWorkingDirectory: (input) => input ?? process.cwd(),
+  buildWorkingDirectory: (input) =>
+    input ? path.resolve(process.cwd(), input) : process.cwd(),
   defaultModel: "MiniMax-M2.7",
   runtimeFactory(session) {
     return createAgentRuntime({
@@ -160,11 +161,25 @@ const app = createApiApp({
   }
 });
 
-async function createSession(userId = "api-user") {
+async function createSession(
+  input: {
+    userId?: string;
+    workingDirectory?: string;
+    yoloMode?: boolean;
+  } = {}
+) {
   const response = await app.request("/sessions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ userId })
+    body: JSON.stringify({
+      userId: input.userId ?? "api-user",
+      ...(input.workingDirectory
+        ? { workingDirectory: input.workingDirectory }
+        : {}),
+      ...(typeof input.yoloMode === "boolean"
+        ? { yoloMode: input.yoloMode }
+        : {})
+    })
   });
   const payload = (await response.json()) as { session: SessionSnapshot };
   return payload.session;
@@ -187,7 +202,7 @@ await routineRepository.create({
   source: "user_confirmed"
 });
 
-const resetSession = await createSession("reset-user");
+const resetSession = await createSession({ userId: "reset-user" });
 const resetResponse = await app.request(
   `/sessions/${resetSession.sessionId}/routines/reset`,
   {
@@ -295,6 +310,31 @@ assert.equal(
 
 let releaseBusyDeleteRun: (() => void) | null = null;
 const busyDeleteSession = await createSession();
+
+const configuredSession = await createSession({
+  userId: "configured-user",
+  workingDirectory: "apps/web",
+  yoloMode: true
+});
+assert.equal(
+  configuredSession.workingDirectory,
+  path.resolve(process.cwd(), "apps/web")
+);
+assert.equal(configuredSession.context.yoloMode, true);
+
+const settingsResponse = await app.request(
+  `/sessions/${configuredSession.sessionId}/settings`,
+  {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ yoloMode: false })
+  }
+);
+assert.equal(settingsResponse.status, 200);
+const settingsPayload = (await settingsResponse.json()) as {
+  session: SessionSnapshot;
+};
+assert.equal(settingsPayload.session.context.yoloMode, false);
 const busyDeleteRuntime = createAgentRuntime({
   client: {
     messages: {

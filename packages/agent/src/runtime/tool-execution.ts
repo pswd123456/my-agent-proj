@@ -3,17 +3,10 @@ import type { RoutineRepository } from "@ai-app-template/db";
 import type { RunEventSink } from "../events.js";
 import type { SessionManager } from "../session.js";
 import type { TraceManager } from "../trace.js";
-import type {
-  JsonValue,
-  RunSessionResult,
-  SessionSnapshot
-} from "../types.js";
+import type { JsonValue, RunSessionResult, SessionSnapshot } from "../types.js";
 import type { ToolRegistry } from "../tools/registry.js";
 import type { ToolExecutionContext } from "../tools/runtime-tool.js";
-import {
-  buildToolCallBlock,
-  buildToolResultBlock
-} from "./blocks.js";
+import { buildToolCallBlock, buildToolResultBlock } from "./blocks.js";
 import { checkToolPermission } from "./permission-checker.js";
 import { emitTraceEvent } from "./run-events.js";
 
@@ -26,7 +19,9 @@ export type ExecuteToolActionResult =
   | {
       kind: "permission_request";
       session: SessionSnapshot;
-      request: NonNullable<SessionSnapshot["context"]["pendingPermissionRequest"]>;
+      request: NonNullable<
+        SessionSnapshot["context"]["pendingPermissionRequest"]
+      >;
     };
 
 function createToolExecutionContext(input: {
@@ -42,7 +37,8 @@ function createToolExecutionContext(input: {
     sessionManager: input.sessionManager,
     sessionContext: {
       status: input.session.context.status,
-      currentDateContext: input.session.context.currentDateContext
+      currentDateContext: input.session.context.currentDateContext,
+      yoloMode: input.session.context.yoloMode
     }
   };
 }
@@ -190,7 +186,10 @@ export async function executeToolAction(input: {
     : await checkToolPermission({
         toolCallId: input.toolCallId,
         tool,
-        toolInput: (validation.value ?? input.toolInput) as Record<string, JsonValue>,
+        toolInput: (validation.value ?? input.toolInput) as Record<
+          string,
+          JsonValue
+        >,
         executionContext
       });
 
@@ -252,9 +251,10 @@ export async function executeToolAction(input: {
       status: "waiting_for_permission",
       pendingPermissionRequest: permissionCheck.request
     });
-    session = await input.sessionManager.setPendingToolCallIds(session.sessionId, [
-      input.toolCallId
-    ]);
+    session = await input.sessionManager.setPendingToolCallIds(
+      session.sessionId,
+      [input.toolCallId]
+    );
     session = await input.sessionManager.setLastError(session.sessionId, null);
     await emitTraceEvent({
       traceManager: input.traceManager,
@@ -291,7 +291,7 @@ export async function executeToolAction(input: {
   );
   session = await input.sessionManager.setLastError(
     session.sessionId,
-    result.state === "failed" ? result.error ?? result.content : null
+    result.state === "failed" ? (result.error ?? result.content) : null
   );
   await emitTraceEvent({
     traceManager: input.traceManager,

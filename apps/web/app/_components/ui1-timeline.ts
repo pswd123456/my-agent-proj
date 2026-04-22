@@ -39,18 +39,26 @@ function getEventSortOrder(event: RunStreamEvent): number {
       return 2;
     case "tool_call":
       return 3;
-    case "tool_result":
+    case "permission_request":
       return 4;
-    case "fallback":
+    case "permission_approved":
       return 5;
-    case "run_error":
+    case "permission_rejected":
       return 6;
-    case "run_complete":
+    case "permission_blocked":
       return 7;
-    case "turn_end":
+    case "tool_result":
       return 8;
-    default:
+    case "fallback":
       return 9;
+    case "run_error":
+      return 10;
+    case "run_complete":
+      return 11;
+    case "turn_end":
+      return 12;
+    default:
+      return 13;
   }
 }
 
@@ -119,7 +127,14 @@ function matchesConversationBlock(
 }
 
 export function getTimelineEventKey(event: RunStreamEvent): string {
-  if (event.kind === "tool_call" || event.kind === "tool_result") {
+  if (
+    event.kind === "tool_call" ||
+    event.kind === "tool_result" ||
+    event.kind === "permission_request" ||
+    event.kind === "permission_approved" ||
+    event.kind === "permission_rejected" ||
+    event.kind === "permission_blocked"
+  ) {
     return `${event.kind}-${event.toolCallId}-${event.createdAt}`;
   }
 

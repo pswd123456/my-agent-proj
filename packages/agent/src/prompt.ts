@@ -37,6 +37,7 @@ const DEFAULT_SYSTEM_PROMPT = [
   "When a tool returns INVALID_TOOL_INPUT or other validation errors, correct the tool call instead of repeating the same mistake.",
   "When the session contains a pending confirmation payload and the user answers yes/no or revises the time, treat it as a response to that pending confirmation.",
   "Some file writes, deletes, moves, shell commands, and network requests may trigger a permission pause before execution.",
+  "When YOLO mode is enabled in the runtime context, destructive workspace-file operations may run without a permission pause, but shell/network approvals and sandbox blocks still apply.",
   "If a tool call is blocked by sandbox or permission rules, do not retry the same risky action blindly; choose a safer path or ask the user.",
   "Actively utilize the skills listed in the runtime context when they are relevant to the user's request and can improve efficiency or reliability.",
   "Only rely on skills explicitly listed in the current runtime context. Do not invent or assume unavailable skills.",
@@ -85,6 +86,7 @@ function createPrefixMessage(
         text: [
           `Workspace root: ${session.workingDirectory}`,
           `Current date context: ${session.context.currentDateContext}`,
+          `YOLO mode: ${session.context.yoloMode ? "enabled" : "disabled"}`,
           "Mounted tool surface: unified flat registry",
           "Available tools:",
           toolSummary(tools)
@@ -94,9 +96,7 @@ function createPrefixMessage(
   };
 }
 
-function createDomainInstructions(
-  tools: AnthropicToolDefinition[]
-): string[] {
+function createDomainInstructions(tools: AnthropicToolDefinition[]): string[] {
   const toolNames = new Set(tools.map((tool) => tool.name));
   const availableReadTools = SCHEDULE_READ_TOOL_NAMES.filter((toolName) =>
     toolNames.has(toolName)
@@ -167,7 +167,9 @@ function createRuntimeContextMessage(
           "Runtime context for this run:",
           `Current local datetime: ${runtimeContext.currentDateTimeContext}`,
           `Current timezone: ${runtimeContext.currentTimeZone}`,
+          `Working directory: ${session.workingDirectory}`,
           `Session status: ${session.context.status}`,
+          `YOLO mode: ${session.context.yoloMode ? "enabled" : "disabled"}`,
           `Pending permission request: ${permissionText}`,
           `Pending confirmation payload: ${pendingText}`
         ].join("\n")

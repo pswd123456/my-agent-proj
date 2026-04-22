@@ -69,6 +69,29 @@ const currentToolCall: Extract<RunStreamEvent, { kind: "tool_call" }> = {
   }
 };
 
+const permissionRequestEvent: Extract<
+  RunStreamEvent,
+  { kind: "permission_request" }
+> = {
+  kind: "permission_request",
+  sessionId: "session-1",
+  createdAt: "2026-04-21T18:46:21.730Z",
+  turnCount: 1,
+  toolCallId: "call-current",
+  toolName: "delete_routine",
+  request: {
+    toolCallId: "call-current",
+    toolName: "delete_routine",
+    toolInput: {
+      routine_id: "routine-2"
+    },
+    family: "workspace-file",
+    permissionProfile: "destructive-only",
+    summaryText: "需要确认后才能删除。",
+    createdAt: "2026-04-21T18:46:21.730Z"
+  }
+};
+
 describe("buildTimelineItems", () => {
   test("keeps turn boundaries and the current turn's thinking ahead of tool calls", () => {
     const items = buildTimelineItems({
@@ -150,5 +173,42 @@ describe("buildTimelineItems", () => {
         .filter((item) => item.type === "event")
         .map((item) => item.event.kind)
     ).toEqual(["turn_start", "assistant_text", "tool_result"]);
+  });
+
+  test("places permission requests between tool calls and tool results", () => {
+    const toolResultEvent: Extract<RunStreamEvent, { kind: "tool_result" }> = {
+      kind: "tool_result",
+      sessionId: "session-1",
+      createdAt: "2026-04-21T18:46:21.735Z",
+      turnCount: 1,
+      toolCallId: "call-current",
+      toolName: "delete_routine",
+      output: "pending approval",
+      isError: false
+    };
+
+    const items = buildTimelineItems({
+      messages: [firstUser],
+      historyEvents: [
+        turnStart,
+        thinkingEvent,
+        currentToolCall,
+        permissionRequestEvent,
+        toolResultEvent
+      ],
+      streamEvents: []
+    });
+
+    expect(
+      items
+        .filter((item) => item.type === "event")
+        .map((item) => item.event.kind)
+    ).toEqual([
+      "turn_start",
+      "thinking",
+      "tool_call",
+      "permission_request",
+      "tool_result"
+    ]);
   });
 });
