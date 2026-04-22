@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "set -a && . ./.env && set +a && turbo run dev --parallel",
     "build": "turbo run build",
+    "design:lint": "bunx @google/design.md lint DESIGN.md",
     "lint": "turbo run lint",
     "minimax:smoke": "bun scripts/minimax-smoke.ts",
     "product1:cli": "bun scripts/product1-cli.ts",

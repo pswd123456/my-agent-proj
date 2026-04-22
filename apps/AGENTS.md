@@ -21,6 +21,7 @@
 ## 开工前检查
 
 - 修改 `apps/` 内文件前，先回看根目录 `AGENTS.md`
+- 做 UI 相关工作前，先阅读仓库根目录 `DESIGN.md`
 - 做 UI 相关工作前，先阅读 `docs/design-system/` 下对应文档
 - 做架构、接口边界、工程结构相关工作前，先阅读 `docs/architecture/` 下对应文档
 - 做模板初始化或裁剪应用目录时，先阅读 `docs/template/` 下对应文档

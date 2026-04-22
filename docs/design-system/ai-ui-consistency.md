@@ -1,31 +1,20 @@
 # UI 一致性概览
 
-这份文档改为设计系统入口页，详细内容已拆分到多个专题文档。
+这份文档不再重复描述仓库的整体视觉语言。
 
-## 核心结论
+当前 UI 一致性的最高层契约以仓库根目录 `DESIGN.md` 为准；本目录只保留实现层、流程层和验收层的专题细则。
 
-纯 AI coding 想保持页面之间长期统一，核心不是依赖模型“记住风格”，而是建立受约束的系统。
+## 当前分工
 
-最关键的五层约束：
+- `DESIGN.md`：整体视觉方向、组件语气、页面主模板、禁止事项
+- `tokens.md`：token 分类、分层、命名与准入
+- `components-and-patterns.md`：组件复用边界与 repo-specific patterns
+- `page-templates.md`：页面模板矩阵与结构骨架
+- `ai-workflow.md`：AI 生成页面时的执行顺序
+- `review-and-regression.md`：回归、验收与漂移检查
 
-1. `Design Tokens`
-2. `Component Library`
-3. `Page Templates / Patterns`
-4. `AI Instructions / Prompt Workflow`
-5. `Visual Regression / Documentation`
+## 使用方式
 
-## 本项目的统一性定义
-
-- 相同信息层级使用相同的排版层级
-- 相同语义状态使用相同的颜色、图标、文案语气
-- 相同任务类型使用相同的页面结构
-- 相同交互动作在不同页面有一致反馈
-- 新页面优先复用现有模板与组件，而不是新造结构
-
-## 详细文档
-
-- [Tokens 规范](./tokens.md)
-- [组件与 Patterns 策略](./components-and-patterns.md)
-- [页面模板](./page-templates.md)
-- [AI 生成工作流](./ai-workflow.md)
-- [回归与验收](./review-and-regression.md)
+- 先读根目录 `DESIGN.md`
+- 再根据任务进入最相关的专题文档
+- 如果专题文档和 `DESIGN.md` 的高层描述重复，应优先保留 `DESIGN.md`，专题文档只保留可执行细节

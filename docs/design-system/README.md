@@ -4,6 +4,7 @@
 
 ## 文档列表
 
+- [DESIGN.md 契约层说明](./design-md-architecture.md)
 - [UI 一致性概览](./ai-ui-consistency.md)
 - [Tokens 规范](./tokens.md)
 - [组件与 Patterns 策略](./components-and-patterns.md)
@@ -13,7 +14,9 @@
 
 ## 阅读建议
 
+- 如果要快速理解当前视觉契约，先读仓库根目录 `DESIGN.md`，再回到本目录查专题细节
 - 首次进入该主题时，先读 UI 一致性概览
+- 如果要理解 `DESIGN.md` 和现有 token / docs 的关系，先读 DESIGN.md 契约层说明
 - 做 tokens、主题变量或视觉语义相关工作时，读 Tokens 规范
 - 做组件复用或业务块抽象时，读组件与 Patterns 策略
 - 做新页面或页面重构时，读页面模板与 AI 生成工作流

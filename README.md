@@ -115,6 +115,7 @@ curl http://localhost:3001/health
 
 ## 文档入口
 
+- [设计契约入口](./DESIGN.md)
 - [文档索引](./docs/README.md)
 - [技术栈总览](./docs/tech-stack.md)
 - [架构文档目录](./docs/architecture/README.md)
