@@ -1,4 +1,7 @@
-import type { DomainJsonValue } from "@ai-app-template/domain";
+import {
+  mergeRoutineTimingForUpdate,
+  type DomainJsonValue
+} from "@ai-app-template/domain";
 import { z } from "zod";
 
 import type { RuntimeTool } from "./runtime-tool.js";
@@ -56,23 +59,56 @@ function buildUpdateInput(input: {
   return next;
 }
 
-function buildConflictInput(input: {
-  date: string;
-  startTime: string;
+function buildTimingPatch(input: {
+  date: string | undefined;
+  startTime: string | undefined;
   endTime: string | undefined;
   durationMinutes: number | undefined;
-  excludeRoutineId: string | undefined;
 }): {
+  date?: string;
+  startTime?: string;
+  endTime?: string;
+  durationMinutes?: number;
+} {
+  const next = {} as {
+    date?: string;
+    startTime?: string;
+    endTime?: string;
+    durationMinutes?: number;
+  };
+
+  if (typeof input.date === "string") {
+    next.date = input.date;
+  }
+  if (typeof input.startTime === "string") {
+    next.startTime = input.startTime;
+  }
+  if (typeof input.endTime === "string") {
+    next.endTime = input.endTime;
+  }
+  if (typeof input.durationMinutes === "number") {
+    next.durationMinutes = input.durationMinutes;
+  }
+
+  return next;
+}
+
+function buildConflictInput(
+  input: {
+    date: string;
+    startTime: string;
+    endTime?: string;
+    durationMinutes?: number;
+  },
+  excludeRoutineId: string | undefined
+): {
   date: string;
   startTime: string;
   endTime?: string;
   durationMinutes?: number;
   excludeRoutineId?: string;
 } {
-  const next = {
-    date: input.date,
-    startTime: input.startTime
-  } as {
+  const next = { ...input } as {
     date: string;
     startTime: string;
     endTime?: string;
@@ -80,14 +116,8 @@ function buildConflictInput(input: {
     excludeRoutineId?: string;
   };
 
-  if (typeof input.endTime === "string") {
-    next.endTime = input.endTime;
-  }
-  if (typeof input.durationMinutes === "number") {
-    next.durationMinutes = input.durationMinutes;
-  }
-  if (typeof input.excludeRoutineId === "string") {
-    next.excludeRoutineId = input.excludeRoutineId;
+  if (typeof excludeRoutineId === "string") {
+    next.excludeRoutineId = excludeRoutineId;
   }
 
   return next;
@@ -98,9 +128,18 @@ const schema = z
     routine_id: z.string().min(1),
     name: z.string().min(1).optional(),
     description: z.string().nullable().optional(),
-    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-    start_time: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/).optional(),
-    end_time: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/).optional(),
+    date: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .optional(),
+    start_time: z
+      .string()
+      .regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/)
+      .optional(),
+    end_time: z
+      .string()
+      .regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/)
+      .optional(),
     duration_minutes: z.number().int().positive().optional()
   })
   .superRefine((value, ctx) => {
@@ -123,7 +162,8 @@ const schema = z
 export function createEditRoutineTool(): RuntimeTool {
   return {
     name: "edit_routine",
-    description: "Edit an existing routine after validating the updated time range.",
+    description:
+      "Edit an existing routine after validating the updated time range.",
     isReadOnly: false,
     inputSchema: {
       type: "object",
@@ -179,13 +219,17 @@ export function createEditRoutineTool(): RuntimeTool {
 
       const conflicts = await context.routineRepository.findConflicts(
         context.userId,
-        buildConflictInput({
-          date: parsed.data.date ?? existing.date,
-          startTime: parsed.data.start_time ?? existing.startTime,
-          endTime: parsed.data.end_time ?? existing.endTime,
-          durationMinutes: parsed.data.duration_minutes ?? existing.durationMinutes,
-          excludeRoutineId: existing.id
-        })
+        buildConflictInput(
+          mergeRoutineTimingForUpdate(existing, {
+            ...buildTimingPatch({
+              date: parsed.data.date,
+              startTime: parsed.data.start_time,
+              endTime: parsed.data.end_time,
+              durationMinutes: parsed.data.duration_minutes
+            })
+          }),
+          existing.id
+        )
       );
 
       if (conflicts.length > 0) {

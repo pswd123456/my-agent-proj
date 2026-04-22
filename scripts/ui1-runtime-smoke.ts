@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 
 import {
   createAgentRuntime,
-  createDefaultToolRegistry,
+  createScheduleToolRegistry,
   createMemorySessionManager,
   createPromptBuilder,
   type AnthropicCompatibleClient,
@@ -66,7 +66,7 @@ const runtime = createAgentRuntime({
   model: "MiniMax-M2.7",
   sessionManager,
   routineRepository,
-  toolRegistry: createDefaultToolRegistry({ routineRepository }),
+  toolRegistry: createScheduleToolRegistry({ routineRepository }),
   promptBuilder: createPromptBuilder(),
   maxTurns: 4,
   maxTokens: 128
@@ -161,7 +161,7 @@ const busyRuntime = createAgentRuntime({
   model: "MiniMax-M2.7",
   sessionManager: createMemorySessionManager(),
   routineRepository: busyRoutineRepository,
-  toolRegistry: createDefaultToolRegistry({
+  toolRegistry: createScheduleToolRegistry({
     routineRepository: busyRoutineRepository
   }),
   promptBuilder: createPromptBuilder(),
@@ -201,7 +201,7 @@ const confirmationSession = await confirmationSessionManager.createSession({
   model: "MiniMax-M2.7",
   userId: "runtime-smoke"
 });
-const confirmationToolRegistry = createDefaultToolRegistry({
+const confirmationToolRegistry = createScheduleToolRegistry({
   routineRepository: confirmationRoutineRepository
 });
 

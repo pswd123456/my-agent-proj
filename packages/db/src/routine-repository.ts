@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import {
   doIntervalsOverlap,
   formatRoutinePreview,
+  mergeRoutineTimingForUpdate,
   resolveRoutineTiming,
   sortRoutinesByStartAt,
   type RoutineConflict,
@@ -232,12 +233,7 @@ export class PostgresRoutineRepository implements RoutineRepository {
     }
 
     const timing = resolveRoutineTiming(
-      toTimingInput({
-        date: patch.date ?? existing.date,
-        startTime: patch.startTime ?? existing.startTime,
-        endTime: patch.endTime ?? existing.endTime,
-        durationMinutes: patch.durationMinutes ?? existing.durationMinutes
-      })
+      mergeRoutineTimingForUpdate(existing, patch)
     );
 
     const rows = await this.sql<RoutineRow[]>`
@@ -460,12 +456,7 @@ export class MemoryRoutineRepository implements RoutineRepository {
     }
 
     const timing = resolveRoutineTiming(
-      toTimingInput({
-        date: patch.date ?? existing.date,
-        startTime: patch.startTime ?? existing.startTime,
-        endTime: patch.endTime ?? existing.endTime,
-        durationMinutes: patch.durationMinutes ?? existing.durationMinutes
-      })
+      mergeRoutineTimingForUpdate(existing, patch)
     );
 
     const updated: RoutineRecord = {

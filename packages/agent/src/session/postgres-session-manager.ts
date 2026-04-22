@@ -53,12 +53,18 @@ interface SessionMessageRow {
   created_at: string | Date;
 }
 
-function toIsoString(value: string | Date): string {
+export function toIsoString(value: string | Date): string {
   if (value instanceof Date) {
     return value.toISOString();
   }
 
-  return new Date(value).toISOString();
+  const normalized = value.includes("T") ? value : value.replace(" ", "T");
+  const hasExplicitTimeZone =
+    normalized.endsWith("Z") || /[+-]\d{2}:\d{2}$/.test(normalized);
+
+  return new Date(
+    hasExplicitTimeZone ? normalized : `${normalized}Z`
+  ).toISOString();
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -358,9 +364,10 @@ export class PostgresSessionManager implements SessionManager {
     `;
     const nextIndex = nextIndexRows[0]?.next_index ?? 0;
     await this.insertMessage(sessionId, nextIndex, block);
+    const updatedAt = block.createdAt;
     await this.sql`
       update agent_sessions
-      set updated_at = now()
+      set updated_at = ${updatedAt}
       where id = ${sessionId}
     `;
     const snapshot = await this.getSession(sessionId);
@@ -459,6 +466,7 @@ export class PostgresSessionManager implements SessionManager {
     sessionId: string,
     options: { runId: string; staleAfterMs?: number }
   ): Promise<SessionSnapshot | null> {
+    const runStartedAt = new Date().toISOString();
     const staleBefore =
       typeof options.staleAfterMs === "number" && options.staleAfterMs >= 0
         ? new Date(Date.now() - options.staleAfterMs).toISOString()
@@ -469,8 +477,8 @@ export class PostgresSessionManager implements SessionManager {
           update agent_sessions
           set
             active_run_id = ${options.runId},
-            active_run_started_at = now(),
-            updated_at = now()
+            active_run_started_at = ${runStartedAt},
+            updated_at = ${runStartedAt}
           where id = ${sessionId}
             and (
               active_run_id is null
@@ -483,8 +491,8 @@ export class PostgresSessionManager implements SessionManager {
           update agent_sessions
           set
             active_run_id = ${options.runId},
-            active_run_started_at = now(),
-            updated_at = now()
+            active_run_started_at = ${runStartedAt},
+            updated_at = ${runStartedAt}
           where id = ${sessionId}
             and active_run_id is null
           returning id
@@ -501,12 +509,13 @@ export class PostgresSessionManager implements SessionManager {
     sessionId: string,
     runId: string
   ): Promise<SessionSnapshot | null> {
+    const releasedAt = new Date().toISOString();
     await this.sql`
       update agent_sessions
       set
         active_run_id = null,
         active_run_started_at = null,
-        updated_at = now()
+        updated_at = ${releasedAt}
       where id = ${sessionId}
         and active_run_id = ${runId}
     `;

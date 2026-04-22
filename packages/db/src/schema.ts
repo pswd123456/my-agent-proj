@@ -1,5 +1,64 @@
 import type { ProductDatabaseClient } from "./client.js";
 
+interface ColumnMetadataRow {
+  data_type: string;
+  udt_name: string;
+}
+
+function toIdentifier(value: string): string {
+  if (!/^[a-z_]+$/.test(value)) {
+    throw new Error(`Invalid SQL identifier: ${value}`);
+  }
+
+  return value;
+}
+
+async function getColumnMetadata(
+  sql: ProductDatabaseClient,
+  tableName: string,
+  columnName: string
+): Promise<ColumnMetadataRow | null> {
+  const rows = await sql<ColumnMetadataRow[]>`
+    select data_type, udt_name
+    from information_schema.columns
+    where table_schema = current_schema()
+      and table_name = ${tableName}
+      and column_name = ${columnName}
+    limit 1
+  `;
+
+  return rows[0] ?? null;
+}
+
+export function isTimestampWithoutTimeZoneColumn(
+  column: Pick<ColumnMetadataRow, "data_type" | "udt_name">
+): boolean {
+  return (
+    column.data_type === "timestamp without time zone" ||
+    column.udt_name === "timestamp"
+  );
+}
+
+async function promoteColumnToTimestamptz(
+  sql: ProductDatabaseClient,
+  tableName: string,
+  columnName: string
+): Promise<void> {
+  const column = await getColumnMetadata(sql, tableName, columnName);
+  if (!column || !isTimestampWithoutTimeZoneColumn(column)) {
+    return;
+  }
+
+  const safeTableName = toIdentifier(tableName);
+  const safeColumnName = toIdentifier(columnName);
+
+  await sql.unsafe(`
+    alter table ${safeTableName}
+    alter column ${safeColumnName} type timestamptz
+    using ${safeColumnName} at time zone 'UTC'
+  `);
+}
+
 export async function ensureProductSchema(
   sql: ProductDatabaseClient
 ): Promise<void> {
@@ -45,9 +104,9 @@ export async function ensureProductSchema(
       input_tokens_count integer not null default 0,
       prompt_cache_key text not null default '',
       active_run_id text,
-      active_run_started_at timestamp,
-      created_at timestamp not null default now(),
-      updated_at timestamp not null default now()
+      active_run_started_at timestamptz,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
     )
   `;
 
@@ -58,8 +117,16 @@ export async function ensureProductSchema(
 
   await sql`
     alter table agent_sessions
-    add column if not exists active_run_started_at timestamp
+    add column if not exists active_run_started_at timestamptz
   `;
+
+  await promoteColumnToTimestamptz(
+    sql,
+    "agent_sessions",
+    "active_run_started_at"
+  );
+  await promoteColumnToTimestamptz(sql, "agent_sessions", "created_at");
+  await promoteColumnToTimestamptz(sql, "agent_sessions", "updated_at");
 
   await sql`
     create index if not exists agent_sessions_updated_at_idx
@@ -79,8 +146,22 @@ export async function ensureProductSchema(
       is_error boolean,
       input_json jsonb,
       output_text text,
-      created_at timestamp not null,
+      created_at timestamptz not null,
       unique(session_id, message_index)
+    )
+  `;
+
+  await promoteColumnToTimestamptz(sql, "session_messages", "created_at");
+
+  await sql`
+    update agent_sessions as sessions
+    set updated_at = coalesce(
+      (
+        select max(messages.created_at)
+        from session_messages as messages
+        where messages.session_id = sessions.id
+      ),
+      sessions.updated_at
     )
   `;
 

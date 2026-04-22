@@ -32,7 +32,12 @@ const fakeClient: AnthropicCompatibleClient = {
 
       assert.equal(input.model, "MiniMax-M2.7");
       assert.ok(
-        input.system.includes("You are a scheduling agent for a CLI-first routine manager.")
+        input.system.includes(
+          "You are a personal assistant operating a CLI-first workspace runtime."
+        )
+      );
+      assert.ok(
+        !/scheduling agent.*routine manager/i.test(input.system)
       );
       assert.equal(input.tools.length, 3);
 

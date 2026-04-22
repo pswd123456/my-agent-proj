@@ -1,9 +1,11 @@
 # my-agent-proj
 
-一个以 `TypeScript` + `Bun` 为主栈的 agent runtime 实验仓库，当前包含：
+一个以 `TypeScript` + `Bun` 为主栈的 agent runtime 实验仓库，当前主线定位是“通用个人助手 runtime”，优先服务工作区理解、文件操作、执行可观测性和后续可扩展能力。当前仓库同时保留了一套已经落地的日程管理能力，作为现阶段的专项产品包。
+
+当前包含：
 
 - `apps/web`：Web workbench
-- `apps/api`：会话、执行、trace、routine 相关 API
+- `apps/api`：会话、执行、trace，以及当前已挂载的 routine 相关 API
 - `packages/agent`：runtime、session、tools、trace
 - `packages/db`：PostgreSQL schema 与持久化访问
 
@@ -14,10 +16,12 @@
 - Monorepo：`Bun workspace` + `Turborepo`
 - Web：`Next.js`
 - API：`Hono`
-- Agent Runtime：`LangGraph.js`
-- 数据层：`PostgreSQL` + `Drizzle ORM`
+- Agent Runtime：仓库内自定义 `AgentRuntime.run` loop
+- 数据层：`PostgreSQL` + `postgres` 驱动
 
 更完整说明见 [docs/tech-stack.md](./docs/tech-stack.md) 和 [docs/architecture/README.md](./docs/architecture/README.md)。
+
+如果想先搞清楚“仓库主线”和“日程能力”的边界，优先看 [docs/architecture/capability-packs.md](./docs/architecture/capability-packs.md)。
 
 ## 快速启动
 
@@ -43,7 +47,7 @@ cp .env.example .env
 
 如果要真正跑 agent 执行链路，还需要配置模型相关变量：
 
-- `API_KEY` 或 `MINIMAX_API_KEY`
+- `API_KEY`、`MINIMAX_API_KEY` 或 `ANTHROPIC_API_KEY`
 - `ANTHROPIC_BASE_URL`
 - `ANTHROPIC_MODEL`
 - 可选：`ANTHROPIC_TOOL_CHOICE=auto|any|none|tool:<name>`

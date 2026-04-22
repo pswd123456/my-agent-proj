@@ -23,8 +23,8 @@ export function WorkbenchPanel({
   children
 }: WorkbenchPanelProps) {
   return (
-    <section className="rounded-[var(--app-radius-xl)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] shadow-[var(--app-shadow-sm)]">
-      <header className="flex items-start justify-between gap-3 border-b border-[var(--app-border-subtle)] px-4 py-4">
+    <section className="rounded-[var(--app-radius-xl)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_72%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_92%,var(--app-bg-elevated)_8%)] shadow-[var(--app-shadow-sm)]">
+      <header className="flex items-start justify-between gap-3 px-4 pb-3 pt-4">
         <div className="min-w-0">
           <p className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
             {eyebrow}
@@ -44,7 +44,7 @@ export function WorkbenchPanel({
           </div>
         ) : null}
       </header>
-      <div className="px-4 py-4">{children}</div>
+      <div className="px-4 pb-4">{children}</div>
     </section>
   );
 }

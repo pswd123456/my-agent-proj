@@ -3,7 +3,7 @@ import path from "node:path";
 
 import {
   createAgentRuntime,
-  createDefaultToolRegistry,
+  createScheduleToolRegistry,
   createFileTraceManager,
   createMemorySessionManager,
   createPromptBuilder,
@@ -102,45 +102,11 @@ function createFakeClient(session: SessionSnapshot): AnthropicCompatibleClient {
             };
           }
 
-          if (callCount === 2) {
-            return {
-              content: [
-                {
-                  type: "tool_use",
-                  id: "confirm-1",
-                  name: "ask_for_confirmation",
-                  input: {
-                    summary_text: "Conflict detected.",
-                    proposed_items: [
-                      {
-                        preview_text: "2026-04-21 14:00-15:00 conflict meeting",
-                        tool_name: "create_routine",
-                        tool_input: {
-                          name: "conflict meeting",
-                          date: "2026-04-21",
-                          start_time: "14:00",
-                          end_time: "15:00",
-                          source: "agent_suggested_confirmed"
-                        }
-                      }
-                    ],
-                    conflict_items: [
-                      {
-                        routine_id: existingConflictRoutine.id,
-                        preview_text: "2026-04-21 14:00-15:00 existing conflict"
-                      }
-                    ]
-                  }
-                }
-              ]
-            };
-          }
-
           return {
             content: [
               {
                 type: "text",
-                text: "Please confirm the overwrite."
+                text: "Cannot create the routine because it overlaps with the existing schedule."
               }
             ]
           };
@@ -185,7 +151,7 @@ const app = createApiApp({
       model: session.model,
       sessionManager,
       routineRepository,
-      toolRegistry: createDefaultToolRegistry({ routineRepository }),
+      toolRegistry: createScheduleToolRegistry({ routineRepository }),
       traceManager,
       promptBuilder,
       maxTurns: 6,
@@ -302,46 +268,29 @@ const conflictFinal = conflictEvents.at(-1) as {
   session?: SessionSnapshot;
 };
 assert.equal(conflictFinal.kind, "run_complete");
-assert.equal(
-  conflictFinal.session?.context.status,
-  "waiting_for_conflict_confirmation"
+assert.ok(
+  conflictEvents.some(
+    (event) => event.kind === "tool_result" && event.isError === true
+  )
 );
-assert.equal(
-  conflictFinal.session?.sessionState.loopState,
-  "waiting for input"
-);
-assert.ok(conflictFinal.session?.context.pendingConfirmationPayload);
+assert.equal(conflictFinal.session?.context.status, "completed");
+assert.equal(conflictFinal.session?.sessionState.loopState, "completed");
+assert.equal(conflictFinal.session?.context.pendingConfirmationPayload, null);
 
-const confirmResponse = await app.request(
-  `/sessions/${conflictSession.sessionId}/execute/stream`,
-  {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message: "确认" })
-  }
-);
-const confirmEvents = await readSse(confirmResponse);
-const confirmFinal = confirmEvents.at(-1) as {
-  kind: string;
-  session?: SessionSnapshot;
-};
-assert.equal(confirmFinal.kind, "run_complete");
-assert.equal(confirmFinal.session?.context.status, "completed");
-assert.equal(confirmFinal.session?.sessionState.loopState, "completed");
-assert.equal(confirmFinal.session?.context.pendingConfirmationPayload, null);
-
-const confirmedRoutines = await routineRepository.listByDateRange(
+const routinesAfterConflict = await routineRepository.listByDateRange(
   "api-user",
   "2026-04-21",
   "2026-04-21"
 );
 assert.equal(
-  confirmedRoutines.some((routine) => routine.id === existingConflictRoutine.id),
-  false
+  routinesAfterConflict.some(
+    (routine) => routine.id === existingConflictRoutine.id
+  ),
+  true
 );
 assert.equal(
-  confirmedRoutines.some((routine) => routine.name === "conflict meeting"),
-  true
+  routinesAfterConflict.some((routine) => routine.name === "conflict meeting"),
+  false
 );
 
 let releaseBusyDeleteRun: (() => void) | null = null;
@@ -362,7 +311,7 @@ const busyDeleteRuntime = createAgentRuntime({
   model: busyDeleteSession.model,
   sessionManager,
   routineRepository,
-  toolRegistry: createDefaultToolRegistry({ routineRepository }),
+  toolRegistry: createScheduleToolRegistry({ routineRepository }),
   traceManager,
   promptBuilder,
   maxTurns: 2,
@@ -434,7 +383,6 @@ console.log(
         create: createEvents.length,
         limited: limitedEvents.length,
         conflict: conflictEvents.length,
-        confirm: confirmEvents.length,
         deleteWhileRunning: deleteWhileRunningResponse.status
       },
       deletedSessionId: busyDeleteSession.sessionId

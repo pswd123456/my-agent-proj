@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   createAgentRuntime,
-  createDefaultToolRegistry,
+  createScheduleToolRegistry,
   createFileTraceManager,
   createMiniMaxRuntime,
   createPostgresSessionManager,
@@ -45,7 +45,7 @@ const runtime = createAgentRuntime({
   model: miniMaxRuntime.model,
   sessionManager,
   routineRepository,
-  toolRegistry: createDefaultToolRegistry({ routineRepository }),
+  toolRegistry: createScheduleToolRegistry({ routineRepository }),
   traceManager,
   promptBuilder: createPromptBuilder(),
   maxTurns: 6,

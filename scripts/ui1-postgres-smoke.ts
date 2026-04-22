@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 
 import {
   createAgentRuntime,
-  createDefaultToolRegistry,
+  createScheduleToolRegistry,
   createPostgresSessionManager,
   createPromptBuilder,
   SessionExecutionInProgressError,
@@ -44,7 +44,7 @@ const createdSessionIds: string[] = [];
 
 try {
   const conflictRepository = createMemoryRoutineRepository();
-  const conflictToolRegistry = createDefaultToolRegistry({
+  const conflictToolRegistry = createScheduleToolRegistry({
     routineRepository: conflictRepository
   });
 
@@ -175,7 +175,7 @@ try {
     model: "MiniMax-M2.7",
     sessionManager,
     routineRepository: busyRepository,
-    toolRegistry: createDefaultToolRegistry({
+    toolRegistry: createScheduleToolRegistry({
       routineRepository: busyRepository
     }),
     promptBuilder,

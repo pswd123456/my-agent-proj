@@ -7,7 +7,9 @@ export default tseslint.config(
       "**/.next/**",
       "**/dist/**",
       "**/coverage/**",
-      "**/.turbo/**"
+      "**/.turbo/**",
+      "apps/web/**/*.test.ts",
+      "apps/web/**/*.test.tsx"
     ]
   },
   ...tseslint.configs.recommended,

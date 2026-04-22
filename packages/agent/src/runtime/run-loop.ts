@@ -5,15 +5,19 @@ import {
   createRunErrorEvent,
   type RunEventSink
 } from "../events.js";
-import type { AnthropicCompatibleClient, AnthropicToolChoice } from "../model.js";
-import type { PromptBuilder } from "../prompt.js";
+import type {
+  AnthropicCompatibleClient,
+  AnthropicToolChoice
+} from "../model.js";
+import {
+  formatPromptDateTimeContext,
+  resolvePromptTimeZone,
+  type PromptBuilder
+} from "../prompt.js";
+import { discoverWorkspaceSkills } from "../skills/index.js";
 import type { SessionManager } from "../session.js";
 import type { TraceManager } from "../trace.js";
-import type {
-  JsonValue,
-  RunSessionResult,
-  SessionSnapshot
-} from "../types.js";
+import type { JsonValue, RunSessionResult, SessionSnapshot } from "../types.js";
 import type { ToolRegistry } from "../tools/registry.js";
 import {
   buildAssistantBlockContent,
@@ -43,9 +47,16 @@ export async function runSessionLoop(input: {
   eventSink: RunEventSink | undefined;
 }): Promise<RunSessionResult> {
   let session = input.session;
+  const runtimeContext = {
+    currentDateTimeContext: formatPromptDateTimeContext(),
+    currentTimeZone: resolvePromptTimeZone()
+  };
   const pendingConfirmationAtStart = session.context.pendingConfirmationPayload
     ? structuredClone(session.context.pendingConfirmationPayload)
     : null;
+  const discoveredSkills = await discoverWorkspaceSkills(
+    session.workingDirectory
+  );
 
   let stopReason: string | null = null;
   let toolCallCount = 0;
@@ -80,19 +91,41 @@ export async function runSessionLoop(input: {
       }
     }
 
-    session = await input.sessionManager.setLoopState(session.sessionId, "running");
+    session = await input.sessionManager.setLoopState(
+      session.sessionId,
+      "running"
+    );
 
     for (let turn = 0; turn < input.maxTurns; turn += 1) {
       const turnCount = turn + 1;
       session = await input.sessionManager.saveSession(session);
-      session = await input.sessionManager.setTurnCount(session.sessionId, turnCount);
+      session = await input.sessionManager.setTurnCount(
+        session.sessionId,
+        turnCount
+      );
 
-      const promptEnvelope = input.promptBuilder.build(session, input.toolRegistry);
+      const promptEnvelope = input.promptBuilder.build(
+        session,
+        input.toolRegistry,
+        runtimeContext,
+        discoveredSkills.skills
+      );
       session = await input.sessionManager.setPromptCacheKey(
         session.sessionId,
         promptEnvelope.cacheKey
       );
 
+      await emitTraceEvent({
+        traceManager: input.traceManager,
+        eventSink: input.eventSink,
+        sessionId: session.sessionId,
+        event: {
+          kind: "skills_loaded",
+          turnCount,
+          skills: discoveredSkills.skills,
+          diagnostics: discoveredSkills.diagnostics
+        }
+      });
       await emitTraceEvent({
         traceManager: input.traceManager,
         eventSink: input.eventSink,
@@ -118,6 +151,7 @@ export async function runSessionLoop(input: {
           system: promptEnvelope.system,
           prefixMessages: promptEnvelope.prefixMessages,
           messages: promptEnvelope.messages,
+          runtimeContextMessages: promptEnvelope.runtimeContextMessages,
           tools: promptEnvelope.tools,
           toolChoice: input.toolChoice ?? null,
           cacheKey: promptEnvelope.cacheKey
@@ -127,7 +161,11 @@ export async function runSessionLoop(input: {
       const response = await input.client.messages.create({
         model: session.model,
         system: promptEnvelope.system,
-        messages: [...promptEnvelope.prefixMessages, ...promptEnvelope.messages],
+        messages: [
+          ...promptEnvelope.prefixMessages,
+          ...promptEnvelope.messages,
+          ...promptEnvelope.runtimeContextMessages
+        ],
         tools: promptEnvelope.tools,
         ...(typeof input.maxTokens === "number"
           ? { max_tokens: input.maxTokens }
@@ -137,6 +175,9 @@ export async function runSessionLoop(input: {
 
       const usageTokens = response.usage?.input_tokens ?? 0;
       const outputTokens = response.usage?.output_tokens ?? 0;
+      const cacheCreationInputTokens =
+        response.usage?.cache_creation_input_tokens ?? 0;
+      const cacheReadInputTokens = response.usage?.cache_read_input_tokens ?? 0;
       if (usageTokens > 0) {
         session = await input.sessionManager.addInputTokens(
           session.sessionId,
@@ -156,7 +197,9 @@ export async function runSessionLoop(input: {
           stopReason,
           usage: {
             inputTokens: usageTokens,
-            outputTokens
+            outputTokens,
+            cacheCreationInputTokens,
+            cacheReadInputTokens
           },
           content: structuredClone(responseBlocks) as unknown as JsonValue
         }
@@ -210,7 +253,10 @@ export async function runSessionLoop(input: {
           session.sessionId,
           toolCalls.map((toolCall) => toolCall.id)
         );
-        session = await input.sessionManager.setLastError(session.sessionId, null);
+        session = await input.sessionManager.setLastError(
+          session.sessionId,
+          null
+        );
 
         for (const toolCall of toolCalls) {
           const executed = await executeToolAction({
@@ -279,29 +325,35 @@ export async function runSessionLoop(input: {
       if (assistantTexts.length > 0) {
         const finalAnswer = assistantTexts.join("\n").trim();
         if (session.context.pendingConfirmationPayload) {
-          session = await input.sessionManager.updateContext(session.sessionId, {
-            status: "waiting_for_conflict_confirmation"
+          session = await input.sessionManager.updateContext(
+            session.sessionId,
+            {
+              status: "waiting_for_conflict_confirmation"
+            }
+          );
+          return completeLocally({
+            sessionManager: input.sessionManager,
+            traceManager: input.traceManager,
+            session,
+            turnCount,
+            loopState: "waiting for input",
+            finalAnswer,
+            stopReason,
+            toolCallCount,
+            toolResultCount,
+            toolOutputs,
+            eventSink: input.eventSink,
+            appendAssistantMessage: false
           });
-        return completeLocally({
-          sessionManager: input.sessionManager,
-          traceManager: input.traceManager,
-          session,
-          turnCount,
-          loopState: "waiting for input",
-          finalAnswer,
-          stopReason,
-          toolCallCount,
-          toolResultCount,
-          toolOutputs,
-          eventSink: input.eventSink,
-          appendAssistantMessage: false
-        });
         }
 
         if (session.context.status === "running") {
-          session = await input.sessionManager.updateContext(session.sessionId, {
-            status: "completed"
-          });
+          session = await input.sessionManager.updateContext(
+            session.sessionId,
+            {
+              status: "completed"
+            }
+          );
         }
         return completeLocally({
           sessionManager: input.sessionManager,
@@ -319,7 +371,10 @@ export async function runSessionLoop(input: {
         });
       }
 
-      session = await input.sessionManager.setLoopState(session.sessionId, "failed");
+      session = await input.sessionManager.setLoopState(
+        session.sessionId,
+        "failed"
+      );
       session = await input.sessionManager.setLastError(
         session.sessionId,
         "Model returned no text or tool call."
@@ -369,7 +424,10 @@ export async function runSessionLoop(input: {
       session.sessionId,
       buildAssistantBlockContent(finalAnswer)
     );
-    session = await input.sessionManager.setPendingToolCallIds(session.sessionId, []);
+    session = await input.sessionManager.setPendingToolCallIds(
+      session.sessionId,
+      []
+    );
     session = await input.sessionManager.setLastError(session.sessionId, null);
     session = await input.sessionManager.setLoopState(
       session.sessionId,
@@ -423,8 +481,14 @@ export async function runSessionLoop(input: {
     return result;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    session = await input.sessionManager.setLoopState(session.sessionId, "failed");
-    session = await input.sessionManager.setLastError(session.sessionId, message);
+    session = await input.sessionManager.setLoopState(
+      session.sessionId,
+      "failed"
+    );
+    session = await input.sessionManager.setLastError(
+      session.sessionId,
+      message
+    );
     if (input.eventSink) {
       await emitRunEvent(
         input.eventSink,

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 
 import {
   createAgentRuntime,
-  createDefaultToolRegistry,
+  createScheduleToolRegistry,
   createMemorySessionManager,
   createPromptBuilder,
   type AnthropicCompatibleClient
@@ -54,7 +54,7 @@ async function runCreateFlow(): Promise<void> {
     model: "MiniMax-M2.7",
     sessionManager,
     routineRepository,
-    toolRegistry: createDefaultToolRegistry({ routineRepository }),
+    toolRegistry: createScheduleToolRegistry({ routineRepository }),
     promptBuilder: createPromptBuilder(),
     maxTurns: 4,
     maxTokens: 128
@@ -80,7 +80,10 @@ async function runCreateFlow(): Promise<void> {
   assert.equal(result.status, "completed");
   assert.equal(result.finalAnswer, "Created your routine.");
   assert.equal(result.toolOutputs.length, 1);
-  assert.match(result.toolOutputs[0]?.displayText ?? "", /\[create_routine\] success/);
+  assert.match(
+    result.toolOutputs[0]?.displayText ?? "",
+    /\[create_routine\] success/
+  );
   assert.equal(routines.length, 1);
 }
 
@@ -158,7 +161,7 @@ async function runConflictFlow(): Promise<void> {
           content: [
             {
               type: "text",
-              text: "Please confirm whether I should overwrite the existing routine."
+              text: "Cannot create the meeting because it overlaps with dentist."
             }
           ]
         };
@@ -171,7 +174,7 @@ async function runConflictFlow(): Promise<void> {
     model: "MiniMax-M2.7",
     sessionManager,
     routineRepository,
-    toolRegistry: createDefaultToolRegistry({ routineRepository }),
+    toolRegistry: createScheduleToolRegistry({ routineRepository }),
     promptBuilder: createPromptBuilder(),
     maxTurns: 6,
     maxTokens: 128
@@ -187,12 +190,27 @@ async function runConflictFlow(): Promise<void> {
     sessionId: session.sessionId,
     message: "Add a meeting tomorrow from 2 to 3."
   });
+  const routines = await routineRepository.listByDateRange(
+    "smoke-user",
+    "2026-04-21",
+    "2026-04-21"
+  );
 
   assert.equal(result.status, "completed");
+  assert.equal(
+    result.finalAnswer,
+    "Cannot create the meeting because it overlaps with dentist."
+  );
   assert.equal(result.toolOutputs.length, 2);
   assert.match(result.toolOutputs[0]?.displayText ?? "", /conflict detected/);
-  assert.match(result.toolOutputs[1]?.displayText ?? "", /\[ask_for_confirmation\]/);
-  assert.equal(result.session.context.status, "waiting_for_conflict_confirmation");
+  assert.match(
+    result.toolOutputs[1]?.displayText ?? "",
+    /\[ask_for_confirmation\] overlap not confirmable/
+  );
+  assert.equal(result.session.context.status, "completed");
+  assert.equal(result.session.context.pendingConfirmationPayload, null);
+  assert.equal(routines.length, 1);
+  assert.equal(routines[0]?.name, "dentist");
 }
 
 await runCreateFlow();
@@ -202,7 +220,7 @@ console.log(
   JSON.stringify(
     {
       ok: true,
-      scenarios: ["create", "conflict_confirmation"]
+      scenarios: ["create", "conflict_error"]
     },
     null,
     2

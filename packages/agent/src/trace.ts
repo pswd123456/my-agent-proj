@@ -2,6 +2,10 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 
 import type { AnthropicMessage, AnthropicToolChoice } from "./model.js";
+import type {
+  SkillDescriptor,
+  SkillDiscoveryDiagnostic
+} from "./skills/index.js";
 import type { JsonValue, SessionSnapshot } from "./types.js";
 
 export interface TracePromptEvent {
@@ -10,6 +14,7 @@ export interface TracePromptEvent {
   system: string;
   prefixMessages: AnthropicMessage[];
   messages: AnthropicMessage[];
+  runtimeContextMessages: AnthropicMessage[];
   tools: Array<{
     name: string;
     description: string;
@@ -26,6 +31,8 @@ export interface TraceResponseEvent {
   usage: {
     inputTokens: number;
     outputTokens: number;
+    cacheCreationInputTokens: number;
+    cacheReadInputTokens: number;
   };
   content: JsonValue;
 }
@@ -37,6 +44,13 @@ export interface TraceTurnStartEvent {
     SessionSnapshot,
     "sessionId" | "workingDirectory" | "model" | "sessionState"
   >;
+}
+
+export interface TraceSkillsLoadedEvent {
+  kind: "skills_loaded";
+  turnCount: number;
+  skills: SkillDescriptor[];
+  diagnostics: SkillDiscoveryDiagnostic[];
 }
 
 export interface TraceTextEvent {
@@ -87,6 +101,7 @@ export type TraceEvent =
   | TracePromptEvent
   | TraceResponseEvent
   | TraceTurnStartEvent
+  | TraceSkillsLoadedEvent
   | TraceTextEvent
   | TraceThinkingEvent
   | TraceToolCallEvent

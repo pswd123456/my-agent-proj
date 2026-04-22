@@ -21,6 +21,11 @@ import {
   mergeSessionSummary,
   parseDateString
 } from "./ui1-workbench-state";
+import {
+  buildTimelineItems,
+  getTimelineEventKey,
+  type TimelineItem
+} from "./ui1-timeline";
 
 const apiClient = createApiClient({
   baseUrl: process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api"
@@ -37,6 +42,12 @@ const DEFAULT_MAX_TURNS = 6;
 const MAX_TURNS_LIMIT = 20;
 
 type InspectorTabId = (typeof inspectorTabs)[number]["id"];
+
+interface TurnUsageSummary {
+  inputTokens: number;
+  cacheReadInputTokens: number;
+  cacheCreationInputTokens: number;
+}
 
 function formatTimestamp(value: string): string {
   return new Date(value).toLocaleString("zh-CN", {
@@ -57,6 +68,46 @@ function formatDayLabel(value: string): string {
 
 function stringify(value: unknown): string {
   return JSON.stringify(value, null, 2);
+}
+
+function formatTokenCount(value: number): string {
+  return Math.max(0, value).toLocaleString("zh-CN");
+}
+
+function formatCacheUsage(usage: {
+  cacheReadInputTokens: number;
+  cacheCreationInputTokens: number;
+}): string {
+  return `read ${formatTokenCount(usage.cacheReadInputTokens)} / write ${formatTokenCount(usage.cacheCreationInputTokens)}`;
+}
+
+function collectTurnUsage(
+  events: RunStreamEvent[]
+): Map<number, TurnUsageSummary> {
+  const usageByTurn = new Map<number, TurnUsageSummary>();
+
+  for (const event of events) {
+    if (event.kind !== "response") {
+      continue;
+    }
+
+    const current = usageByTurn.get(event.turnCount) ?? {
+      inputTokens: 0,
+      cacheReadInputTokens: 0,
+      cacheCreationInputTokens: 0
+    };
+
+    usageByTurn.set(event.turnCount, {
+      inputTokens: current.inputTokens + event.usage.inputTokens,
+      cacheReadInputTokens:
+        current.cacheReadInputTokens + event.usage.cacheReadInputTokens,
+      cacheCreationInputTokens:
+        current.cacheCreationInputTokens +
+        event.usage.cacheCreationInputTokens
+    });
+  }
+
+  return usageByTurn;
 }
 
 function getStateTone(
@@ -88,14 +139,18 @@ function getBubbleClass(kind: "user" | "assistant"): string {
 function getDebugPreClass(surface: "muted" | "surface" = "muted"): string {
   const backgroundClass =
     surface === "surface"
-      ? "bg-[var(--app-bg-surface)]"
-      : "bg-[var(--app-bg-muted)]";
+      ? "bg-[color:color-mix(in_srgb,var(--app-bg-surface)_88%,white_12%)]"
+      : "bg-[color:color-mix(in_srgb,var(--app-bg-muted)_88%,var(--app-bg-surface)_12%)]";
 
-  return `mt-2 min-w-0 whitespace-pre-wrap rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] ${backgroundClass} p-3 text-xs leading-6 text-[var(--app-text-secondary)] [overflow-wrap:anywhere]`;
+  return `mt-2 min-w-0 whitespace-pre-wrap rounded-[var(--app-radius-lg)] ${backgroundClass} px-3 py-3 text-xs leading-6 text-[var(--app-text-secondary)] [overflow-wrap:anywhere]`;
 }
 
 function getInspectorCardClass(extraClassName = ""): string {
-  return `min-w-0 rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-muted)] px-4 py-4 ${extraClassName}`.trim();
+  return `min-w-0 rounded-[var(--app-radius-lg)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_86%,var(--app-bg-surface)_14%)] px-4 py-4 ${extraClassName}`.trim();
+}
+
+function getSoftBlockClass(extraClassName = ""): string {
+  return `min-w-0 rounded-[var(--app-radius-lg)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_82%,transparent)] px-4 py-4 ${extraClassName}`.trim();
 }
 
 function sortSessionSummaries(snapshots: SessionSnapshot[]): SessionSummary[] {
@@ -121,22 +176,6 @@ function normalizeMaxTurns(value: string): number {
   return Math.min(MAX_TURNS_LIMIT, Math.max(1, parsed));
 }
 
-function getExecutionEventKey(event: RunStreamEvent): string {
-  if (event.kind === "tool_call" || event.kind === "tool_result") {
-    return `${event.kind}-${event.toolCallId}-${event.createdAt}`;
-  }
-
-  if (event.kind === "thinking") {
-    return `${event.kind}-${event.signature}-${event.createdAt}`;
-  }
-
-  if (event.kind === "run_complete" || event.kind === "run_error") {
-    return `${event.kind}-${event.createdAt}-${event.sessionId}`;
-  }
-
-  return `${event.kind}-${event.createdAt}`;
-}
-
 function renderUserMessageBlock(
   block: Extract<SessionSnapshot["messages"][number], { kind: "user" }>
 ) {
@@ -147,11 +186,119 @@ function renderUserMessageBlock(
   );
 }
 
-function renderExecutionEvent(event: RunStreamEvent) {
+function renderAssistantMessageBlock(
+  block: Extract<SessionSnapshot["messages"][number], { kind: "assistant" }>
+) {
+  return (
+    <div key={block.id} className={getBubbleClass("assistant")}>
+      {block.content}
+    </div>
+  );
+}
+
+function renderToolCallBlock(
+  block: Extract<SessionSnapshot["messages"][number], { kind: "tool call" }>
+) {
+  return (
+    <article key={block.id} className={getInspectorCardClass()}>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
+            Tool Call
+          </div>
+          <div className="mt-2 text-sm font-medium text-[var(--app-text-primary)]">
+            {block.toolName}
+          </div>
+        </div>
+        <div className="text-[0.72rem] text-[var(--app-text-muted)]">
+          {formatTimestamp(block.createdAt)}
+        </div>
+      </div>
+      <pre className={getDebugPreClass("surface").replace("mt-2 ", "mt-3 ")}>
+        {stringify(block.input)}
+      </pre>
+    </article>
+  );
+}
+
+function renderToolResultBlock(
+  block: Extract<SessionSnapshot["messages"][number], { kind: "tool result" }>
+) {
+  return (
+    <article key={block.id} className={getInspectorCardClass()}>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
+            Tool Result
+          </div>
+          <div className="mt-2 text-sm font-medium text-[var(--app-text-primary)]">
+            {block.toolName}
+          </div>
+        </div>
+        <div
+          className={`text-[0.72rem] ${
+            block.isError
+              ? "text-[var(--app-status-danger)]"
+              : "text-[var(--app-status-success)]"
+          }`}
+        >
+          {block.isError ? "failed" : "ok"}
+        </div>
+      </div>
+      <pre className={getDebugPreClass("surface").replace("mt-2 ", "mt-3 ")}>
+        {block.output}
+      </pre>
+    </article>
+  );
+}
+
+function renderConversationBlock(block: SessionSnapshot["messages"][number]) {
+  if (block.kind === "user") {
+    return renderUserMessageBlock(block);
+  }
+
+  if (block.kind === "assistant") {
+    return renderAssistantMessageBlock(block);
+  }
+
+  if (block.kind === "tool call") {
+    return renderToolCallBlock(block);
+  }
+
+  return renderToolResultBlock(block);
+}
+
+function renderPendingUserMessage(text: string, createdAt: string) {
+  return (
+    <div key={`pending-user-${createdAt}`} className={getBubbleClass("user")}>
+      {text}
+    </div>
+  );
+}
+
+function renderTimelineItem(
+  item: TimelineItem,
+  turnUsageByTurnCount: Map<number, TurnUsageSummary>
+) {
+  if (item.type === "event") {
+    return renderExecutionEvent(item.event, turnUsageByTurnCount);
+  }
+
+  if (item.type === "pending-user") {
+    return renderPendingUserMessage(item.text, item.createdAt);
+  }
+
+  return renderConversationBlock(item.block);
+}
+
+function renderExecutionEvent(
+  event: RunStreamEvent,
+  turnUsageByTurnCount: Map<number, TurnUsageSummary>
+) {
   if (event.kind === "assistant_text") {
     return (
       <div
-        key={getExecutionEventKey(event)}
+        key={getTimelineEventKey(event)}
         className={getBubbleClass("assistant")}
       >
         {event.text}
@@ -162,7 +309,7 @@ function renderExecutionEvent(event: RunStreamEvent) {
   if (event.kind === "thinking") {
     return (
       <article
-        key={getExecutionEventKey(event)}
+        key={getTimelineEventKey(event)}
         className={getInspectorCardClass(
           "text-sm leading-7 text-[var(--app-text-muted)]"
         )}
@@ -185,7 +332,7 @@ function renderExecutionEvent(event: RunStreamEvent) {
   if (event.kind === "tool_call") {
     return (
       <article
-        key={getExecutionEventKey(event)}
+        key={getTimelineEventKey(event)}
         className={getInspectorCardClass()}
       >
         <div className="flex items-center justify-between gap-3">
@@ -211,7 +358,7 @@ function renderExecutionEvent(event: RunStreamEvent) {
   if (event.kind === "tool_result") {
     return (
       <article
-        key={getExecutionEventKey(event)}
+        key={getTimelineEventKey(event)}
         className={getInspectorCardClass()}
       >
         <div className="flex items-center justify-between gap-3">
@@ -241,15 +388,23 @@ function renderExecutionEvent(event: RunStreamEvent) {
   }
 
   if (event.kind === "turn_start" || event.kind === "turn_end") {
+    const turnUsage =
+      event.kind === "turn_end"
+        ? turnUsageByTurnCount.get(event.turnCount) ?? null
+        : null;
+
     return (
       <div
-        key={getExecutionEventKey(event)}
-        className="flex items-center justify-between gap-3 rounded-[var(--app-radius-md)] border border-[var(--app-border-subtle)] px-3 py-2 text-xs text-[var(--app-text-secondary)]"
+        key={getTimelineEventKey(event)}
+        className="flex items-center justify-between gap-3 rounded-[var(--app-radius-md)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_78%,transparent)] px-3 py-2 text-xs text-[var(--app-text-secondary)]"
       >
         <span className="font-medium text-[var(--app-text-primary)]">
           {event.kind === "turn_start"
             ? `Turn ${event.turnCount} started`
             : `Turn ${event.turnCount} ended`}
+          {turnUsage
+            ? ` / input ${formatTokenCount(turnUsage.inputTokens)} / ${formatCacheUsage(turnUsage)}`
+            : ""}
         </span>
         <span className="font-mono text-[var(--app-text-muted)]">
           {formatTimestamp(event.createdAt)}
@@ -261,8 +416,8 @@ function renderExecutionEvent(event: RunStreamEvent) {
   if (event.kind === "fallback") {
     return (
       <article
-        key={getExecutionEventKey(event)}
-        className="min-w-0 rounded-[var(--app-radius-lg)] border border-[var(--app-status-warning)]/40 bg-[var(--app-bg-muted)] px-4 py-4 text-sm leading-7 text-[var(--app-text-secondary)]"
+        key={getTimelineEventKey(event)}
+        className="min-w-0 rounded-[var(--app-radius-lg)] bg-[color:color-mix(in_srgb,var(--app-status-warning)_12%,var(--app-bg-muted)_88%)] px-4 py-4 text-sm leading-7 text-[var(--app-text-secondary)]"
       >
         <div className="flex items-center justify-between gap-3">
           <div className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
@@ -280,8 +435,8 @@ function renderExecutionEvent(event: RunStreamEvent) {
   if (event.kind === "run_error") {
     return (
       <article
-        key={getExecutionEventKey(event)}
-        className="min-w-0 rounded-[var(--app-radius-lg)] border border-[var(--app-status-danger)]/40 bg-[var(--app-bg-muted)] px-4 py-4 text-sm leading-7 text-[var(--app-status-danger)]"
+        key={getTimelineEventKey(event)}
+        className="min-w-0 rounded-[var(--app-radius-lg)] bg-[color:color-mix(in_srgb,var(--app-status-danger)_12%,var(--app-bg-muted)_88%)] px-4 py-4 text-sm leading-7 text-[var(--app-status-danger)]"
       >
         <div className="flex items-center justify-between gap-3">
           <div className="font-mono text-[0.72rem] uppercase tracking-[0.18em]">
@@ -299,12 +454,13 @@ function renderExecutionEvent(event: RunStreamEvent) {
   if (event.kind === "response") {
     return (
       <div
-        key={getExecutionEventKey(event)}
-        className="flex items-center justify-between gap-3 rounded-[var(--app-radius-md)] border border-[var(--app-border-subtle)] px-3 py-2 text-xs text-[var(--app-text-secondary)]"
+        key={getTimelineEventKey(event)}
+        className="flex items-center justify-between gap-3 rounded-[var(--app-radius-md)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_78%,transparent)] px-3 py-2 text-xs text-[var(--app-text-secondary)]"
       >
         <span className="font-medium text-[var(--app-text-primary)]">
           response / input {event.usage.inputTokens} / output{" "}
-          {event.usage.outputTokens}
+          {event.usage.outputTokens} /{" "}
+          {formatCacheUsage(event.usage)}
         </span>
         <span className="font-mono text-[var(--app-text-muted)]">
           {formatTimestamp(event.createdAt)}
@@ -316,8 +472,8 @@ function renderExecutionEvent(event: RunStreamEvent) {
   if (event.kind === "run_complete") {
     return (
       <div
-        key={getExecutionEventKey(event)}
-        className="flex items-center justify-between gap-3 rounded-[var(--app-radius-md)] border border-[var(--app-status-success)]/40 px-3 py-2 text-xs text-[var(--app-text-secondary)]"
+        key={getTimelineEventKey(event)}
+        className="flex items-center justify-between gap-3 rounded-[var(--app-radius-md)] bg-[color:color-mix(in_srgb,var(--app-status-success)_12%,var(--app-bg-muted)_88%)] px-3 py-2 text-xs text-[var(--app-text-secondary)]"
       >
         <span className="font-medium text-[var(--app-status-success)]">
           run complete / {event.status}
@@ -670,6 +826,10 @@ export function UI1Workbench() {
 
   const historyEvents = flattenTraceRecords(traceRecords);
   const inspectorEvents = streamEvents.length ? streamEvents : historyEvents;
+  const turnUsageByTurnCount = collectTurnUsage([
+    ...historyEvents,
+    ...streamEvents
+  ]);
   const latestPromptEvent = [...inspectorEvents]
     .reverse()
     .find((event) => event.kind === "prompt");
@@ -681,54 +841,15 @@ export function UI1Workbench() {
   const weekDates = currentSession
     ? buildWeekRange(currentSession.context.currentDateContext).dates
     : [];
-  const timelineEntries = [
-    ...(currentSession?.messages
-      .filter((block) => block.kind === "user")
-      .map((block) => ({
-        createdAt: block.createdAt,
-        key: `message-${block.id}`,
-        sortOrder: 0,
-        node: renderUserMessageBlock(block)
-      })) ?? []),
-    ...(pendingUserMessage
-      ? [
-          {
-            createdAt: pendingUserMessage.createdAt,
-            key: `pending-user-${pendingUserMessage.createdAt}`,
-            sortOrder: 0,
-            node: (
-              <div
-                key={`pending-user-${pendingUserMessage.createdAt}`}
-                className={getBubbleClass("user")}
-              >
-                {pendingUserMessage.text}
-              </div>
-            )
-          }
-        ]
-      : []),
-    ...[...historyEvents, ...streamEvents]
-      .filter((event) => event.kind !== "prompt" && event.kind !== "response")
-      .map((event) => ({
-        createdAt: event.createdAt,
-        key: `event-${getExecutionEventKey(event)}`,
-        sortOrder:
-          event.kind === "turn_start"
-            ? -1
-            : event.kind === "turn_end" || event.kind === "run_complete"
-              ? 1
-              : 0,
-        node: renderExecutionEvent(event)
-      }))
-  ].sort((left, right) => {
-    if (left.createdAt === right.createdAt) {
-      return (
-        left.sortOrder - right.sortOrder || left.key.localeCompare(right.key)
-      );
-    }
-
-    return left.createdAt.localeCompare(right.createdAt);
-  });
+  const timelineEntries = buildTimelineItems({
+    messages: currentSession?.messages ?? [],
+    historyEvents,
+    streamEvents,
+    pendingUserMessage
+  }).map((item) => ({
+    key: item.key,
+    node: renderTimelineItem(item, turnUsageByTurnCount)
+  }));
 
   return (
     <main className="min-h-screen bg-[var(--app-bg-canvas)] text-[var(--app-text-primary)]">
@@ -784,10 +905,10 @@ export function UI1Workbench() {
                 return (
                   <article
                     key={session.sessionId}
-                    className={`rounded-[var(--app-radius-lg)] border px-3 py-3 transition ${
+                    className={`rounded-[var(--app-radius-lg)] px-3 py-3 transition ${
                       isActive
-                        ? "border-[var(--app-border-accent)] bg-[var(--app-bg-elevated)]"
-                        : "border-[var(--app-border-subtle)] bg-[var(--app-bg-muted)]"
+                        ? "bg-[color:color-mix(in_srgb,var(--app-bg-elevated)_72%,var(--app-bg-surface)_28%)] shadow-[inset_0_0_0_1px_var(--app-border-accent)]"
+                        : "bg-[color:color-mix(in_srgb,var(--app-bg-muted)_82%,transparent)] hover:bg-[color:color-mix(in_srgb,var(--app-bg-muted)_92%,var(--app-bg-surface)_8%)]"
                     }`}
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -845,7 +966,7 @@ export function UI1Workbench() {
       </aside>
 
       <div className="mx-auto flex min-h-screen w-full max-w-[1760px] flex-col gap-4 px-4 py-4 lg:px-6">
-        <section className="rounded-[var(--app-radius-xl)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-4 shadow-[var(--app-shadow-sm)]">
+        <section className="rounded-[var(--app-radius-xl)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_72%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_90%,var(--app-bg-elevated)_10%)] px-4 py-4 shadow-[var(--app-shadow-sm)]">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-start gap-3">
               <button
@@ -879,7 +1000,11 @@ export function UI1Workbench() {
             <div className="text-sm text-[var(--app-text-secondary)]">
               {loadingSession
                 ? "正在同步当前会话..."
-                : `${sessions.length} 个会话`}
+                : `${sessions.length} 个会话 / total input ${
+                    currentSession
+                      ? formatTokenCount(currentSession.inputTokensCount)
+                      : "--"
+                  }`}
             </div>
           </div>
         </section>
@@ -895,7 +1020,11 @@ export function UI1Workbench() {
                 <div className="flex-1 overflow-y-auto pr-1">
                   <div className="grid gap-4">
                     {loading && !currentSession ? (
-                      <div className="rounded-[var(--app-radius-lg)] border border-dashed border-[var(--app-border-subtle)] px-4 py-10 text-sm text-[var(--app-text-muted)]">
+                      <div
+                        className={getSoftBlockClass(
+                          "py-10 text-sm text-[var(--app-text-muted)]"
+                        )}
+                      >
                         正在初始化工作台...
                       </div>
                     ) : null}
@@ -903,7 +1032,11 @@ export function UI1Workbench() {
                     {timelineEntries.length ? (
                       timelineEntries.map((entry) => entry.node)
                     ) : (
-                      <div className="rounded-[var(--app-radius-lg)] border border-dashed border-[var(--app-border-subtle)] px-4 py-6 text-sm text-[var(--app-text-muted)]">
+                      <div
+                        className={getSoftBlockClass(
+                          "py-6 text-sm text-[var(--app-text-muted)]"
+                        )}
+                      >
                         发送请求后，这里会按单条时间线展示用户输入、thinking、tool
                         call、tool result 和助手回复。
                       </div>
@@ -916,7 +1049,7 @@ export function UI1Workbench() {
                     value={message}
                     onChange={(event) => setMessage(event.target.value)}
                     rows={4}
-                    placeholder="输入你的日程请求，观察 thinking、tool call 和完整 prompt。"
+                    placeholder="输入你的请求，观察 thinking、tool call 和完整 prompt。"
                     className="w-full rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm leading-7 text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
                   />
 
@@ -957,7 +1090,7 @@ export function UI1Workbench() {
                   </div>
 
                   {errorText ? (
-                    <div className="rounded-[var(--app-radius-lg)] border border-[var(--app-status-danger)]/40 bg-[var(--app-bg-muted)] px-4 py-3 text-sm text-[var(--app-status-danger)]">
+                    <div className="rounded-[var(--app-radius-lg)] bg-[color:color-mix(in_srgb,var(--app-status-danger)_12%,var(--app-bg-muted)_88%)] px-4 py-3 text-sm text-[var(--app-status-danger)]">
                       {errorText}
                     </div>
                   ) : null}
@@ -968,8 +1101,8 @@ export function UI1Workbench() {
 
           <div className="grid min-h-0 min-w-0 gap-4 min-[700px]:grid-rows-[auto_minmax(0,1fr)]">
             <WorkbenchPanel
-              eyebrow="Calendar"
-              title="7 天只读周历"
+              eyebrow="Schedule Pack"
+              title="当前日程能力视图"
               meta={currentSession?.context.currentDateContext ?? "--"}
               headerActions={
                 <button
@@ -983,7 +1116,7 @@ export function UI1Workbench() {
                   }
                   className="inline-flex items-center justify-center rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-3 py-1.5 text-xs font-medium text-[var(--app-text-secondary)] transition hover:border-[var(--app-status-danger)] hover:text-[var(--app-status-danger)] disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {resettingRoutines ? "重置中..." : "重置所有日程"}
+                  {resettingRoutines ? "清空中..." : "清空日程数据"}
                 </button>
               }
             >
@@ -991,7 +1124,7 @@ export function UI1Workbench() {
                 {weekDates.map((date) => (
                   <div
                     key={date}
-                    className="min-w-0 rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-muted)] px-3 py-3"
+                    className="min-w-0 rounded-[var(--app-radius-lg)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_84%,var(--app-bg-surface)_16%)] px-3 py-3"
                   >
                     <div className="text-[0.72rem] uppercase tracking-[0.16em] text-[var(--app-text-muted)]">
                       {formatDayLabel(date)}
@@ -1000,7 +1133,7 @@ export function UI1Workbench() {
                       {(groupedRoutines.get(date) ?? []).map((routine) => (
                         <div
                           key={routine.id}
-                          className="rounded-[var(--app-radius-md)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-2 py-2"
+                          className="rounded-[var(--app-radius-md)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_90%,white_10%)] px-3 py-2"
                         >
                           <div className="text-xs font-medium text-[var(--app-text-primary)]">
                             {routine.name}
@@ -1011,7 +1144,7 @@ export function UI1Workbench() {
                         </div>
                       ))}
                       {!groupedRoutines.get(date)?.length ? (
-                        <div className="rounded-[var(--app-radius-md)] border border-dashed border-[var(--app-border-subtle)] px-2 py-3 text-[0.72rem] text-[var(--app-text-muted)]">
+                        <div className="rounded-[var(--app-radius-md)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_58%,transparent)] px-3 py-3 text-[0.72rem] text-[var(--app-text-muted)]">
                           暂无日程
                         </div>
                       ) : null}
@@ -1048,7 +1181,7 @@ export function UI1Workbench() {
                   {activeTab === "prompt" ? (
                     latestPromptEvent && latestPromptEvent.kind === "prompt" ? (
                       <div className="grid min-w-0 gap-4">
-                        <div className="min-w-0">
+                        <div className={getSoftBlockClass()}>
                           <p className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
                             System
                           </p>
@@ -1056,7 +1189,7 @@ export function UI1Workbench() {
                             {latestPromptEvent.system}
                           </pre>
                         </div>
-                        <div className="min-w-0">
+                        <div className={getSoftBlockClass()}>
                           <p className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
                             Prefix Messages
                           </p>
@@ -1064,7 +1197,7 @@ export function UI1Workbench() {
                             {stringify(latestPromptEvent.prefixMessages)}
                           </pre>
                         </div>
-                        <div className="min-w-0">
+                        <div className={getSoftBlockClass()}>
                           <p className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
                             Messages
                           </p>
@@ -1072,7 +1205,17 @@ export function UI1Workbench() {
                             {stringify(latestPromptEvent.messages)}
                           </pre>
                         </div>
-                        <div className="min-w-0">
+                        <div className={getSoftBlockClass()}>
+                          <p className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
+                            Runtime Context Messages
+                          </p>
+                          <pre className={getDebugPreClass()}>
+                            {stringify(
+                              latestPromptEvent.runtimeContextMessages
+                            )}
+                          </pre>
+                        </div>
+                        <div className={getSoftBlockClass()}>
                           <p className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
                             Tools / Choice
                           </p>
@@ -1086,7 +1229,11 @@ export function UI1Workbench() {
                         </div>
                       </div>
                     ) : (
-                      <div className="rounded-[var(--app-radius-lg)] border border-dashed border-[var(--app-border-subtle)] px-4 py-6 text-sm text-[var(--app-text-muted)]">
+                      <div
+                        className={getSoftBlockClass(
+                          "py-6 text-sm text-[var(--app-text-muted)]"
+                        )}
+                      >
                         暂无 prompt 事件。
                       </div>
                     )
@@ -1112,7 +1259,11 @@ export function UI1Workbench() {
                         ))}
                       </div>
                     ) : (
-                      <div className="rounded-[var(--app-radius-lg)] border border-dashed border-[var(--app-border-subtle)] px-4 py-6 text-sm text-[var(--app-text-muted)]">
+                      <div
+                        className={getSoftBlockClass(
+                          "py-6 text-sm text-[var(--app-text-muted)]"
+                        )}
+                      >
                         暂无 thinking 事件。
                       </div>
                     )
@@ -1146,7 +1297,7 @@ export function UI1Workbench() {
                               </div>
                             </div>
                             <div className="mt-4 grid min-w-0 gap-3">
-                              <div className="min-w-0">
+                              <div className={getSoftBlockClass("px-3 py-3")}>
                                 <p className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
                                   Input
                                 </p>
@@ -1154,7 +1305,7 @@ export function UI1Workbench() {
                                   {row.input ? stringify(row.input) : "null"}
                                 </pre>
                               </div>
-                              <div className="min-w-0">
+                              <div className={getSoftBlockClass("px-3 py-3")}>
                                 <p className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
                                   Raw Output
                                 </p>
@@ -1162,7 +1313,7 @@ export function UI1Workbench() {
                                   {row.output ?? "pending"}
                                 </pre>
                               </div>
-                              <div className="min-w-0">
+                              <div className={getSoftBlockClass("px-3 py-3")}>
                                 <p className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
                                   Display Text
                                 </p>
@@ -1175,7 +1326,11 @@ export function UI1Workbench() {
                         ))}
                       </div>
                     ) : (
-                      <div className="rounded-[var(--app-radius-lg)] border border-dashed border-[var(--app-border-subtle)] px-4 py-6 text-sm text-[var(--app-text-muted)]">
+                      <div
+                        className={getSoftBlockClass(
+                          "py-6 text-sm text-[var(--app-text-muted)]"
+                        )}
+                      >
                         暂无工具事件。
                       </div>
                     )
@@ -1186,8 +1341,8 @@ export function UI1Workbench() {
                       <div className="grid min-w-0 gap-2">
                         {inspectorEvents.map((event) => (
                           <div
-                            key={getExecutionEventKey(event)}
-                            className="min-w-0 rounded-[var(--app-radius-md)] border border-[var(--app-border-subtle)] px-3 py-3"
+                            key={getTimelineEventKey(event)}
+                            className="min-w-0 rounded-[var(--app-radius-md)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_78%,transparent)] px-3 py-3"
                           >
                             <div className="flex items-center justify-between gap-3">
                               <div className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
@@ -1197,14 +1352,23 @@ export function UI1Workbench() {
                                 {formatTimestamp(event.createdAt)}
                               </div>
                             </div>
-                            <pre className="mt-3 min-w-0 whitespace-pre-wrap break-all text-xs leading-6 text-[var(--app-text-secondary)] [overflow-wrap:anywhere]">
+                            <pre
+                              className={getDebugPreClass("surface").replace(
+                                "mt-2 ",
+                                "mt-3 "
+                              )}
+                            >
                               {stringify(event)}
                             </pre>
                           </div>
                         ))}
                       </div>
                     ) : (
-                      <div className="rounded-[var(--app-radius-lg)] border border-dashed border-[var(--app-border-subtle)] px-4 py-6 text-sm text-[var(--app-text-muted)]">
+                      <div
+                        className={getSoftBlockClass(
+                          "py-6 text-sm text-[var(--app-text-muted)]"
+                        )}
+                      >
                         暂无 trace 事件。
                       </div>
                     )

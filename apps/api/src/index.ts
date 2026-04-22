@@ -2,7 +2,7 @@ import { serve } from "@hono/node-server";
 
 import {
   createAgentRuntime,
-  createDefaultToolRegistry,
+  createScheduleToolRegistry,
   createPostgresSessionManager,
   createMiniMaxRuntime,
   createPromptBuilder,
@@ -32,7 +32,9 @@ const toolChoice = resolveToolChoice(process.env);
 const databaseUrl = resolveDatabaseUrl(process.env);
 
 if (!databaseUrl) {
-  throw new Error("DATABASE_URL is required for product1.");
+  throw new Error(
+    "DATABASE_URL is required for the current API assembly because session and routine persistence use PostgreSQL."
+  );
 }
 
 const database = createPostgresDatabase(databaseUrl);
@@ -54,7 +56,7 @@ function createRuntime(session: SessionSnapshot) {
     model: session.model,
     sessionManager,
     routineRepository,
-    toolRegistry: createDefaultToolRegistry({ routineRepository }),
+    toolRegistry: createScheduleToolRegistry({ routineRepository }),
     traceManager,
     promptBuilder,
     maxTurns: 6,

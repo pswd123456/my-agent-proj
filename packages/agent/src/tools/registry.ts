@@ -51,7 +51,7 @@ export function createWorkspaceToolRegistry(options: {
   return registry;
 }
 
-export function createDefaultToolRegistry(options: {
+export function createScheduleToolRegistry(options: {
   routineRepository: RoutineRepository;
 }): ToolRegistry {
   void options;

@@ -1,21 +1,20 @@
 import { createHash } from "node:crypto";
 
-import type {
-  AnthropicMessage,
-  AnthropicToolDefinition
-} from "./model.js";
+import type { AnthropicMessage, AnthropicToolDefinition } from "./model.js";
 import type {
   ConversationBlock,
   JsonValue,
   SessionSnapshot,
   UserConversationBlock
 } from "./types.js";
+import type { SkillDescriptor } from "./skills/index.js";
 import type { ToolRegistry } from "./tools/registry.js";
 
 export interface PromptEnvelope {
   system: string;
   prefixMessages: AnthropicMessage[];
   messages: AnthropicMessage[];
+  runtimeContextMessages: AnthropicMessage[];
   tools: AnthropicToolDefinition[];
   cacheKey: string;
 }
@@ -24,18 +23,38 @@ export interface PromptBuilderOptions {
   systemPrompt?: string;
 }
 
+export interface PromptRuntimeContext {
+  currentDateTimeContext: string;
+  currentTimeZone: string;
+}
+
 const DEFAULT_SYSTEM_PROMPT = [
-  "You are a scheduling agent for a CLI-first routine manager.",
-  "Default the date context to the provided current_date_context when the user does not name a date.",
-  "Default duration to 60 minutes when the user gives a start time without a duration.",
-  "Use fixed constraints first, then place flexible tasks around them.",
-  "If you need to inspect existing routines before writing, call list_routine_by_date, list_routine_by_week, or search_routine_by_oclock first.",
-  "You may call create_routine, edit_routine, or delete_routine directly only when the requested change is safe and conflict-free.",
-  "If there is a conflict, overwrite risk, ambiguous delete target, or high-risk inference, call ask_for_confirmation instead of writing.",
+  "You are a personal assistant operating a CLI-first workspace runtime.",
+  "Adapt to the tools that are actually available in this run instead of assuming a fixed product workflow.",
+  "Prefer inspecting the current workspace or persisted state before taking actions that depend on existing context.",
+  "When a capability is not exposed in the current tool list, say so briefly instead of inventing hidden tools.",
   "When a tool returns INVALID_TOOL_INPUT or other validation errors, correct the tool call instead of repeating the same mistake.",
   "When the session contains a pending confirmation payload and the user answers yes/no or revises the time, treat it as a response to that pending confirmation.",
+  "Actively utilize the skills listed in the runtime context when they are relevant to the user's request and can improve efficiency or reliability.",
+  "Only rely on skills explicitly listed in the current runtime context. Do not invent or assume unavailable skills.",
   "In CLI mode, keep the final text concise and rely on stable tool results for detail."
 ].join("\n");
+
+const EPHEMERAL_CACHE_CONTROL = {
+  type: "ephemeral"
+} as const;
+
+const SCHEDULE_READ_TOOL_NAMES = [
+  "list_routine_by_date",
+  "list_routine_by_week",
+  "search_routine_by_oclock"
+] as const;
+
+const SCHEDULE_WRITE_TOOL_NAMES = [
+  "create_routine",
+  "edit_routine",
+  "delete_routine"
+] as const;
 
 function toolSummary(tools: AnthropicToolDefinition[]): string {
   return tools
@@ -54,6 +73,78 @@ function createPrefixMessage(
   session: SessionSnapshot,
   tools: AnthropicToolDefinition[]
 ): AnthropicMessage {
+  return {
+    role: "user",
+    content: [
+      {
+        type: "text",
+        cache_control: EPHEMERAL_CACHE_CONTROL,
+        text: [
+          `Workspace root: ${session.workingDirectory}`,
+          `Current date context: ${session.context.currentDateContext}`,
+          "Available tools:",
+          toolSummary(tools)
+        ].join("\n")
+      }
+    ]
+  };
+}
+
+function createDomainInstructions(
+  tools: AnthropicToolDefinition[]
+): string[] {
+  const toolNames = new Set(tools.map((tool) => tool.name));
+  const availableReadTools = SCHEDULE_READ_TOOL_NAMES.filter((toolName) =>
+    toolNames.has(toolName)
+  );
+  const availableWriteTools = SCHEDULE_WRITE_TOOL_NAMES.filter((toolName) =>
+    toolNames.has(toolName)
+  );
+  const instructions: string[] = [];
+
+  if (availableReadTools.length > 0) {
+    instructions.push(
+      `If you need to inspect existing routines before writing, call ${availableReadTools.join(", ")} first.`
+    );
+  }
+
+  if (availableWriteTools.length > 0) {
+    instructions.push(
+      `You may call ${availableWriteTools.join(", ")} directly only when the requested change is safe and conflict-free.`
+    );
+  }
+
+  if (
+    toolNames.has("create_routine") &&
+    toolNames.has("ask_for_confirmation")
+  ) {
+    instructions.push(
+      "If a new routine would overlap an existing one, do not call ask_for_confirmation or overwrite anything; surface the overlap as an error."
+    );
+  }
+
+  if (toolNames.has("ask_for_confirmation")) {
+    instructions.push(
+      "Use ask_for_confirmation only for overwrite-risk edits, ambiguous delete targets, or other high-risk inference that does not create an overlapping routine."
+    );
+  }
+
+  if (availableReadTools.length > 0 || availableWriteTools.length > 0) {
+    instructions.unshift(
+      "Routine-management tools are currently mounted as one capability pack in this runtime."
+    );
+    instructions.push(
+      "When the user expresses times ambiguously, default the date context to the provided current_date_context when no date is named, default duration to 60 minutes when only a start time is given, and use fixed constraints before placing flexible tasks."
+    );
+  }
+
+  return instructions;
+}
+
+function createRuntimeContextMessage(
+  session: SessionSnapshot,
+  runtimeContext: PromptRuntimeContext
+): AnthropicMessage {
   const pendingConfirmation = session.context.pendingConfirmationPayload;
   const pendingText = pendingConfirmation
     ? JSON.stringify(pendingConfirmation, null, 2)
@@ -65,14 +156,31 @@ function createPrefixMessage(
       {
         type: "text",
         text: [
-          `Workspace root: ${session.workingDirectory}`,
-          `Current date context: ${session.context.currentDateContext}`,
+          "Runtime context for this run:",
+          `Current local datetime: ${runtimeContext.currentDateTimeContext}`,
+          `Current timezone: ${runtimeContext.currentTimeZone}`,
           `Session status: ${session.context.status}`,
-          `Pending confirmation payload: ${pendingText}`,
-          `Last user message: ${session.context.lastUserMessage ?? "none"}`,
-          "Available tools:",
-          toolSummary(tools)
+          `Pending confirmation payload: ${pendingText}`
         ].join("\n")
+      }
+    ]
+  };
+}
+
+function createSkillsContextMessage(
+  skills: SkillDescriptor[]
+): AnthropicMessage {
+  const skillLines =
+    skills.length === 0
+      ? ["none"]
+      : skills.map((skill) => `- ${skill.name}: ${skill.description}`);
+
+  return {
+    role: "user",
+    content: [
+      {
+        type: "text",
+        text: ["Runtime skills for this workspace:", ...skillLines].join("\n")
       }
     ]
   };
@@ -117,7 +225,9 @@ function createToolResultContent(
   };
 }
 
-export function toAnthropicMessages(blocks: ConversationBlock[]): AnthropicMessage[] {
+export function toAnthropicMessages(
+  blocks: ConversationBlock[]
+): AnthropicMessage[] {
   const messages: AnthropicMessage[] = [];
   let currentRole: "user" | "assistant" | null = null;
   let currentContent: AnthropicMessage["content"] = [];
@@ -171,12 +281,28 @@ export function toAnthropicMessages(blocks: ConversationBlock[]): AnthropicMessa
 export class PromptBuilder {
   constructor(private readonly systemPrompt = DEFAULT_SYSTEM_PROMPT) {}
 
-  build(session: SessionSnapshot, toolRegistry: ToolRegistry): PromptEnvelope {
+  build(
+    session: SessionSnapshot,
+    toolRegistry: ToolRegistry,
+    runtimeContext: PromptRuntimeContext = {
+      currentDateTimeContext: formatPromptDateTimeContext(),
+      currentTimeZone: resolvePromptTimeZone()
+    },
+    skills: SkillDescriptor[] = []
+  ): PromptEnvelope {
     const tools = toolRegistry.toAnthropicTools();
+    const system = [this.systemPrompt, ...createDomainInstructions(tools)]
+      .filter((section) => section.length > 0)
+      .join("\n");
     const prefixMessage = createPrefixMessage(session, tools);
     const messages = toAnthropicMessages(session.messages);
+    const runtimeContextMessage = createRuntimeContextMessage(
+      session,
+      runtimeContext
+    );
+    const skillsContextMessage = createSkillsContextMessage(skills);
     const cacheKey = createHash("sha256")
-      .update(this.systemPrompt)
+      .update(system)
       .update("\n")
       .update(JSON.stringify(prefixMessage))
       .update("\n")
@@ -184,20 +310,40 @@ export class PromptBuilder {
       .digest("hex");
 
     return {
-      system: this.systemPrompt,
+      system,
       prefixMessages: [prefixMessage],
       messages,
+      runtimeContextMessages: [runtimeContextMessage, skillsContextMessage],
       tools,
       cacheKey
     };
   }
 }
 
-export function createPromptBuilder(options: PromptBuilderOptions = {}): PromptBuilder {
+export function createPromptBuilder(
+  options: PromptBuilderOptions = {}
+): PromptBuilder {
   return new PromptBuilder(options.systemPrompt);
 }
 
-export function summarizeConversationBlocks(blocks: ConversationBlock[]): string {
+function pad(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+export function formatPromptDateTimeContext(now = new Date()): string {
+  return [
+    `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
+    `${pad(now.getHours())}:${pad(now.getMinutes())}`
+  ].join(" ");
+}
+
+export function resolvePromptTimeZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+}
+
+export function summarizeConversationBlocks(
+  blocks: ConversationBlock[]
+): string {
   return blocks
     .map((block) => {
       if (block.kind === "user" || block.kind === "assistant") {
@@ -213,11 +359,17 @@ export function summarizeConversationBlocks(blocks: ConversationBlock[]): string
     .join("\n");
 }
 
-export function extractUserMessages(blocks: ConversationBlock[]): UserConversationBlock[] {
-  return blocks.filter((block): block is UserConversationBlock => block.kind === "user");
+export function extractUserMessages(
+  blocks: ConversationBlock[]
+): UserConversationBlock[] {
+  return blocks.filter(
+    (block): block is UserConversationBlock => block.kind === "user"
+  );
 }
 
-export function isPlainRecord(value: unknown): value is Record<string, unknown> {
+export function isPlainRecord(
+  value: unknown
+): value is Record<string, unknown> {
   return isRecord(value);
 }
 

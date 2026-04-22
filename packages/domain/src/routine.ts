@@ -40,6 +40,13 @@ export interface RoutineTiming {
   spansNextDay: boolean;
 }
 
+export interface RoutineTimingUpdatePatch {
+  date?: string | undefined;
+  startTime?: string | undefined;
+  endTime?: string | undefined;
+  durationMinutes?: number | undefined;
+}
+
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
 
@@ -185,6 +192,40 @@ export function resolveRoutineTiming(input: RoutineTimingInput): RoutineTiming {
   };
 }
 
+export function mergeRoutineTimingForUpdate(
+  existing: Pick<
+    RoutineRecord,
+    "date" | "startTime" | "endTime" | "durationMinutes"
+  >,
+  patch: RoutineTimingUpdatePatch
+): RoutineTimingInput {
+  const next: RoutineTimingInput = {
+    date: patch.date ?? existing.date,
+    startTime: patch.startTime ?? existing.startTime
+  };
+
+  if (typeof patch.durationMinutes === "number") {
+    next.durationMinutes = patch.durationMinutes;
+    if (typeof patch.endTime === "string") {
+      next.endTime = patch.endTime;
+    }
+    return next;
+  }
+
+  if (typeof patch.endTime === "string") {
+    next.endTime = patch.endTime;
+    return next;
+  }
+
+  if (typeof patch.startTime === "string") {
+    next.durationMinutes = existing.durationMinutes;
+    return next;
+  }
+
+  next.endTime = existing.endTime;
+  return next;
+}
+
 export function doIntervalsOverlap(
   left: Pick<RoutineRecord, "startAt" | "endAt">,
   right: Pick<RoutineRecord, "startAt" | "endAt">
@@ -195,18 +236,22 @@ export function doIntervalsOverlap(
 export function sortRoutinesByStartAt<T extends Pick<RoutineRecord, "startAt">>(
   routines: T[]
 ): T[] {
-  return [...routines].sort((left, right) => left.startAt.localeCompare(right.startAt));
+  return [...routines].sort((left, right) =>
+    left.startAt.localeCompare(right.startAt)
+  );
 }
 
-export function formatRoutinePreview(routine: Pick<
-  RoutineRecord,
-  "date" | "startTime" | "endTime" | "name"
->): string {
+export function formatRoutinePreview(
+  routine: Pick<RoutineRecord, "date" | "startTime" | "endTime" | "name">
+): string {
   return `${routine.date} ${routine.startTime}-${routine.endTime} ${routine.name}`;
 }
 
 export function formatRoutinePreviewWithDescription(
-  routine: Pick<RoutineRecord, "date" | "startTime" | "endTime" | "name" | "description">
+  routine: Pick<
+    RoutineRecord,
+    "date" | "startTime" | "endTime" | "name" | "description"
+  >
 ): string {
   const base = formatRoutinePreview(routine);
   return routine.description ? `${base} (${routine.description})` : base;

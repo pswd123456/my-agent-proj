@@ -74,6 +74,11 @@ function buildUrl(baseUrl: string, pathname: string): string {
   return `${trimTrailingSlash(baseUrl)}${pathname}`;
 }
 
+function appendCacheBust(url: string): string {
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}_ts=${Date.now()}`;
+}
+
 function toSessionSummary(session: SessionSnapshot): SessionSummary {
   return {
     sessionId: session.sessionId,
@@ -151,7 +156,12 @@ export class ApiClient {
   }
 
   async listSessions(): Promise<SessionSnapshot[]> {
-    const response = await this.fetchImpl(buildUrl(this.baseUrl, "/sessions"));
+    const response = await this.fetchImpl(
+      appendCacheBust(buildUrl(this.baseUrl, "/sessions")),
+      {
+        cache: "no-store"
+      }
+    );
     const payload = (await ensureOk(response).then((result) =>
       result.json()
     )) as {
@@ -183,7 +193,10 @@ export class ApiClient {
 
   async getSession(sessionId: string): Promise<SessionSnapshot> {
     const response = await this.fetchImpl(
-      buildUrl(this.baseUrl, `/sessions/${sessionId}`)
+      appendCacheBust(buildUrl(this.baseUrl, `/sessions/${sessionId}`)),
+      {
+        cache: "no-store"
+      }
     );
     const payload = (await ensureOk(response).then((result) =>
       result.json()
@@ -247,7 +260,10 @@ export class ApiClient {
 
   async getSessionTrace(sessionId: string): Promise<TraceRecord[]> {
     const response = await this.fetchImpl(
-      buildUrl(this.baseUrl, `/sessions/${sessionId}/trace`)
+      appendCacheBust(buildUrl(this.baseUrl, `/sessions/${sessionId}/trace`)),
+      {
+        cache: "no-store"
+      }
     );
     const payload = (await ensureOk(response).then((result) =>
       result.json()
@@ -267,10 +283,15 @@ export class ApiClient {
       endDate: input.endDate
     });
     const response = await this.fetchImpl(
-      buildUrl(
-        this.baseUrl,
-        `/sessions/${sessionId}/routines?${searchParams.toString()}`
-      )
+      appendCacheBust(
+        buildUrl(
+          this.baseUrl,
+          `/sessions/${sessionId}/routines?${searchParams.toString()}`
+        )
+      ),
+      {
+        cache: "no-store"
+      }
     );
     return (await ensureOk(response).then((result) =>
       result.json()

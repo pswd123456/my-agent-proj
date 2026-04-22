@@ -5,7 +5,7 @@
 - 当前已落地的主栈是：`TypeScript` + `Bun workspace` + `Turborepo`
 - 前端是 `Next.js 16` + `React 19` + `Tailwind CSS 4`
 - API 是 `Hono` + `Zod`
-- agent runtime 是仓库内自定义的 `AgentRuntime.run` 执行循环，不是现阶段由 `LangGraph` 驱动
+- agent runtime 是仓库内自定义的 `AgentRuntime.run` 执行循环
 - 数据层是 `PostgreSQL` + `postgres` 驱动
 - 模型接入是 `Anthropic SDK` 对接 MiniMax Anthropic-compatible endpoint
 
@@ -56,7 +56,7 @@
 - `Drizzle ORM`：包里有 `drizzle-kit` 依赖，但当前数据库读写主体仍是手写 SQL + `postgres`
 - `Better Auth`：当前仓库未看到已接入的鉴权主链路
 - `pg-boss` / 向量检索 / 多模型编排：目前都还不是运行主链路的一部分
-- `LangGraph`：依赖仍保留在 `packages/agent`，但当前真实执行主入口是自定义 runtime loop
+- agent runtime 当前以仓库内自定义 loop 为准，技术栈文档不再把历史或未启用方案写成现状
 
 ## 选择原则
 

@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { DomainJsonValue } from "@ai-app-template/domain";
 
 import type { RuntimeTool } from "./runtime-tool.js";
+import { formatConflictLines } from "./routine-format.js";
 import {
   createToolResult,
   failureResult,
@@ -10,14 +11,54 @@ import {
   validateWithSchema
 } from "./tool-result.js";
 
-function toPendingConfirmationPayload(
-  input: z.infer<typeof schema>
-): {
+const createRoutineOverlapSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  start_time: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/),
+  end_time: z
+    .string()
+    .regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/)
+    .optional(),
+  duration_minutes: z.number().int().positive().optional()
+});
+
+function toCreateRoutineConflictInput(value: Record<string, DomainJsonValue>): {
+  date: string;
+  startTime: string;
+  endTime?: string;
+  durationMinutes?: number;
+} | null {
+  const parsed = createRoutineOverlapSchema.safeParse(value);
+  if (!parsed.success) {
+    return null;
+  }
+
+  const next = {
+    date: parsed.data.date,
+    startTime: parsed.data.start_time
+  } as {
+    date: string;
+    startTime: string;
+    endTime?: string;
+    durationMinutes?: number;
+  };
+
+  if (typeof parsed.data.end_time === "string") {
+    next.endTime = parsed.data.end_time;
+  }
+
+  if (typeof parsed.data.duration_minutes === "number") {
+    next.durationMinutes = parsed.data.duration_minutes;
+  }
+
+  return next;
+}
+
+function toPendingConfirmationPayload(input: z.infer<typeof schema>): {
   summaryText: string;
-    proposedItems: Array<{
-      previewText: string;
-      toolName?: string;
-      toolInput?: Record<string, DomainJsonValue>;
+  proposedItems: Array<{
+    previewText: string;
+    toolName?: string;
+    toolInput?: Record<string, DomainJsonValue>;
   }>;
   contextNote?: string;
   conflictItems?: Array<{
@@ -64,7 +105,9 @@ function toConfirmationData(input: z.infer<typeof schema>) {
     summary_text: input.summary_text,
     proposed_items: input.proposed_items.map((item) => ({
       preview_text: item.preview_text,
-      ...(typeof item.tool_name === "string" ? { tool_name: item.tool_name } : {}),
+      ...(typeof item.tool_name === "string"
+        ? { tool_name: item.tool_name }
+        : {}),
       ...(item.tool_input ? { tool_input: item.tool_input } : {})
     })),
     conflict_items: (input.conflict_items ?? []).map((item) => ({
@@ -156,6 +199,45 @@ export function createAskForConfirmationTool(): RuntimeTool {
         );
       }
 
+      for (const item of parsed.data.proposed_items) {
+        if (item.tool_name !== "create_routine" || !item.tool_input) {
+          continue;
+        }
+
+        const createInput = toCreateRoutineConflictInput(
+          item.tool_input as Record<string, DomainJsonValue>
+        );
+        if (!createInput) {
+          continue;
+        }
+
+        const conflicts = await context.routineRepository.findConflicts(
+          context.userId,
+          createInput
+        );
+        if (conflicts.length > 0) {
+          return failureResult(
+            createToolResult({
+              ok: false,
+              code: "CREATE_ROUTINE_OVERLAP_NOT_CONFIRMABLE",
+              message:
+                "Creating a routine with overlap must fail instead of entering confirmation.",
+              data: {
+                conflicts: conflicts.map((conflict) => ({
+                  routine_id: conflict.routine.id,
+                  preview_text: conflict.previewText
+                }))
+              }
+            }),
+            [
+              "[ask_for_confirmation] overlap not confirmable",
+              formatConflictLines(conflicts),
+              "- action needed: choose another time or edit/delete the existing routine first"
+            ].join("\n")
+          );
+        }
+      }
+
       const payload = toPendingConfirmationPayload(parsed.data);
 
       await context.sessionManager.updateContext(context.sessionId, {
@@ -166,7 +248,9 @@ export function createAskForConfirmationTool(): RuntimeTool {
 
       const lines = [
         "[ask_for_confirmation] conflict detected",
-        ...parsed.data.proposed_items.map((item) => `- proposed: ${item.preview_text}`),
+        ...parsed.data.proposed_items.map(
+          (item) => `- proposed: ${item.preview_text}`
+        ),
         ...(parsed.data.conflict_items ?? []).map(
           (item) => `- existing: ${item.preview_text}`
         ),

@@ -7,7 +7,6 @@
   apps/
     api/
     web/
-    worker/
   packages/
     agent/
     db/
@@ -32,8 +31,9 @@
 ### `apps/`
 
 - 放具体应用与部署单元
-- `api` 是当前主入口，负责 session 生命周期、执行触发、SSE 输出、trace 查询和 routine 查询
+- `api` 是当前主入口，负责 session 生命周期、执行触发、SSE 输出、trace 查询，并暂时继续暴露已落地的 routine 相关接口
 - `web` 是当前唯一产品层前端，主要承担工作台和调试可观测性
+- 当前没有纳入主链路的独立 `worker` 应用；本地残留构建目录不作为架构事实
 
 ### `packages/`
 
