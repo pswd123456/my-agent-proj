@@ -101,6 +101,35 @@ describe("createApiApp settings bootstrap", () => {
     expect(session.maxTurns).toBe(77);
   });
 
+  test("syncs normalized permission rules onto the current session", async () => {
+    const { app } = createTestApp();
+
+    const session = await createSession(app, {
+      userId: "stage5-permission-user"
+    });
+
+    const response = await app.request(`/sessions/${session.sessionId}/settings`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        yoloMode: true,
+        toolAllowList: ["read_file"],
+        toolAskList: ["read_file", "write_file"],
+        toolDenyList: ["delete_path"]
+      })
+    });
+
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as {
+      session: SessionSnapshot;
+    };
+
+    expect(payload.session.context.yoloMode).toBe(true);
+    expect(payload.session.context.toolAllowList).toEqual(["read_file"]);
+    expect(payload.session.context.toolAskList).toEqual(["write_file"]);
+    expect(payload.session.context.toolDenyList).toEqual(["delete_path"]);
+  });
+
   test("clamps persisted max turns to the shared session limit", async () => {
     const { app } = createTestApp();
 

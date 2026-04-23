@@ -90,9 +90,9 @@ bun build
 ```bash
 bun run minimax:smoke
 bun run stage1:smoke
-bun run ui1:api-smoke
-bun run ui1:runtime-smoke
-bun run ui1:web-smoke
+bun run api:session-smoke
+bun run agent:runtime-smoke
+bun run web:workbench-smoke
 ```
 
 ## API 与 Runtime 调试

@@ -60,6 +60,11 @@ export class AgentRuntime {
       yoloMode?: boolean;
       contextWindow?: number;
       maxTurns?: number;
+      shellAllowPatterns?: string[];
+      shellDenyPatterns?: string[];
+      toolAllowList?: string[];
+      toolAskList?: string[];
+      toolDenyList?: string[];
     } = {}
   ): ReturnType<SessionManager["createSession"]> {
     const createInput: {
@@ -69,6 +74,11 @@ export class AgentRuntime {
       yoloMode?: boolean;
       contextWindow?: number;
       maxTurns?: number;
+      shellAllowPatterns?: string[];
+      shellDenyPatterns?: string[];
+      toolAllowList?: string[];
+      toolAskList?: string[];
+      toolDenyList?: string[];
     } = {
       model: input.model ?? this.options.model
     };
@@ -87,6 +97,21 @@ export class AgentRuntime {
     }
     if (typeof input.maxTurns === "number") {
       createInput.maxTurns = input.maxTurns;
+    }
+    if (Array.isArray(input.shellAllowPatterns)) {
+      createInput.shellAllowPatterns = input.shellAllowPatterns;
+    }
+    if (Array.isArray(input.shellDenyPatterns)) {
+      createInput.shellDenyPatterns = input.shellDenyPatterns;
+    }
+    if (Array.isArray(input.toolAllowList)) {
+      createInput.toolAllowList = input.toolAllowList;
+    }
+    if (Array.isArray(input.toolAskList)) {
+      createInput.toolAskList = input.toolAskList;
+    }
+    if (Array.isArray(input.toolDenyList)) {
+      createInput.toolDenyList = input.toolDenyList;
     }
 
     return this.options.sessionManager.createSession(createInput);
@@ -132,6 +157,9 @@ export class AgentRuntime {
         promptBuilder: this.promptBuilder,
         session,
         message: input.message,
+        ...(typeof input.permissionReply === "boolean"
+          ? { permissionReply: input.permissionReply }
+          : {}),
         maxTurns:
           input.maxTurns ?? session.maxTurns ?? this.options.maxTurns ?? 50,
         maxTokens: this.options.maxTokens,

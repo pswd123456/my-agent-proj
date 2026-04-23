@@ -4,7 +4,11 @@ export type {
   SessionSnapshot,
   TraceRecord
 } from "@ai-app-template/agent";
-export type { RoutineRecord, SessionSettingsRecord } from "@ai-app-template/domain";
+export type {
+  RoutineRecord,
+  SessionSettingsRecord
+} from "@ai-app-template/domain";
+export { PERMISSION_TOOL_OPTIONS } from "@ai-app-template/domain";
 
 export type {
   ApiClientConfig,

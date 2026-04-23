@@ -10,6 +10,7 @@ import type {
 import {
   DEFAULT_SESSION_SETTINGS_USER_ID,
   SESSION_MAX_TURNS_LIMIT,
+  normalizePermissionRuleLists,
   sanitizeContextWindow,
   sanitizeSessionMaxTurns
 } from "@ai-app-template/domain";
@@ -27,23 +28,51 @@ const createSessionBodySchema = z.object({
   maxTurns: z.number().int().min(1).optional()
 });
 
-const updateSessionSettingsBodySchema = z.object({
-  yoloMode: z.boolean()
-});
+const updateSessionSettingsBodySchema = z
+  .object({
+    yoloMode: z.boolean().optional(),
+    shellAllowPatterns: z.array(z.string()).optional(),
+    shellDenyPatterns: z.array(z.string()).optional(),
+    toolAllowList: z.array(z.string()).optional(),
+    toolAskList: z.array(z.string()).optional(),
+    toolDenyList: z.array(z.string()).optional()
+  })
+  .refine(
+    (value) =>
+      typeof value.yoloMode === "boolean" ||
+      Array.isArray(value.shellAllowPatterns) ||
+      Array.isArray(value.shellDenyPatterns) ||
+      Array.isArray(value.toolAllowList) ||
+      Array.isArray(value.toolAskList) ||
+      Array.isArray(value.toolDenyList),
+    {
+      message: "At least one session settings field is required."
+    }
+  );
 
 const updateUserSettingsBodySchema = z
   .object({
     workingDirectory: z.string().optional(),
     yoloMode: z.boolean().optional(),
     contextWindow: z.number().int().min(1000).optional(),
-    maxTurns: z.number().int().min(1).optional()
+    maxTurns: z.number().int().min(1).optional(),
+    shellAllowPatterns: z.array(z.string()).optional(),
+    shellDenyPatterns: z.array(z.string()).optional(),
+    toolAllowList: z.array(z.string()).optional(),
+    toolAskList: z.array(z.string()).optional(),
+    toolDenyList: z.array(z.string()).optional()
   })
   .refine(
     (value) =>
       typeof value.workingDirectory === "string" ||
       typeof value.yoloMode === "boolean" ||
       typeof value.contextWindow === "number" ||
-      typeof value.maxTurns === "number",
+      typeof value.maxTurns === "number" ||
+      Array.isArray(value.shellAllowPatterns) ||
+      Array.isArray(value.shellDenyPatterns) ||
+      Array.isArray(value.toolAllowList) ||
+      Array.isArray(value.toolAskList) ||
+      Array.isArray(value.toolDenyList),
     {
       message: "At least one settings field is required."
     }
@@ -51,7 +80,8 @@ const updateUserSettingsBodySchema = z
 
 const executeSessionBodySchema = z.object({
   message: z.string().min(1),
-  maxTurns: z.number().int().min(1).max(SESSION_MAX_TURNS_LIMIT).optional()
+  maxTurns: z.number().int().min(1).max(SESSION_MAX_TURNS_LIMIT).optional(),
+  permissionReply: z.boolean().optional()
 });
 
 const recoverSessionBodySchema = z.object({
@@ -103,6 +133,11 @@ function toCreateSessionInput(input: {
   yoloMode: boolean;
   contextWindow: number;
   maxTurns: number;
+  shellAllowPatterns: string[];
+  shellDenyPatterns: string[];
+  toolAllowList: string[];
+  toolAskList: string[];
+  toolDenyList: string[];
 } {
   return {
     workingDirectory: input.buildWorkingDirectory(
@@ -116,7 +151,12 @@ function toCreateSessionInput(input: {
     ),
     maxTurns: sanitizeSessionMaxTurns(
       input.maxTurnsOverride ?? input.settings.maxTurns
-    )
+    ),
+    shellAllowPatterns: input.settings.shellAllowPatterns,
+    shellDenyPatterns: input.settings.shellDenyPatterns,
+    toolAllowList: input.settings.toolAllowList,
+    toolAskList: input.settings.toolAskList,
+    toolDenyList: input.settings.toolDenyList
   };
 }
 
@@ -198,7 +238,22 @@ export function createApiApp(dependencies: ApiAppDependencies) {
       ...(typeof body.contextWindow === "number"
         ? { contextWindow: body.contextWindow }
         : {}),
-      ...(typeof body.maxTurns === "number" ? { maxTurns: body.maxTurns } : {})
+      ...(typeof body.maxTurns === "number" ? { maxTurns: body.maxTurns } : {}),
+      ...(Array.isArray(body.shellAllowPatterns)
+        ? { shellAllowPatterns: body.shellAllowPatterns }
+        : {}),
+      ...(Array.isArray(body.shellDenyPatterns)
+        ? { shellDenyPatterns: body.shellDenyPatterns }
+        : {}),
+      ...(Array.isArray(body.toolAllowList)
+        ? { toolAllowList: body.toolAllowList }
+        : {}),
+      ...(Array.isArray(body.toolAskList)
+        ? { toolAskList: body.toolAskList }
+        : {}),
+      ...(Array.isArray(body.toolDenyList)
+        ? { toolDenyList: body.toolDenyList }
+        : {})
     });
     return c.json({ settings });
   });
@@ -222,8 +277,24 @@ export function createApiApp(dependencies: ApiAppDependencies) {
     }
 
     const body = updateSessionSettingsBodySchema.parse(await c.req.json());
+    const permissionRules = normalizePermissionRuleLists({
+      shellAllowPatterns:
+        body.shellAllowPatterns ?? session.context.shellAllowPatterns,
+      shellDenyPatterns:
+        body.shellDenyPatterns ?? session.context.shellDenyPatterns,
+      toolAllowList: body.toolAllowList ?? session.context.toolAllowList,
+      toolAskList: body.toolAskList ?? session.context.toolAskList,
+      toolDenyList: body.toolDenyList ?? session.context.toolDenyList
+    });
     const updated = await dependencies.sessionManager.updateContext(sessionId, {
-      yoloMode: body.yoloMode
+      ...(typeof body.yoloMode === "boolean"
+        ? { yoloMode: body.yoloMode }
+        : {}),
+      shellAllowPatterns: permissionRules.shellAllowPatterns,
+      shellDenyPatterns: permissionRules.shellDenyPatterns,
+      toolAllowList: permissionRules.toolAllowList,
+      toolAskList: permissionRules.toolAskList,
+      toolDenyList: permissionRules.toolDenyList
     });
     return c.json({ session: updated });
   });
@@ -279,6 +350,9 @@ export function createApiApp(dependencies: ApiAppDependencies) {
         message: body.message,
         ...(typeof body.maxTurns === "number"
           ? { maxTurns: body.maxTurns }
+          : {}),
+        ...(typeof body.permissionReply === "boolean"
+          ? { permissionReply: body.permissionReply }
           : {})
       });
 
@@ -327,6 +401,9 @@ export function createApiApp(dependencies: ApiAppDependencies) {
               message: body.message,
               ...(typeof body.maxTurns === "number"
                 ? { maxTurns: body.maxTurns }
+                : {}),
+              ...(typeof body.permissionReply === "boolean"
+                ? { permissionReply: body.permissionReply }
                 : {}),
               eventSink(event) {
                 controller.enqueue(encodeSseEvent(event));

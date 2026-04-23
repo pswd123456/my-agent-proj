@@ -43,7 +43,7 @@ export function createCreateDirectoryTool(
         issues: [{ field: "path", issue: "path is required." }]
       };
     },
-    async execute(input) {
+    async execute(input, context) {
       const rawPath = typeof input.path === "string" ? input.path : "";
       if (!rawPath) {
         return failureResult(
@@ -58,7 +58,11 @@ export function createCreateDirectoryTool(
       }
 
       try {
-        const absolutePath = normalizeWorkspacePath(workingDirectory, rawPath);
+        const absolutePath = normalizeWorkspacePath(
+          workingDirectory,
+          rawPath,
+          context.allowWorkspaceEscape
+        );
         const existingKind = await getPathKind(absolutePath);
 
         if (existingKind === "file") {

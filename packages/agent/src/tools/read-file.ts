@@ -51,7 +51,7 @@ export function createReadFileTool(workingDirectory: string): RuntimeTool {
         ]
       };
     },
-    async execute(input) {
+    async execute(input, context) {
       const rawPath = input.path;
       if (typeof rawPath !== "string" || rawPath.length === 0) {
         return failureResult(
@@ -76,7 +76,11 @@ export function createReadFileTool(workingDirectory: string): RuntimeTool {
           : 12_000;
 
       try {
-        const absolutePath = normalizeWorkspacePath(workingDirectory, rawPath);
+        const absolutePath = normalizeWorkspacePath(
+          workingDirectory,
+          rawPath,
+          context.allowWorkspaceEscape
+        );
         const stat = await fs.stat(absolutePath);
 
         if (!stat.isFile()) {

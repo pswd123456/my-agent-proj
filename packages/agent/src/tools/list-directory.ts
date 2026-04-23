@@ -32,14 +32,18 @@ export function createListDirectoryTool(workingDirectory: string): RuntimeTool {
     validate(input) {
       return { ok: true, value: input };
     },
-    async execute(input) {
+    async execute(input, context) {
       const rawPath =
         typeof input.path === "string" && input.path.length > 0
           ? input.path
           : ".";
 
       try {
-        const absolutePath = normalizeWorkspacePath(workingDirectory, rawPath);
+        const absolutePath = normalizeWorkspacePath(
+          workingDirectory,
+          rawPath,
+          context.allowWorkspaceEscape
+        );
         const stat = await fs.stat(absolutePath);
 
         if (!stat.isDirectory()) {

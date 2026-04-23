@@ -262,8 +262,7 @@ export const tokenSections: readonly TokenSection[] = [
     layer: "foundation",
     title: "Foundation Color",
     category: "color",
-    description:
-      "基础色板只在 theme 映射和系统层使用，页面不应直接消费这些色值。",
+    description: "基础色板的原始取值。",
     presentation: "color",
     tokens: [
       {
@@ -323,7 +322,7 @@ export const tokenSections: readonly TokenSection[] = [
     layer: "foundation",
     title: "Foundation Typography",
     category: "typography",
-    description: "排版 token 拆成族、字号、行高和字距，给语义层做组合。",
+    description: "排版相关的字体、字号、行高和字距。",
     presentation: "typography",
     tokens: [
       {

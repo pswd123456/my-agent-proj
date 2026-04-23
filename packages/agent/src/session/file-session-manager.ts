@@ -85,6 +85,11 @@ export class FileSessionManager implements SessionManager {
       yoloMode?: boolean;
       contextWindow?: number;
       maxTurns?: number;
+      shellAllowPatterns?: string[];
+      shellDenyPatterns?: string[];
+      toolAllowList?: string[];
+      toolAskList?: string[];
+      toolDenyList?: string[];
     } = {
       sessionId,
       workingDirectory: resolveWorkingDirectory(input.workingDirectory),
@@ -102,6 +107,21 @@ export class FileSessionManager implements SessionManager {
     }
     if (typeof input.maxTurns === "number") {
       createSnapshotInput.maxTurns = input.maxTurns;
+    }
+    if (Array.isArray(input.shellAllowPatterns)) {
+      createSnapshotInput.shellAllowPatterns = input.shellAllowPatterns;
+    }
+    if (Array.isArray(input.shellDenyPatterns)) {
+      createSnapshotInput.shellDenyPatterns = input.shellDenyPatterns;
+    }
+    if (Array.isArray(input.toolAllowList)) {
+      createSnapshotInput.toolAllowList = input.toolAllowList;
+    }
+    if (Array.isArray(input.toolAskList)) {
+      createSnapshotInput.toolAskList = input.toolAskList;
+    }
+    if (Array.isArray(input.toolDenyList)) {
+      createSnapshotInput.toolDenyList = input.toolDenyList;
     }
 
     const snapshot = createSnapshot(createSnapshotInput);

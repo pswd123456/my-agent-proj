@@ -5,7 +5,9 @@ import path from "node:path";
 
 import { createMemoryRoutineRepository } from "@ai-app-template/db";
 
+import { createAgentRuntime } from "../src/runtime.js";
 import { createMemorySessionManager } from "../src/session/index.js";
+import { matchesPermissionRuleLists } from "../src/runtime/permission-rules.js";
 import { handlePendingPermissionReply } from "../src/runtime/permission.js";
 import { executeToolAction } from "../src/runtime/tool-execution.js";
 import { createWorkspaceToolRegistry } from "../src/tools/registry.js";
@@ -15,6 +17,41 @@ async function createWorkspaceRoot(): Promise<string> {
 }
 
 describe("Stage 4 permission flow", () => {
+  test("matches shell allow patterns with multi-argument commands", () => {
+    const result = matchesPermissionRuleLists(
+      {
+        shellAllowPatterns: ["git *"],
+        shellDenyPatterns: [],
+        toolAllowList: [],
+        toolAskList: [],
+        toolDenyList: []
+      },
+      "run_shell_command",
+      "git status --short"
+    );
+
+    expect(result.allow).toBe(true);
+    expect(result.ask).toBe(false);
+    expect(result.deny).toBe(false);
+  });
+
+  test("prefers allow over ask when a tool is present in both lists", () => {
+    const result = matchesPermissionRuleLists(
+      {
+        shellAllowPatterns: [],
+        shellDenyPatterns: [],
+        toolAllowList: ["read_file"],
+        toolAskList: ["read_file"],
+        toolDenyList: []
+      },
+      "read_file"
+    );
+
+    expect(result.allow).toBe(true);
+    expect(result.ask).toBe(false);
+    expect(result.deny).toBe(false);
+  });
+
   test("allows creating a new file without approval", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     const sessionManager = createMemorySessionManager();
@@ -69,6 +106,11 @@ describe("Stage 4 permission flow", () => {
       await writeFile(
         path.join(workspaceRoot, "existing.txt"),
         "before",
+        "utf8"
+      );
+      await writeFile(
+        path.join(workspaceRoot, "existing-2.txt"),
+        "before-2",
         "utf8"
       );
       const session = await sessionManager.createSession({
@@ -127,17 +169,43 @@ describe("Stage 4 permission flow", () => {
         await readFile(path.join(workspaceRoot, "existing.txt"), "utf8")
       ).toBe("after");
       expect(resumed.toolOutputs[0]?.isError).toBe(false);
+      expect(resumed.session.context.toolAllowList).toHaveLength(0);
+      expect(resumed.session.context.shellAllowPatterns).toHaveLength(0);
 
-      const reloaded = await sessionManager.getSession(
+      const sessionAfterApproval = await sessionManager.getSession(
         permissionRequest.session.sessionId
       );
-      expect(reloaded?.context.pendingPermissionRequest).toBeNull();
+      expect(sessionAfterApproval?.context.pendingPermissionRequest).toBeNull();
+
+      const secondPermissionRequest = await executeToolAction({
+        sessionManager,
+        routineRepository,
+        toolRegistry,
+        traceManager: undefined,
+        session: resumed.session,
+        turnCount: 2,
+        toolCallId: "call-overwrite-2",
+        toolName: "write_file",
+        toolInput: {
+          path: "existing-2.txt",
+          content: "after-2"
+        },
+        eventSink: undefined
+      });
+
+      expect(secondPermissionRequest.kind).toBe("permission_request");
+      if (secondPermissionRequest.kind !== "permission_request") {
+        throw new Error("expected second permission request result");
+      }
       expect(
-        reloaded?.messages.filter((block) => block.kind === "tool call").length
+        sessionAfterApproval?.messages.filter(
+          (block) => block.kind === "tool call"
+        ).length
       ).toBe(1);
       expect(
-        reloaded?.messages.filter((block) => block.kind === "tool result")
-          .length
+        sessionAfterApproval?.messages.filter(
+          (block) => block.kind === "tool result"
+        ).length
       ).toBe(1);
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true });
@@ -212,22 +280,27 @@ describe("Stage 4 permission flow", () => {
     }
   });
 
-  test("blocks sandbox escapes and always asks before shell commands", async () => {
+  test("allows workspace-rooted reads outside cwd when the tool is already allowed and still asks before shell commands", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     const sessionManager = createMemorySessionManager();
     const routineRepository = createMemoryRoutineRepository();
     const toolRegistry = createWorkspaceToolRegistry({
       workingDirectory: workspaceRoot
     });
+    const outsidePath = path.join(
+      path.dirname(workspaceRoot),
+      `${path.basename(workspaceRoot)}-outside.txt`
+    );
 
     try {
+      await writeFile(outsidePath, "outside", "utf8");
       const session = await sessionManager.createSession({
         workingDirectory: workspaceRoot,
         model: "MiniMax-M2.7",
         userId: "stage4-user"
       });
 
-      const blocked = await executeToolAction({
+      const permissionRequest = await executeToolAction({
         sessionManager,
         routineRepository,
         toolRegistry,
@@ -237,23 +310,23 @@ describe("Stage 4 permission flow", () => {
         toolCallId: "call-block",
         toolName: "read_file",
         toolInput: {
-          path: "../outside.txt"
+          path: path.relative(workspaceRoot, outsidePath)
         },
         eventSink: undefined
       });
-      expect(blocked.kind).toBe("completed");
-      if (blocked.kind !== "completed") {
-        throw new Error("expected completed block result");
+      expect(permissionRequest.kind).toBe("completed");
+      if (permissionRequest.kind !== "completed") {
+        throw new Error("expected completed outside read");
       }
-      expect(blocked.output.isError).toBe(true);
-      expect(blocked.output.content).toContain("SANDBOX_BLOCKED");
+      expect(permissionRequest.output.isError).toBe(false);
+      expect(permissionRequest.output.content).toContain("outside");
 
       const shellRequest = await executeToolAction({
         sessionManager,
         routineRepository,
         toolRegistry,
         traceManager: undefined,
-        session: blocked.session,
+        session: permissionRequest.session,
         turnCount: 1,
         toolCallId: "call-shell",
         toolName: "run_shell_command",
@@ -268,6 +341,256 @@ describe("Stage 4 permission flow", () => {
       }
       expect(shellRequest.request.family).toBe("workspace-shell");
       expect(shellRequest.request.permissionProfile).toBe("always-ask-user");
+    } finally {
+      await rm(outsidePath, { force: true });
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("treats workspace escapes as ordinary tool approvals and persists session allow rules", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const sessionManager = createMemorySessionManager();
+    const routineRepository = createMemoryRoutineRepository();
+    const toolRegistry = createWorkspaceToolRegistry({
+      workingDirectory: workspaceRoot
+    });
+
+    try {
+      const session = await sessionManager.createSession({
+        workingDirectory: workspaceRoot,
+        model: "MiniMax-M2.7",
+        userId: "stage4-user",
+        toolAskList: ["list_directory"]
+      });
+
+      const firstRequest = await executeToolAction({
+        sessionManager,
+        routineRepository,
+        toolRegistry,
+        traceManager: undefined,
+        session,
+        turnCount: 1,
+        toolCallId: "call-list-parent",
+        toolName: "list_directory",
+        toolInput: {
+          path: ".."
+        },
+        eventSink: undefined
+      });
+
+      expect(firstRequest.kind).toBe("permission_request");
+      if (firstRequest.kind !== "permission_request") {
+        throw new Error("expected list_directory permission request");
+      }
+      expect(firstRequest.request.toolName).toBe("list_directory");
+      expect(firstRequest.request.allowWorkspaceEscape).toBeUndefined();
+
+      const approved = await handlePendingPermissionReply({
+        sessionManager,
+        routineRepository,
+        toolRegistry,
+        traceManager: undefined,
+        session: firstRequest.session,
+        message: "本会话允许 tool:list_directory",
+        pendingPermissionRequest:
+          firstRequest.session.context.pendingPermissionRequest!,
+        eventSink: undefined
+      });
+
+      expect(approved?.kind).toBe("approved");
+      if (approved?.kind !== "approved") {
+        throw new Error("expected approved list_directory result");
+      }
+      expect(approved.session.context.toolAllowList).toContain("list_directory");
+      expect(approved.session.context.toolAskList).not.toContain("list_directory");
+      expect(approved.toolOutputs[0]?.isError).toBe(false);
+
+      const secondCall = await executeToolAction({
+        sessionManager,
+        routineRepository,
+        toolRegistry,
+        traceManager: undefined,
+        session: approved.session,
+        turnCount: 2,
+        toolCallId: "call-list-parent-again",
+        toolName: "list_directory",
+        toolInput: {
+          path: ".."
+        },
+        eventSink: undefined
+      });
+
+      expect(secondCall.kind).toBe("completed");
+      if (secondCall.kind !== "completed") {
+        throw new Error("expected second outside list_directory to complete");
+      }
+      expect(secondCall.output.isError).toBe(false);
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("consumes explicit permission replies before the model sees the pending request", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const sessionManager = createMemorySessionManager();
+    const routineRepository = createMemoryRoutineRepository();
+    const toolRegistry = createWorkspaceToolRegistry({
+      workingDirectory: workspaceRoot
+    });
+    let modelCallCount = 0;
+
+    const runtime = createAgentRuntime({
+      client: {
+        messages: {
+          async create(input) {
+            modelCallCount += 1;
+            const promptText = JSON.stringify(input.messages);
+            expect(promptText).toContain("Pending permission request: none");
+            expect(promptText).not.toContain("本会话允许 shell:ls *");
+            return {
+              content: [{ type: "text", text: "已继续执行" }]
+            };
+          }
+        }
+      },
+      model: "MiniMax-M2.7",
+      sessionManager,
+      routineRepository,
+      toolRegistry
+    });
+
+    try {
+      const createdSession = await sessionManager.createSession({
+        workingDirectory: workspaceRoot,
+        model: "MiniMax-M2.7",
+        userId: "stage4-user"
+      });
+      const session = await sessionManager.setTurnCount(
+        createdSession.sessionId,
+        1
+      );
+
+      const permissionRequest = await executeToolAction({
+        sessionManager,
+        routineRepository,
+        toolRegistry,
+        traceManager: undefined,
+        session,
+        turnCount: 1,
+        toolCallId: "call-shell",
+        toolName: "run_shell_command",
+        toolInput: {
+          command: "ls -la ../"
+        },
+        eventSink: undefined
+      });
+
+      expect(permissionRequest.kind).toBe("permission_request");
+      if (permissionRequest.kind !== "permission_request") {
+        throw new Error("expected permission_request result");
+      }
+
+      const result = await runtime.run({
+        sessionId: session.sessionId,
+        message: "本会话允许 shell:ls *",
+        permissionReply: true,
+        maxTurns: 2
+      });
+
+      expect(modelCallCount).toBe(1);
+      expect(result.status).toBe("completed");
+      expect(result.session.context.pendingPermissionRequest).toBeNull();
+      expect(result.session.context.shellAllowPatterns).toContain("ls *");
+      expect(result.toolResultCount).toBeGreaterThanOrEqual(1);
+      expect(result.session.sessionState.turnCount).toBe(2);
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("consumes explicit tool permission replies before the model sees the pending request", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const sessionManager = createMemorySessionManager();
+    const routineRepository = createMemoryRoutineRepository();
+    const toolRegistry = createWorkspaceToolRegistry({
+      workingDirectory: workspaceRoot
+    });
+    let modelCallCount = 0;
+
+    const runtime = createAgentRuntime({
+      client: {
+        messages: {
+          async create(input) {
+            modelCallCount += 1;
+            const promptText = JSON.stringify(input.messages);
+            expect(promptText).toContain("Pending permission request: none");
+            expect(promptText).not.toContain("本会话允许 tool:delete_path");
+            return {
+              content: [{ type: "text", text: "已继续执行工具权限" }]
+            };
+          }
+        }
+      },
+      model: "MiniMax-M2.7",
+      sessionManager,
+      routineRepository,
+      toolRegistry
+    });
+
+    try {
+      await writeFile(
+        path.join(workspaceRoot, "existing.txt"),
+        "before",
+        "utf8"
+      );
+      const createdSession = await sessionManager.createSession({
+        workingDirectory: workspaceRoot,
+        model: "MiniMax-M2.7",
+        userId: "stage4-user"
+      });
+      const session = await sessionManager.setTurnCount(
+        createdSession.sessionId,
+        1
+      );
+
+      const permissionRequest = await executeToolAction({
+        sessionManager,
+        routineRepository,
+        toolRegistry,
+        traceManager: undefined,
+        session,
+        turnCount: 1,
+        toolCallId: "call-delete",
+        toolName: "delete_path",
+        toolInput: {
+          path: "existing.txt"
+        },
+        eventSink: undefined
+      });
+
+      expect(permissionRequest.kind).toBe("permission_request");
+      if (permissionRequest.kind !== "permission_request") {
+        throw new Error("expected permission_request result");
+      }
+
+      const result = await runtime.run({
+        sessionId: session.sessionId,
+        message: "本会话允许 tool:delete_path",
+        permissionReply: true,
+        maxTurns: 2
+      });
+
+      expect(modelCallCount).toBe(1);
+      expect(result.status).toBe("completed");
+      expect(result.session.context.pendingPermissionRequest).toBeNull();
+      expect(result.session.context.toolAllowList).toContain("delete_path");
+      expect(result.toolResultCount).toBeGreaterThanOrEqual(1);
+      expect(result.session.sessionState.turnCount).toBe(2);
+      const deletedContent = await readFile(
+        path.join(workspaceRoot, "existing.txt"),
+        "utf8"
+      ).catch(() => null);
+      expect(deletedContent).toBeNull();
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true });
     }
@@ -334,6 +657,90 @@ describe("Stage 4 permission flow", () => {
         eventSink: undefined
       });
       expect(shellRequest.kind).toBe("permission_request");
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("does not reset the remaining turn budget after a permission approval", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const sessionManager = createMemorySessionManager();
+    const routineRepository = createMemoryRoutineRepository();
+    const toolRegistry = createWorkspaceToolRegistry({
+      workingDirectory: workspaceRoot
+    });
+    let modelCallCount = 0;
+
+    const runtime = createAgentRuntime({
+      client: {
+        messages: {
+          async create() {
+            modelCallCount += 1;
+            return {
+              content: [{ type: "text", text: "这次不该再被调用" }]
+            };
+          }
+        }
+      },
+      model: "MiniMax-M2.7",
+      sessionManager,
+      routineRepository,
+      toolRegistry
+    });
+
+    try {
+      await writeFile(
+        path.join(workspaceRoot, "existing.txt"),
+        "before",
+        "utf8"
+      );
+      const createdSession = await sessionManager.createSession({
+        workingDirectory: workspaceRoot,
+        model: "MiniMax-M2.7",
+        userId: "stage4-user"
+      });
+      const session = await sessionManager.setTurnCount(
+        createdSession.sessionId,
+        1
+      );
+
+      const permissionRequest = await executeToolAction({
+        sessionManager,
+        routineRepository,
+        toolRegistry,
+        traceManager: undefined,
+        session,
+        turnCount: 1,
+        toolCallId: "call-budget-carry",
+        toolName: "write_file",
+        toolInput: {
+          path: "existing.txt",
+          content: "after"
+        },
+        eventSink: undefined
+      });
+
+      expect(permissionRequest.kind).toBe("permission_request");
+      if (permissionRequest.kind !== "permission_request") {
+        throw new Error("expected permission_request result");
+      }
+
+      const result = await runtime.run({
+        sessionId: session.sessionId,
+        message: "确认",
+        permissionReply: true,
+        maxTurns: 1
+      });
+
+      expect(modelCallCount).toBe(0);
+      expect(result.status).toBe("completed");
+      expect(result.stopReason).toBe("max_turns");
+      expect(result.toolResultCount).toBe(1);
+      expect(result.session.sessionState.turnCount).toBe(1);
+      expect(result.session.context.pendingPermissionRequest).toBeNull();
+      expect(
+        await readFile(path.join(workspaceRoot, "existing.txt"), "utf8")
+      ).toBe("after");
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true });
     }

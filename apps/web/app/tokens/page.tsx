@@ -11,11 +11,11 @@ import {
 
 export const metadata: Metadata = {
   title: "Tokens",
-  description: "Design tokens reference for the Web MVP."
+  description: "Token reference for the web app."
 };
 
 const principles = [
-  "页面和组件优先使用语义 token，基础 token 只在 theme 映射或系统层使用。",
+  "页面和组件优先使用语义 token，需要更底层的取值时再查看基础 token。",
   "新增 token 前先判断是否已有 token 能覆盖，或者更适合通过组件 variant 解决。",
   "页面中尽量不出现裸 hex、裸 px、临时阴影值，避免设计系统逐步漂移。",
   "如果只是单页特例，不应新增全局 token。"
@@ -31,11 +31,11 @@ const admissionChecks = [
 const layerHighlights = [
   {
     title: "Foundation",
-    body: "基础层提供原子级色板、排版、间距、圆角、阴影和系统数值，服务于 theme 映射与系统实现。"
+    body: "基础层收录色板、排版、间距、圆角、阴影等原始取值。"
   },
   {
     title: "Semantic",
-    body: "语义层把基础 token 组合成页面和组件能直接消费的角色，例如 `color.text.primary`、`surface.panel`。"
+    body: "语义层提供可直接用于页面和组件的命名值，例如 `color.text.primary`、`surface.panel`。"
   }
 ] as const;
 
@@ -233,8 +233,8 @@ export default function TokensPage() {
     <main>
       <PageFrame
         eyebrow="Design system / tokens"
-        title="A shared visual source of truth for the web shell."
-        description="这页把基础 token、语义 token 与使用原则放到同一个参考面板里，确保页面、组件和 AI 生成都沿着同一套视觉契约前进。"
+        title="Web token reference"
+        description="集中查看当前可用的基础 token、语义 token 和使用建议。"
       >
         <div className="flex flex-col gap-8">
           <section className="grid gap-4 lg:grid-cols-[1.3fr_0.7fr]">
@@ -254,9 +254,7 @@ export default function TokensPage() {
               <div className="mt-5 grid gap-3">
                 <div className="token-inset">
                   <p className="token-card-title">{tokenSections.length}</p>
-                  <p className="token-support">
-                    展示分组，直接映射 foundation 与 semantic 两层。
-                  </p>
+                  <p className="token-support">当前展示的 token 分组。</p>
                 </div>
                 <div className="token-inset">
                   <p className="token-card-title">10 categories</p>

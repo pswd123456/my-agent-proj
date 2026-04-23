@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { RunStreamEvent, SessionSnapshot } from "@ai-app-template/sdk";
 
-import { buildTimelineItems } from "./ui1-timeline";
+import { buildTimelineItems } from "./session-timeline";
 
 const firstUser: Extract<
   SessionSnapshot["messages"][number],

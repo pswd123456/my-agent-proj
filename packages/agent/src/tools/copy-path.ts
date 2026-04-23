@@ -43,7 +43,7 @@ export function createCopyPathTool(workingDirectory: string): RuntimeTool {
           : "."
       ];
     },
-    async getPermissionRequest(input) {
+    async getPermissionRequest(input, context) {
       const sourcePath =
         typeof input.source_path === "string" ? input.source_path : "";
       const targetPath =
@@ -52,7 +52,11 @@ export function createCopyPathTool(workingDirectory: string): RuntimeTool {
         return null;
       }
 
-      const absoluteTarget = normalizeWorkspacePath(workingDirectory, targetPath);
+      const absoluteTarget = normalizeWorkspacePath(
+        workingDirectory,
+        targetPath,
+        context.allowWorkspaceEscape
+      );
       if ((await getPathKind(absoluteTarget)) === "missing") {
         return null;
       }
@@ -80,7 +84,7 @@ export function createCopyPathTool(workingDirectory: string): RuntimeTool {
 
       return { ok: true, value: input };
     },
-    async execute(input) {
+    async execute(input, context) {
       const sourcePath =
         typeof input.source_path === "string" ? input.source_path : "";
       const targetPath =
@@ -105,8 +109,16 @@ export function createCopyPathTool(workingDirectory: string): RuntimeTool {
       }
 
       try {
-        const absoluteSource = normalizeWorkspacePath(workingDirectory, sourcePath);
-        const absoluteTarget = normalizeWorkspacePath(workingDirectory, targetPath);
+        const absoluteSource = normalizeWorkspacePath(
+          workingDirectory,
+          sourcePath,
+          context.allowWorkspaceEscape
+        );
+        const absoluteTarget = normalizeWorkspacePath(
+          workingDirectory,
+          targetPath,
+          context.allowWorkspaceEscape
+        );
         const sourceKind = await getPathKind(absoluteSource);
         if (sourceKind === "missing") {
           return failureResult(

@@ -31,13 +31,17 @@ export function createDeletePathTool(workingDirectory: string): RuntimeTool {
     getSandboxTargets(input) {
       return [typeof input.path === "string" && input.path.length > 0 ? input.path : "."];
     },
-    async getPermissionRequest(input) {
+    async getPermissionRequest(input, context) {
       const rawPath = typeof input.path === "string" ? input.path : "";
       if (!rawPath) {
         return null;
       }
 
-      const absolutePath = normalizeWorkspacePath(workingDirectory, rawPath);
+      const absolutePath = normalizeWorkspacePath(
+        workingDirectory,
+        rawPath,
+        context.allowWorkspaceEscape
+      );
       return {
         summaryText: `需要你的确认后才能删除工作区路径：${toRelativeWorkspacePath(
           workingDirectory,
@@ -56,7 +60,7 @@ export function createDeletePathTool(workingDirectory: string): RuntimeTool {
         issues: [{ field: "path", issue: "path is required." }]
       };
     },
-    async execute(input) {
+    async execute(input, context) {
       const rawPath = typeof input.path === "string" ? input.path : "";
       if (!rawPath) {
         return failureResult(
@@ -71,7 +75,11 @@ export function createDeletePathTool(workingDirectory: string): RuntimeTool {
       }
 
       try {
-        const absolutePath = normalizeWorkspacePath(workingDirectory, rawPath);
+        const absolutePath = normalizeWorkspacePath(
+          workingDirectory,
+          rawPath,
+          context.allowWorkspaceEscape
+        );
         const existingKind = await getPathKind(absolutePath);
         if (existingKind === "missing") {
           return failureResult(

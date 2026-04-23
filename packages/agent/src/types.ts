@@ -83,12 +83,18 @@ export interface CreateSessionInput {
   yoloMode?: boolean;
   contextWindow?: number;
   maxTurns?: number;
+  shellAllowPatterns?: string[];
+  shellDenyPatterns?: string[];
+  toolAllowList?: string[];
+  toolAskList?: string[];
+  toolDenyList?: string[];
 }
 
 export interface RunSessionInput {
   sessionId: string;
   message?: string;
   maxTurns?: number;
+  permissionReply?: boolean;
 }
 
 export interface RunSessionResult {

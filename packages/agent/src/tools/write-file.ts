@@ -36,13 +36,17 @@ export function createWriteFileTool(workingDirectory: string): RuntimeTool {
     getSandboxTargets(input) {
       return [typeof input.path === "string" && input.path.length > 0 ? input.path : "."];
     },
-    async getPermissionRequest(input) {
+    async getPermissionRequest(input, context) {
       const rawPath = typeof input.path === "string" ? input.path : "";
       if (!rawPath) {
         return null;
       }
 
-      const absolutePath = normalizeWorkspacePath(workingDirectory, rawPath);
+      const absolutePath = normalizeWorkspacePath(
+        workingDirectory,
+        rawPath,
+        context.allowWorkspaceEscape
+      );
       if ((await getPathKind(absolutePath)) !== "file") {
         return null;
       }
@@ -70,7 +74,7 @@ export function createWriteFileTool(workingDirectory: string): RuntimeTool {
 
       return { ok: true, value: input };
     },
-    async execute(input) {
+    async execute(input, context) {
       const rawPath = typeof input.path === "string" ? input.path : "";
       const content = typeof input.content === "string" ? input.content : null;
 
@@ -94,7 +98,11 @@ export function createWriteFileTool(workingDirectory: string): RuntimeTool {
       }
 
       try {
-        const absolutePath = normalizeWorkspacePath(workingDirectory, rawPath);
+        const absolutePath = normalizeWorkspacePath(
+          workingDirectory,
+          rawPath,
+          context.allowWorkspaceEscape
+        );
         const parentDirectory = path.dirname(absolutePath);
         const parentKind = await getPathKind(parentDirectory);
         if (parentKind !== "directory") {

@@ -44,6 +44,7 @@ export async function runSessionLoop(input: {
   promptBuilder: PromptBuilder;
   session: SessionSnapshot;
   message: string | undefined;
+  permissionReply?: boolean;
   maxTurns: number;
   maxTokens: number | undefined;
   toolChoice: AnthropicToolChoice | undefined;
@@ -69,6 +70,7 @@ export async function runSessionLoop(input: {
   let toolResultCount = 0;
   const toolOutputs: RunSessionResult["toolOutputs"] = [];
   let consumedPermissionReply = false;
+  let carriedTurnCount = 0;
 
   try {
     if (pendingPermissionAtStart && input.message) {
@@ -79,6 +81,7 @@ export async function runSessionLoop(input: {
         traceManager: input.traceManager,
         session,
         message: input.message,
+        permissionReply: input.permissionReply ?? false,
         pendingPermissionRequest: pendingPermissionAtStart,
         eventSink: input.eventSink
       });
@@ -90,6 +93,7 @@ export async function runSessionLoop(input: {
         session = handled.session;
         toolResultCount += handled.toolResultCount;
         toolOutputs.push(...handled.toolOutputs);
+        carriedTurnCount = Math.max(0, session.sessionState.turnCount);
       }
     }
 
@@ -104,7 +108,11 @@ export async function runSessionLoop(input: {
       });
     }
 
-    if (pendingConfirmationAtStart && input.message) {
+    if (
+      pendingConfirmationAtStart &&
+      input.message &&
+      !consumedPermissionReply
+    ) {
       const handled = await handlePendingConfirmationReply({
         sessionManager: input.sessionManager,
         routineRepository: input.routineRepository,
@@ -125,7 +133,7 @@ export async function runSessionLoop(input: {
       "running"
     );
 
-    for (let turn = 0; turn < input.maxTurns; turn += 1) {
+    for (let turn = carriedTurnCount; turn < input.maxTurns; turn += 1) {
       const turnCount = turn + 1;
       session = await input.sessionManager.saveSession(session);
       session = await input.sessionManager.setTurnCount(

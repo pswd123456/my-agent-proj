@@ -1,3 +1,5 @@
+import type { PermissionRuleLists } from "@ai-app-template/domain";
+
 import { createToolResult } from "../tools/tool-result.js";
 import {
   buildToolResultBlock,
@@ -14,11 +16,7 @@ import type { RoutineRepository } from "@ai-app-template/db";
 import type { RunEventSink } from "../events.js";
 import type { SessionManager } from "../session.js";
 import type { TraceManager } from "../trace.js";
-import type {
-  JsonValue,
-  RunSessionResult,
-  SessionSnapshot
-} from "../types.js";
+import type { JsonValue, RunSessionResult, SessionSnapshot } from "../types.js";
 import type { ToolRegistry } from "../tools/registry.js";
 
 export type PendingPermissionReplyResult =
@@ -40,6 +38,7 @@ export async function handlePendingPermissionReply(input: {
   traceManager: TraceManager | undefined;
   session: SessionSnapshot;
   message: string;
+  permissionReply?: boolean;
   pendingPermissionRequest: NonNullable<
     SessionSnapshot["context"]["pendingPermissionRequest"]
   >;
@@ -47,14 +46,20 @@ export async function handlePendingPermissionReply(input: {
 }): Promise<PendingPermissionReplyResult | null> {
   const normalized = normalizeConfirmationReply(input.message);
   if (
+    !input.permissionReply &&
     !isAffirmativeConfirmationReply(normalized) &&
-    !isNegativeConfirmationReply(normalized)
+    !isNegativeConfirmationReply(normalized) &&
+    !normalized.startsWith("本会话允许 shell:") &&
+    !normalized.startsWith("本会话允许 tool:")
   ) {
     return null;
   }
 
-  const turnCount = 1;
-  let session = input.session;
+  const turnCount = Math.max(1, input.session.sessionState.turnCount);
+  let session =
+    input.session.sessionState.turnCount === turnCount
+      ? input.session
+      : await input.sessionManager.setTurnCount(input.session.sessionId, turnCount);
 
   if (isNegativeConfirmationReply(normalized)) {
     const denialContent = JSON.stringify(
@@ -118,7 +123,8 @@ export async function handlePendingPermissionReply(input: {
         session,
         turnCount,
         loopState: "waiting for input",
-        finalAnswer: "好的，这次先不执行这个高风险操作。你可以换个更安全的路径，或者直接告诉我新的任务。",
+        finalAnswer:
+          "好的，这次先不执行这个高风险操作。你可以换个更安全的路径，或者直接告诉我新的任务。",
         stopReason: "permission_rejected",
         toolCallCount: 0,
         toolResultCount: 1,
@@ -136,10 +142,63 @@ export async function handlePendingPermissionReply(input: {
     };
   }
 
+  const approvalRules: PermissionRuleLists | null = normalized.startsWith(
+    "本会话允许 shell:"
+  )
+    ? {
+        shellAllowPatterns: [
+          normalized.slice("本会话允许 shell:".length).trim()
+        ],
+        shellDenyPatterns: [],
+        toolAllowList: [],
+        toolAskList: [],
+        toolDenyList: []
+      }
+    : normalized.startsWith("本会话允许 tool:")
+      ? {
+          shellAllowPatterns: [],
+          shellDenyPatterns: [],
+          toolAllowList: [normalized.slice("本会话允许 tool:".length).trim()],
+          toolAskList: [],
+          toolDenyList: []
+        }
+      : null;
+
   session = await input.sessionManager.updateContext(session.sessionId, {
     status: "running",
     pendingPermissionRequest: null
   });
+  if (approvalRules) {
+    session = await input.sessionManager.updateContext(session.sessionId, {
+      shellAllowPatterns: [
+        ...new Set([
+          ...(session.context.shellAllowPatterns ?? []),
+          ...approvalRules.shellAllowPatterns
+        ])
+      ],
+      shellDenyPatterns: [
+        ...new Set([
+          ...(session.context.shellDenyPatterns ?? []),
+          ...approvalRules.shellDenyPatterns
+        ])
+      ],
+      toolAllowList: [
+        ...new Set([
+          ...(session.context.toolAllowList ?? []),
+          ...approvalRules.toolAllowList
+        ])
+      ],
+      toolAskList: (session.context.toolAskList ?? []).filter(
+        (item) => !approvalRules.toolAllowList.includes(item)
+      ),
+      toolDenyList: [
+        ...new Set([
+          ...(session.context.toolDenyList ?? []),
+          ...approvalRules.toolDenyList
+        ])
+      ]
+    });
+  }
   await emitTraceEvent({
     traceManager: input.traceManager,
     eventSink: input.eventSink,
@@ -162,11 +221,16 @@ export async function handlePendingPermissionReply(input: {
     turnCount,
     toolCallId: input.pendingPermissionRequest.toolCallId,
     toolName: input.pendingPermissionRequest.toolName,
-    toolInput:
-      input.pendingPermissionRequest.toolInput as Record<string, JsonValue>,
+    toolInput: input.pendingPermissionRequest.toolInput as Record<
+      string,
+      JsonValue
+    >,
     eventSink: input.eventSink,
     skipPermissionCheck: true,
-    skipAppendToolCall: true
+    skipAppendToolCall: true,
+    ...(input.pendingPermissionRequest.allowWorkspaceEscape
+      ? { allowWorkspaceEscape: true }
+      : {})
   });
 
   if (executed.kind !== "completed") {
@@ -175,7 +239,10 @@ export async function handlePendingPermissionReply(input: {
     );
   }
 
-  session = await input.sessionManager.setPendingToolCallIds(session.sessionId, []);
+  session = await input.sessionManager.setPendingToolCallIds(
+    session.sessionId,
+    []
+  );
   return {
     kind: "approved",
     session,

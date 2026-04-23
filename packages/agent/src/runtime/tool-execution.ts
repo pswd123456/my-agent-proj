@@ -28,6 +28,8 @@ function createToolExecutionContext(input: {
   session: SessionSnapshot;
   routineRepository: RoutineRepository;
   sessionManager: SessionManager;
+  tool: ReturnType<ToolRegistry["get"]>;
+  allowWorkspaceEscape?: boolean;
 }): ToolExecutionContext {
   return {
     sessionId: input.session.sessionId,
@@ -35,10 +37,24 @@ function createToolExecutionContext(input: {
     workingDirectory: input.session.workingDirectory,
     routineRepository: input.routineRepository,
     sessionManager: input.sessionManager,
+    allowWorkspaceEscape:
+      input.allowWorkspaceEscape ?? input.tool?.sandboxProfile === "workspace-rooted",
+    permissionRules: {
+      shellAllowPatterns: input.session.context.shellAllowPatterns ?? [],
+      shellDenyPatterns: input.session.context.shellDenyPatterns ?? [],
+      toolAllowList: input.session.context.toolAllowList ?? [],
+      toolAskList: input.session.context.toolAskList ?? [],
+      toolDenyList: input.session.context.toolDenyList ?? []
+    },
     sessionContext: {
       status: input.session.context.status,
       currentDateContext: input.session.context.currentDateContext,
-      yoloMode: input.session.context.yoloMode
+      yoloMode: input.session.context.yoloMode,
+      shellAllowPatterns: input.session.context.shellAllowPatterns ?? [],
+      shellDenyPatterns: input.session.context.shellDenyPatterns ?? [],
+      toolAllowList: input.session.context.toolAllowList ?? [],
+      toolAskList: input.session.context.toolAskList ?? [],
+      toolDenyList: input.session.context.toolDenyList ?? []
     }
   };
 }
@@ -56,6 +72,7 @@ export async function executeToolAction(input: {
   eventSink: RunEventSink | undefined;
   skipPermissionCheck?: boolean;
   skipAppendToolCall?: boolean;
+  allowWorkspaceEscape?: boolean;
 }): Promise<ExecuteToolActionResult> {
   let session = input.session;
   if (!(input.skipAppendToolCall ?? false)) {
@@ -179,7 +196,11 @@ export async function executeToolAction(input: {
   const executionContext = createToolExecutionContext({
     session,
     routineRepository: input.routineRepository,
-    sessionManager: input.sessionManager
+    sessionManager: input.sessionManager,
+    tool,
+    ...(typeof input.allowWorkspaceEscape === "boolean"
+      ? { allowWorkspaceEscape: input.allowWorkspaceEscape }
+      : {})
   });
   const permissionCheck = input.skipPermissionCheck
     ? { decision: "allow" as const }

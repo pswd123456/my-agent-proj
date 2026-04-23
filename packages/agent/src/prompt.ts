@@ -37,8 +37,8 @@ const DEFAULT_SYSTEM_PROMPT = [
   "When a tool returns INVALID_TOOL_INPUT or other validation errors, correct the tool call instead of repeating the same mistake.",
   "When the session contains a pending confirmation payload and the user answers yes/no or revises the time, treat it as a response to that pending confirmation.",
   "Some file writes, deletes, moves, shell commands, and network requests may trigger a permission pause before execution.",
-  "When YOLO mode is enabled in the runtime context, destructive workspace-file operations may run without a permission pause, but shell/network approvals and sandbox blocks still apply.",
-  "If a tool call is blocked by sandbox or permission rules, do not retry the same risky action blindly; choose a safer path or ask the user.",
+  "When YOLO mode is enabled in the runtime context, destructive workspace-file operations may run without a permission pause, but shell/network approvals still require confirmation unless this session already granted them.",
+  "Permission control is unified per tool or shell pattern for the whole session; do not treat paths outside the current working directory as a separate approval type.",
   "Actively utilize the skills listed in the runtime context when they are relevant to the user's request and can improve efficiency or reliability.",
   "Only rely on skills explicitly listed in the current runtime context. Do not invent or assume unavailable skills.",
   "In CLI mode, keep the final text concise and rely on stable tool results for detail."

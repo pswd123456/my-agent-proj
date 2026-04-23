@@ -38,7 +38,12 @@ export interface CreateSessionPayload {
 }
 
 export interface UpdateSessionSettingsPayload {
-  yoloMode: boolean;
+  yoloMode?: boolean;
+  shellAllowPatterns?: string[];
+  shellDenyPatterns?: string[];
+  toolAllowList?: string[];
+  toolAskList?: string[];
+  toolDenyList?: string[];
 }
 
 export interface UpdateUserSettingsPayload {
@@ -46,6 +51,11 @@ export interface UpdateUserSettingsPayload {
   yoloMode?: boolean;
   contextWindow?: number;
   maxTurns?: number;
+  shellAllowPatterns?: string[];
+  shellDenyPatterns?: string[];
+  toolAllowList?: string[];
+  toolAskList?: string[];
+  toolDenyList?: string[];
 }
 
 export interface ListSessionRoutinesResult {
@@ -64,6 +74,7 @@ export interface StreamSessionExecutionInput {
   sessionId: string;
   message: string;
   maxTurns?: number;
+  permissionReply?: boolean;
   signal?: AbortSignal;
   onEvent: (event: RunStreamEvent) => void | Promise<void>;
 }
@@ -295,7 +306,8 @@ export class ApiClient {
   async executeSession(
     sessionId: string,
     message: string,
-    maxTurns?: number
+    maxTurns?: number,
+    permissionReply?: boolean
   ): Promise<RunSessionResult> {
     const response = await this.fetchImpl(
       buildUrl(this.baseUrl, `/sessions/${sessionId}/execute`),
@@ -304,7 +316,8 @@ export class ApiClient {
         headers: toJsonHeaders(),
         body: JSON.stringify({
           message,
-          ...(typeof maxTurns === "number" ? { maxTurns } : {})
+          ...(typeof maxTurns === "number" ? { maxTurns } : {}),
+          ...(typeof permissionReply === "boolean" ? { permissionReply } : {})
         })
       }
     );
@@ -325,6 +338,9 @@ export class ApiClient {
           message: input.message,
           ...(typeof input.maxTurns === "number"
             ? { maxTurns: input.maxTurns }
+            : {}),
+          ...(typeof input.permissionReply === "boolean"
+            ? { permissionReply: input.permissionReply }
             : {})
         }),
         ...(input.signal ? { signal: input.signal } : {})

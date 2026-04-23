@@ -177,11 +177,11 @@ export function renderPendingPermissionAnswer(
 }
 
 export function normalizeConfirmationReply(message: string): string {
-  return message.trim().toLowerCase().replace(/\s+/g, " ");
+  return message.trim().replace(/\s+/g, " ");
 }
 
 export function isAffirmativeConfirmationReply(message: string): boolean {
-  const normalized = normalizeConfirmationReply(message);
+  const normalized = normalizeConfirmationReply(message).toLowerCase();
   return [
     "y",
     "yes",
@@ -206,7 +206,7 @@ export function isAffirmativeConfirmationReply(message: string): boolean {
 }
 
 export function isNegativeConfirmationReply(message: string): boolean {
-  const normalized = normalizeConfirmationReply(message);
+  const normalized = normalizeConfirmationReply(message).toLowerCase();
   return [
     "n",
     "no",

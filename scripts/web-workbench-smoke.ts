@@ -6,8 +6,11 @@ import {
   flattenTraceRecords,
   groupRoutinesByDate,
   mergeSessionSummary
-} from "../apps/web/app/_components/ui1-workbench-state.ts";
-import { toSessionSummary, type SessionSnapshot } from "../packages/sdk/src/index.ts";
+} from "../apps/web/app/_components/session-workbench-state.ts";
+import {
+  toSessionSummary,
+  type SessionSnapshot
+} from "../packages/sdk/src/index.ts";
 
 const baseSession = {
   sessionId: "session-a",
@@ -84,7 +87,7 @@ const toolRows = collectToolRows([
     turnCount: 1,
     toolCallId: "call-1",
     toolName: "create_routine",
-    output: "{\"ok\":true}",
+    output: '{"ok":true}',
     displayText: "[create_routine] success",
     isError: false
   }

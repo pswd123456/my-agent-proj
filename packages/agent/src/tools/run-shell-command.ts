@@ -39,7 +39,6 @@ export function createRunShellCommandTool(): RuntimeTool {
 
       return {
         summaryText: `需要你的确认后才能执行 shell 命令：${command}`,
-        contextNote: "Stage 4 对 shell 工具固定采用总是审批。"
       };
     },
     validate(input) {

@@ -26,6 +26,11 @@ interface SessionRow {
   yolo_mode: boolean | null;
   context_window: number;
   max_turns: number;
+  shell_allow_patterns: unknown;
+  shell_deny_patterns: unknown;
+  tool_allow_list: unknown;
+  tool_ask_list: unknown;
+  tool_deny_list: unknown;
   pending_permission_request: unknown;
   pending_confirmation_payload: unknown;
   pending_conflict_summary: string | null;
@@ -162,6 +167,11 @@ function toSessionContext(row: SessionRow): ScheduleSessionContext {
     status: row.status as ScheduleSessionContext["status"],
     currentDateContext: row.current_date_context,
     yoloMode: row.yolo_mode ?? false,
+    shellAllowPatterns: toStringArray(row.shell_allow_patterns),
+    shellDenyPatterns: toStringArray(row.shell_deny_patterns),
+    toolAllowList: toStringArray(row.tool_allow_list),
+    toolAskList: toStringArray(row.tool_ask_list),
+    toolDenyList: toStringArray(row.tool_deny_list),
     pendingPermissionRequest: isRecord(pendingPermissionRequest)
       ? (pendingPermissionRequest as unknown as ScheduleSessionContext["pendingPermissionRequest"])
       : null,
@@ -253,6 +263,11 @@ export class PostgresSessionManager implements SessionManager {
       yoloMode?: boolean;
       contextWindow?: number;
       maxTurns?: number;
+      shellAllowPatterns?: string[];
+      shellDenyPatterns?: string[];
+      toolAllowList?: string[];
+      toolAskList?: string[];
+      toolDenyList?: string[];
     } = {
       sessionId: randomUUID(),
       workingDirectory: resolveWorkingDirectory(input.workingDirectory),
@@ -270,6 +285,21 @@ export class PostgresSessionManager implements SessionManager {
     }
     if (typeof input.maxTurns === "number") {
       createSnapshotInput.maxTurns = input.maxTurns;
+    }
+    if (Array.isArray(input.shellAllowPatterns)) {
+      createSnapshotInput.shellAllowPatterns = input.shellAllowPatterns;
+    }
+    if (Array.isArray(input.shellDenyPatterns)) {
+      createSnapshotInput.shellDenyPatterns = input.shellDenyPatterns;
+    }
+    if (Array.isArray(input.toolAllowList)) {
+      createSnapshotInput.toolAllowList = input.toolAllowList;
+    }
+    if (Array.isArray(input.toolAskList)) {
+      createSnapshotInput.toolAskList = input.toolAskList;
+    }
+    if (Array.isArray(input.toolDenyList)) {
+      createSnapshotInput.toolDenyList = input.toolDenyList;
     }
 
     const snapshot = createSnapshot(createSnapshotInput);
@@ -573,6 +603,11 @@ export class PostgresSessionManager implements SessionManager {
         yolo_mode,
         context_window,
         max_turns,
+        shell_allow_patterns,
+        shell_deny_patterns,
+        tool_allow_list,
+        tool_ask_list,
+        tool_deny_list,
         pending_permission_request,
         pending_confirmation_payload,
         pending_conflict_summary,
@@ -596,6 +631,11 @@ export class PostgresSessionManager implements SessionManager {
         ${snapshot.context.yoloMode},
         ${snapshot.contextWindow},
         ${snapshot.maxTurns},
+        ${JSON.stringify(snapshot.context.shellAllowPatterns)}::jsonb,
+        ${JSON.stringify(snapshot.context.shellDenyPatterns)}::jsonb,
+        ${JSON.stringify(snapshot.context.toolAllowList)}::jsonb,
+        ${JSON.stringify(snapshot.context.toolAskList)}::jsonb,
+        ${JSON.stringify(snapshot.context.toolDenyList)}::jsonb,
         ${
           snapshot.context.pendingPermissionRequest
             ? JSON.stringify(snapshot.context.pendingPermissionRequest)
@@ -626,6 +666,11 @@ export class PostgresSessionManager implements SessionManager {
         yolo_mode = excluded.yolo_mode,
         context_window = excluded.context_window,
         max_turns = excluded.max_turns,
+        shell_allow_patterns = excluded.shell_allow_patterns,
+        shell_deny_patterns = excluded.shell_deny_patterns,
+        tool_allow_list = excluded.tool_allow_list,
+        tool_ask_list = excluded.tool_ask_list,
+        tool_deny_list = excluded.tool_deny_list,
         pending_permission_request = excluded.pending_permission_request,
         pending_confirmation_payload = excluded.pending_confirmation_payload,
         pending_conflict_summary = excluded.pending_conflict_summary,

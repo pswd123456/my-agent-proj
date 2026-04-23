@@ -1,5 +1,9 @@
 import type { RoutineRepository } from "@ai-app-template/db";
-import type { ToolResult, ToolValidationIssue } from "@ai-app-template/domain";
+import type {
+  PermissionRuleLists,
+  ToolResult,
+  ToolValidationIssue
+} from "@ai-app-template/domain";
 
 import type { SessionManager } from "../session/contracts.js";
 import type { JsonValue, ToolState } from "../types.js";
@@ -30,7 +34,14 @@ export interface ToolExecutionContext {
     status: string;
     currentDateContext: string;
     yoloMode: boolean;
+    shellAllowPatterns: string[];
+    shellDenyPatterns: string[];
+    toolAllowList: string[];
+    toolAskList: string[];
+    toolDenyList: string[];
   };
+  permissionRules: PermissionRuleLists;
+  allowWorkspaceEscape?: boolean;
 }
 
 export interface ToolExecutionResult {

@@ -5,10 +5,7 @@ import type {
   RuntimeTool,
   ToolExecutionContext
 } from "../tools/runtime-tool.js";
-import {
-  normalizeWorkspacePath,
-  WorkspaceSandboxError
-} from "../tools/workspace.js";
+import { matchesPermissionRuleLists } from "./permission-rules.js";
 import type { JsonValue } from "../types.js";
 
 export interface PermissionAllowResult {
@@ -68,6 +65,7 @@ function createPendingPermissionRequest(input: {
   toolInput: Record<string, JsonValue>;
   summaryText: string;
   contextNote?: string;
+  allowWorkspaceEscape?: boolean;
 }): PendingPermissionRequest {
   return {
     toolCallId: input.toolCallId,
@@ -77,36 +75,39 @@ function createPendingPermissionRequest(input: {
     permissionProfile: input.tool.permissionProfile,
     summaryText: input.summaryText,
     ...(input.contextNote ? { contextNote: input.contextNote } : {}),
+    ...(typeof input.allowWorkspaceEscape === "boolean"
+      ? { allowWorkspaceEscape: input.allowWorkspaceEscape }
+      : {}),
     createdAt: new Date().toISOString()
   };
 }
 
-function enforceSandbox(
-  tool: RuntimeTool,
-  toolInput: Record<string, JsonValue>,
-  executionContext: ToolExecutionContext
-): PermissionBlockResult | null {
-  if (tool.sandboxProfile !== "workspace-rooted") {
-    return null;
-  }
+async function buildPermissionAskResult(input: {
+  toolCallId: string;
+  tool: RuntimeTool;
+  toolInput: Record<string, JsonValue>;
+  executionContext: ToolExecutionContext;
+}): Promise<PermissionAskUserResult> {
+  const permissionRequest =
+    (await input.tool.getPermissionRequest?.(
+      input.toolInput,
+      input.executionContext
+    )) ?? null;
 
-  const targets = tool.getSandboxTargets?.(toolInput) ?? [];
-  for (const target of targets) {
-    try {
-      normalizeWorkspacePath(executionContext.workingDirectory, target);
-    } catch (error) {
-      if (error instanceof WorkspaceSandboxError) {
-        return buildSandboxBlockedResult(
-          tool.name,
-          "Path escapes the working directory and is blocked by sandbox."
-        );
-      }
-
-      throw error;
-    }
-  }
-
-  return null;
+  return {
+    decision: "ask_user",
+    request: createPendingPermissionRequest({
+      toolCallId: input.toolCallId,
+      tool: input.tool,
+      toolInput: input.toolInput,
+      summaryText:
+        permissionRequest?.summaryText ??
+        buildFallbackPermissionSummary(input.tool),
+      ...(permissionRequest?.contextNote
+        ? { contextNote: permissionRequest.contextNote }
+        : {})
+    })
+  };
 }
 
 export async function checkToolPermission(input: {
@@ -115,13 +116,35 @@ export async function checkToolPermission(input: {
   toolInput: Record<string, JsonValue>;
   executionContext: ToolExecutionContext;
 }): Promise<PermissionCheckResult> {
-  const sandboxBlock = enforceSandbox(
-    input.tool,
-    input.toolInput,
-    input.executionContext
+  const shellCommand =
+    input.tool.name === "run_shell_command" &&
+    typeof input.toolInput.command === "string"
+      ? input.toolInput.command
+      : undefined;
+  const ruleMatch = matchesPermissionRuleLists(
+    {
+      shellAllowPatterns:
+        input.executionContext.sessionContext.shellAllowPatterns,
+      shellDenyPatterns:
+        input.executionContext.sessionContext.shellDenyPatterns,
+      toolAllowList: input.executionContext.sessionContext.toolAllowList,
+      toolAskList: input.executionContext.sessionContext.toolAskList,
+      toolDenyList: input.executionContext.sessionContext.toolDenyList
+    },
+    input.tool.name,
+    shellCommand
   );
-  if (sandboxBlock) {
-    return sandboxBlock;
+  if (ruleMatch.deny) {
+    return buildSandboxBlockedResult(
+      input.tool.name,
+      "Permission denied by session or user settings."
+    );
+  }
+  if (ruleMatch.ask) {
+    return buildPermissionAskResult(input);
+  }
+  if (ruleMatch.allow) {
+    return { decision: "allow" };
   }
 
   if (input.tool.permissionProfile === "allow") {
@@ -149,18 +172,5 @@ export async function checkToolPermission(input: {
     return { decision: "allow" };
   }
 
-  return {
-    decision: "ask_user",
-    request: createPendingPermissionRequest({
-      toolCallId: input.toolCallId,
-      tool: input.tool,
-      toolInput: input.toolInput,
-      summaryText:
-        permissionRequest?.summaryText ??
-        buildFallbackPermissionSummary(input.tool),
-      ...(permissionRequest?.contextNote
-        ? { contextNote: permissionRequest.contextNote }
-        : {})
-    })
-  };
+  return buildPermissionAskResult(input);
 }

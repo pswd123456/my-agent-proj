@@ -1,3 +1,4 @@
+import { PERMISSION_TOOL_OPTIONS } from "@ai-app-template/domain";
 import type { ProductDatabaseClient } from "./client.js";
 
 interface ColumnMetadataRow {
@@ -38,6 +39,14 @@ export function isTimestampWithoutTimeZoneColumn(
     column.udt_name === "timestamp"
   );
 }
+
+const defaultToolAskListJson = JSON.stringify(PERMISSION_TOOL_OPTIONS);
+
+function toSqlJsonbLiteral(value: string): string {
+  return `'${value.replace(/'/g, "''")}'::jsonb`;
+}
+
+const defaultToolAskListJsonLiteral = toSqlJsonbLiteral(defaultToolAskListJson);
 
 async function promoteColumnToTimestamptz(
   sql: ProductDatabaseClient,
@@ -95,6 +104,11 @@ export async function ensureProductSchema(
       yolo_mode boolean not null default false,
       context_window integer not null default 200000,
       max_turns integer not null default 50,
+      shell_allow_patterns jsonb not null default '[]'::jsonb,
+      shell_deny_patterns jsonb not null default '[]'::jsonb,
+      tool_allow_list jsonb not null default '[]'::jsonb,
+      tool_ask_list jsonb not null default ${sql.unsafe(defaultToolAskListJsonLiteral)},
+      tool_deny_list jsonb not null default '[]'::jsonb,
       pending_permission_request jsonb,
       pending_confirmation_payload jsonb,
       pending_conflict_summary text,
@@ -127,6 +141,31 @@ export async function ensureProductSchema(
   await sql`
     alter table agent_sessions
     add column if not exists max_turns integer not null default 50
+  `;
+
+  await sql`
+    alter table agent_sessions
+    add column if not exists shell_allow_patterns jsonb not null default '[]'::jsonb
+  `;
+
+  await sql`
+    alter table agent_sessions
+    add column if not exists shell_deny_patterns jsonb not null default '[]'::jsonb
+  `;
+
+  await sql`
+    alter table agent_sessions
+    add column if not exists tool_allow_list jsonb not null default '[]'::jsonb
+  `;
+
+  await sql`
+    alter table agent_sessions
+    add column if not exists tool_ask_list jsonb not null default ${sql.unsafe(defaultToolAskListJsonLiteral)}
+  `;
+
+  await sql`
+    alter table agent_sessions
+    add column if not exists tool_deny_list jsonb not null default '[]'::jsonb
   `;
 
   await sql`
@@ -164,6 +203,11 @@ export async function ensureProductSchema(
       yolo_mode boolean not null default false,
       context_window integer not null default 200000,
       max_turns integer not null default 50,
+      shell_allow_patterns jsonb not null default '[]'::jsonb,
+      shell_deny_patterns jsonb not null default '[]'::jsonb,
+      tool_allow_list jsonb not null default '[]'::jsonb,
+      tool_ask_list jsonb not null default ${sql.unsafe(defaultToolAskListJsonLiteral)},
+      tool_deny_list jsonb not null default '[]'::jsonb,
       created_at timestamptz not null default now(),
       updated_at timestamptz not null default now()
     )
@@ -187,6 +231,31 @@ export async function ensureProductSchema(
   await sql`
     alter table agent_settings
     add column if not exists max_turns integer not null default 50
+  `;
+
+  await sql`
+    alter table agent_settings
+    add column if not exists shell_allow_patterns jsonb not null default '[]'::jsonb
+  `;
+
+  await sql`
+    alter table agent_settings
+    add column if not exists shell_deny_patterns jsonb not null default '[]'::jsonb
+  `;
+
+  await sql`
+    alter table agent_settings
+    add column if not exists tool_allow_list jsonb not null default '[]'::jsonb
+  `;
+
+  await sql`
+    alter table agent_settings
+    add column if not exists tool_ask_list jsonb not null default ${sql.unsafe(defaultToolAskListJsonLiteral)}
+  `;
+
+  await sql`
+    alter table agent_settings
+    add column if not exists tool_deny_list jsonb not null default '[]'::jsonb
   `;
 
   await promoteColumnToTimestamptz(sql, "agent_settings", "created_at");

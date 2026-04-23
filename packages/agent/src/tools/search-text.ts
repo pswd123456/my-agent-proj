@@ -55,7 +55,7 @@ export function createSearchTextTool(workingDirectory: string): RuntimeTool {
         ]
       };
     },
-    async execute(input) {
+    async execute(input, context) {
       const query = typeof input.query === "string" ? input.query.trim() : "";
 
       if (!query) {
@@ -85,7 +85,11 @@ export function createSearchTextTool(workingDirectory: string): RuntimeTool {
           : 20;
 
       try {
-        const absoluteRoot = normalizeWorkspacePath(workingDirectory, searchRoot);
+        const absoluteRoot = normalizeWorkspacePath(
+          workingDirectory,
+          searchRoot,
+          context.allowWorkspaceEscape
+        );
         const files = await walkFiles(absoluteRoot, 250);
         const matches: Array<{
           path: string;

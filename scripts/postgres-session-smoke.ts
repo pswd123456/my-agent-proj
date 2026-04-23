@@ -32,7 +32,7 @@ const env = loadEnvFromDotEnv();
 const databaseUrl = env.DATABASE_URL;
 
 if (!databaseUrl) {
-  throw new Error("DATABASE_URL is required for ui1-postgres-smoke.");
+  throw new Error("DATABASE_URL is required for postgres-session-smoke.");
 }
 
 const database = createPostgresDatabase(databaseUrl);

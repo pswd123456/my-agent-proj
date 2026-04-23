@@ -225,8 +225,9 @@ await confirmationSessionManager.updateContext(confirmationSession.sessionId, {
   }
 });
 
-let pendingConfirmationSession =
-  await confirmationSessionManager.getSession(confirmationSession.sessionId);
+let pendingConfirmationSession = await confirmationSessionManager.getSession(
+  confirmationSession.sessionId
+);
 assert.ok(pendingConfirmationSession);
 
 await handlePendingConfirmationReply({
@@ -236,8 +237,8 @@ await handlePendingConfirmationReply({
   traceManager: undefined,
   session: pendingConfirmationSession,
   message: "确认",
-  pendingConfirmation: pendingConfirmationSession.context
-    .pendingConfirmationPayload!,
+  pendingConfirmation:
+    pendingConfirmationSession.context.pendingConfirmationPayload!,
   eventSink: undefined
 });
 
@@ -261,8 +262,9 @@ await confirmationSessionManager.updateContext(confirmationSession.sessionId, {
   }
 });
 
-pendingConfirmationSession =
-  await confirmationSessionManager.getSession(confirmationSession.sessionId);
+pendingConfirmationSession = await confirmationSessionManager.getSession(
+  confirmationSession.sessionId
+);
 assert.ok(pendingConfirmationSession);
 
 await handlePendingConfirmationReply({
@@ -272,8 +274,8 @@ await handlePendingConfirmationReply({
   traceManager: undefined,
   session: pendingConfirmationSession,
   message: "确认",
-  pendingConfirmation: pendingConfirmationSession.context
-    .pendingConfirmationPayload!,
+  pendingConfirmation:
+    pendingConfirmationSession.context.pendingConfirmationPayload!,
   eventSink: undefined
 });
 

@@ -1,10 +1,35 @@
 import type {
   RoutineRecord,
   RunStreamEvent,
+  SessionSettingsRecord,
   SessionSnapshot,
   SessionSummary,
   TraceRecord
 } from "@ai-app-template/sdk";
+
+import {
+  DEFAULT_CONTEXT_WINDOW,
+  DEFAULT_MAX_TURNS,
+  MAX_TURNS_LIMIT,
+  type SettingsFormState,
+  type TurnUsageSummary
+} from "./session-workbench-types";
+
+export interface ToolRow {
+  toolCallId: string;
+  toolName: string;
+  createdAt: string;
+  input: Record<string, unknown> | null;
+  output: string | null;
+  displayText: string | null;
+  isError: boolean;
+  permissionFamily: string | null;
+  permissionProfile: string | null;
+  permissionSummary: string | null;
+  permissionContextNote: string | null;
+  permissionDecision: "requested" | "approved" | "rejected" | "blocked" | null;
+  permissionReason: string | null;
+}
 
 export function formatLocalDate(value: Date): string {
   const year = value.getFullYear();
@@ -40,6 +65,15 @@ export function buildWeekRange(anchorDate: string): {
   };
 }
 
+export function sortSessionSummaries(
+  snapshots: SessionSnapshot[],
+  toSummary: (session: SessionSnapshot) => SessionSummary
+): SessionSummary[] {
+  return snapshots
+    .map(toSummary)
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+}
+
 export function mergeSessionSummary(
   sessions: SessionSummary[],
   session: SessionSnapshot,
@@ -52,6 +86,24 @@ export function mergeSessionSummary(
   );
 }
 
+export function isReusableNewSessionSummary(session: SessionSummary): boolean {
+  return (
+    session.status === "waiting_for_user_input" &&
+    session.loopState === "waiting for input" &&
+    session.turnCount === 0 &&
+    session.pendingToolCallIds.length === 0 &&
+    !session.pendingPermission &&
+    !session.pendingConfirmation &&
+    session.lastUserMessage === null
+  );
+}
+
+export function findReusableNewSessionSummary(
+  sessions: SessionSummary[]
+): SessionSummary | null {
+  return sessions.find(isReusableNewSessionSummary) ?? null;
+}
+
 export function flattenTraceRecords(records: TraceRecord[]): RunStreamEvent[] {
   return records.map((record) => ({
     sessionId: record.sessionId,
@@ -60,27 +112,36 @@ export function flattenTraceRecords(records: TraceRecord[]): RunStreamEvent[] {
   })) as RunStreamEvent[];
 }
 
-export function collectToolRows(events: RunStreamEvent[]) {
-  const rows: Array<{
-    toolCallId: string;
-    toolName: string;
-    createdAt: string;
-    input: Record<string, unknown> | null;
-    output: string | null;
-    displayText: string | null;
-    isError: boolean;
-    permissionFamily: string | null;
-    permissionProfile: string | null;
-    permissionSummary: string | null;
-    permissionContextNote: string | null;
-    permissionDecision:
-      | "requested"
-      | "approved"
-      | "rejected"
-      | "blocked"
-      | null;
-    permissionReason: string | null;
-  }> = [];
+export function collectTurnUsage(
+  events: RunStreamEvent[]
+): Map<number, TurnUsageSummary> {
+  const usageByTurn = new Map<number, TurnUsageSummary>();
+
+  for (const event of events) {
+    if (event.kind !== "response") {
+      continue;
+    }
+
+    const current = usageByTurn.get(event.turnCount) ?? {
+      inputTokens: 0,
+      cacheReadInputTokens: 0,
+      cacheCreationInputTokens: 0
+    };
+
+    usageByTurn.set(event.turnCount, {
+      inputTokens: current.inputTokens + event.usage.inputTokens,
+      cacheReadInputTokens:
+        current.cacheReadInputTokens + event.usage.cacheReadInputTokens,
+      cacheCreationInputTokens:
+        current.cacheCreationInputTokens + event.usage.cacheCreationInputTokens
+    });
+  }
+
+  return usageByTurn;
+}
+
+export function collectToolRows(events: RunStreamEvent[]): ToolRow[] {
+  const rows: ToolRow[] = [];
 
   for (const event of events) {
     if (event.kind === "tool_call") {
@@ -222,6 +283,91 @@ export function collectToolRows(events: RunStreamEvent[]) {
   }
 
   return rows;
+}
+
+export function normalizeMaxTurns(value: string): number {
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed)) {
+    return DEFAULT_MAX_TURNS;
+  }
+
+  return Math.min(MAX_TURNS_LIMIT, Math.max(1, parsed));
+}
+
+export function normalizeContextWindow(value: string): number {
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed)) {
+    return DEFAULT_CONTEXT_WINDOW;
+  }
+
+  return Math.max(1_000, parsed);
+}
+
+export function toSettingsFormState(
+  settings: SessionSettingsRecord | null
+): SettingsFormState {
+  return {
+    workingDirectory: settings?.workingDirectory ?? "",
+    yoloMode: settings?.yoloMode ?? false,
+    contextWindow: String(settings?.contextWindow ?? DEFAULT_CONTEXT_WINDOW),
+    maxTurns: String(settings?.maxTurns ?? DEFAULT_MAX_TURNS),
+    shellAllowPatterns: (settings?.shellAllowPatterns ?? []).join("\n"),
+    shellDenyPatterns: (settings?.shellDenyPatterns ?? []).join("\n"),
+    toolAllowList: [...(settings?.toolAllowList ?? [])],
+    toolAskList: [...(settings?.toolAskList ?? [])],
+    toolDenyList: [...(settings?.toolDenyList ?? [])]
+  };
+}
+
+export function patchSettingsForm(
+  current: SettingsFormState,
+  patch: Partial<SettingsFormState>
+): SettingsFormState {
+  return {
+    ...current,
+    ...patch
+  };
+}
+
+export function normalizeSettingsFormState(
+  form: SettingsFormState
+): SettingsFormState {
+  return {
+    workingDirectory: form.workingDirectory.trim(),
+    yoloMode: form.yoloMode,
+    contextWindow: String(normalizeContextWindow(form.contextWindow)),
+    maxTurns: String(normalizeMaxTurns(form.maxTurns)),
+    shellAllowPatterns: normalizePatternText(form.shellAllowPatterns),
+    shellDenyPatterns: normalizePatternText(form.shellDenyPatterns),
+    toolAllowList: normalizeList(form.toolAllowList),
+    toolAskList: normalizeList(form.toolAskList),
+    toolDenyList: normalizeList(form.toolDenyList)
+  };
+}
+
+export function normalizePatternText(value: string): string {
+  return normalizeList(value.split(/\r?\n/)).join("\n");
+}
+
+export function normalizeList(values: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const value of values) {
+    const trimmed = value.trim();
+    if (!trimmed || seen.has(trimmed)) {
+      continue;
+    }
+
+    seen.add(trimmed);
+    result.push(trimmed);
+  }
+
+  return result;
+}
+
+export function splitPatternLines(value: string): string[] {
+  return normalizeList(value.split(/\r?\n/));
 }
 
 export function groupRoutinesByDate(

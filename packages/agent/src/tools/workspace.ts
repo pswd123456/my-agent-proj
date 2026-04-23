@@ -19,10 +19,14 @@ export class WorkspaceSandboxError extends Error {
 
 export function normalizeWorkspacePath(
   workingDirectory: string,
-  targetPath: string
+  targetPath: string,
+  allowEscape = false
 ): string {
   const baseDirectory = path.resolve(workingDirectory);
   const resolvedPath = path.resolve(baseDirectory, targetPath);
+  if (allowEscape) {
+    return resolvedPath;
+  }
   const relativePath = path.relative(baseDirectory, resolvedPath);
 
   if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {

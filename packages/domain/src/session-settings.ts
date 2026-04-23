@@ -1,3 +1,12 @@
+import type {
+  PermissionRuleInput,
+  PermissionRuleLists
+} from "./permission-rules.js";
+import {
+  normalizePermissionRuleLists,
+  PERMISSION_TOOL_OPTIONS
+} from "./permission-rules.js";
+
 export const DEFAULT_SESSION_SETTINGS_USER_ID = "cli-user";
 export const DEFAULT_SESSION_WORKING_DIRECTORY = "agent-workspace";
 export const DEFAULT_CONTEXT_WINDOW = 200_000;
@@ -10,6 +19,11 @@ export interface SessionSettingsRecord {
   yoloMode: boolean;
   contextWindow: number;
   maxTurns: number;
+  shellAllowPatterns: string[];
+  shellDenyPatterns: string[];
+  toolAllowList: string[];
+  toolAskList: string[];
+  toolDenyList: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -19,6 +33,11 @@ export interface SessionSettingsInput {
   yoloMode?: boolean;
   contextWindow?: number;
   maxTurns?: number;
+  shellAllowPatterns?: string[];
+  shellDenyPatterns?: string[];
+  toolAllowList?: string[];
+  toolAskList?: string[];
+  toolDenyList?: string[];
 }
 
 export function resolveSessionSettingsDefaults(
@@ -31,9 +50,20 @@ export function resolveSessionSettingsDefaults(
     yoloMode: false,
     contextWindow: DEFAULT_CONTEXT_WINDOW,
     maxTurns: DEFAULT_SESSION_MAX_TURNS,
+    shellAllowPatterns: [],
+    shellDenyPatterns: [],
+    toolAllowList: [],
+    toolAskList: [...PERMISSION_TOOL_OPTIONS],
+    toolDenyList: [],
     createdAt: timestamp,
     updatedAt: timestamp
   };
+}
+
+export function normalizeSessionPermissionRules(
+  input?: PermissionRuleInput | null
+): PermissionRuleLists {
+  return normalizePermissionRuleLists(input);
 }
 
 export function sanitizeContextWindow(value: number | undefined): number {

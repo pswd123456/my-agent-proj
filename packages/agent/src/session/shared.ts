@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   DEFAULT_CONTEXT_WINDOW,
   DEFAULT_SESSION_MAX_TURNS,
+  createPermissionRuleLists,
   type ScheduleSessionContext
 } from "@ai-app-template/domain";
 
@@ -32,14 +33,40 @@ export function createSnapshot(input: {
   yoloMode?: boolean;
   contextWindow?: number;
   maxTurns?: number;
+  shellAllowPatterns?: string[];
+  shellDenyPatterns?: string[];
+  toolAllowList?: string[];
+  toolAskList?: string[];
+  toolDenyList?: string[];
 }): SessionSnapshot {
+  const contextInput = {
+    ...(typeof input.userId === "string" ? { userId: input.userId } : {}),
+    ...(typeof input.yoloMode === "boolean"
+      ? { yoloMode: input.yoloMode }
+      : {}),
+    ...(Array.isArray(input.shellAllowPatterns)
+      ? { shellAllowPatterns: input.shellAllowPatterns }
+      : {}),
+    ...(Array.isArray(input.shellDenyPatterns)
+      ? { shellDenyPatterns: input.shellDenyPatterns }
+      : {}),
+    ...(Array.isArray(input.toolAllowList)
+      ? { toolAllowList: input.toolAllowList }
+      : {}),
+    ...(Array.isArray(input.toolAskList)
+      ? { toolAskList: input.toolAskList }
+      : {}),
+    ...(Array.isArray(input.toolDenyList)
+      ? { toolDenyList: input.toolDenyList }
+      : {})
+  };
   return {
     sessionId: input.sessionId,
     workingDirectory: input.workingDirectory,
     model: input.model,
     contextWindow: input.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
     maxTurns: input.maxTurns ?? DEFAULT_SESSION_MAX_TURNS,
-    context: createScheduleSessionContext(input.userId, input.yoloMode),
+    context: createScheduleSessionContext(contextInput),
     messages: [],
     sessionState: createSessionState(),
     inputTokensCount: 0,
@@ -50,11 +77,17 @@ export function createSnapshot(input: {
 
 export function cloneSnapshot(snapshot: SessionSnapshot): SessionSnapshot {
   const cloned = structuredClone(snapshot) as SessionSnapshot;
+  const permissionRules = cloned.context ?? createScheduleSessionContext();
   return {
     ...cloned,
     context: {
       ...cloned.context,
-      yoloMode: cloned.context.yoloMode ?? false
+      yoloMode: cloned.context.yoloMode ?? false,
+      shellAllowPatterns: permissionRules.shellAllowPatterns ?? [],
+      shellDenyPatterns: permissionRules.shellDenyPatterns ?? [],
+      toolAllowList: permissionRules.toolAllowList ?? [],
+      toolAskList: permissionRules.toolAskList ?? [],
+      toolDenyList: permissionRules.toolDenyList ?? []
     }
   };
 }
@@ -67,14 +100,29 @@ function resolveCurrentDateContext(now = new Date()): string {
 }
 
 export function createScheduleSessionContext(
-  userId = "cli-user",
-  yoloMode = false
+  input: {
+    userId?: string;
+    yoloMode?: boolean;
+    shellAllowPatterns?: string[];
+    shellDenyPatterns?: string[];
+    toolAllowList?: string[];
+    toolAskList?: string[];
+    toolDenyList?: string[];
+  } = {}
 ): ScheduleSessionContext {
+  const permissionRules = createPermissionRuleLists();
   return {
-    userId,
+    userId: input.userId ?? "cli-user",
     status: "waiting_for_user_input",
     currentDateContext: resolveCurrentDateContext(),
-    yoloMode,
+    yoloMode: input.yoloMode ?? false,
+    shellAllowPatterns:
+      input.shellAllowPatterns ?? permissionRules.shellAllowPatterns,
+    shellDenyPatterns:
+      input.shellDenyPatterns ?? permissionRules.shellDenyPatterns,
+    toolAllowList: input.toolAllowList ?? permissionRules.toolAllowList,
+    toolAskList: input.toolAskList ?? permissionRules.toolAskList,
+    toolDenyList: input.toolDenyList ?? permissionRules.toolDenyList,
     pendingPermissionRequest: null,
     pendingConfirmationPayload: null,
     pendingConflictSummary: null,
@@ -138,6 +186,16 @@ export function isSessionSnapshot(value: unknown): value is SessionSnapshot {
     typeof value.context.currentDateContext === "string" &&
     (typeof value.context.yoloMode === "boolean" ||
       typeof value.context.yoloMode === "undefined") &&
+    (typeof value.context.shellAllowPatterns === "undefined" ||
+      Array.isArray(value.context.shellAllowPatterns)) &&
+    (typeof value.context.shellDenyPatterns === "undefined" ||
+      Array.isArray(value.context.shellDenyPatterns)) &&
+    (typeof value.context.toolAllowList === "undefined" ||
+      Array.isArray(value.context.toolAllowList)) &&
+    (typeof value.context.toolAskList === "undefined" ||
+      Array.isArray(value.context.toolAskList)) &&
+    (typeof value.context.toolDenyList === "undefined" ||
+      Array.isArray(value.context.toolDenyList)) &&
     Object.prototype.hasOwnProperty.call(
       value.context,
       "pendingPermissionRequest"

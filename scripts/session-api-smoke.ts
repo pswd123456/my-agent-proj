@@ -62,7 +62,7 @@ const defaultWorkspace = path.resolve(
   DEFAULT_SESSION_WORKING_DIRECTORY
 );
 const traceManager = createFileTraceManager(
-  resolveSessionStateDirectory(path.resolve(process.cwd()), "ui1-api-smoke")
+  resolveSessionStateDirectory(path.resolve(process.cwd()), "session-api-smoke")
 );
 const promptBuilder = createPromptBuilder();
 

@@ -1,4 +1,5 @@
 import type { DomainJsonValue } from "./json.js";
+import type { PermissionRuleLists } from "./permission-rules.js";
 
 export type ScheduleSessionStatus =
   | "running"
@@ -46,6 +47,7 @@ export interface PendingPermissionRequest {
   permissionProfile: SessionPermissionProfile;
   summaryText: string;
   contextNote?: string;
+  allowWorkspaceEscape?: boolean;
   createdAt: string;
 }
 
@@ -54,8 +56,15 @@ export interface ScheduleSessionContext {
   status: ScheduleSessionStatus;
   currentDateContext: string;
   yoloMode: boolean;
+  shellAllowPatterns: string[];
+  shellDenyPatterns: string[];
+  toolAllowList: string[];
+  toolAskList: string[];
+  toolDenyList: string[];
   pendingPermissionRequest: PendingPermissionRequest | null;
   pendingConfirmationPayload: PendingConfirmationPayload | null;
   pendingConflictSummary: string | null;
   lastUserMessage: string | null;
 }
+
+export type SessionPermissionRuleLists = PermissionRuleLists;
