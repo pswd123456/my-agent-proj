@@ -1,7 +1,15 @@
 import { randomUUID } from "node:crypto";
 
+import { and, asc, desc, eq, sql } from "drizzle-orm";
+
+import type {
+  PendingConfirmationPayload,
+  PendingPermissionRequest,
+  ScheduleSessionContext
+} from "@ai-app-template/domain";
+
 import type { ProductDatabaseClient } from "@ai-app-template/db";
-import type { ScheduleSessionContext } from "@ai-app-template/domain";
+import { agentSessions, sessionMessages } from "@ai-app-template/db";
 
 import type {
   ConversationBlock,
@@ -18,63 +26,8 @@ import {
   resolveWorkingDirectory
 } from "./shared.js";
 
-interface SessionRow {
-  id: string;
-  user_id: string;
-  status: string;
-  current_date_context: string;
-  yolo_mode: boolean | null;
-  context_window: number;
-  max_turns: number;
-  shell_allow_patterns: unknown;
-  shell_deny_patterns: unknown;
-  tool_allow_list: unknown;
-  tool_ask_list: unknown;
-  tool_deny_list: unknown;
-  pending_permission_request: unknown;
-  pending_confirmation_payload: unknown;
-  pending_conflict_summary: string | null;
-  last_user_message: string | null;
-  working_directory: string;
-  model: string;
-  loop_state: string;
-  turn_count: number;
-  last_error: string | null;
-  pending_tool_call_ids: unknown;
-  input_tokens_count: number;
-  prompt_cache_key: string;
-  active_run_id: string | null;
-  active_run_started_at: string | Date | null;
-  updated_at: string | Date;
-}
-
-interface SessionMessageRow {
-  id: string;
-  message_index: number;
-  role: string;
-  content: string | null;
-  tool_name: string | null;
-  tool_call_id: string | null;
-  state: string | null;
-  is_error: boolean | null;
-  input_json: unknown;
-  output_text: string | null;
-  created_at: string | Date;
-}
-
-export function toIsoString(value: string | Date): string {
-  if (value instanceof Date) {
-    return value.toISOString();
-  }
-
-  const normalized = value.includes("T") ? value : value.replace(" ", "T");
-  const hasExplicitTimeZone =
-    normalized.endsWith("Z") || /[+-]\d{2}:\d{2}$/.test(normalized);
-
-  return new Date(
-    hasExplicitTimeZone ? normalized : `${normalized}Z`
-  ).toISOString();
-}
+type SessionRow = typeof agentSessions.$inferSelect;
+type SessionMessageRow = typeof sessionMessages.$inferSelect;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -106,8 +59,26 @@ function toStringArray(value: unknown): string[] {
   return parsed.filter((item): item is string => typeof item === "string");
 }
 
+export function toIsoString(value: string | Date): string {
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+
+  const normalized = value.includes("T") ? value : value.replace(" ", "T");
+  const tzMatch = normalized.match(/([+-]\d{2})(\d{2})?$/);
+  const hasExplicitTimeZone =
+    normalized.endsWith("Z") || /[+-]\d{2}:\d{2}$/.test(normalized) || tzMatch;
+  const parsedValue = tzMatch
+    ? normalized.replace(/([+-]\d{2})(\d{2})?$/, (_, hours: string, minutes?: string) =>
+        `${hours}:${minutes ?? "00"}`
+      )
+    : normalized;
+
+  return new Date(hasExplicitTimeZone ? parsedValue : `${normalized}Z`).toISOString();
+}
+
 function toConversationBlock(row: SessionMessageRow): ConversationBlock {
-  const createdAt = toIsoString(row.created_at);
+  const createdAt = toIsoString(row.createdAt);
   if (row.role === "user") {
     return {
       id: row.id,
@@ -130,9 +101,9 @@ function toConversationBlock(row: SessionMessageRow): ConversationBlock {
     return {
       id: row.id,
       kind: "tool call",
-      toolCallId: row.tool_call_id ?? "",
-      toolName: row.tool_name ?? "",
-      input: toJsonRecord(row.input_json),
+      toolCallId: row.toolCallId ?? "",
+      toolName: row.toolName ?? "",
+      input: toJsonRecord(row.inputJson),
       state:
         row.state === "success" || row.state === "failed"
           ? row.state
@@ -144,10 +115,10 @@ function toConversationBlock(row: SessionMessageRow): ConversationBlock {
   return {
     id: row.id,
     kind: "tool result",
-    toolCallId: row.tool_call_id ?? "",
-    toolName: row.tool_name ?? "",
-    output: row.output_text ?? "",
-    isError: Boolean(row.is_error),
+    toolCallId: row.toolCallId ?? "",
+    toolName: row.toolName ?? "",
+    output: row.outputText ?? "",
+    isError: Boolean(row.isError),
     state:
       row.state === "pending" || row.state === "success" ? row.state : "failed",
     createdAt
@@ -156,30 +127,30 @@ function toConversationBlock(row: SessionMessageRow): ConversationBlock {
 
 function toSessionContext(row: SessionRow): ScheduleSessionContext {
   const pendingPermissionRequest = parseJsonValue(
-    row.pending_permission_request
+    row.pendingPermissionRequest
   );
   const pendingConfirmationPayload = parseJsonValue(
-    row.pending_confirmation_payload
+    row.pendingConfirmationPayload
   );
 
   return {
-    userId: row.user_id,
+    userId: row.userId,
     status: row.status as ScheduleSessionContext["status"],
-    currentDateContext: row.current_date_context,
-    yoloMode: row.yolo_mode ?? false,
-    shellAllowPatterns: toStringArray(row.shell_allow_patterns),
-    shellDenyPatterns: toStringArray(row.shell_deny_patterns),
-    toolAllowList: toStringArray(row.tool_allow_list),
-    toolAskList: toStringArray(row.tool_ask_list),
-    toolDenyList: toStringArray(row.tool_deny_list),
+    currentDateContext: row.currentDateContext,
+    yoloMode: row.yoloMode ?? false,
+    shellAllowPatterns: toStringArray(row.shellAllowPatterns),
+    shellDenyPatterns: toStringArray(row.shellDenyPatterns),
+    toolAllowList: toStringArray(row.toolAllowList),
+    toolAskList: toStringArray(row.toolAskList),
+    toolDenyList: toStringArray(row.toolDenyList),
     pendingPermissionRequest: isRecord(pendingPermissionRequest)
-      ? (pendingPermissionRequest as unknown as ScheduleSessionContext["pendingPermissionRequest"])
+      ? (pendingPermissionRequest as unknown as PendingPermissionRequest)
       : null,
     pendingConfirmationPayload: isRecord(pendingConfirmationPayload)
-      ? (pendingConfirmationPayload as unknown as ScheduleSessionContext["pendingConfirmationPayload"])
+      ? (pendingConfirmationPayload as unknown as PendingConfirmationPayload)
       : null,
-    pendingConflictSummary: row.pending_conflict_summary,
-    lastUserMessage: row.last_user_message
+    pendingConflictSummary: row.pendingConflictSummary,
+    lastUserMessage: row.lastUserMessage
   };
 }
 
@@ -190,7 +161,7 @@ function serializeBlock(block: ConversationBlock): {
   toolCallId: string | null;
   state: string | null;
   isError: boolean | null;
-  inputJson: string | null;
+  inputJson: Record<string, JsonValue> | null;
   outputText: string | null;
   createdAt: string;
 } {
@@ -230,7 +201,7 @@ function serializeBlock(block: ConversationBlock): {
       toolCallId: block.toolCallId,
       state: block.state,
       isError: null,
-      inputJson: JSON.stringify(block.input),
+      inputJson: block.input,
       outputText: null,
       createdAt: block.createdAt
     };
@@ -250,7 +221,7 @@ function serializeBlock(block: ConversationBlock): {
 }
 
 export class PostgresSessionManager implements SessionManager {
-  constructor(private readonly sql: ProductDatabaseClient) {}
+  constructor(private readonly db: ProductDatabaseClient) {}
 
   async createSession(
     input: CreateSessionInput = {}
@@ -309,74 +280,114 @@ export class PostgresSessionManager implements SessionManager {
   }
 
   async getSession(sessionId: string): Promise<SessionSnapshot | null> {
-    const sessionRows = await this.sql<SessionRow[]>`
-      select *
-      from agent_sessions
-      where id = ${sessionId}
-      limit 1
-    `;
+    const sessionRows = await this.db
+      .select()
+      .from(agentSessions)
+      .where(eq(agentSessions.id, sessionId))
+      .limit(1);
 
     const row = sessionRows[0];
     if (!row) {
       return null;
     }
 
-    const messageRows = await this.sql<SessionMessageRow[]>`
-      select *
-      from session_messages
-      where session_id = ${sessionId}
-      order by message_index asc
-    `;
+    const messageRows = await this.db
+      .select()
+      .from(sessionMessages)
+      .where(eq(sessionMessages.sessionId, sessionId))
+      .orderBy(asc(sessionMessages.messageIndex));
 
     return {
       sessionId: row.id,
-      workingDirectory: row.working_directory,
+      workingDirectory: row.workingDirectory,
       model: row.model,
-      contextWindow: row.context_window,
-      maxTurns: row.max_turns,
+      contextWindow: row.contextWindow,
+      maxTurns: row.maxTurns,
       context: toSessionContext(row),
       messages: messageRows.map(toConversationBlock),
       sessionState: {
-        loopState: row.loop_state as LoopState,
-        turnCount: row.turn_count,
-        lastError: row.last_error,
-        pendingToolCallIds: toStringArray(row.pending_tool_call_ids)
+        loopState: row.loopState as LoopState,
+        turnCount: row.turnCount,
+        lastError: row.lastError,
+        pendingToolCallIds: toStringArray(row.pendingToolCallIds),
+        interruptRequested: row.interruptRequested
       },
-      inputTokensCount: row.input_tokens_count,
-      promptCacheKey: row.prompt_cache_key,
-      updatedAt: toIsoString(row.updated_at)
+      inputTokensCount: row.inputTokensCount,
+      promptCacheKey: row.promptCacheKey,
+      updatedAt: toIsoString(row.updatedAt)
     };
   }
 
   async listSessions(): Promise<SessionSnapshot[]> {
-    const rows = await this.sql<SessionRow[]>`
-      select *
-      from agent_sessions
-      order by updated_at asc
-    `;
+    const rows = await this.db
+      .select()
+      .from(agentSessions)
+      .orderBy(asc(agentSessions.updatedAt));
 
-    const sessions = await Promise.all(
-      rows.map((row) => this.getSession(row.id))
-    );
+    const sessions = await Promise.all(rows.map((row) => this.getSession(row.id)));
     return sessions.flatMap((session) => (session ? [session] : []));
   }
 
   async isExecutionActive(sessionId: string): Promise<boolean> {
-    const rows = await this.sql<Array<{ is_active: boolean }>>`
-      select (active_run_id is not null) as is_active
-      from agent_sessions
-      where id = ${sessionId}
-      limit 1
-    `;
-    return rows[0]?.is_active ?? false;
+    const rows = await this.db
+      .select({
+        isActive: sql<boolean>`${agentSessions.activeRunId} is not null`
+      })
+      .from(agentSessions)
+      .where(eq(agentSessions.id, sessionId))
+      .limit(1);
+
+    return rows[0]?.isActive ?? false;
+  }
+
+  async requestInterrupt(sessionId: string): Promise<SessionSnapshot | null> {
+    const requestedAt = new Date().toISOString();
+    const rows = await this.db
+      .update(agentSessions)
+      .set({
+        interruptRequested: true,
+        updatedAt: requestedAt
+      })
+      .where(
+        and(
+          eq(agentSessions.id, sessionId),
+          sql`${agentSessions.activeRunId} is not null`
+        )
+      )
+      .returning({ id: agentSessions.id });
+
+    if (rows.length === 0) {
+      return null;
+    }
+
+    return this.getSession(sessionId);
+  }
+
+  async isInterruptRequested(
+    sessionId: string,
+    runId: string
+  ): Promise<boolean> {
+    const rows = await this.db
+      .select({
+        interruptRequested: agentSessions.interruptRequested
+      })
+      .from(agentSessions)
+      .where(
+        and(
+          eq(agentSessions.id, sessionId),
+          eq(agentSessions.activeRunId, runId)
+        )
+      )
+      .limit(1);
+
+    return rows[0]?.interruptRequested ?? false;
   }
 
   async deleteSession(sessionId: string): Promise<boolean> {
-    const rows = await this.sql<Array<{ id: string }>>`
-      delete from agent_sessions
-      where id = ${sessionId}
-      returning id
-    `;
+    const rows = await this.db
+      .delete(agentSessions)
+      .where(eq(agentSessions.id, sessionId))
+      .returning({ id: agentSessions.id });
     return rows.length > 0;
   }
 
@@ -399,8 +410,9 @@ export class PostgresSessionManager implements SessionManager {
     const nextSnapshot = cloneSnapshot(snapshot);
     nextSnapshot.updatedAt = new Date().toISOString();
     await this.persistSession(nextSnapshot);
-    await this
-      .sql`delete from session_messages where session_id = ${snapshot.sessionId}`;
+    await this.db
+      .delete(sessionMessages)
+      .where(eq(sessionMessages.sessionId, snapshot.sessionId));
     for (const [index, block] of nextSnapshot.messages.entries()) {
       await this.insertMessage(snapshot.sessionId, index, block);
     }
@@ -412,19 +424,21 @@ export class PostgresSessionManager implements SessionManager {
     sessionId: string,
     block: ConversationBlock
   ): Promise<SessionSnapshot> {
-    const nextIndexRows = await this.sql<Array<{ next_index: number }>>`
-      select coalesce(max(message_index), -1) + 1 as next_index
-      from session_messages
-      where session_id = ${sessionId}
-    `;
-    const nextIndex = nextIndexRows[0]?.next_index ?? 0;
+    const nextIndexRows = await this.db
+      .select({
+        messageIndex: sessionMessages.messageIndex
+      })
+      .from(sessionMessages)
+      .where(eq(sessionMessages.sessionId, sessionId))
+      .orderBy(desc(sessionMessages.messageIndex))
+      .limit(1);
+    const nextIndex = (nextIndexRows[0]?.messageIndex ?? -1) + 1;
     await this.insertMessage(sessionId, nextIndex, block);
     const updatedAt = block.createdAt;
-    await this.sql`
-      update agent_sessions
-      set updated_at = ${updatedAt}
-      where id = ${sessionId}
-    `;
+    await this.db
+      .update(agentSessions)
+      .set({ updatedAt })
+      .where(eq(agentSessions.id, sessionId));
     const snapshot = await this.getSession(sessionId);
     if (!snapshot) {
       throw new Error(`Unknown session: ${sessionId}`);
@@ -527,31 +541,23 @@ export class PostgresSessionManager implements SessionManager {
         ? new Date(Date.now() - options.staleAfterMs).toISOString()
         : null;
 
-    const rows = staleBefore
-      ? await this.sql<Array<{ id: string }>>`
-          update agent_sessions
-          set
-            active_run_id = ${options.runId},
-            active_run_started_at = ${runStartedAt},
-            updated_at = ${runStartedAt}
-          where id = ${sessionId}
-            and (
-              active_run_id is null
-              or active_run_started_at is null
-              or active_run_started_at <= ${staleBefore}
-            )
-          returning id
-        `
-      : await this.sql<Array<{ id: string }>>`
-          update agent_sessions
-          set
-            active_run_id = ${options.runId},
-            active_run_started_at = ${runStartedAt},
-            updated_at = ${runStartedAt}
-          where id = ${sessionId}
-            and active_run_id is null
-          returning id
-        `;
+    const rows = await this.db
+      .update(agentSessions)
+      .set({
+        activeRunId: options.runId,
+        activeRunStartedAt: runStartedAt,
+        interruptRequested: false,
+        updatedAt: runStartedAt
+      })
+      .where(
+        and(
+          eq(agentSessions.id, sessionId),
+          staleBefore
+            ? sql`(${agentSessions.activeRunId} is null or ${agentSessions.activeRunStartedAt} is null or ${agentSessions.activeRunStartedAt} <= ${staleBefore})`
+            : sql`${agentSessions.activeRunId} is null`
+        )
+      )
+      .returning({ id: agentSessions.id });
 
     if (rows.length === 0) {
       return null;
@@ -565,15 +571,15 @@ export class PostgresSessionManager implements SessionManager {
     runId: string
   ): Promise<SessionSnapshot | null> {
     const releasedAt = new Date().toISOString();
-    await this.sql`
-      update agent_sessions
-      set
-        active_run_id = null,
-        active_run_started_at = null,
-        updated_at = ${releasedAt}
-      where id = ${sessionId}
-        and active_run_id = ${runId}
-    `;
+    await this.db
+      .update(agentSessions)
+      .set({
+        activeRunId: null,
+        activeRunStartedAt: null,
+        interruptRequested: false,
+        updatedAt: releasedAt
+      })
+      .where(and(eq(agentSessions.id, sessionId), eq(agentSessions.activeRunId, runId)));
 
     return this.getSession(sessionId);
   }
@@ -594,97 +600,67 @@ export class PostgresSessionManager implements SessionManager {
   }
 
   private async persistSession(snapshot: SessionSnapshot): Promise<void> {
-    await this.sql`
-      insert into agent_sessions (
-        id,
-        user_id,
-        status,
-        current_date_context,
-        yolo_mode,
-        context_window,
-        max_turns,
-        shell_allow_patterns,
-        shell_deny_patterns,
-        tool_allow_list,
-        tool_ask_list,
-        tool_deny_list,
-        pending_permission_request,
-        pending_confirmation_payload,
-        pending_conflict_summary,
-        last_user_message,
-        working_directory,
-        model,
-        loop_state,
-        turn_count,
-        last_error,
-        pending_tool_call_ids,
-        input_tokens_count,
-        prompt_cache_key,
-        created_at,
-        updated_at
-      )
-      values (
-        ${snapshot.sessionId},
-        ${snapshot.context.userId},
-        ${snapshot.context.status},
-        ${snapshot.context.currentDateContext},
-        ${snapshot.context.yoloMode},
-        ${snapshot.contextWindow},
-        ${snapshot.maxTurns},
-        ${JSON.stringify(snapshot.context.shellAllowPatterns)}::jsonb,
-        ${JSON.stringify(snapshot.context.shellDenyPatterns)}::jsonb,
-        ${JSON.stringify(snapshot.context.toolAllowList)}::jsonb,
-        ${JSON.stringify(snapshot.context.toolAskList)}::jsonb,
-        ${JSON.stringify(snapshot.context.toolDenyList)}::jsonb,
-        ${
-          snapshot.context.pendingPermissionRequest
-            ? JSON.stringify(snapshot.context.pendingPermissionRequest)
-            : null
-        }::jsonb,
-        ${
-          snapshot.context.pendingConfirmationPayload
-            ? JSON.stringify(snapshot.context.pendingConfirmationPayload)
-            : null
-        }::jsonb,
-        ${snapshot.context.pendingConflictSummary},
-        ${snapshot.context.lastUserMessage},
-        ${snapshot.workingDirectory},
-        ${snapshot.model},
-        ${snapshot.sessionState.loopState},
-        ${snapshot.sessionState.turnCount},
-        ${snapshot.sessionState.lastError},
-        ${JSON.stringify(snapshot.sessionState.pendingToolCallIds)}::jsonb,
-        ${snapshot.inputTokensCount},
-        ${snapshot.promptCacheKey},
-        ${snapshot.updatedAt},
-        ${snapshot.updatedAt}
-      )
-      on conflict (id) do update set
-        user_id = excluded.user_id,
-        status = excluded.status,
-        current_date_context = excluded.current_date_context,
-        yolo_mode = excluded.yolo_mode,
-        context_window = excluded.context_window,
-        max_turns = excluded.max_turns,
-        shell_allow_patterns = excluded.shell_allow_patterns,
-        shell_deny_patterns = excluded.shell_deny_patterns,
-        tool_allow_list = excluded.tool_allow_list,
-        tool_ask_list = excluded.tool_ask_list,
-        tool_deny_list = excluded.tool_deny_list,
-        pending_permission_request = excluded.pending_permission_request,
-        pending_confirmation_payload = excluded.pending_confirmation_payload,
-        pending_conflict_summary = excluded.pending_conflict_summary,
-        last_user_message = excluded.last_user_message,
-        working_directory = excluded.working_directory,
-        model = excluded.model,
-        loop_state = excluded.loop_state,
-        turn_count = excluded.turn_count,
-        last_error = excluded.last_error,
-        pending_tool_call_ids = excluded.pending_tool_call_ids,
-        input_tokens_count = excluded.input_tokens_count,
-        prompt_cache_key = excluded.prompt_cache_key,
-        updated_at = excluded.updated_at
-    `;
+    await this.db
+      .insert(agentSessions)
+      .values({
+        id: snapshot.sessionId,
+        userId: snapshot.context.userId,
+        status: snapshot.context.status,
+        currentDateContext: snapshot.context.currentDateContext,
+        yoloMode: snapshot.context.yoloMode,
+        contextWindow: snapshot.contextWindow,
+        maxTurns: snapshot.maxTurns,
+        shellAllowPatterns: snapshot.context.shellAllowPatterns,
+        shellDenyPatterns: snapshot.context.shellDenyPatterns,
+        toolAllowList: snapshot.context.toolAllowList,
+        toolAskList: snapshot.context.toolAskList,
+        toolDenyList: snapshot.context.toolDenyList,
+        pendingPermissionRequest: snapshot.context.pendingPermissionRequest,
+        pendingConfirmationPayload: snapshot.context.pendingConfirmationPayload,
+        pendingConflictSummary: snapshot.context.pendingConflictSummary,
+        lastUserMessage: snapshot.context.lastUserMessage,
+        workingDirectory: snapshot.workingDirectory,
+        model: snapshot.model,
+        loopState: snapshot.sessionState.loopState,
+        turnCount: snapshot.sessionState.turnCount,
+        lastError: snapshot.sessionState.lastError,
+        pendingToolCallIds: snapshot.sessionState.pendingToolCallIds,
+        interruptRequested: snapshot.sessionState.interruptRequested,
+        inputTokensCount: snapshot.inputTokensCount,
+        promptCacheKey: snapshot.promptCacheKey,
+        createdAt: snapshot.updatedAt,
+        updatedAt: snapshot.updatedAt
+      })
+      .onConflictDoUpdate({
+        target: agentSessions.id,
+        set: {
+          userId: snapshot.context.userId,
+          status: snapshot.context.status,
+          currentDateContext: snapshot.context.currentDateContext,
+          yoloMode: snapshot.context.yoloMode,
+          contextWindow: snapshot.contextWindow,
+          maxTurns: snapshot.maxTurns,
+          shellAllowPatterns: snapshot.context.shellAllowPatterns,
+          shellDenyPatterns: snapshot.context.shellDenyPatterns,
+          toolAllowList: snapshot.context.toolAllowList,
+          toolAskList: snapshot.context.toolAskList,
+          toolDenyList: snapshot.context.toolDenyList,
+          pendingPermissionRequest: snapshot.context.pendingPermissionRequest,
+          pendingConfirmationPayload: snapshot.context.pendingConfirmationPayload,
+          pendingConflictSummary: snapshot.context.pendingConflictSummary,
+          lastUserMessage: snapshot.context.lastUserMessage,
+          workingDirectory: snapshot.workingDirectory,
+          model: snapshot.model,
+          loopState: snapshot.sessionState.loopState,
+          turnCount: snapshot.sessionState.turnCount,
+          lastError: snapshot.sessionState.lastError,
+          pendingToolCallIds: snapshot.sessionState.pendingToolCallIds,
+          interruptRequested: snapshot.sessionState.interruptRequested,
+          inputTokensCount: snapshot.inputTokensCount,
+          promptCacheKey: snapshot.promptCacheKey,
+          updatedAt: snapshot.updatedAt
+        }
+      });
   }
 
   private async insertMessage(
@@ -693,41 +669,25 @@ export class PostgresSessionManager implements SessionManager {
     block: ConversationBlock
   ): Promise<void> {
     const serialized = serializeBlock(block);
-    await this.sql`
-      insert into session_messages (
-        id,
-        session_id,
-        message_index,
-        role,
-        content,
-        tool_name,
-        tool_call_id,
-        state,
-        is_error,
-        input_json,
-        output_text,
-        created_at
-      )
-      values (
-        ${block.id},
-        ${sessionId},
-        ${index},
-        ${serialized.role},
-        ${serialized.content},
-        ${serialized.toolName},
-        ${serialized.toolCallId},
-        ${serialized.state},
-        ${serialized.isError},
-        ${serialized.inputJson}::jsonb,
-        ${serialized.outputText},
-        ${serialized.createdAt}
-      )
-    `;
+    await this.db.insert(sessionMessages).values({
+      id: block.id,
+      sessionId,
+      messageIndex: index,
+      role: serialized.role,
+      content: serialized.content,
+      toolName: serialized.toolName,
+      toolCallId: serialized.toolCallId,
+      state: serialized.state,
+      isError: serialized.isError,
+      inputJson: serialized.inputJson,
+      outputText: serialized.outputText,
+      createdAt: serialized.createdAt
+    });
   }
 }
 
 export function createPostgresSessionManager(
-  sql: ProductDatabaseClient
+  db: ProductDatabaseClient
 ): PostgresSessionManager {
-  return new PostgresSessionManager(sql);
+  return new PostgresSessionManager(db);
 }

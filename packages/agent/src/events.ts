@@ -32,9 +32,7 @@ export interface RunErrorEvent extends RunEventBase {
 
 export type RunStreamEvent = RunTraceEvent | RunCompleteEvent | RunErrorEvent;
 
-export type RunEventSink = (
-  event: RunStreamEvent
-) => void | Promise<void>;
+export type RunEventSink = (event: RunStreamEvent) => void | Promise<void>;
 
 export function createRunTraceEvent(
   sessionId: string,

@@ -60,6 +60,7 @@ export interface SessionState {
   turnCount: number;
   lastError: string | null;
   pendingToolCallIds: string[];
+  interruptRequested: boolean;
 }
 
 export interface SessionSnapshot {

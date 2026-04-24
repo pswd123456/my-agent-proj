@@ -19,7 +19,7 @@ export class MemorySessionManager implements SessionManager {
   private readonly sessions = new Map<string, SessionSnapshot>();
   private readonly activeRuns = new Map<
     string,
-    { runId: string; startedAt: number }
+    { runId: string; startedAt: number; interruptRequested: boolean }
   >();
 
   async createSession(
@@ -89,6 +89,31 @@ export class MemorySessionManager implements SessionManager {
 
   async isExecutionActive(sessionId: string): Promise<boolean> {
     return this.activeRuns.has(sessionId);
+  }
+
+  async requestInterrupt(sessionId: string): Promise<SessionSnapshot | null> {
+    const current = this.activeRuns.get(sessionId);
+    if (!current) {
+      return null;
+    }
+
+    current.interruptRequested = true;
+    this.activeRuns.set(sessionId, current);
+    return this.updateSession(sessionId, (snapshot) => ({
+      ...snapshot,
+      sessionState: {
+        ...snapshot.sessionState,
+        interruptRequested: true
+      }
+    }));
+  }
+
+  async isInterruptRequested(
+    sessionId: string,
+    runId: string
+  ): Promise<boolean> {
+    const current = this.activeRuns.get(sessionId);
+    return current?.runId === runId && current.interruptRequested === true;
   }
 
   async deleteSession(sessionId: string): Promise<boolean> {
@@ -228,14 +253,16 @@ export class MemorySessionManager implements SessionManager {
 
     this.activeRuns.set(sessionId, {
       runId: options.runId,
-      startedAt: now
+      startedAt: now,
+      interruptRequested: false
     });
 
     return this.updateSession(sessionId, (snapshot) => ({
       ...snapshot,
       sessionState: {
         ...snapshot.sessionState,
-        loopState: "running"
+        loopState: "running",
+        interruptRequested: false
       }
     }));
   }
@@ -249,7 +276,18 @@ export class MemorySessionManager implements SessionManager {
       this.activeRuns.delete(sessionId);
     }
 
-    return this.getSession(sessionId);
+    const session = await this.getSession(sessionId);
+    if (!session?.sessionState.interruptRequested) {
+      return session;
+    }
+
+    return this.updateSession(sessionId, (snapshot) => ({
+      ...snapshot,
+      sessionState: {
+        ...snapshot.sessionState,
+        interruptRequested: false
+      }
+    }));
   }
 
   private async updateSession(

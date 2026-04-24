@@ -6,7 +6,7 @@
 - 前端是 `Next.js 16` + `React 19` + `Tailwind CSS 4`
 - API 是 `Hono` + `Zod`
 - agent runtime 是仓库内自定义的 `AgentRuntime.run` 执行循环
-- 数据层是 `PostgreSQL` + `postgres` 驱动
+- 数据层是 `PostgreSQL` + `Drizzle ORM` + `postgres` 驱动
 - 模型接入是 `Anthropic SDK` 对接 MiniMax Anthropic-compatible endpoint
 
 ## 已落地实现
@@ -23,6 +23,8 @@
 - UI 基础依赖是 `React 19`
 - 样式当前采用 `Tailwind CSS 4`
 - 页面模式和工作台布局下沉在 `packages/ui-patterns`
+- 基础组件沉淀在 `packages/ui`
+- 设计 token 的运行时真相源在 `packages/tokens`
 
 ### API 与客户端契约
 
@@ -37,23 +39,26 @@
 - prompt 拼装在 `packages/agent/src/prompt.ts`
 - provider 适配在 `packages/agent/src/model.ts`
 - session 抽象和 PostgreSQL / file / memory 实现在 `packages/agent/src/session/`
+- workspace skill discovery 在 `packages/agent/src/skills/`
 - tool registry 与具体工具在 `packages/agent/src/tools/`
 - trace 以 JSONL 追加写入 `tmp/agent-sessions/sessions/`
 
 ### 数据层
 
 - 数据库固定为 `PostgreSQL`
-- 当前在线访问使用 `postgres` 驱动直连
-- schema 初始化与 repository 放在 `packages/db`
+- 当前在线访问通过 `Drizzle ORM` 访问 `postgres` 驱动
+- schema、migrations 和 repository 放在 `packages/db`
 - 当前主要表包括：
   - `routines`
   - `agent_sessions`
   - `session_messages`
+  - `agent_settings`
 
 ## 当前没有落地的模板项
 
 - `OpenAPI`：文档和类型权威源目前仍然是运行代码与 `packages/sdk`，不是生成式 OpenAPI
-- `Drizzle ORM`：包里有 `drizzle-kit` 依赖，但当前数据库读写主体仍是手写 SQL + `postgres`
+- `Drizzle ORM`：当前数据库读写主体已切到 Drizzle，migrations 由 `drizzle-kit` / Drizzle migrator 管理
+- `LangGraph`：当前 runtime 主路径不是 LangGraph 编排，而是仓库内自定义 loop
 - `Better Auth`：当前仓库未看到已接入的鉴权主链路
 - `pg-boss` / 向量检索 / 多模型编排：目前都还不是运行主链路的一部分
 - agent runtime 当前以仓库内自定义 loop 为准，技术栈文档不再把历史或未启用方案写成现状

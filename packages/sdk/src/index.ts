@@ -13,6 +13,7 @@ export { PERMISSION_TOOL_OPTIONS } from "@ai-app-template/domain";
 export type {
   ApiClientConfig,
   CreateSessionPayload,
+  InterruptSessionResult,
   ListSessionRoutinesResult,
   ResetSessionRoutinesResult,
   SessionSummary,

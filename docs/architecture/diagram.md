@@ -21,11 +21,15 @@ flowchart LR
     agent["packages/agent
     runtime + prompt + tools + session + trace"]
     db["packages/db
-    schema + repository + db client"]
+    schema + migrations + settings/routine repository + db client"]
     domain["packages/domain
-    routine + session context"]
-    ui["packages/ui + ui-patterns + tokens
-    reusable UI layer"]
+    routine + session settings + session context"]
+    ui["packages/ui
+    base UI components"]
+    patterns["packages/ui-patterns
+    page frames + workbench patterns"]
+    tokens["packages/tokens
+    design tokens"]
   end
 
   postgres[("PostgreSQL")]
@@ -35,6 +39,8 @@ flowchart LR
 
   user --> web
   web --> ui
+  web --> patterns
+  web --> tokens
   web --> sdk
   sdk --> api
   api --> agent
@@ -54,8 +60,11 @@ sequenceDiagram
   participant Web as apps/web
   participant SDK as packages/sdk
   participant API as apps/api
+  participant Settings as SettingsRepository(Postgres)
   participant Session as SessionManager(Postgres)
   participant Runtime as AgentRuntime
+  participant Skills as WorkspaceSkills
+  participant Prompt as PromptBuilder
   participant Model as MiniMax API
   participant Tools as ToolRegistry
   participant Repo as RoutineRepository
@@ -64,9 +73,15 @@ sequenceDiagram
   User->>Web: 输入自然语言请求
   Web->>SDK: createSession / executeSession / streamSessionExecution
   SDK->>API: POST /sessions or /execute/stream
+  API->>Settings: getOrCreate / update user settings
+  Settings-->>API: session defaults
   API->>Session: 读取或创建 session
   API->>Runtime: runtime.run(sessionId, message)
-  Runtime->>Trace: 记录 turn_start / prompt
+  Runtime->>Skills: discover .agent/skills/ from session.workingDirectory
+  Skills-->>Runtime: skill metadata + diagnostics
+  Runtime->>Prompt: build(system + prefix + runtime context + skills)
+  Prompt-->>Runtime: prompt envelope
+  Runtime->>Trace: 记录 skills_loaded / turn_start / prompt
   Runtime->>Model: 发送 system + prefix + messages + tools
   Model-->>Runtime: text / thinking / tool_use
   Runtime->>Trace: 记录 response / thinking / assistant_text / tool_call
@@ -89,6 +104,7 @@ sequenceDiagram
 ## 读图提示
 
 - `apps/api` 是当前运行主入口，负责把各层装配起来
-- `packages/agent` 是执行核心，既包含 runtime loop，也包含 prompt、session、tools 和 trace
+- `packages/agent` 是执行核心，既包含 runtime loop，也包含 prompt、session、skills、tools 和 trace
 - `PostgreSQL` 保存 session 与 routine 数据，`tmp/` 主要保存 trace
+- `settingsRepository` 保存用户级 session settings，包含工作目录、yolo、context window、max turns 和权限规则
 - 本地若存在 `apps/worker/` 残留构建产物，也不应视为当前运行架构的一部分

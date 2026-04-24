@@ -23,10 +23,17 @@ export interface SessionSummary {
   loopState: SessionSnapshot["sessionState"]["loopState"];
   turnCount: number;
   pendingToolCallIds: string[];
+  interruptRequested: boolean;
   pendingPermission: boolean;
   pendingConfirmation: boolean;
   status: SessionSnapshot["context"]["status"];
   lastUserMessage: string | null;
+}
+
+export interface InterruptSessionResult {
+  sessionId: string;
+  accepted: true;
+  session: SessionSnapshot;
 }
 
 export interface CreateSessionPayload {
@@ -119,6 +126,7 @@ function toSessionSummary(session: SessionSnapshot): SessionSummary {
     loopState: session.sessionState.loopState,
     turnCount: session.sessionState.turnCount,
     pendingToolCallIds: session.sessionState.pendingToolCallIds,
+    interruptRequested: session.sessionState.interruptRequested,
     pendingPermission: Boolean(session.context.pendingPermissionRequest),
     pendingConfirmation: Boolean(session.context.pendingConfirmationPayload),
     status: session.context.status,
@@ -301,6 +309,20 @@ export class ApiClient {
       }
     );
     await ensureOk(response);
+  }
+
+  async interruptSessionExecution(
+    sessionId: string
+  ): Promise<InterruptSessionResult> {
+    const response = await this.fetchImpl(
+      buildUrl(this.baseUrl, `/sessions/${sessionId}/interrupt`),
+      {
+        method: "POST"
+      }
+    );
+    return (await ensureOk(response).then((result) =>
+      result.json()
+    )) as InterruptSessionResult;
   }
 
   async executeSession(

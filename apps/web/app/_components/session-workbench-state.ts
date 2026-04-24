@@ -92,6 +92,7 @@ export function isReusableNewSessionSummary(session: SessionSummary): boolean {
     session.loopState === "waiting for input" &&
     session.turnCount === 0 &&
     session.pendingToolCallIds.length === 0 &&
+    !session.interruptRequested &&
     !session.pendingPermission &&
     !session.pendingConfirmation &&
     session.lastUserMessage === null
@@ -102,6 +103,34 @@ export function findReusableNewSessionSummary(
   sessions: SessionSummary[]
 ): SessionSummary | null {
   return sessions.find(isReusableNewSessionSummary) ?? null;
+}
+
+export function canInterruptSessionExecution(input: {
+  session: SessionSnapshot | null;
+  submitting: boolean;
+  interruptingSessionId?: string | null;
+}): boolean {
+  const { session, submitting, interruptingSessionId } = input;
+  if (!session) {
+    return false;
+  }
+
+  if (
+    submitting ||
+    interruptingSessionId === session.sessionId ||
+    session.sessionState.interruptRequested
+  ) {
+    return true;
+  }
+
+  if (session.context.status !== "running") {
+    return false;
+  }
+
+  return (
+    session.sessionState.loopState === "running" ||
+    session.sessionState.loopState === "waiting for tool result"
+  );
 }
 
 export function flattenTraceRecords(records: TraceRecord[]): RunStreamEvent[] {

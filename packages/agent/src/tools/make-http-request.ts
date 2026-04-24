@@ -112,7 +112,7 @@ export function createMakeHttpRequestTool(): RuntimeTool {
 
       return { ok: true, value: input };
     },
-    async execute(input) {
+    async execute(input, context) {
       const url = typeof input.url === "string" ? input.url.trim() : "";
       if (!url) {
         return failureResult(
@@ -127,11 +127,26 @@ export function createMakeHttpRequestTool(): RuntimeTool {
       }
 
       const controller = new AbortController();
+      let timedOut = false;
       const timeoutMs =
         typeof input.timeoutMs === "number" && input.timeoutMs > 0
           ? Math.floor(input.timeoutMs)
           : 20_000;
-      const timeout = setTimeout(() => controller.abort(), timeoutMs);
+      const timeout = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, timeoutMs);
+      const onAbort = () => {
+        controller.abort();
+      };
+
+      if (context.abortSignal?.aborted) {
+        controller.abort();
+      } else if (context.abortSignal) {
+        context.abortSignal.addEventListener("abort", onAbort, {
+          once: true
+        });
+      }
 
       try {
         const method =
@@ -175,6 +190,17 @@ export function createMakeHttpRequestTool(): RuntimeTool {
           `[make_http_request] success\n- ${method} ${url}`
         );
       } catch (error) {
+        if (controller.signal.aborted && !timedOut) {
+          return failureResult(
+            createToolResult({
+              ok: false,
+              code: "HTTP_REQUEST_INTERRUPTED",
+              message: "Interrupted by user."
+            }),
+            "[make_http_request] interrupted\n- interrupted by user"
+          );
+        }
+
         const message = error instanceof Error ? error.message : String(error);
         return failureResult(
           createToolResult({
@@ -186,6 +212,7 @@ export function createMakeHttpRequestTool(): RuntimeTool {
         );
       } finally {
         clearTimeout(timeout);
+        context.abortSignal?.removeEventListener("abort", onAbort);
       }
     }
   };

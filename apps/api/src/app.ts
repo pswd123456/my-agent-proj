@@ -322,6 +322,26 @@ export function createApiApp(dependencies: ApiAppDependencies) {
     return c.body(null, 204);
   });
 
+  app.post("/sessions/:sessionId/interrupt", async (c) => {
+    const sessionId = c.req.param("sessionId");
+    const session = await dependencies.sessionManager.requestInterrupt(sessionId);
+    if (!session) {
+      return c.json(
+        {
+          error:
+            "Session is not currently running. Only the active run can be interrupted."
+        },
+        409
+      );
+    }
+
+    return c.json({
+      sessionId,
+      accepted: true,
+      session
+    });
+  });
+
   app.post("/sessions/:sessionId/execute", async (c) => {
     if (!dependencies.runtimeFactory) {
       return c.json(

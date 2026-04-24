@@ -15,6 +15,12 @@ function createSessionSnapshot(): SessionSnapshot {
     context: {
       userId: "test-user",
       status: "completed",
+      yoloMode: false,
+      shellAllowPatterns: [],
+      shellDenyPatterns: [],
+      toolAllowList: [],
+      toolAskList: [],
+      toolDenyList: [],
       pendingPermissionRequest: null,
       pendingConfirmationPayload: null,
       pendingConflictSummary: null,
@@ -26,7 +32,8 @@ function createSessionSnapshot(): SessionSnapshot {
       loopState: "idle",
       turnCount: 0,
       lastError: null,
-      pendingToolCallIds: []
+      pendingToolCallIds: [],
+      interruptRequested: false
     },
     inputTokensCount: 0,
     promptCacheKey: "",

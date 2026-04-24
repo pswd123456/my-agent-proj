@@ -13,15 +13,18 @@
 - `apps/web` 提供当前的工作台式 Web UI，负责会话列表、对话输入、流式输出和 trace / prompt / tool 观察
 - `packages/sdk` 负责把 Web 对 API 的调用封装成稳定客户端
 - `apps/api` 是当前唯一权威入口，负责创建 session、触发执行、输出 SSE 流、暴露 trace，并暂时继续承载已落地的 routine 相关接口
-- `packages/agent` 提供实际的 agent runtime：prompt builder、模型适配、tool registry、session manager、trace manager 和执行循环
-- `packages/db` 负责 PostgreSQL 连接、schema 初始化和 `RoutineRepository`
-- `packages/domain` 负责日程、session context、tool result 等纯领域结构和校验辅助
+- `packages/agent` 提供实际的 agent runtime：prompt builder、模型适配、tool registry、session manager、skills loader、trace manager 和执行循环
+- `packages/db` 负责 PostgreSQL 连接、Drizzle schema/migrations、`SettingsRepository` 和 `RoutineRepository`
+- `packages/tokens`、`packages/ui-patterns` 和 `packages/ui` 负责共享视觉 token、页面骨架和基础 UI
+- `packages/domain` 负责日程、session context、session settings、权限规则、tool result 等纯领域结构和校验辅助
 
 ## 当前运行模型
 
 - 真实 loop 入口在 [`packages/agent/src/runtime.ts`](/Users/boneda/gitrepo/my-agent-proj/packages/agent/src/runtime.ts)
-- API 在 [`apps/api/src/index.ts`](/Users/boneda/gitrepo/my-agent-proj/apps/api/src/index.ts) 中组装 runtime：模型 client、session manager、当前已挂载的 routine repository、tool registry、trace manager 和 prompt builder
-- session 主存储当前走 PostgreSQL；trace 走 `tmp/agent-sessions/sessions/<sessionId>.trace.jsonl`
+- API 在 [`apps/api/src/index.ts`](/Users/boneda/gitrepo/my-agent-proj/apps/api/src/index.ts) 中组装 runtime：模型 client、session manager、settings repository、当前已挂载的 routine repository、tool registry、trace manager 和 prompt builder
+- session 创建会先读取或创建用户 settings，再叠加显式覆盖，最后解析出 `workingDirectory`、`maxTurns` 和权限规则
+- runtime 会根据 `session.workingDirectory` 扫描 `.agent/skills/`，把合法 skill 的 `name` 和 `description` 注入本轮动态上下文，并通过 `skills_loaded` trace 记录本轮发现结果
+- session 主存储当前走 PostgreSQL；用户 settings 也走 PostgreSQL；数据库模式通过 Drizzle migrations 管理；trace 走 `tmp/agent-sessions/sessions/<sessionId>.trace.jsonl`
 - provider 侧当前通过 `Anthropic SDK` 访问 MiniMax 的 Anthropic-compatible 接口
 - 一次执行的核心闭环是：`user message -> runtime.run -> model response -> tool call/result -> next turn or final answer`
 
@@ -31,6 +34,7 @@
 - `API + agent runtime + PostgreSQL` 是当前最稳定、最应优先维护的主链路
 - 当前 runtime 主线应按“通用个人助手底座”理解，而不是直接等同于某个单一日程产品
 - 日程管理闭环仍然是当前仓库里最完整的一组已落地业务能力
+- 当前 session 默认工作目录仍是 repo 根下的 `agent-workspace/`，可在用户 settings 或创建 session 时覆盖
 - 当前没有独立 `worker` 进程；若本地还能看到 `apps/worker/` 目录，那只是残留构建产物，不应作为现状架构理解
 - 后续若扩展到 iOS、小程序或桌面端，应优先复用 `sdk`、领域模型和 runtime 能力，而不是复制 UI 逻辑
 

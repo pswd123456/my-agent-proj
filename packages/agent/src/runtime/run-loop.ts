@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import type { RoutineRepository } from "@ai-app-template/db";
 
 import {
@@ -7,15 +9,17 @@ import {
 } from "../events.js";
 import type {
   AnthropicCompatibleClient,
+  AnthropicMessageRequest,
   AnthropicToolChoice
 } from "../model.js";
+import { streamAnthropicMessage } from "../model.js";
 import {
   formatPromptDateTimeContext,
   resolvePromptTimeZone,
   type PromptBuilder
 } from "../prompt.js";
-import { discoverWorkspaceSkills } from "../skills/index.js";
 import type { SessionManager } from "../session.js";
+import { discoverWorkspaceSkills } from "../skills/index.js";
 import type { TraceManager } from "../trace.js";
 import type { JsonValue, RunSessionResult, SessionSnapshot } from "../types.js";
 import type { ToolRegistry } from "../tools/registry.js";
@@ -25,15 +29,48 @@ import {
   buildUserBlockContent,
   extractThinkingBlocks,
   extractToolCalls,
-  renderPendingPermissionAnswer,
-  renderPendingConfirmationAnswer
+  renderPendingConfirmationAnswer,
+  renderPendingPermissionAnswer
 } from "./blocks.js";
 import { completeLocally } from "./complete-run.js";
 import { handlePendingConfirmationReply } from "./confirmation.js";
+import { completeInterruptedRun } from "./interrupt.js";
 import { handlePendingPermissionReply } from "./permission.js";
 import { emitRunEvent, emitTraceEvent } from "./run-events.js";
 import { estimatePromptTokens } from "./token-budget.js";
 import { executeToolAction } from "./tool-execution.js";
+
+interface StreamedAssistantSnapshot {
+  assistantMessageId: string;
+  text: string;
+}
+
+function getInterruptedAssistantSnapshot(
+  streamedAssistantTexts: Map<number, StreamedAssistantSnapshot> | null
+): StreamedAssistantSnapshot | null {
+  if (!streamedAssistantTexts || streamedAssistantTexts.size === 0) {
+    return null;
+  }
+
+  const ordered = [...streamedAssistantTexts.entries()].sort(
+    ([leftIndex], [rightIndex]) => leftIndex - rightIndex
+  );
+  const text = ordered
+    .map(([, value]) => value.text.trim())
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+
+  if (!text) {
+    return null;
+  }
+
+  return {
+    assistantMessageId:
+      ordered[ordered.length - 1]?.[1].assistantMessageId ?? randomUUID(),
+    text
+  };
+}
 
 export async function runSessionLoop(input: {
   client: AnthropicCompatibleClient;
@@ -44,6 +81,8 @@ export async function runSessionLoop(input: {
   promptBuilder: PromptBuilder;
   session: SessionSnapshot;
   message: string | undefined;
+  abortSignal?: AbortSignal;
+  isInterruptRequested: () => Promise<boolean>;
   permissionReply?: boolean;
   maxTurns: number;
   maxTokens: number | undefined;
@@ -71,6 +110,46 @@ export async function runSessionLoop(input: {
   const toolOutputs: RunSessionResult["toolOutputs"] = [];
   let consumedPermissionReply = false;
   let carriedTurnCount = 0;
+  let currentTurnCount = Math.max(0, session.sessionState.turnCount);
+  let currentStreamedAssistantTexts: Map<number, StreamedAssistantSnapshot> | null =
+    null;
+  let interruptRequestLogged = false;
+
+  async function maybeCompleteInterrupted(): Promise<RunSessionResult | null> {
+    const interruptRequested = await input.isInterruptRequested();
+    if (!interruptRequested) {
+      return null;
+    }
+
+    if (!interruptRequestLogged) {
+      await emitTraceEvent({
+        traceManager: input.traceManager,
+        eventSink: input.eventSink,
+        sessionId: session.sessionId,
+        event: {
+          kind: "interrupt_requested",
+          turnCount: currentTurnCount
+        }
+      });
+      interruptRequestLogged = true;
+    }
+
+    const partialAssistant = getInterruptedAssistantSnapshot(
+      currentStreamedAssistantTexts
+    );
+    return completeInterruptedRun({
+      sessionManager: input.sessionManager,
+      traceManager: input.traceManager,
+      session,
+      turnCount: currentTurnCount,
+      toolCallCount,
+      toolResultCount,
+      toolOutputs,
+      eventSink: input.eventSink,
+      partialAssistantText: partialAssistant?.text ?? null,
+      partialAssistantMessageId: partialAssistant?.assistantMessageId ?? null
+    });
+  }
 
   try {
     if (pendingPermissionAtStart && input.message) {
@@ -133,13 +212,29 @@ export async function runSessionLoop(input: {
       "running"
     );
 
+    {
+      const interrupted = await maybeCompleteInterrupted();
+      if (interrupted) {
+        return interrupted;
+      }
+    }
+
     for (let turn = carriedTurnCount; turn < input.maxTurns; turn += 1) {
       const turnCount = turn + 1;
+      currentTurnCount = turnCount;
+      currentStreamedAssistantTexts = null;
       session = await input.sessionManager.saveSession(session);
       session = await input.sessionManager.setTurnCount(
         session.sessionId,
         turnCount
       );
+
+      {
+        const interrupted = await maybeCompleteInterrupted();
+        if (interrupted) {
+          return interrupted;
+        }
+      }
 
       const promptEnvelope = input.promptBuilder.build(
         session,
@@ -256,7 +351,14 @@ export async function runSessionLoop(input: {
         return result;
       }
 
-      const response = await input.client.messages.create({
+      {
+        const interrupted = await maybeCompleteInterrupted();
+        if (interrupted) {
+          return interrupted;
+        }
+      }
+
+      const request: AnthropicMessageRequest = {
         model: session.model,
         system: promptEnvelope.system,
         messages: [
@@ -269,7 +371,42 @@ export async function runSessionLoop(input: {
           ? { max_tokens: input.maxTokens }
           : {}),
         ...(input.toolChoice ? { tool_choice: input.toolChoice } : {})
+      };
+
+      const streamedAssistantTexts = new Map<number, StreamedAssistantSnapshot>();
+      currentStreamedAssistantTexts = streamedAssistantTexts;
+      const response = await streamAnthropicMessage({
+        client: input.client,
+        request,
+        ...(input.abortSignal ? { signal: input.abortSignal } : {}),
+        onTextDelta: async ({ blockIndex, text }) => {
+          const current =
+            streamedAssistantTexts.get(blockIndex) ?? {
+              assistantMessageId: randomUUID(),
+              text: ""
+            };
+          current.text = text;
+          streamedAssistantTexts.set(blockIndex, current);
+          await emitTraceEvent({
+            traceManager: input.traceManager,
+            eventSink: input.eventSink,
+            sessionId: session.sessionId,
+            event: {
+              kind: "assistant_text",
+              turnCount,
+              assistantMessageId: current.assistantMessageId,
+              text
+            }
+          });
+        }
       });
+
+      {
+        const interrupted = await maybeCompleteInterrupted();
+        if (interrupted) {
+          return interrupted;
+        }
+      }
 
       const usageTokens = response.usage?.input_tokens ?? 0;
       const outputTokens = response.usage?.output_tokens ?? 0;
@@ -320,26 +457,40 @@ export async function runSessionLoop(input: {
       const assistantTexts: string[] = [];
       const toolCalls = extractToolCalls(responseBlocks);
 
-      for (const block of responseBlocks) {
+      for (const [blockIndex, block] of responseBlocks.entries()) {
         if (block.type !== "text") {
           continue;
         }
 
         assistantTexts.push(block.text);
+        const assistantMessageId =
+          streamedAssistantTexts.get(blockIndex)?.assistantMessageId ??
+          randomUUID();
         session = await input.sessionManager.appendBlock(
           session.sessionId,
-          buildAssistantBlockContent(block.text)
+          buildAssistantBlockContent(block.text, assistantMessageId)
         );
-        await emitTraceEvent({
-          traceManager: input.traceManager,
-          eventSink: input.eventSink,
-          sessionId: session.sessionId,
-          event: {
-            kind: "assistant_text",
-            turnCount,
-            text: block.text
-          }
-        });
+        if (!streamedAssistantTexts.has(blockIndex)) {
+          await emitTraceEvent({
+            traceManager: input.traceManager,
+            eventSink: input.eventSink,
+            sessionId: session.sessionId,
+            event: {
+              kind: "assistant_text",
+              turnCount,
+              assistantMessageId,
+              text: block.text
+            }
+          });
+        }
+      }
+      currentStreamedAssistantTexts = null;
+
+      {
+        const interrupted = await maybeCompleteInterrupted();
+        if (interrupted) {
+          return interrupted;
+        }
       }
 
       if (toolCalls.length > 0) {
@@ -367,7 +518,8 @@ export async function runSessionLoop(input: {
             toolCallId: toolCall.id,
             toolName: toolCall.name,
             toolInput: toolCall.input as Record<string, JsonValue>,
-            eventSink: input.eventSink
+            eventSink: input.eventSink,
+            ...(input.abortSignal ? { abortSignal: input.abortSignal } : {})
           });
           session = executed.session;
           toolCallCount += 1;
@@ -390,6 +542,13 @@ export async function runSessionLoop(input: {
 
           toolResultCount += 1;
           toolOutputs.push(executed.output);
+
+          {
+            const interrupted = await maybeCompleteInterrupted();
+            if (interrupted) {
+              return interrupted;
+            }
+          }
         }
 
         session =
@@ -462,6 +621,13 @@ export async function runSessionLoop(input: {
           });
         }
 
+        {
+          const interrupted = await maybeCompleteInterrupted();
+          if (interrupted) {
+            return interrupted;
+          }
+        }
+
         if (session.context.status === "running") {
           session = await input.sessionManager.updateContext(
             session.sessionId,
@@ -484,6 +650,13 @@ export async function runSessionLoop(input: {
           eventSink: input.eventSink,
           appendAssistantMessage: false
         });
+      }
+
+      {
+        const interrupted = await maybeCompleteInterrupted();
+        if (interrupted) {
+          return interrupted;
+        }
       }
 
       session = await input.sessionManager.setLoopState(
@@ -595,6 +768,11 @@ export async function runSessionLoop(input: {
     }
     return result;
   } catch (error) {
+    const interrupted = await maybeCompleteInterrupted();
+    if (interrupted) {
+      return interrupted;
+    }
+
     const message = error instanceof Error ? error.message : String(error);
     session = await input.sessionManager.setLoopState(
       session.sessionId,

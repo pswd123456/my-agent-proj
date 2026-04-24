@@ -14,6 +14,8 @@ export interface SessionManager {
   getSession(sessionId: string): Promise<SessionSnapshot | null>;
   listSessions(): Promise<SessionSnapshot[]>;
   isExecutionActive(sessionId: string): Promise<boolean>;
+  requestInterrupt(sessionId: string): Promise<SessionSnapshot | null>;
+  isInterruptRequested(sessionId: string, runId: string): Promise<boolean>;
   deleteSession(sessionId: string): Promise<boolean>;
   saveSession(snapshot: SessionSnapshot): Promise<SessionSnapshot>;
   recover(snapshot: SessionSnapshot): Promise<SessionSnapshot>;
@@ -50,5 +52,8 @@ export interface SessionManager {
     sessionId: string,
     options: AcquireExecutionOptions
   ): Promise<SessionSnapshot | null>;
-  releaseExecution(sessionId: string, runId: string): Promise<SessionSnapshot | null>;
+  releaseExecution(
+    sessionId: string,
+    runId: string
+  ): Promise<SessionSnapshot | null>;
 }

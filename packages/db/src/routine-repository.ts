@@ -1,6 +1,17 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  and,
+  asc,
+  eq,
+  gte,
+  lt,
+  lte,
+  gt,
+  ne
+} from "drizzle-orm";
+
+import {
   doIntervalsOverlap,
   formatRoutinePreview,
   mergeRoutineTimingForUpdate,
@@ -13,6 +24,7 @@ import {
 } from "@ai-app-template/domain";
 
 import type { ProductDatabaseClient } from "./client.js";
+import { routines } from "./schema.js";
 
 export interface CreateRoutineRecordInput {
   userId: string;
@@ -73,47 +85,38 @@ export interface RoutineRepository {
   ): Promise<RoutineConflict[]>;
 }
 
-interface RoutineRow {
-  id: string;
-  user_id: string;
-  name: string;
-  description: string | null;
-  date: string;
-  start_time: string;
-  end_time: string;
-  duration_minutes: number;
-  start_at: string | Date;
-  end_at: string | Date;
-  status: string;
-  source: string;
-  created_at: string | Date;
-  updated_at: string | Date;
+type RoutineRow = typeof routines.$inferSelect;
+
+function toIsoString(value: string): string {
+  const normalized = value.includes("T") ? value : value.replace(" ", "T");
+  const tzMatch = normalized.match(/([+-]\d{2})(\d{2})?$/);
+  const hasExplicitTimeZone =
+    normalized.endsWith("Z") || /[+-]\d{2}:\d{2}$/.test(normalized) || tzMatch;
+  const parsedValue = tzMatch
+    ? normalized.replace(/([+-]\d{2})(\d{2})?$/, (_, hours: string, minutes?: string) =>
+        `${hours}:${minutes ?? "00"}`
+      )
+    : normalized;
+
+  return new Date(hasExplicitTimeZone ? parsedValue : `${normalized}Z`).toISOString();
 }
 
-function toIsoString(value: string | Date): string {
-  if (value instanceof Date) {
-    return value.toISOString();
-  }
-
-  return new Date(value).toISOString();
-}
-
-function mapRoutineRow(row: RoutineRow): RoutineRecord {
+export function mapRoutineRow(row: RoutineRow): RoutineRecord {
   return {
     id: row.id,
-    userId: row.user_id,
+    userId: row.userId,
     name: row.name,
     description: row.description,
     date: row.date,
-    startTime: row.start_time,
-    endTime: row.end_time,
-    durationMinutes: row.duration_minutes,
-    startAt: toIsoString(row.start_at),
-    endAt: toIsoString(row.end_at),
+    startTime: row.startTime,
+    endTime: row.endTime,
+    durationMinutes: row.durationMinutes,
+    startAt: toIsoString(row.startAt),
+    endAt: toIsoString(row.endAt),
     status: row.status as RoutineStatus,
     source: row.source as RoutineSource,
-    createdAt: toIsoString(row.created_at),
-    updatedAt: toIsoString(row.updated_at)
+    createdAt: toIsoString(row.createdAt),
+    updatedAt: toIsoString(row.updatedAt)
   };
 }
 
@@ -162,43 +165,29 @@ function toTimingInput(input: {
 }
 
 export class PostgresRoutineRepository implements RoutineRepository {
-  constructor(private readonly sql: ProductDatabaseClient) {}
+  constructor(private readonly db: ProductDatabaseClient) {}
 
   async create(input: CreateRoutineRecordInput): Promise<RoutineRecord> {
     const timing = resolveRoutineTiming(toTimingInput(input));
 
     const routineId = randomUUID();
-    const rows = await this.sql<RoutineRow[]>`
-      insert into routines (
-        id,
-        user_id,
-        name,
-        description,
-        date,
-        start_time,
-        end_time,
-        duration_minutes,
-        start_at,
-        end_at,
-        status,
-        source
-      )
-      values (
-        ${routineId},
-        ${input.userId},
-        ${input.name},
-        ${input.description ?? null},
-        ${timing.date},
-        ${timing.startTime},
-        ${timing.endTime},
-        ${timing.durationMinutes},
-        ${timing.startAt},
-        ${timing.endAt},
-        ${"active"},
-        ${input.source}
-      )
-      returning *
-    `;
+    const rows = await this.db
+      .insert(routines)
+      .values({
+        id: routineId,
+        userId: input.userId,
+        name: input.name,
+        description: input.description ?? null,
+        date: timing.date,
+        startTime: timing.startTime,
+        endTime: timing.endTime,
+        durationMinutes: timing.durationMinutes,
+        startAt: timing.startAt,
+        endAt: timing.endAt,
+        status: "active",
+        source: input.source
+      })
+      .returning();
 
     const created = rows[0];
     if (!created) {
@@ -212,13 +201,12 @@ export class PostgresRoutineRepository implements RoutineRepository {
     userId: string,
     routineId: string
   ): Promise<RoutineRecord | null> {
-    const rows = await this.sql<RoutineRow[]>`
-      select *
-      from routines
-      where id = ${routineId}
-        and user_id = ${userId}
-      limit 1
-    `;
+    const rows = await this.db
+      .select()
+      .from(routines)
+      .where(and(eq(routines.id, routineId), eq(routines.userId, userId)))
+      .limit(1);
+
     return rows[0] ? mapRoutineRow(rows[0]) : null;
   }
 
@@ -236,26 +224,24 @@ export class PostgresRoutineRepository implements RoutineRepository {
       mergeRoutineTimingForUpdate(existing, patch)
     );
 
-    const rows = await this.sql<RoutineRow[]>`
-      update routines
-      set
-        name = ${patch.name ?? existing.name},
-        description = ${
+    const rows = await this.db
+      .update(routines)
+      .set({
+        name: patch.name ?? existing.name,
+        description:
           typeof patch.description === "undefined"
             ? existing.description
-            : patch.description
-        },
-        date = ${timing.date},
-        start_time = ${timing.startTime},
-        end_time = ${timing.endTime},
-        duration_minutes = ${timing.durationMinutes},
-        start_at = ${timing.startAt},
-        end_at = ${timing.endAt},
-        updated_at = now()
-      where id = ${routineId}
-        and user_id = ${userId}
-      returning *
-    `;
+            : patch.description,
+        date: timing.date,
+        startTime: timing.startTime,
+        endTime: timing.endTime,
+        durationMinutes: timing.durationMinutes,
+        startAt: timing.startAt,
+        endAt: timing.endAt,
+        updatedAt: new Date().toISOString()
+      })
+      .where(and(eq(routines.id, routineId), eq(routines.userId, userId)))
+      .returning();
 
     return rows[0] ? mapRoutineRow(rows[0]) : null;
   }
@@ -264,30 +250,33 @@ export class PostgresRoutineRepository implements RoutineRepository {
     userId: string,
     routineId: string
   ): Promise<RoutineRecord | null> {
-    const rows = await this.sql<RoutineRow[]>`
-      update routines
-      set
-        status = ${"deleted"},
-        updated_at = now()
-      where id = ${routineId}
-        and user_id = ${userId}
-        and status = ${"active"}
-      returning *
-    `;
+    const rows = await this.db
+      .update(routines)
+      .set({
+        status: "deleted",
+        updatedAt: new Date().toISOString()
+      })
+      .where(
+        and(
+          eq(routines.id, routineId),
+          eq(routines.userId, userId),
+          eq(routines.status, "active")
+        )
+      )
+      .returning();
 
     return rows[0] ? mapRoutineRow(rows[0]) : null;
   }
 
   async resetAll(userId: string): Promise<number> {
-    const rows = await this.sql<Array<{ id: string }>>`
-      update routines
-      set
-        status = ${"deleted"},
-        updated_at = now()
-      where user_id = ${userId}
-        and status = ${"active"}
-      returning id
-    `;
+    const rows = await this.db
+      .update(routines)
+      .set({
+        status: "deleted",
+        updatedAt: new Date().toISOString()
+      })
+      .where(and(eq(routines.userId, userId), eq(routines.status, "active")))
+      .returning({ id: routines.id });
 
     return rows.length;
   }
@@ -298,15 +287,18 @@ export class PostgresRoutineRepository implements RoutineRepository {
     endDate: string
   ): Promise<RoutineRecord[]> {
     const range = buildRangeDates(startDate, endDate);
-    const rows = await this.sql<RoutineRow[]>`
-      select *
-      from routines
-      where user_id = ${userId}
-        and status = ${"active"}
-        and start_at <= ${range.endAt.toISOString()}
-        and end_at >= ${range.startAt.toISOString()}
-      order by start_at asc
-    `;
+    const rows = await this.db
+      .select()
+      .from(routines)
+      .where(
+        and(
+          eq(routines.userId, userId),
+          eq(routines.status, "active"),
+          lte(routines.startAt, range.endAt.toISOString()),
+          gte(routines.endAt, range.startAt.toISOString())
+        )
+      )
+      .orderBy(asc(routines.startAt));
 
     return sortRoutinesByStartAt(rows.map(mapRoutineRow));
   }
@@ -317,15 +309,18 @@ export class PostgresRoutineRepository implements RoutineRepository {
   ): Promise<RoutineRecord[]> {
     const weekStart = new Date(`${weekStartDate}T00:00:00`);
     const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000 - 1);
-    const rows = await this.sql<RoutineRow[]>`
-      select *
-      from routines
-      where user_id = ${userId}
-        and status = ${"active"}
-        and start_at <= ${weekEnd.toISOString()}
-        and end_at >= ${weekStart.toISOString()}
-      order by start_at asc
-    `;
+    const rows = await this.db
+      .select()
+      .from(routines)
+      .where(
+        and(
+          eq(routines.userId, userId),
+          eq(routines.status, "active"),
+          lte(routines.startAt, weekEnd.toISOString()),
+          gte(routines.endAt, weekStart.toISOString())
+        )
+      )
+      .orderBy(asc(routines.startAt));
 
     return sortRoutinesByStartAt(rows.map(mapRoutineRow));
   }
@@ -353,15 +348,18 @@ export class PostgresRoutineRepository implements RoutineRepository {
       })
     );
 
-    const rows = await this.sql<RoutineRow[]>`
-      select *
-      from routines
-      where user_id = ${userId}
-        and status = ${"active"}
-        and start_at < ${timing.endAt}
-        and end_at > ${timing.startAt}
-      order by start_at asc
-    `;
+    const rows = await this.db
+      .select()
+      .from(routines)
+      .where(
+        and(
+          eq(routines.userId, userId),
+          eq(routines.status, "active"),
+          lt(routines.startAt, timing.endAt),
+          gt(routines.endAt, timing.startAt)
+        )
+      )
+      .orderBy(asc(routines.startAt));
 
     return sortRoutinesByStartAt(rows.map(mapRoutineRow));
   }
@@ -378,20 +376,22 @@ export class PostgresRoutineRepository implements RoutineRepository {
   ): Promise<RoutineConflict[]> {
     const timing = resolveRoutineTiming(toTimingInput(input));
 
-    const rows = await this.sql<RoutineRow[]>`
-      select *
-      from routines
-      where user_id = ${userId}
-        and status = ${"active"}
-        and start_at < ${timing.endAt}
-        and end_at > ${timing.startAt}
-        ${
-          input.excludeRoutineId
-            ? this.sql`and id <> ${input.excludeRoutineId}`
-            : this.sql``
-        }
-      order by start_at asc
-    `;
+    const conditions = [
+      eq(routines.userId, userId),
+      eq(routines.status, "active"),
+      lt(routines.startAt, timing.endAt),
+      gt(routines.endAt, timing.startAt)
+    ];
+
+    if (input.excludeRoutineId) {
+      conditions.push(ne(routines.id, input.excludeRoutineId));
+    }
+
+    const rows = await this.db
+      .select()
+      .from(routines)
+      .where(and(...conditions))
+      .orderBy(asc(routines.startAt));
 
     const candidate = {
       startAt: new Date(timing.startAt).toISOString(),
@@ -606,9 +606,9 @@ export class MemoryRoutineRepository implements RoutineRepository {
 }
 
 export function createPostgresRoutineRepository(
-  sql: ProductDatabaseClient
+  db: ProductDatabaseClient
 ): RoutineRepository {
-  return new PostgresRoutineRepository(sql);
+  return new PostgresRoutineRepository(db);
 }
 
 export function createMemoryRoutineRepository(): RoutineRepository {

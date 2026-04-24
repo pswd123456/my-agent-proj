@@ -18,6 +18,7 @@ import {
   buildWeekRange,
   collectToolRows,
   collectTurnUsage,
+  canInterruptSessionExecution,
   flattenTraceRecords,
   findReusableNewSessionSummary,
   groupRoutinesByDate,
@@ -66,6 +67,9 @@ export function SessionWorkbench() {
   const [traceRecords, setTraceRecords] = useState<TraceRecord[]>([]);
   const [routines, setRoutines] = useState<RoutineRecord[]>([]);
   const [streamEvents, setStreamEvents] = useState<RunStreamEvent[]>([]);
+  const [recentAssistantEventKeys, setRecentAssistantEventKeys] = useState<
+    Set<string>
+  >(new Set());
   const [message, setMessage] = useState("");
   const [pendingUserMessage, setPendingUserMessage] = useState<{
     createdAt: string;
@@ -91,6 +95,9 @@ export function SessionWorkbench() {
   const [loadingSettings, setLoadingSettings] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
   const [pendingPermissionToolName, setPendingPermissionToolName] = useState<
+    string | null
+  >(null);
+  const [interruptingSessionId, setInterruptingSessionId] = useState<
     string | null
   >(null);
   const [maxTurns, setMaxTurns] = useState(String(DEFAULT_MAX_TURNS));
@@ -381,6 +388,7 @@ export function SessionWorkbench() {
     setMessage("");
     setStreamEvents([]);
     setSubmitting(true);
+    setInterruptingSessionId(null);
     setActiveTab("prompt");
     setErrorText(null);
 
@@ -400,6 +408,14 @@ export function SessionWorkbench() {
 
           if (isActiveSession) {
             setStreamEvents((current) => [...current, runEvent]);
+            if (runEvent.kind === "assistant_text") {
+              const eventKey = getTimelineEventKey(runEvent);
+              setRecentAssistantEventKeys((current) => {
+                const next = new Set(current);
+                next.add(eventKey);
+                return next;
+              });
+            }
           }
 
           if (
@@ -427,6 +443,9 @@ export function SessionWorkbench() {
     } finally {
       setSubmitting(false);
       setPendingUserMessage(null);
+      setInterruptingSessionId((current) =>
+        current === sessionId ? null : current
+      );
     }
   }
 
@@ -437,6 +456,29 @@ export function SessionWorkbench() {
 
   async function handlePermissionQuickReply(reply: string) {
     await submitSessionMessage(reply, { permissionReply: true });
+  }
+
+  async function handleInterruptSession() {
+    if (!currentSession) {
+      return;
+    }
+
+    const sessionId = currentSession.sessionId;
+    setInterruptingSessionId(sessionId);
+    setErrorText(null);
+
+    try {
+      const result = await apiClient.interruptSessionExecution(sessionId);
+      setCurrentSession(result.session);
+      setSessions((current) =>
+        mergeSessionSummary(current, result.session, toSessionSummary)
+      );
+    } catch (error) {
+      setInterruptingSessionId((current) =>
+        current === sessionId ? null : current
+      );
+      setErrorText(error instanceof Error ? error.message : String(error));
+    }
   }
 
   async function handleSaveUserSettings(
@@ -470,10 +512,7 @@ export function SessionWorkbench() {
       setUserSettings(updated);
       setSettingsForm(toSettingsFormState(updated));
 
-      if (
-        currentSession &&
-        currentSession.context.userId === targetUserId
-      ) {
+      if (currentSession && currentSession.context.userId === targetUserId) {
         const syncedSession = await apiClient.updateSessionSettings(
           currentSession.sessionId,
           {
@@ -644,6 +683,33 @@ export function SessionWorkbench() {
     [streamEvents]
   );
   const showSidebarPanel = activeSidebarPanel !== null;
+  const canInterrupt = canInterruptSessionExecution({
+    session: currentSession,
+    submitting,
+    interruptingSessionId
+  });
+  const interrupting =
+    (currentSession
+      ? interruptingSessionId === currentSession.sessionId
+      : false) || Boolean(currentSession?.sessionState.interruptRequested);
+  const showInterruptedHint = Boolean(
+    currentSession &&
+    currentSession.sessionState.loopState === "interrupted" &&
+    !currentSession.sessionState.interruptRequested &&
+    !submitting
+  );
+
+  function handleAssistantAnimationComplete(itemKey: string) {
+    setRecentAssistantEventKeys((current) => {
+      if (!current.has(itemKey)) {
+        return current;
+      }
+
+      const next = new Set(current);
+      next.delete(itemKey);
+      return next;
+    });
+  }
 
   return (
     <main className="min-h-screen bg-[var(--app-bg-canvas)] text-[var(--app-text-primary)]">
@@ -665,7 +731,7 @@ export function SessionWorkbench() {
           onToggleSidebarPanel={handleToggleSidebarPanel}
         />
 
-        <div className="relative min-h-[calc(100vh-2rem)] min-w-0 flex-1">
+        <div className="relative min-h-[calc(100vh-2rem)] min-w-0 flex-1 lg:h-[calc(100vh-2rem)]">
           {showSidebarPanel ? (
             <SessionWorkbenchDrawer
               activeSidebarPanel={activeSidebarPanel}
@@ -701,19 +767,24 @@ export function SessionWorkbench() {
             <SessionWorkbenchConversationPanel
               currentSession={currentSession}
               loading={loading}
-              loadingSession={loadingSession}
               timelineItems={timelineItems}
               streamEventKeys={streamEventKeys}
+              recentAssistantEventKeys={recentAssistantEventKeys}
               turnUsageByTurnCount={turnUsageByTurnCount}
               pendingPermissionRequest={pendingPermissionRequest}
               message={message}
               submitting={submitting}
+              canInterrupt={canInterrupt}
+              interrupting={interrupting}
+              showInterruptedHint={showInterruptedHint}
               errorText={errorText}
               onMessageChange={setMessage}
               onSubmit={(event) => void handleSubmit(event)}
+              onInterrupt={() => void handleInterruptSession()}
               onPermissionQuickReply={(reply) =>
                 void handlePermissionQuickReply(reply)
               }
+              onAssistantAnimationComplete={handleAssistantAnimationComplete}
             />
           )}
         </div>

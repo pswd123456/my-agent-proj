@@ -8,7 +8,7 @@
 - Web：`Next.js 16` + `React 19` + `Tailwind CSS 4`
 - API：`Hono` + `Zod`
 - Agent：仓库内自定义 runtime loop + MiniMax Anthropic-compatible provider
-- 数据层：`PostgreSQL` + `postgres` 驱动
+- 数据层：`PostgreSQL` + `Drizzle ORM` + `postgres` 驱动
 
 ## 详细文档
 

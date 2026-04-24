@@ -26,7 +26,12 @@ interface PendingUserMessage {
 }
 
 function isVisibleTimelineEvent(event: RunStreamEvent): boolean {
-  return event.kind !== "prompt" && event.kind !== "response";
+  return (
+    event.kind !== "prompt" &&
+    event.kind !== "response" &&
+    event.kind !== "interrupt_requested" &&
+    event.kind !== "interrupted"
+  );
 }
 
 function getEventSortOrder(event: RunStreamEvent): number {
@@ -47,19 +52,58 @@ function getEventSortOrder(event: RunStreamEvent): number {
       return 6;
     case "permission_blocked":
       return 7;
-    case "tool_result":
+    case "interrupt_requested":
       return 8;
-    case "fallback":
+    case "interrupted":
       return 9;
-    case "run_error":
+    case "tool_result":
       return 10;
-    case "run_complete":
+    case "fallback":
       return 11;
-    case "turn_end":
+    case "run_error":
       return 12;
+    case "run_complete":
+      return 13;
+    case "turn_end":
+      return 14;
     default:
       return 13;
   }
+}
+
+function getNarrativePhaseOrder(event: RunStreamEvent): number {
+  switch (event.kind) {
+    case "turn_start":
+      return 0;
+    case "thinking":
+      return 1;
+    case "assistant_text":
+      return 2;
+    case "tool_call":
+    case "permission_request":
+    case "permission_approved":
+    case "permission_rejected":
+    case "permission_blocked":
+    case "tool_result":
+      return 3;
+    case "interrupt_requested":
+    case "interrupted":
+      return 4;
+    case "fallback":
+      return 5;
+    case "run_error":
+      return 6;
+    case "run_complete":
+      return 7;
+    case "turn_end":
+      return 8;
+    default:
+      return 8;
+  }
+}
+
+function getEventTurnCount(event: RunStreamEvent): number | null {
+  return "turnCount" in event ? event.turnCount : null;
 }
 
 function compareByCreatedAt(
@@ -74,6 +118,21 @@ function compareByCreatedAt(
 }
 
 function compareEvents(left: RunStreamEvent, right: RunStreamEvent): number {
+  const leftTurnCount = getEventTurnCount(left);
+  const rightTurnCount = getEventTurnCount(right);
+
+  if (
+    leftTurnCount !== null &&
+    rightTurnCount !== null &&
+    leftTurnCount === rightTurnCount
+  ) {
+    const leftNarrativePhase = getNarrativePhaseOrder(left);
+    const rightNarrativePhase = getNarrativePhaseOrder(right);
+    if (leftNarrativePhase !== rightNarrativePhase) {
+      return leftNarrativePhase - rightNarrativePhase;
+    }
+  }
+
   if (left.createdAt === right.createdAt) {
     return (
       getEventSortOrder(left) - getEventSortOrder(right) ||
@@ -112,7 +171,9 @@ function matchesConversationBlock(
   event: RunStreamEvent
 ): boolean {
   if (block.kind === "assistant" && event.kind === "assistant_text") {
-    return block.content === event.text;
+    return (
+      block.id === event.assistantMessageId || block.content === event.text
+    );
   }
 
   if (block.kind === "tool call" && event.kind === "tool_call") {
@@ -127,6 +188,10 @@ function matchesConversationBlock(
 }
 
 export function getTimelineEventKey(event: RunStreamEvent): string {
+  if (event.kind === "assistant_text") {
+    return `${event.kind}-${event.assistantMessageId}`;
+  }
+
   if (
     event.kind === "tool_call" ||
     event.kind === "tool_result" ||

@@ -54,6 +54,10 @@ async function readSse(response: Response) {
   return events;
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 const sessionManager = createMemorySessionManager();
 const routineRepository = createMemoryRoutineRepository();
 const settingsRepository = createMemorySettingsRepository();
@@ -78,70 +82,159 @@ const existingConflictRoutine = await routineRepository.create({
 const callState = new Map<string, number>();
 
 function createFakeClient(session: SessionSnapshot): AnthropicCompatibleClient {
+  let interruptedStreamAborted = false;
+  async function respond(input: {
+    messages: unknown;
+  }): Promise<ReturnType<AnthropicCompatibleClient["messages"]["create"]>> {
+    const callCount = (callState.get(session.sessionId) ?? 0) + 1;
+    callState.set(session.sessionId, callCount);
+    const lastMessage = JSON.stringify(input.messages);
+
+    if (lastMessage.includes("simple response")) {
+      return Promise.resolve({
+        content: [{ type: "text", text: "Simple answer." }]
+      });
+    }
+
+    if (lastMessage.includes("conflict request")) {
+      if (callCount === 1) {
+        return Promise.resolve({
+          content: [
+            {
+              type: "tool_use",
+              id: "conflict-create",
+              name: "create_routine",
+              input: {
+                name: "conflict meeting",
+                date: "2026-04-21",
+                start_time: "14:00",
+                end_time: "15:00",
+                source: "user_confirmed"
+              }
+            }
+          ]
+        });
+      }
+
+      return Promise.resolve({
+        content: [
+          {
+            type: "text",
+            text: "Cannot create the routine because it overlaps with the existing schedule."
+          }
+        ]
+      });
+    }
+
+    if (callCount === 1) {
+      return Promise.resolve({
+        content: [
+          {
+            type: "tool_use",
+            id: "create-1",
+            name: "create_routine",
+            input: {
+              name: "meeting",
+              date: "2026-04-21",
+              start_time: "10:00",
+              end_time: "11:00",
+              source: "user_confirmed"
+            }
+          }
+        ]
+      });
+    }
+
+    return Promise.resolve({
+      content: [{ type: "text", text: "Created from SSE." }]
+    });
+  }
+
   return {
     messages: {
-      async create(input) {
-        const callCount = (callState.get(session.sessionId) ?? 0) + 1;
-        callState.set(session.sessionId, callCount);
+      create(input) {
+        return respond(input) as ReturnType<
+          AnthropicCompatibleClient["messages"]["create"]
+        >;
+      },
+      stream(input) {
         const lastMessage = JSON.stringify(input.messages);
-
-        if (lastMessage.includes("simple response")) {
+        if (!lastMessage.includes("interrupt request")) {
           return {
-            content: [{ type: "text", text: "Simple answer." }]
-          };
-        }
-
-        if (lastMessage.includes("conflict request")) {
-          if (callCount === 1) {
-            return {
-              content: [
-                {
-                  type: "tool_use",
-                  id: "conflict-create",
-                  name: "create_routine",
-                  input: {
-                    name: "conflict meeting",
-                    date: "2026-04-21",
-                    start_time: "14:00",
-                    end_time: "15:00",
-                    source: "user_confirmed"
-                  }
-                }
-              ]
-            };
-          }
-
-          return {
-            content: [
-              {
-                type: "text",
-                text: "Cannot create the routine because it overlaps with the existing schedule."
-              }
-            ]
-          };
-        }
-
-        if (callCount === 1) {
-          return {
-            content: [
-              {
-                type: "tool_use",
-                id: "create-1",
-                name: "create_routine",
-                input: {
-                  name: "meeting",
-                  date: "2026-04-21",
-                  start_time: "10:00",
-                  end_time: "11:00",
-                  source: "user_confirmed"
-                }
-              }
-            ]
+            async finalMessage() {
+              return (await respond(input)) as Awaited<
+                ReturnType<AnthropicCompatibleClient["messages"]["create"]>
+              >;
+            },
+            async *[Symbol.asyncIterator]() {}
           };
         }
 
         return {
-          content: [{ type: "text", text: "Created from SSE." }]
+          abort() {
+            interruptedStreamAborted = true;
+          },
+          async finalMessage() {
+            return {
+              content: [{ type: "text", text: "Interrupt partial" }],
+              stop_reason: "end_turn",
+              usage: {
+                input_tokens: 10,
+                output_tokens: 3,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 0
+              }
+            };
+          },
+          async *[Symbol.asyncIterator]() {
+            yield {
+              type: "content_block_start" as const,
+              index: 0,
+              content_block: {
+                type: "text" as const,
+                text: ""
+              }
+            };
+            yield {
+              type: "content_block_delta" as const,
+              index: 0,
+              delta: {
+                type: "text_delta" as const,
+                text: "Interrupt partial"
+              }
+            };
+            await sleep(400);
+            if (interruptedStreamAborted) {
+              return;
+            }
+            yield {
+              type: "content_block_delta" as const,
+              index: 0,
+              delta: {
+                type: "text_delta" as const,
+                text: " should not finish"
+              }
+            };
+            yield {
+              type: "content_block_stop" as const,
+              index: 0
+            };
+            yield {
+              type: "message_delta" as const,
+              delta: {
+                stop_reason: "end_turn"
+              },
+              usage: {
+                input_tokens: 10,
+                output_tokens: 3,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 0
+              }
+            };
+            yield {
+              type: "message_stop" as const
+            };
+          }
         };
       }
     }
@@ -194,6 +287,27 @@ async function createSession(
   const payload = (await response.json()) as { session: SessionSnapshot };
   return payload.session;
 }
+
+async function updateUserSettings(
+  userId: string,
+  patch: {
+    yoloMode?: boolean;
+    toolAllowList?: string[];
+    toolAskList?: string[];
+    toolDenyList?: string[];
+  }
+) {
+  const response = await app.request(`/users/${userId}/settings`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch)
+  });
+  assert.equal(response.status, 200);
+}
+
+await updateUserSettings("api-user", {
+  toolAllowList: ["create_routine"]
+});
 
 await routineRepository.create({
   userId: "reset-user",
@@ -277,6 +391,60 @@ assert.ok(
   limitedEvents.some((event) => event.kind === "fallback"),
   "expected fallback when maxTurns=1"
 );
+
+const interruptSession = await createSession();
+const interruptResponse = await app.request(
+  `/sessions/${interruptSession.sessionId}/execute/stream`,
+  {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message: "interrupt request" })
+  }
+);
+const interruptEventsPromise = readSse(interruptResponse);
+await sleep(50);
+const interruptAcceptResponse = await app.request(
+  `/sessions/${interruptSession.sessionId}/interrupt`,
+  {
+    method: "POST"
+  }
+);
+assert.equal(interruptAcceptResponse.status, 200);
+const interruptAcceptPayload = (await interruptAcceptResponse.json()) as {
+  accepted: boolean;
+  session: SessionSnapshot;
+};
+assert.equal(interruptAcceptPayload.accepted, true);
+assert.equal(interruptAcceptPayload.session.sessionState.interruptRequested, true);
+
+const interruptEvents = await interruptEventsPromise;
+const interruptFinal = interruptEvents.at(-1) as {
+  kind: string;
+  status?: string;
+  stopReason?: string;
+  session?: SessionSnapshot;
+};
+assert.equal(interruptFinal.kind, "run_complete");
+assert.equal(interruptFinal.status, "interrupted");
+assert.equal(interruptFinal.stopReason, "interrupted_by_user");
+assert.equal(interruptFinal.session?.sessionState.loopState, "interrupted");
+assert.equal(interruptFinal.session?.context.status, "waiting_for_user_input");
+assert.equal(
+  interruptEvents.some((event) => event.kind === "interrupt_requested"),
+  true
+);
+assert.equal(
+  interruptEvents.some((event) => event.kind === "interrupted"),
+  true
+);
+
+const idleInterruptResponse = await app.request(
+  `/sessions/${simpleSession.sessionId}/interrupt`,
+  {
+    method: "POST"
+  }
+);
+assert.equal(idleInterruptResponse.status, 409);
 
 const conflictSession = await createSession();
 const conflictResponse = await app.request(
@@ -432,8 +600,10 @@ console.log(
         simple: simpleEvents.length,
         create: createEvents.length,
         limited: limitedEvents.length,
+        interrupt: interruptEvents.length,
         conflict: conflictEvents.length,
-        deleteWhileRunning: deleteWhileRunningResponse.status
+        deleteWhileRunning: deleteWhileRunningResponse.status,
+        idleInterrupt: idleInterruptResponse.status
       },
       deletedSessionId: busyDeleteSession.sessionId
     },

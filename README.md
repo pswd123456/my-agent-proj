@@ -7,7 +7,7 @@
 - `apps/web`：Web workbench
 - `apps/api`：会话、执行、trace，以及当前已挂载的 routine 相关 API
 - `packages/agent`：runtime、session、tools、trace
-- `packages/db`：PostgreSQL schema 与持久化访问
+- `packages/db`：PostgreSQL schema、Drizzle migrations 与持久化访问
 
 当前默认是单开发者 + Codex 持续推进的工作流，整体遵循“重后端、轻前端”。
 
@@ -17,7 +17,7 @@
 - Web：`Next.js`
 - API：`Hono`
 - Agent Runtime：仓库内自定义 `AgentRuntime.run` loop
-- 数据层：`PostgreSQL` + `postgres` 驱动
+- 数据层：`PostgreSQL` + `Drizzle ORM` + `postgres` 驱动
 
 更完整说明见 [docs/tech-stack.md](./docs/tech-stack.md) 和 [docs/architecture/README.md](./docs/architecture/README.md)。
 

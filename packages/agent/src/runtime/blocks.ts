@@ -16,9 +16,12 @@ export function buildUserBlockContent(message: string): ConversationBlock {
   };
 }
 
-export function buildAssistantBlockContent(message: string): ConversationBlock {
+export function buildAssistantBlockContent(
+  message: string,
+  id: string = randomUUID()
+): ConversationBlock {
   return {
-    id: randomUUID(),
+    id,
     kind: "assistant",
     content: message,
     createdAt: new Date().toISOString()

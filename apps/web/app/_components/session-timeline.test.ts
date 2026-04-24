@@ -35,18 +35,19 @@ const turnStart: Extract<RunStreamEvent, { kind: "turn_start" }> = {
   sessionId: "session-1",
   createdAt: "2026-04-21T18:46:03.364Z",
   turnCount: 1,
-  session: {
-    sessionId: "session-1",
-    workingDirectory: "/tmp/workspace",
-    model: "MiniMax-M2.7",
-    sessionState: {
-      loopState: "running",
-      turnCount: 1,
-      lastError: null,
-      pendingToolCallIds: []
+    session: {
+      sessionId: "session-1",
+      workingDirectory: "/tmp/workspace",
+      model: "MiniMax-M2.7",
+      sessionState: {
+        loopState: "running",
+        turnCount: 1,
+        lastError: null,
+        pendingToolCallIds: [],
+        interruptRequested: false
+      }
     }
-  }
-};
+  };
 
 const thinkingEvent: Extract<RunStreamEvent, { kind: "thinking" }> = {
   kind: "thinking",
@@ -89,6 +90,47 @@ const permissionRequestEvent: Extract<
     permissionProfile: "destructive-only",
     summaryText: "需要确认后才能删除。",
     createdAt: "2026-04-21T18:46:21.730Z"
+  }
+};
+
+const interruptRequestedEvent: Extract<
+  RunStreamEvent,
+  { kind: "interrupt_requested" }
+> = {
+  kind: "interrupt_requested",
+  sessionId: "session-1",
+  createdAt: "2026-04-21T18:46:21.736Z",
+  turnCount: 1
+};
+
+const interruptedEvent: Extract<RunStreamEvent, { kind: "interrupted" }> = {
+  kind: "interrupted",
+  sessionId: "session-1",
+  createdAt: "2026-04-21T18:46:21.737Z",
+  turnCount: 1,
+  stopReason: "interrupted_by_user"
+};
+
+const interruptedRunCompleteEvent: Extract<
+  RunStreamEvent,
+  { kind: "run_complete" }
+> = {
+  kind: "run_complete",
+  sessionId: "session-1",
+  createdAt: "2026-04-21T18:46:21.738Z",
+  status: "interrupted",
+  stopReason: "interrupted_by_user",
+  session: {
+    sessionId: "session-1",
+    workingDirectory: "/tmp/workspace",
+    model: "MiniMax-M2.7",
+    sessionState: {
+      loopState: "interrupted",
+      turnCount: 1,
+      lastError: null,
+      pendingToolCallIds: [],
+      interruptRequested: false
+    }
   }
 };
 
@@ -146,6 +188,7 @@ describe("buildTimelineItems", () => {
         sessionId: "session-1",
         createdAt: "2026-04-21T18:46:21.705Z",
         turnCount: 1,
+        assistantMessageId: "assistant-1",
         text: "我来帮你安排。"
       };
 
@@ -210,5 +253,97 @@ describe("buildTimelineItems", () => {
       "permission_request",
       "tool_result"
     ]);
+  });
+
+  test("does not render interrupt request events in the conversation timeline", () => {
+    const items = buildTimelineItems({
+      messages: [firstUser],
+      historyEvents: [
+        turnStart,
+        interruptRequestedEvent,
+        interruptedEvent,
+        interruptedRunCompleteEvent
+      ],
+      streamEvents: []
+    });
+
+    expect(
+      items
+        .filter((item) => item.type === "event")
+        .map((item) => item.event.kind)
+    ).toEqual(["turn_start", "run_complete"]);
+  });
+
+  test("collapses streamed assistant snapshots by assistant message id", () => {
+    const partialAssistantEvent: Extract<
+      RunStreamEvent,
+      { kind: "assistant_text" }
+    > = {
+      kind: "assistant_text",
+      sessionId: "session-1",
+      createdAt: "2026-04-21T18:46:21.705Z",
+      turnCount: 1,
+      assistantMessageId: "assistant-stream-1",
+      text: "我来"
+    };
+
+    const finalAssistantEvent: Extract<
+      RunStreamEvent,
+      { kind: "assistant_text" }
+    > = {
+      ...partialAssistantEvent,
+      createdAt: "2026-04-21T18:46:21.715Z",
+      text: "我来帮你安排。"
+    };
+
+    const items = buildTimelineItems({
+      messages: [firstUser],
+      historyEvents: [turnStart, partialAssistantEvent, finalAssistantEvent],
+      streamEvents: []
+    });
+
+    const assistantEvents = items.filter(
+      (item): item is Extract<(typeof items)[number], { type: "event" }> =>
+        item.type === "event" && item.event.kind === "assistant_text"
+    );
+
+    expect(assistantEvents).toHaveLength(1);
+    expect(assistantEvents[0]?.event.text).toBe("我来帮你安排。");
+  });
+
+  test("keeps thinking above the final assistant answer even when the trace arrives later", () => {
+    const streamedAssistantEvent: Extract<
+      RunStreamEvent,
+      { kind: "assistant_text" }
+    > = {
+      kind: "assistant_text",
+      sessionId: "session-1",
+      createdAt: "2026-04-21T18:46:21.700Z",
+      turnCount: 1,
+      assistantMessageId: "assistant-final-1",
+      text: "已经安排好了。"
+    };
+
+    const delayedThinkingEvent: Extract<RunStreamEvent, { kind: "thinking" }> =
+      {
+        kind: "thinking",
+        sessionId: "session-1",
+        createdAt: "2026-04-21T18:46:21.710Z",
+        turnCount: 1,
+        text: "先确认时间冲突，再输出最终结果。",
+        signature: "sig-final"
+      };
+
+    const items = buildTimelineItems({
+      messages: [firstUser],
+      historyEvents: [turnStart, streamedAssistantEvent, delayedThinkingEvent],
+      streamEvents: []
+    });
+
+    expect(
+      items
+        .filter((item) => item.type === "event")
+        .map((item) => item.event.kind)
+    ).toEqual(["turn_start", "thinking", "assistant_text"]);
   });
 });

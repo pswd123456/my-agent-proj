@@ -21,7 +21,8 @@ export function createSessionState(
     loopState,
     turnCount: 0,
     lastError: null,
-    pendingToolCallIds: []
+    pendingToolCallIds: [],
+    interruptRequested: false
   };
 }
 
@@ -88,6 +89,10 @@ export function cloneSnapshot(snapshot: SessionSnapshot): SessionSnapshot {
       toolAllowList: permissionRules.toolAllowList ?? [],
       toolAskList: permissionRules.toolAskList ?? [],
       toolDenyList: permissionRules.toolDenyList ?? []
+    },
+    sessionState: {
+      ...cloned.sessionState,
+      interruptRequested: cloned.sessionState.interruptRequested ?? false
     }
   };
 }
@@ -216,6 +221,8 @@ export function isSessionSnapshot(value: unknown): value is SessionSnapshot {
     typeof value.sessionState.turnCount === "number" &&
     typeof value.sessionState.lastError !== "undefined" &&
     Array.isArray(value.sessionState.pendingToolCallIds) &&
+    (typeof value.sessionState.interruptRequested === "boolean" ||
+      typeof value.sessionState.interruptRequested === "undefined") &&
     typeof value.inputTokensCount === "number" &&
     typeof value.promptCacheKey === "string" &&
     typeof value.updatedAt === "string"

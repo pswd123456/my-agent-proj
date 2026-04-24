@@ -72,16 +72,104 @@ export interface AnthropicMessageResponse {
   usage?: AnthropicMessageUsage;
 }
 
+export interface AnthropicMessageRequest {
+  model: string;
+  max_tokens?: number;
+  system: string;
+  messages: AnthropicMessage[];
+  tools: AnthropicToolDefinition[];
+  tool_choice?: AnthropicToolChoice;
+}
+
+export interface AnthropicTextDelta {
+  type: "text_delta";
+  text: string;
+}
+
+export interface AnthropicThinkingDelta {
+  type: "thinking_delta";
+  thinking: string;
+}
+
+export interface AnthropicSignatureDelta {
+  type: "signature_delta";
+  signature: string;
+}
+
+export interface AnthropicInputJsonDelta {
+  type: "input_json_delta";
+  partial_json: string;
+}
+
+export interface AnthropicCitationsDelta {
+  type: "citations_delta";
+}
+
+export type AnthropicContentBlockDelta =
+  | AnthropicTextDelta
+  | AnthropicThinkingDelta
+  | AnthropicSignatureDelta
+  | AnthropicInputJsonDelta
+  | AnthropicCitationsDelta;
+
+export interface AnthropicContentBlockStartEvent {
+  type: "content_block_start";
+  index: number;
+  content_block: AnthropicContentBlock;
+}
+
+export interface AnthropicContentBlockDeltaEvent {
+  type: "content_block_delta";
+  index: number;
+  delta: AnthropicContentBlockDelta;
+}
+
+export interface AnthropicContentBlockStopEvent {
+  type: "content_block_stop";
+  index: number;
+}
+
+export interface AnthropicMessageDeltaEvent {
+  type: "message_delta";
+  delta: {
+    stop_reason: string | null;
+  };
+  usage: AnthropicMessageUsage;
+}
+
+export interface AnthropicMessageStartEvent {
+  type: "message_start";
+  message: AnthropicMessageResponse;
+}
+
+export interface AnthropicMessageStopEvent {
+  type: "message_stop";
+}
+
+export type AnthropicMessageStreamEvent =
+  | AnthropicContentBlockStartEvent
+  | AnthropicContentBlockDeltaEvent
+  | AnthropicContentBlockStopEvent
+  | AnthropicMessageDeltaEvent
+  | AnthropicMessageStartEvent
+  | AnthropicMessageStopEvent;
+
+export interface AnthropicMessageStream
+  extends AsyncIterable<AnthropicMessageStreamEvent> {
+  finalMessage(): Promise<AnthropicMessageResponse>;
+  abort?(): void;
+}
+
+export interface AnthropicTextDeltaSnapshot {
+  blockIndex: number;
+  delta: string;
+  text: string;
+}
+
 export interface AnthropicCompatibleClient {
   messages: {
-    create(input: {
-      model: string;
-      max_tokens?: number;
-      system: string;
-      messages: AnthropicMessage[];
-      tools: AnthropicToolDefinition[];
-      tool_choice?: AnthropicToolChoice;
-    }): Promise<AnthropicMessageResponse>;
+    create(input: AnthropicMessageRequest): Promise<AnthropicMessageResponse>;
+    stream?(input: AnthropicMessageRequest): AnthropicMessageStream;
   };
 }
 
@@ -155,6 +243,65 @@ export function createMiniMaxRuntime(
     model: config.model,
     config
   };
+}
+
+export async function streamAnthropicMessage(input: {
+  client: AnthropicCompatibleClient;
+  request: AnthropicMessageRequest;
+  signal?: AbortSignal;
+  onTextDelta?: (
+    snapshot: AnthropicTextDeltaSnapshot
+  ) => void | Promise<void>;
+}): Promise<AnthropicMessageResponse> {
+  if (!input.client.messages.stream) {
+    return input.client.messages.create(input.request);
+  }
+
+  const stream = input.client.messages.stream(input.request);
+  const textSnapshots = new Map<number, string>();
+  const abortStream = () => {
+    if (typeof stream.abort === "function") {
+      try {
+        stream.abort();
+      } catch {
+        // Ignore abort transport errors and let the caller resolve from final state.
+      }
+    }
+  };
+  const onAbort = () => {
+    abortStream();
+  };
+
+  if (input.signal) {
+    if (input.signal.aborted) {
+      abortStream();
+    } else {
+      input.signal.addEventListener("abort", onAbort, { once: true });
+    }
+  }
+
+  try {
+    for await (const event of stream) {
+      if (
+        event.type !== "content_block_delta" ||
+        event.delta.type !== "text_delta"
+      ) {
+        continue;
+      }
+
+      const nextText = `${textSnapshots.get(event.index) ?? ""}${event.delta.text}`;
+      textSnapshots.set(event.index, nextText);
+      await input.onTextDelta?.({
+        blockIndex: event.index,
+        delta: event.delta.text,
+        text: nextText
+      });
+    }
+
+    return await stream.finalMessage();
+  } finally {
+    input.signal?.removeEventListener("abort", onAbort);
+  }
 }
 
 export function toAnthropicUserBlock(

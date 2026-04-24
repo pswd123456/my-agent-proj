@@ -58,6 +58,7 @@ export interface TraceSkillsLoadedEvent {
 export interface TraceTextEvent {
   kind: "assistant_text";
   turnCount: number;
+  assistantMessageId: string;
   text: string;
 }
 
@@ -118,6 +119,17 @@ export interface TracePermissionBlockedEvent {
   reason: string;
 }
 
+export interface TraceInterruptRequestedEvent {
+  kind: "interrupt_requested";
+  turnCount: number;
+}
+
+export interface TraceInterruptedEvent {
+  kind: "interrupted";
+  turnCount: number;
+  stopReason: "interrupted_by_user";
+}
+
 export interface TraceFallbackEvent {
   kind: "fallback";
   turnCount: number;
@@ -144,6 +156,8 @@ export type TraceEvent =
   | TracePermissionApprovedEvent
   | TracePermissionRejectedEvent
   | TracePermissionBlockedEvent
+  | TraceInterruptRequestedEvent
+  | TraceInterruptedEvent
   | TraceFallbackEvent
   | TraceTurnEndEvent;
 

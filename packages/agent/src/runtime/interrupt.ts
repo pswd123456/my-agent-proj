@@ -5,50 +5,61 @@ import type { RunSessionResult, SessionSnapshot } from "../types.js";
 import { buildAssistantBlockContent } from "./blocks.js";
 import { emitRunEvent, emitTraceEvent } from "./run-events.js";
 
-export async function completeLocally(input: {
+export async function completeInterruptedRun(input: {
   sessionManager: SessionManager;
   traceManager: TraceManager | undefined;
   session: SessionSnapshot;
   turnCount: number;
-  loopState: RunSessionResult["status"];
-  finalAnswer: string;
-  stopReason: string | null;
   toolCallCount: number;
   toolResultCount: number;
   toolOutputs: RunSessionResult["toolOutputs"];
   eventSink: RunEventSink | undefined;
-  appendAssistantMessage?: boolean;
-  clearPendingToolCallIds?: boolean;
+  partialAssistantText?: string | null;
+  partialAssistantMessageId?: string | null;
 }): Promise<RunSessionResult> {
   let session = input.session;
+  const finalAnswer = input.partialAssistantText?.trim() || null;
 
-  if (input.appendAssistantMessage ?? true) {
-    const assistantBlock = buildAssistantBlockContent(input.finalAnswer);
+  if (finalAnswer) {
     session = await input.sessionManager.appendBlock(
-      input.session.sessionId,
-      assistantBlock
+      session.sessionId,
+      buildAssistantBlockContent(
+        finalAnswer,
+        input.partialAssistantMessageId ?? undefined
+      )
     );
-    await emitTraceEvent({
-      traceManager: input.traceManager,
-      eventSink: input.eventSink,
-      sessionId: session.sessionId,
-      event: {
-        kind: "assistant_text",
-        turnCount: input.turnCount,
-        assistantMessageId: assistantBlock.id,
-        text: input.finalAnswer
-      }
-    });
   }
 
-  if (input.clearPendingToolCallIds ?? true) {
-    session = await input.sessionManager.setPendingToolCallIds(session.sessionId, []);
-  }
+  session = await input.sessionManager.updateContext(session.sessionId, {
+    status: "waiting_for_user_input"
+  });
+  session = await input.sessionManager.setPendingToolCallIds(
+    session.sessionId,
+    []
+  );
   session = await input.sessionManager.setLastError(session.sessionId, null);
   session = await input.sessionManager.setLoopState(
     session.sessionId,
-    input.loopState
+    "interrupted"
   );
+  session = await input.sessionManager.saveSession({
+    ...session,
+    sessionState: {
+      ...session.sessionState,
+      interruptRequested: false
+    }
+  });
+
+  await emitTraceEvent({
+    traceManager: input.traceManager,
+    eventSink: input.eventSink,
+    sessionId: session.sessionId,
+    event: {
+      kind: "interrupted",
+      turnCount: input.turnCount,
+      stopReason: "interrupted_by_user"
+    }
+  });
   await emitTraceEvent({
     traceManager: input.traceManager,
     eventSink: input.eventSink,
@@ -56,32 +67,34 @@ export async function completeLocally(input: {
     event: {
       kind: "turn_end",
       turnCount: input.turnCount,
-      loopState: input.loopState
+      loopState: "interrupted"
     }
   });
 
   const result = {
     session,
-    finalAnswer: input.finalAnswer,
-    status: input.loopState,
-    stopReason: input.stopReason,
+    finalAnswer,
+    status: "interrupted" as const,
+    stopReason: "interrupted_by_user" as const,
     toolCallCount: input.toolCallCount,
     toolResultCount: input.toolResultCount,
     toolOutputs: input.toolOutputs
   };
+
   if (input.eventSink) {
     await emitRunEvent(
       input.eventSink,
       createRunCompleteEvent({
         session,
-        finalAnswer: input.finalAnswer,
-        status: input.loopState,
-        stopReason: input.stopReason,
+        finalAnswer,
+        status: "interrupted",
+        stopReason: "interrupted_by_user",
         toolCallCount: input.toolCallCount,
         toolResultCount: input.toolResultCount,
         toolOutputs: input.toolOutputs
       })
     );
   }
+
   return result;
 }

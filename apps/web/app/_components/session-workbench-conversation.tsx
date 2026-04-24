@@ -1,15 +1,30 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent
+} from "react";
 
 import type { RunStreamEvent, SessionSnapshot } from "@ai-app-template/sdk";
 
 import { MessageMarkdown } from "./message-markdown";
 import {
+  getAssistantTextRenderMode,
   getNextTypewriterLength,
+  getTypewriterVisibleLengthOnChange,
   splitTypewriterCharacters,
   TYPEWRITER_FRAME_MS
 } from "./message-typewriter";
+import {
+  buildConversationScrollSnapshot,
+  getConversationScrollIntent,
+  updateConversationAutoFollowState
+} from "./session-workbench-scroll";
 import { getTimelineEventKey, type TimelineItem } from "./session-timeline";
 import type { TurnUsageSummary } from "./session-workbench-types";
 import {
@@ -29,27 +44,75 @@ import {
 interface SessionWorkbenchConversationPanelProps {
   currentSession: SessionSnapshot | null;
   loading: boolean;
-  loadingSession: boolean;
   timelineItems: TimelineItem[];
   streamEventKeys: Set<string>;
+  recentAssistantEventKeys: Set<string>;
   turnUsageByTurnCount: Map<number, TurnUsageSummary>;
   pendingPermissionRequest: SessionSnapshot["context"]["pendingPermissionRequest"];
   message: string;
   submitting: boolean;
+  canInterrupt: boolean;
+  interrupting: boolean;
+  showInterruptedHint: boolean;
   errorText: string | null;
   onMessageChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onInterrupt: () => void;
   onPermissionQuickReply: (reply: string) => void;
+  onAssistantAnimationComplete: (itemKey: string) => void;
 }
 
 interface AssistantTextBubbleProps {
   content: string;
   itemKey: string;
   animate: boolean;
+  streaming?: boolean;
+  onAnimationComplete?: (itemKey: string) => void;
+}
+
+type PermissionCardTone = "pending" | "approved" | "rejected";
+
+interface PermissionCardFeedback {
+  requestKey: string;
+  toolName: string;
+  summaryText: string;
+  tone: Exclude<PermissionCardTone, "pending">;
+}
+
+interface PermissionCardView {
+  key: string;
+  toolName: string;
+  summaryText: string;
+  tone: PermissionCardTone;
+  title: string;
+  detailText: string;
+  showActions: boolean;
+}
+
+interface ComposerActionView {
+  buttonLabel: string;
+  buttonType: "submit" | "interrupt";
+  disabled: boolean;
+}
+
+const PERMISSION_FEEDBACK_HIDE_DELAY_MS = 1800;
+
+function escapeTimelineItemKey(key: string): string {
+  return key.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 }
 
 function splitShellTokens(command: string): string[] {
   return command.trim().split(/\s+/).filter(Boolean);
+}
+
+export function getPermissionRequestKey(
+  request: SessionSnapshot["context"]["pendingPermissionRequest"]
+): string | null {
+  if (!request) {
+    return null;
+  }
+
+  return `${request.toolCallId}:${request.createdAt}`;
 }
 
 function buildPermissionQuickReplies(
@@ -96,6 +159,96 @@ function buildPermissionQuickReplies(
   ];
 }
 
+export function createPermissionCardFeedback(
+  request: SessionSnapshot["context"]["pendingPermissionRequest"],
+  reply: string
+): PermissionCardFeedback | null {
+  const requestKey = getPermissionRequestKey(request);
+  if (!request || !requestKey) {
+    return null;
+  }
+
+  return {
+    requestKey,
+    toolName: request.toolName,
+    summaryText: request.summaryText,
+    tone: reply.trim() === "取消" ? "rejected" : "approved"
+  };
+}
+
+export function buildPermissionCardView(input: {
+  pendingPermissionRequest: SessionSnapshot["context"]["pendingPermissionRequest"];
+  feedback: PermissionCardFeedback | null;
+  submitting: boolean;
+}): PermissionCardView | null {
+  const { pendingPermissionRequest, feedback, submitting } = input;
+  const requestKey = getPermissionRequestKey(pendingPermissionRequest);
+
+  if (feedback && (!requestKey || requestKey === feedback.requestKey)) {
+    return {
+      key: feedback.requestKey,
+      toolName: feedback.toolName,
+      summaryText: feedback.summaryText,
+      tone: feedback.tone,
+      title:
+        feedback.tone === "approved"
+          ? "Permission Approved"
+          : "Permission Rejected",
+      detailText:
+        feedback.tone === "approved"
+          ? submitting
+            ? "已同意，正在继续执行。"
+            : "已同意，本次权限请求已处理。"
+          : submitting
+            ? "已拒绝，正在结束本次操作。"
+            : "已拒绝本次权限请求。",
+      showActions: false
+    };
+  }
+
+  if (!pendingPermissionRequest || !requestKey) {
+    return null;
+  }
+
+  return {
+    key: requestKey,
+    toolName: pendingPermissionRequest.toolName,
+    summaryText: pendingPermissionRequest.summaryText,
+    tone: "pending",
+    title: "Permission Request",
+    detailText: "请选择是否允许继续执行这次高风险操作。",
+    showActions: true
+  };
+}
+
+export function buildComposerActionView(input: {
+  canInterrupt: boolean;
+  interrupting: boolean;
+  canSubmit: boolean;
+}): ComposerActionView {
+  if (input.interrupting) {
+    return {
+      buttonLabel: "停止中...",
+      buttonType: "interrupt",
+      disabled: true
+    };
+  }
+
+  if (input.canInterrupt) {
+    return {
+      buttonLabel: "停止执行",
+      buttonType: "interrupt",
+      disabled: false
+    };
+  }
+
+  return {
+    buttonLabel: "发送",
+    buttonType: "submit",
+    disabled: !input.canSubmit
+  };
+}
+
 function renderUserMessageBlock(
   block: Extract<SessionSnapshot["messages"][number], { kind: "user" }>
 ) {
@@ -109,7 +262,9 @@ function renderUserMessageBlock(
 function AssistantTextBubble({
   content,
   itemKey,
-  animate
+  animate,
+  streaming = false,
+  onAnimationComplete
 }: AssistantTextBubbleProps) {
   const characters = useMemo(
     () => splitTypewriterCharacters(content),
@@ -119,14 +274,29 @@ function AssistantTextBubble({
   const [visibleLength, setVisibleLength] = useState(() =>
     animate ? 0 : totalLength
   );
+  const previousAnimationStateRef = useRef({
+    itemKey,
+    animate,
+    totalLength
+  });
 
   useEffect(() => {
-    if (!animate) {
-      setVisibleLength(totalLength);
-      return;
-    }
-
-    setVisibleLength(0);
+    const previous = previousAnimationStateRef.current;
+    setVisibleLength((current) =>
+      getTypewriterVisibleLengthOnChange({
+        animate,
+        itemChanged: previous.itemKey !== itemKey,
+        animationStarted: !previous.animate && animate,
+        totalLength,
+        previousTotalLength: previous.totalLength,
+        currentVisibleLength: current
+      })
+    );
+    previousAnimationStateRef.current = {
+      itemKey,
+      animate,
+      totalLength
+    };
   }, [animate, itemKey, totalLength]);
 
   useEffect(() => {
@@ -143,20 +313,42 @@ function AssistantTextBubble({
     return () => window.clearTimeout(timeoutId);
   }, [animate, totalLength, visibleLength]);
 
+  useEffect(() => {
+    if (!animate || visibleLength < totalLength) {
+      return;
+    }
+
+    onAnimationComplete?.(itemKey);
+  }, [animate, itemKey, onAnimationComplete, totalLength, visibleLength]);
+
+  const renderMode = getAssistantTextRenderMode({
+    animate,
+    streaming,
+    totalLength,
+    visibleLength
+  });
   const isTyping = animate && visibleLength < totalLength;
-  const visibleContent = isTyping
+  const showPlainText = renderMode === "plaintext";
+  const visibleContent = showPlainText
     ? characters.slice(0, visibleLength).join("")
     : content;
+  const showCursor = streaming || isTyping;
 
   return (
-    <div className={getBubbleClass("assistant")}>
-      {isTyping ? (
+    <div
+      className={`${getBubbleClass("assistant")} ${
+        animate ? "[overflow-anchor:none]" : ""
+      }`}
+    >
+      {showPlainText ? (
         <div className="min-w-0 whitespace-pre-wrap text-sm leading-7 text-inherit [overflow-wrap:anywhere]">
           {visibleContent}
-          <span
-            aria-hidden
-            className="ml-1 inline-block h-[1em] w-[0.55ch] translate-y-[0.12em] animate-pulse rounded-[2px] bg-[var(--app-accent)] align-baseline"
-          />
+          {showCursor ? (
+            <span
+              aria-hidden
+              className="ml-1 inline-block h-[1em] w-[0.55ch] translate-y-[0.12em] animate-pulse rounded-[2px] bg-[var(--app-accent)] align-baseline"
+            />
+          ) : null}
         </div>
       ) : (
         <MessageMarkdown content={visibleContent} />
@@ -261,17 +453,22 @@ function renderPendingUserMessage(text: string, createdAt: string) {
 function renderExecutionEvent(
   event: RunStreamEvent,
   streamEventKeys: Set<string>,
+  recentAssistantEventKeys: Set<string>,
+  onAssistantAnimationComplete: (itemKey: string) => void,
   turnUsageByTurnCount: Map<number, TurnUsageSummary>
 ) {
   if (event.kind === "assistant_text") {
     const eventKey = getTimelineEventKey(event);
+    const streaming = streamEventKeys.has(eventKey);
 
     return (
       <AssistantTextBubble
         key={eventKey}
         itemKey={eventKey}
         content={event.text}
-        animate={streamEventKeys.has(eventKey)}
+        animate={streaming || recentAssistantEventKeys.has(eventKey)}
+        streaming={streaming}
+        onAnimationComplete={onAssistantAnimationComplete}
       />
     );
   }
@@ -425,6 +622,41 @@ function renderExecutionEvent(
     );
   }
 
+  if (event.kind === "interrupt_requested" || event.kind === "interrupted") {
+    const isRequested = event.kind === "interrupt_requested";
+
+    return (
+      <article
+        key={getTimelineEventKey(event)}
+        className={`min-w-0 rounded-[var(--app-radius-lg)] px-4 py-4 text-sm leading-7 ${
+          isRequested
+            ? "bg-[color:color-mix(in_srgb,var(--app-status-warning)_12%,var(--app-bg-muted)_88%)] text-[var(--app-text-secondary)]"
+            : "bg-[color:color-mix(in_srgb,var(--app-status-warning)_14%,var(--app-bg-surface)_86%)] text-[var(--app-text-secondary)]"
+        }`}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div
+            className={`font-mono text-[0.72rem] uppercase tracking-[0.18em] ${
+              isRequested
+                ? "text-[var(--app-text-muted)]"
+                : "text-[var(--app-status-warning)]"
+            }`}
+          >
+            {isRequested ? "Interrupt Requested" : "Execution Interrupted"}
+          </div>
+          <div className="text-[0.72rem] text-[var(--app-text-muted)]">
+            {formatTimestamp(event.createdAt)}
+          </div>
+        </div>
+        <div className="mt-3">
+          {isRequested
+            ? "已收到停止请求，正在让当前运行尽快收尾。"
+            : "当前运行已被用户中断。"}
+        </div>
+      </article>
+    );
+  }
+
   if (event.kind === "turn_start" || event.kind === "turn_end") {
     const turnUsage =
       event.kind === "turn_end"
@@ -507,12 +739,21 @@ function renderExecutionEvent(
   }
 
   if (event.kind === "run_complete") {
+    const completedClass =
+      event.status === "interrupted"
+        ? "text-[var(--app-status-warning)]"
+        : "text-[var(--app-status-success)]";
+    const backgroundClass =
+      event.status === "interrupted"
+        ? "bg-[color:color-mix(in_srgb,var(--app-status-warning)_12%,var(--app-bg-muted)_88%)]"
+        : "bg-[color:color-mix(in_srgb,var(--app-status-success)_12%,var(--app-bg-muted)_88%)]";
+
     return (
       <div
         key={getTimelineEventKey(event)}
-        className="flex items-center justify-between gap-3 rounded-[var(--app-radius-md)] bg-[color:color-mix(in_srgb,var(--app-status-success)_12%,var(--app-bg-muted)_88%)] px-3 py-2 text-xs text-[var(--app-text-secondary)]"
+        className={`flex items-center justify-between gap-3 rounded-[var(--app-radius-md)] px-3 py-2 text-xs text-[var(--app-text-secondary)] ${backgroundClass}`}
       >
-        <span className="font-medium text-[var(--app-status-success)]">
+        <span className={`font-medium ${completedClass}`}>
           run complete / {event.status}
         </span>
         <span className="font-mono text-[var(--app-text-muted)]">
@@ -528,12 +769,16 @@ function renderExecutionEvent(
 function renderTimelineItem(
   item: TimelineItem,
   streamEventKeys: Set<string>,
+  recentAssistantEventKeys: Set<string>,
+  onAssistantAnimationComplete: (itemKey: string) => void,
   turnUsageByTurnCount: Map<number, TurnUsageSummary>
 ) {
   if (item.type === "event") {
     return renderExecutionEvent(
       item.event,
       streamEventKeys,
+      recentAssistantEventKeys,
+      onAssistantAnimationComplete,
       turnUsageByTurnCount
     );
   }
@@ -548,19 +793,104 @@ function renderTimelineItem(
 export function SessionWorkbenchConversationPanel({
   currentSession,
   loading,
-  loadingSession,
   timelineItems,
   streamEventKeys,
+  recentAssistantEventKeys,
   turnUsageByTurnCount,
   pendingPermissionRequest,
   message,
   submitting,
+  canInterrupt,
+  interrupting,
+  showInterruptedHint,
   errorText,
   onMessageChange,
   onSubmit,
-  onPermissionQuickReply
+  onInterrupt,
+  onPermissionQuickReply,
+  onAssistantAnimationComplete
 }: SessionWorkbenchConversationPanelProps) {
   const [copyButtonLabel, setCopyButtonLabel] = useState("复制");
+  const [permissionCardFeedback, setPermissionCardFeedback] =
+    useState<PermissionCardFeedback | null>(null);
+  const conversationViewportRef = useRef<HTMLDivElement | null>(null);
+  const timelineContentRef = useRef<HTMLDivElement | null>(null);
+  const previousScrollSnapshotRef = useRef(buildConversationScrollSnapshot([]));
+  const autoFollowLatestRef = useRef(true);
+  const isProgrammaticScrollRef = useRef(false);
+  const previousViewportScrollTopRef = useRef(0);
+  const permissionRequestKey = getPermissionRequestKey(
+    pendingPermissionRequest
+  );
+  const scrollSnapshot = useMemo(
+    () => buildConversationScrollSnapshot(timelineItems),
+    [timelineItems]
+  );
+  const permissionCardView = buildPermissionCardView({
+    pendingPermissionRequest,
+    feedback: permissionCardFeedback,
+    submitting
+  });
+  const composerActionView = buildComposerActionView({
+    canInterrupt,
+    interrupting,
+    canSubmit: Boolean(currentSession && message.trim() && !submitting)
+  });
+
+  const scrollTimelineItemIntoView = useEffectEvent(
+    (itemKey: string | null, block: "start" | "end") => {
+      const viewport = conversationViewportRef.current;
+      const timelineContent = timelineContentRef.current;
+      if (!viewport || !timelineContent || !itemKey) {
+        return;
+      }
+
+      const itemElement = timelineContent.querySelector<HTMLElement>(
+        `[data-timeline-item-key="${escapeTimelineItemKey(itemKey)}"]`
+      );
+      if (!itemElement) {
+        return;
+      }
+
+      const itemTop = itemElement.offsetTop;
+      const itemBottom = itemTop + itemElement.offsetHeight;
+      const nextScrollTop =
+        block === "start"
+          ? itemTop
+          : Math.max(0, itemBottom - viewport.clientHeight);
+
+      if (Math.abs(viewport.scrollTop - nextScrollTop) < 1) {
+        previousViewportScrollTopRef.current = viewport.scrollTop;
+        return;
+      }
+
+      isProgrammaticScrollRef.current = true;
+      viewport.scrollTop = nextScrollTop;
+      previousViewportScrollTopRef.current = nextScrollTop;
+      window.requestAnimationFrame(() => {
+        isProgrammaticScrollRef.current = false;
+        previousViewportScrollTopRef.current =
+          conversationViewportRef.current?.scrollTop ?? nextScrollTop;
+      });
+    }
+  );
+
+  const keepLatestTurnInView = useEffectEvent(() => {
+    if (!autoFollowLatestRef.current) {
+      return;
+    }
+
+    const targetKey =
+      scrollSnapshot.latestItemKey ?? scrollSnapshot.latestTurnStartKey;
+    if (!targetKey) {
+      return;
+    }
+
+    scrollTimelineItemIntoView(
+      targetKey,
+      scrollSnapshot.latestTurnStartKey === targetKey ? "start" : "end"
+    );
+  });
 
   useEffect(() => {
     if (copyButtonLabel === "复制") {
@@ -573,6 +903,94 @@ export function SessionWorkbenchConversationPanel({
 
     return () => window.clearTimeout(timeoutId);
   }, [copyButtonLabel]);
+
+  useEffect(() => {
+    if (!permissionCardFeedback) {
+      return;
+    }
+
+    if (
+      permissionRequestKey &&
+      permissionRequestKey !== permissionCardFeedback.requestKey
+    ) {
+      setPermissionCardFeedback(null);
+    }
+  }, [permissionCardFeedback, permissionRequestKey]);
+
+  useEffect(() => {
+    if (!permissionCardFeedback) {
+      return;
+    }
+
+    if (
+      permissionRequestKey === permissionCardFeedback.requestKey &&
+      !submitting
+    ) {
+      setPermissionCardFeedback(null);
+    }
+  }, [permissionCardFeedback, permissionRequestKey, submitting]);
+
+  useEffect(() => {
+    if (!permissionCardFeedback || submitting) {
+      return undefined;
+    }
+
+    if (permissionRequestKey === permissionCardFeedback.requestKey) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setPermissionCardFeedback((current) =>
+        current?.requestKey === permissionCardFeedback.requestKey
+          ? null
+          : current
+      );
+    }, PERMISSION_FEEDBACK_HIDE_DELAY_MS);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [permissionCardFeedback, permissionRequestKey, submitting]);
+
+  useEffect(() => {
+    if (submitting) {
+      autoFollowLatestRef.current = true;
+    }
+  }, [submitting]);
+
+  useEffect(() => {
+    previousScrollSnapshotRef.current = buildConversationScrollSnapshot([]);
+    previousViewportScrollTopRef.current = 0;
+    autoFollowLatestRef.current = true;
+  }, [currentSession?.sessionId]);
+
+  useLayoutEffect(() => {
+    const intent = getConversationScrollIntent({
+      previous: previousScrollSnapshotRef.current,
+      next: scrollSnapshot,
+      followLatest: autoFollowLatestRef.current
+    });
+
+    if (intent === "align-latest-turn") {
+      scrollTimelineItemIntoView(scrollSnapshot.latestTurnAnchorKey, "start");
+    } else if (intent === "follow-latest-item") {
+      keepLatestTurnInView();
+    }
+
+    previousScrollSnapshotRef.current = scrollSnapshot;
+  }, [keepLatestTurnInView, scrollSnapshot, scrollTimelineItemIntoView]);
+
+  useEffect(() => {
+    const timelineContent = timelineContentRef.current;
+    if (!timelineContent || typeof ResizeObserver === "undefined") {
+      return undefined;
+    }
+
+    const resizeObserver = new ResizeObserver(() => {
+      keepLatestTurnInView();
+    });
+    resizeObserver.observe(timelineContent);
+
+    return () => resizeObserver.disconnect();
+  }, [keepLatestTurnInView, scrollSnapshot.latestItemKey]);
 
   async function handleCopySessionId() {
     const sessionId = currentSession?.sessionId;
@@ -589,9 +1007,9 @@ export function SessionWorkbenchConversationPanel({
   }
 
   return (
-    <section className="rounded-[var(--app-radius-xl)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_72%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_92%,var(--app-bg-elevated)_8%)] shadow-[var(--app-shadow-sm)]">
-      <div className="px-4 py-4">
-        <div className="flex min-h-[calc(100vh-8rem)] flex-col gap-4 lg:min-h-[calc(100vh-6rem)]">
+    <section className="rounded-[var(--app-radius-xl)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_72%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_92%,var(--app-bg-elevated)_8%)] shadow-[var(--app-shadow-sm)] lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:overflow-hidden">
+      <div className="px-4 py-4 lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
+        <div className="flex min-h-[calc(100vh-8rem)] flex-col gap-4 lg:min-h-0 lg:flex-1">
           <div className={getSoftBlockClass("flex flex-col gap-2")}>
             <div>
               <div className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
@@ -613,8 +1031,28 @@ export function SessionWorkbenchConversationPanel({
             </div>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto pb-80 pr-1">
-            <div className="grid gap-4">
+          <div
+            ref={conversationViewportRef}
+            className="min-h-0 flex-1 overflow-y-auto pb-80 pr-1"
+            onScroll={() => {
+              const viewport = conversationViewportRef.current;
+              if (!viewport || isProgrammaticScrollRef.current) {
+                return;
+              }
+
+              autoFollowLatestRef.current = updateConversationAutoFollowState({
+                current: autoFollowLatestRef.current,
+                currentScrollTop: viewport.scrollTop,
+                previousScrollTop: previousViewportScrollTopRef.current,
+                maxScrollTop: Math.max(
+                  0,
+                  viewport.scrollHeight - viewport.clientHeight
+                )
+              });
+              previousViewportScrollTopRef.current = viewport.scrollTop;
+            }}
+          >
+            <div ref={timelineContentRef} className="grid gap-4">
               {loading && !currentSession ? (
                 <div
                   className={getSoftBlockClass(
@@ -626,13 +1064,21 @@ export function SessionWorkbenchConversationPanel({
               ) : null}
 
               {timelineItems.length ? (
-                timelineItems.map((item) =>
-                  renderTimelineItem(
-                    item,
-                    streamEventKeys,
-                    turnUsageByTurnCount
-                  )
-                )
+                timelineItems.map((item) => (
+                  <div
+                    key={item.key}
+                    data-timeline-item-key={item.key}
+                    className="min-w-0"
+                  >
+                    {renderTimelineItem(
+                      item,
+                      streamEventKeys,
+                      recentAssistantEventKeys,
+                      onAssistantAnimationComplete,
+                      turnUsageByTurnCount
+                    )}
+                  </div>
+                ))
               ) : (
                 <div
                   className={getSoftBlockClass(
@@ -648,44 +1094,102 @@ export function SessionWorkbenchConversationPanel({
           <div className="sticky bottom-3 z-10 mt-auto px-1">
             <form onSubmit={onSubmit} className="grid gap-3">
               <div className="grid gap-3 rounded-[var(--app-radius-xl)] bg-[var(--app-bg-canvas)] p-1">
-                {pendingPermissionRequest ? (
-                  <div className="rounded-[var(--app-radius-lg)] border border-[color:color-mix(in_srgb,var(--app-status-warning)_56%,var(--app-border-subtle)_44%)] bg-[color:color-mix(in_srgb,var(--app-status-warning)_14%,var(--app-bg-surface)_86%)] px-4 py-4">
+                {permissionCardView ? (
+                  <div
+                    key={permissionCardView.key}
+                    className={`rounded-[var(--app-radius-lg)] px-4 py-4 transition-colors ${
+                      permissionCardView.tone === "approved"
+                        ? "border border-[color:color-mix(in_srgb,var(--app-status-success)_56%,var(--app-border-subtle)_44%)] bg-[color:color-mix(in_srgb,var(--app-status-success)_14%,var(--app-bg-surface)_86%)]"
+                        : permissionCardView.tone === "rejected"
+                          ? "border border-[color:color-mix(in_srgb,var(--app-status-danger)_56%,var(--app-border-subtle)_44%)] bg-[color:color-mix(in_srgb,var(--app-status-danger)_12%,var(--app-bg-surface)_88%)]"
+                          : "border border-[color:color-mix(in_srgb,var(--app-status-warning)_56%,var(--app-border-subtle)_44%)] bg-[color:color-mix(in_srgb,var(--app-status-warning)_14%,var(--app-bg-surface)_86%)]"
+                    }`}
+                  >
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                       <div className="min-w-0">
-                        <div className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
-                          Permission Request
+                        <div
+                          className={`font-mono text-[0.72rem] uppercase tracking-[0.18em] ${
+                            permissionCardView.tone === "approved"
+                              ? "text-[var(--app-status-success)]"
+                              : permissionCardView.tone === "rejected"
+                                ? "text-[var(--app-status-danger)]"
+                                : "text-[var(--app-text-muted)]"
+                          }`}
+                        >
+                          {permissionCardView.title}
                         </div>
                         <div className="mt-2 text-sm font-medium text-[var(--app-text-primary)]">
-                          {pendingPermissionRequest.toolName}
+                          {permissionCardView.toolName}
                         </div>
                         <div className="mt-2 text-sm leading-7 text-[var(--app-text-secondary)]">
-                          {pendingPermissionRequest.summaryText}
+                          {permissionCardView.summaryText}
+                        </div>
+                        <div
+                          className={`mt-2 text-sm ${
+                            permissionCardView.tone === "approved"
+                              ? "text-[var(--app-status-success)]"
+                              : permissionCardView.tone === "rejected"
+                                ? "text-[var(--app-status-danger)]"
+                                : "text-[var(--app-text-muted)]"
+                          }`}
+                        >
+                          {permissionCardView.detailText}
                         </div>
                       </div>
 
-                      <div className="flex flex-wrap gap-2">
-                        {buildPermissionQuickReplies(
-                          pendingPermissionRequest
-                        ).map((option) => (
+                      {permissionCardView.showActions ? (
+                        <div className="flex flex-wrap gap-2">
+                          {buildPermissionQuickReplies(
+                            pendingPermissionRequest
+                          ).map((option) => (
+                            <button
+                              key={option.reply}
+                              type="button"
+                              onClick={() => {
+                                setPermissionCardFeedback(
+                                  createPermissionCardFeedback(
+                                    pendingPermissionRequest,
+                                    option.reply
+                                  )
+                                );
+                                onPermissionQuickReply(option.reply);
+                              }}
+                              disabled={submitting}
+                              className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-accent)] bg-[var(--app-bg-elevated)] px-4 py-2 text-sm font-medium text-[var(--app-text-primary)] transition hover:border-[var(--app-status-success)] hover:text-[var(--app-status-success)] disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {option.label}
+                            </button>
+                          ))}
                           <button
-                            key={option.reply}
                             type="button"
-                            onClick={() => onPermissionQuickReply(option.reply)}
+                            onClick={() => {
+                              setPermissionCardFeedback(
+                                createPermissionCardFeedback(
+                                  pendingPermissionRequest,
+                                  "取消"
+                                )
+                              );
+                              onPermissionQuickReply("取消");
+                            }}
                             disabled={submitting}
-                            className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-accent)] bg-[var(--app-bg-elevated)] px-4 py-2 text-sm font-medium text-[var(--app-text-primary)] transition hover:border-[var(--app-status-success)] hover:text-[var(--app-status-success)] disabled:cursor-not-allowed disabled:opacity-50"
+                            className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-4 py-2 text-sm text-[var(--app-text-secondary)] transition hover:border-[var(--app-status-danger)] hover:text-[var(--app-status-danger)] disabled:cursor-not-allowed disabled:opacity-50"
                           >
-                            {option.label}
+                            取消
                           </button>
-                        ))}
-                        <button
-                          type="button"
-                          onClick={() => onPermissionQuickReply("取消")}
-                          disabled={submitting}
-                          className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-4 py-2 text-sm text-[var(--app-text-secondary)] transition hover:border-[var(--app-status-danger)] hover:text-[var(--app-status-danger)] disabled:cursor-not-allowed disabled:opacity-50"
+                        </div>
+                      ) : (
+                        <div
+                          className={`rounded-[var(--app-radius-pill)] border px-3 py-1 text-[0.72rem] uppercase tracking-[0.14em] ${
+                            permissionCardView.tone === "approved"
+                              ? "border-[var(--app-status-success)] text-[var(--app-status-success)]"
+                              : "border-[var(--app-status-danger)] text-[var(--app-status-danger)]"
+                          }`}
                         >
-                          取消
-                        </button>
-                      </div>
+                          {permissionCardView.tone === "approved"
+                            ? "approved"
+                            : "rejected"}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ) : null}
@@ -703,6 +1207,11 @@ export function SessionWorkbenchConversationPanel({
                     {submitting ? (
                       <span className="text-xs text-[var(--app-text-muted)]">
                         正在接收当前响应...
+                      </span>
+                    ) : null}
+                    {showInterruptedHint ? (
+                      <span className="text-xs text-[var(--app-status-warning)]">
+                        本次执行已中断，可直接继续输入下一条消息。
                       </span>
                     ) : null}
                     <span className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-3 py-1 text-[var(--app-text-secondary)]">
@@ -735,13 +1244,24 @@ export function SessionWorkbenchConversationPanel({
 
                   <div className="flex shrink-0 items-center justify-end">
                     <button
-                      type="submit"
-                      disabled={
-                        !currentSession || !message.trim() || submitting
+                      type={
+                        composerActionView.buttonType === "submit"
+                          ? "submit"
+                          : "button"
                       }
-                      className="inline-flex items-center justify-center rounded-[var(--app-radius-pill)] border border-[var(--app-border-accent)] bg-[var(--app-bg-elevated)] px-5 py-2 text-sm font-medium text-[var(--app-text-primary)] transition disabled:cursor-not-allowed disabled:opacity-50 hover:border-[var(--app-status-success)] hover:text-[var(--app-status-success)]"
+                      onClick={
+                        composerActionView.buttonType === "interrupt"
+                          ? onInterrupt
+                          : undefined
+                      }
+                      disabled={composerActionView.disabled}
+                      className={`inline-flex items-center justify-center rounded-[var(--app-radius-pill)] px-5 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                        composerActionView.buttonType === "interrupt"
+                          ? "border border-[var(--app-status-danger)] text-[var(--app-status-danger)] hover:bg-[color:color-mix(in_srgb,var(--app-status-danger)_10%,transparent)]"
+                          : "border border-[var(--app-border-accent)] bg-[var(--app-bg-elevated)] text-[var(--app-text-primary)] hover:border-[var(--app-status-success)] hover:text-[var(--app-status-success)]"
+                      }`}
                     >
-                      {submitting ? "Running..." : "发送"}
+                      {composerActionView.buttonLabel}
                     </button>
                   </div>
                 </div>

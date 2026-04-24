@@ -1,38 +1,246 @@
-import { PERMISSION_TOOL_OPTIONS } from "@ai-app-template/domain";
+import { fileURLToPath } from "node:url";
+
+import type {
+  PendingConfirmationPayload,
+  PendingPermissionRequest
+} from "@ai-app-template/domain";
+import { migrate } from "drizzle-orm/postgres-js/migrator";
+import { sql } from "drizzle-orm";
+import {
+  boolean,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex
+} from "drizzle-orm/pg-core";
+
 import type { ProductDatabaseClient } from "./client.js";
 
-interface ColumnMetadataRow {
-  data_type: string;
-  udt_name: string;
+const defaultToolAskListJson = JSON.stringify([
+  "read_file",
+  "list_directory",
+  "search_text",
+  "create_directory",
+  "write_file",
+  "copy_path",
+  "move_path",
+  "delete_path",
+  "run_shell_command",
+  "make_http_request",
+  "create_routine",
+  "edit_routine",
+  "delete_routine",
+  "search_routine_by_oclock",
+  "list_routine_by_week",
+  "list_routine_by_date",
+  "ask_for_confirmation"
+]);
+
+function toSqlJsonbLiteral(value: string): string {
+  return `'${value.replace(/'/g, "''")}'::jsonb`;
 }
 
-function toIdentifier(value: string): string {
-  if (!/^[a-z_]+$/.test(value)) {
-    throw new Error(`Invalid SQL identifier: ${value}`);
-  }
+const defaultToolAskListJsonLiteral = toSqlJsonbLiteral(defaultToolAskListJson);
+const defaultJsonbArray = sql.raw("'[]'::jsonb");
 
-  return value;
-}
+export const routines = pgTable(
+  "routines",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    name: text("name").notNull(),
+    description: text("description"),
+    date: text("date").notNull(),
+    startTime: text("start_time").notNull(),
+    endTime: text("end_time").notNull(),
+    durationMinutes: integer("duration_minutes").notNull(),
+    startAt: timestamp("start_at", { mode: "string" }).notNull(),
+    endAt: timestamp("end_at", { mode: "string" }).notNull(),
+    status: text("status").notNull(),
+    source: text("source").notNull(),
+    createdAt: timestamp("created_at", {
+      mode: "string",
+      withTimezone: true
+    })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", {
+      mode: "string",
+      withTimezone: true
+    })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => ({
+    userStartAtIdx: index("routines_user_start_at_idx").on(
+      table.userId,
+      table.startAt
+    )
+  })
+);
 
-async function getColumnMetadata(
-  sql: ProductDatabaseClient,
-  tableName: string,
-  columnName: string
-): Promise<ColumnMetadataRow | null> {
-  const rows = await sql<ColumnMetadataRow[]>`
-    select data_type, udt_name
-    from information_schema.columns
-    where table_schema = current_schema()
-      and table_name = ${tableName}
-      and column_name = ${columnName}
-    limit 1
-  `;
+export const agentSessions = pgTable(
+  "agent_sessions",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    status: text("status").notNull(),
+    currentDateContext: text("current_date_context").notNull(),
+    yoloMode: boolean("yolo_mode").notNull().default(false),
+    contextWindow: integer("context_window").notNull().default(200000),
+    maxTurns: integer("max_turns").notNull().default(50),
+    shellAllowPatterns: jsonb("shell_allow_patterns")
+      .$type<string[]>()
+      .notNull()
+      .default(defaultJsonbArray),
+    shellDenyPatterns: jsonb("shell_deny_patterns")
+      .$type<string[]>()
+      .notNull()
+      .default(defaultJsonbArray),
+    toolAllowList: jsonb("tool_allow_list")
+      .$type<string[]>()
+      .notNull()
+      .default(defaultJsonbArray),
+    toolAskList: jsonb("tool_ask_list")
+      .$type<string[]>()
+      .notNull()
+      .default(sql.raw(defaultToolAskListJsonLiteral)),
+    toolDenyList: jsonb("tool_deny_list")
+      .$type<string[]>()
+      .notNull()
+      .default(defaultJsonbArray),
+    pendingPermissionRequest: jsonb("pending_permission_request").$type<
+      PendingPermissionRequest | null
+    >(),
+    pendingConfirmationPayload: jsonb("pending_confirmation_payload").$type<
+      PendingConfirmationPayload | null
+    >(),
+    pendingConflictSummary: text("pending_conflict_summary"),
+    lastUserMessage: text("last_user_message"),
+    workingDirectory: text("working_directory").notNull(),
+    model: text("model").notNull(),
+    loopState: text("loop_state").notNull(),
+    turnCount: integer("turn_count").notNull().default(0),
+    lastError: text("last_error"),
+    pendingToolCallIds: jsonb("pending_tool_call_ids")
+      .$type<string[]>()
+      .notNull()
+      .default(defaultJsonbArray),
+    interruptRequested: boolean("interrupt_requested").notNull().default(false),
+    inputTokensCount: integer("input_tokens_count").notNull().default(0),
+    promptCacheKey: text("prompt_cache_key").notNull().default(""),
+    activeRunId: text("active_run_id"),
+    activeRunStartedAt: timestamp("active_run_started_at", {
+      mode: "string",
+      withTimezone: true
+    }),
+    createdAt: timestamp("created_at", {
+      mode: "string",
+      withTimezone: true
+    })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", {
+      mode: "string",
+      withTimezone: true
+    })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => ({
+    updatedAtIdx: index("agent_sessions_updated_at_idx").on(table.updatedAt)
+  })
+);
 
-  return rows[0] ?? null;
-}
+export const agentSettings = pgTable("agent_settings", {
+  userId: text("user_id").primaryKey(),
+  workingDirectory: text("working_directory")
+    .notNull()
+    .default("agent-workspace"),
+  yoloMode: boolean("yolo_mode").notNull().default(false),
+  contextWindow: integer("context_window").notNull().default(200000),
+  maxTurns: integer("max_turns").notNull().default(50),
+  shellAllowPatterns: jsonb("shell_allow_patterns")
+    .$type<string[]>()
+    .notNull()
+    .default(defaultJsonbArray),
+  shellDenyPatterns: jsonb("shell_deny_patterns")
+    .$type<string[]>()
+    .notNull()
+    .default(defaultJsonbArray),
+  toolAllowList: jsonb("tool_allow_list")
+    .$type<string[]>()
+    .notNull()
+    .default(defaultJsonbArray),
+  toolAskList: jsonb("tool_ask_list")
+    .$type<string[]>()
+    .notNull()
+    .default(sql.raw(defaultToolAskListJsonLiteral)),
+  toolDenyList: jsonb("tool_deny_list")
+    .$type<string[]>()
+    .notNull()
+    .default(defaultJsonbArray),
+  createdAt: timestamp("created_at", {
+    mode: "string",
+    withTimezone: true
+  })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", {
+    mode: "string",
+    withTimezone: true
+  })
+    .notNull()
+    .defaultNow()
+});
+
+export const sessionMessages = pgTable(
+  "session_messages",
+  {
+    id: text("id").primaryKey(),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => agentSessions.id, { onDelete: "cascade" }),
+    messageIndex: integer("message_index").notNull(),
+    role: text("role").notNull(),
+    content: text("content"),
+    toolName: text("tool_name"),
+    toolCallId: text("tool_call_id"),
+    state: text("state"),
+    isError: boolean("is_error"),
+    inputJson: jsonb("input_json").$type<Record<string, unknown> | null>(),
+    outputText: text("output_text"),
+    createdAt: timestamp("created_at", {
+      mode: "string",
+      withTimezone: true
+    }).notNull()
+  },
+  (table) => ({
+    sessionIndexIdx: index("session_messages_session_idx").on(
+      table.sessionId,
+      table.messageIndex
+    ),
+    sessionMessageUnique: uniqueIndex("session_messages_session_id_message_index_key").on(
+      table.sessionId,
+      table.messageIndex
+    )
+  })
+);
+
+export const productSchema = {
+  routines,
+  agentSessions,
+  agentSettings,
+  sessionMessages
+} as const;
+
+export type ProductSchema = typeof productSchema;
 
 export function isTimestampWithoutTimeZoneColumn(
-  column: Pick<ColumnMetadataRow, "data_type" | "udt_name">
+  column: { data_type: string; udt_name: string }
 ): boolean {
   return (
     column.data_type === "timestamp without time zone" ||
@@ -40,266 +248,11 @@ export function isTimestampWithoutTimeZoneColumn(
   );
 }
 
-const defaultToolAskListJson = JSON.stringify(PERMISSION_TOOL_OPTIONS);
-
-function toSqlJsonbLiteral(value: string): string {
-  return `'${value.replace(/'/g, "''")}'::jsonb`;
-}
-
-const defaultToolAskListJsonLiteral = toSqlJsonbLiteral(defaultToolAskListJson);
-
-async function promoteColumnToTimestamptz(
-  sql: ProductDatabaseClient,
-  tableName: string,
-  columnName: string
-): Promise<void> {
-  const column = await getColumnMetadata(sql, tableName, columnName);
-  if (!column || !isTimestampWithoutTimeZoneColumn(column)) {
-    return;
-  }
-
-  const safeTableName = toIdentifier(tableName);
-  const safeColumnName = toIdentifier(columnName);
-
-  await sql.unsafe(`
-    alter table ${safeTableName}
-    alter column ${safeColumnName} type timestamptz
-    using ${safeColumnName} at time zone 'UTC'
-  `);
-}
-
 export async function ensureProductSchema(
-  sql: ProductDatabaseClient
+  db: ProductDatabaseClient
 ): Promise<void> {
-  await sql`
-    create table if not exists routines (
-      id text primary key,
-      user_id text not null,
-      name text not null,
-      description text,
-      date text not null,
-      start_time text not null,
-      end_time text not null,
-      duration_minutes integer not null,
-      start_at timestamp not null,
-      end_at timestamp not null,
-      status text not null,
-      source text not null,
-      created_at timestamp not null default now(),
-      updated_at timestamp not null default now()
-    )
-  `;
-
-  await sql`
-    create index if not exists routines_user_start_at_idx
-    on routines (user_id, start_at)
-  `;
-
-  await sql`
-    create table if not exists agent_sessions (
-      id text primary key,
-      user_id text not null,
-      status text not null,
-      current_date_context text not null,
-      yolo_mode boolean not null default false,
-      context_window integer not null default 200000,
-      max_turns integer not null default 50,
-      shell_allow_patterns jsonb not null default '[]'::jsonb,
-      shell_deny_patterns jsonb not null default '[]'::jsonb,
-      tool_allow_list jsonb not null default '[]'::jsonb,
-      tool_ask_list jsonb not null default ${sql.unsafe(defaultToolAskListJsonLiteral)},
-      tool_deny_list jsonb not null default '[]'::jsonb,
-      pending_permission_request jsonb,
-      pending_confirmation_payload jsonb,
-      pending_conflict_summary text,
-      last_user_message text,
-      working_directory text not null,
-      model text not null,
-      loop_state text not null,
-      turn_count integer not null default 0,
-      last_error text,
-      pending_tool_call_ids jsonb not null default '[]'::jsonb,
-      input_tokens_count integer not null default 0,
-      prompt_cache_key text not null default '',
-      active_run_id text,
-      active_run_started_at timestamptz,
-      created_at timestamptz not null default now(),
-      updated_at timestamptz not null default now()
-    )
-  `;
-
-  await sql`
-    alter table agent_sessions
-    add column if not exists yolo_mode boolean not null default false
-  `;
-
-  await sql`
-    alter table agent_sessions
-    add column if not exists context_window integer not null default 200000
-  `;
-
-  await sql`
-    alter table agent_sessions
-    add column if not exists max_turns integer not null default 50
-  `;
-
-  await sql`
-    alter table agent_sessions
-    add column if not exists shell_allow_patterns jsonb not null default '[]'::jsonb
-  `;
-
-  await sql`
-    alter table agent_sessions
-    add column if not exists shell_deny_patterns jsonb not null default '[]'::jsonb
-  `;
-
-  await sql`
-    alter table agent_sessions
-    add column if not exists tool_allow_list jsonb not null default '[]'::jsonb
-  `;
-
-  await sql`
-    alter table agent_sessions
-    add column if not exists tool_ask_list jsonb not null default ${sql.unsafe(defaultToolAskListJsonLiteral)}
-  `;
-
-  await sql`
-    alter table agent_sessions
-    add column if not exists tool_deny_list jsonb not null default '[]'::jsonb
-  `;
-
-  await sql`
-    alter table agent_sessions
-    add column if not exists pending_permission_request jsonb
-  `;
-
-  await sql`
-    alter table agent_sessions
-    add column if not exists active_run_id text
-  `;
-
-  await sql`
-    alter table agent_sessions
-    add column if not exists active_run_started_at timestamptz
-  `;
-
-  await promoteColumnToTimestamptz(
-    sql,
-    "agent_sessions",
-    "active_run_started_at"
+  const migrationsFolder = fileURLToPath(
+    new URL("../migrations", import.meta.url)
   );
-  await promoteColumnToTimestamptz(sql, "agent_sessions", "created_at");
-  await promoteColumnToTimestamptz(sql, "agent_sessions", "updated_at");
-
-  await sql`
-    create index if not exists agent_sessions_updated_at_idx
-    on agent_sessions (updated_at)
-  `;
-
-  await sql`
-    create table if not exists agent_settings (
-      user_id text primary key,
-      working_directory text not null,
-      yolo_mode boolean not null default false,
-      context_window integer not null default 200000,
-      max_turns integer not null default 50,
-      shell_allow_patterns jsonb not null default '[]'::jsonb,
-      shell_deny_patterns jsonb not null default '[]'::jsonb,
-      tool_allow_list jsonb not null default '[]'::jsonb,
-      tool_ask_list jsonb not null default ${sql.unsafe(defaultToolAskListJsonLiteral)},
-      tool_deny_list jsonb not null default '[]'::jsonb,
-      created_at timestamptz not null default now(),
-      updated_at timestamptz not null default now()
-    )
-  `;
-
-  await sql`
-    alter table agent_settings
-    add column if not exists working_directory text not null default 'agent-workspace'
-  `;
-
-  await sql`
-    alter table agent_settings
-    add column if not exists yolo_mode boolean not null default false
-  `;
-
-  await sql`
-    alter table agent_settings
-    add column if not exists context_window integer not null default 200000
-  `;
-
-  await sql`
-    alter table agent_settings
-    add column if not exists max_turns integer not null default 50
-  `;
-
-  await sql`
-    alter table agent_settings
-    add column if not exists shell_allow_patterns jsonb not null default '[]'::jsonb
-  `;
-
-  await sql`
-    alter table agent_settings
-    add column if not exists shell_deny_patterns jsonb not null default '[]'::jsonb
-  `;
-
-  await sql`
-    alter table agent_settings
-    add column if not exists tool_allow_list jsonb not null default '[]'::jsonb
-  `;
-
-  await sql`
-    alter table agent_settings
-    add column if not exists tool_ask_list jsonb not null default ${sql.unsafe(defaultToolAskListJsonLiteral)}
-  `;
-
-  await sql`
-    alter table agent_settings
-    add column if not exists tool_deny_list jsonb not null default '[]'::jsonb
-  `;
-
-  await promoteColumnToTimestamptz(sql, "agent_settings", "created_at");
-  await promoteColumnToTimestamptz(sql, "agent_settings", "updated_at");
-
-  await sql`
-    create table if not exists session_messages (
-      id text primary key,
-      session_id text not null references agent_sessions(id) on delete cascade,
-      message_index integer not null,
-      role text not null,
-      content text,
-      tool_name text,
-      tool_call_id text,
-      state text,
-      is_error boolean,
-      input_json jsonb,
-      output_text text,
-      created_at timestamptz not null,
-      unique(session_id, message_index)
-    )
-  `;
-
-  await promoteColumnToTimestamptz(sql, "session_messages", "created_at");
-
-  await sql`
-    update agent_sessions as sessions
-    set updated_at = coalesce(
-      (
-        select max(messages.created_at)
-        from session_messages as messages
-        where messages.session_id = sessions.id
-      ),
-      sessions.updated_at
-    )
-  `;
-
-  await sql`
-    update agent_settings
-    set updated_at = coalesce(updated_at, now())
-  `;
-
-  await sql`
-    create index if not exists session_messages_session_idx
-    on session_messages (session_id, message_index)
-  `;
+  await migrate(db, { migrationsFolder });
 }

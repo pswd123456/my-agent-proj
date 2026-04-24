@@ -75,6 +75,7 @@ export function createRunShellCommandTool(): RuntimeTool {
       try {
         const { stdout, stderr } = await exec(command, {
           cwd: context.workingDirectory,
+          signal: context.abortSignal,
           timeout: timeoutMs,
           maxBuffer: 512 * 1024
         });
@@ -93,6 +94,17 @@ export function createRunShellCommandTool(): RuntimeTool {
           `[run_shell_command] success\n- ${command}`
         );
       } catch (error) {
+        if (context.abortSignal?.aborted) {
+          return failureResult(
+            createToolResult({
+              ok: false,
+              code: "SHELL_COMMAND_INTERRUPTED",
+              message: "Interrupted by user."
+            }),
+            "[run_shell_command] interrupted\n- interrupted by user"
+          );
+        }
+
         const message = error instanceof Error ? error.message : String(error);
         return failureResult(
           createToolResult({

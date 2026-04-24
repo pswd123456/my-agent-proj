@@ -226,5 +226,5 @@ try {
     await sessionManager.deleteSession(sessionId);
   }
 
-  await database.end({ timeout: 1 });
+  await database.$client.end({ timeout: 1 });
 }

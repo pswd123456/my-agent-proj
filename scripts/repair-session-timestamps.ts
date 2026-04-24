@@ -2,25 +2,15 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { asc, eq, sql } from "drizzle-orm";
+
 import type { TraceRecord } from "../packages/agent/src/trace.js";
 import {
   createPostgresDatabase,
-  resolveDatabaseUrl
-} from "../packages/db/src/client.js";
-
-interface SessionRow {
-  id: string;
-}
-
-interface SessionMessageRow {
-  id: string;
-  session_id: string;
-  message_index: number;
-  role: string;
-  content: string | null;
-  tool_call_id: string | null;
-  created_at: string | Date;
-}
+  resolveDatabaseUrl,
+  sessionMessages,
+  agentSessions
+} from "../packages/db/src/index.js";
 
 const MIN_REPAIR_DELTA_MS = 60_000;
 const REPAIR_GRANULARITY_MS = 60 * 60 * 1000;
@@ -62,7 +52,15 @@ async function readTraceRecords(
 }
 
 function resolveRepairDeltaMs(
-  messages: SessionMessageRow[],
+  messages: Array<{
+    id: string;
+    sessionId: string;
+    messageIndex: number;
+    role: string;
+    content: string | null;
+    toolCallId: string | null;
+    createdAt: string | Date;
+  }>,
   traceRecords: TraceRecord[]
 ): number | null {
   const traceToolCallTimes = new Map<string, number>();
@@ -70,7 +68,10 @@ function resolveRepairDeltaMs(
 
   for (const record of traceRecords) {
     if (record.event.kind === "tool_call") {
-      traceToolCallTimes.set(record.event.toolCallId, toMilliseconds(record.createdAt));
+      traceToolCallTimes.set(
+        record.event.toolCallId,
+        toMilliseconds(record.createdAt)
+      );
       continue;
     }
 
@@ -85,22 +86,22 @@ function resolveRepairDeltaMs(
   const deltaCandidates: number[] = [];
 
   for (const message of messages) {
-    if (!message.tool_call_id) {
+    if (!message.toolCallId) {
       continue;
     }
 
     if (message.role === "tool_call") {
-      const traceTime = traceToolCallTimes.get(message.tool_call_id);
+      const traceTime = traceToolCallTimes.get(message.toolCallId);
       if (typeof traceTime === "number") {
-        deltaCandidates.push(traceTime - toMilliseconds(message.created_at));
+        deltaCandidates.push(traceTime - toMilliseconds(message.createdAt));
       }
       continue;
     }
 
     if (message.role === "tool_result") {
-      const traceTime = traceToolResultTimes.get(message.tool_call_id);
+      const traceTime = traceToolResultTimes.get(message.toolCallId);
       if (typeof traceTime === "number") {
-        deltaCandidates.push(traceTime - toMilliseconds(message.created_at));
+        deltaCandidates.push(traceTime - toMilliseconds(message.createdAt));
       }
     }
   }
@@ -129,7 +130,7 @@ function resolveRepairDeltaMs(
       usedEventIndexes.add(eventIndex);
       deltaCandidates.push(
         toMilliseconds(assistantEvents[eventIndex].createdAt) -
-          toMilliseconds(message.created_at)
+          toMilliseconds(message.createdAt)
       );
     }
   }
@@ -167,11 +168,10 @@ async function main(): Promise<void> {
   const database = createPostgresDatabase(databaseUrl);
 
   try {
-    const sessions = await database<SessionRow[]>`
-      select id
-      from agent_sessions
-      order by id asc
-    `;
+    const sessions = await database
+      .select({ id: agentSessions.id })
+      .from(agentSessions)
+      .orderBy(asc(agentSessions.id));
 
     const repairedSessions: Array<{ sessionId: string; deltaHours: number }> =
       [];
@@ -182,12 +182,19 @@ async function main(): Promise<void> {
         continue;
       }
 
-      const messages = await database<SessionMessageRow[]>`
-        select id, session_id, message_index, role, content, tool_call_id, created_at
-        from session_messages
-        where session_id = ${session.id}
-        order by message_index asc
-      `;
+      const messages = await database
+        .select({
+          id: sessionMessages.id,
+          sessionId: sessionMessages.sessionId,
+          messageIndex: sessionMessages.messageIndex,
+          role: sessionMessages.role,
+          content: sessionMessages.content,
+          toolCallId: sessionMessages.toolCallId,
+          createdAt: sessionMessages.createdAt
+        })
+        .from(sessionMessages)
+        .where(eq(sessionMessages.sessionId, session.id))
+        .orderBy(asc(sessionMessages.messageIndex));
       const deltaMs = resolveRepairDeltaMs(messages, traceRecords);
 
       if (deltaMs === null) {
@@ -203,37 +210,39 @@ async function main(): Promise<void> {
         continue;
       }
 
-      await database.begin(async (sql) => {
-        await sql`
-          update session_messages
-          set created_at = created_at + (${deltaMs} * interval '1 millisecond')
-          where session_id = ${session.id}
-        `;
+      await database.transaction(async (tx) => {
+        await tx
+          .update(sessionMessages)
+          .set({
+            createdAt: sql`${sessionMessages.createdAt} + (${deltaMs} * interval '1 millisecond')`
+          })
+          .where(eq(sessionMessages.sessionId, session.id));
 
-        await sql`
-          update agent_sessions
-          set
-            created_at = created_at + (${deltaMs} * interval '1 millisecond'),
-            updated_at = updated_at + (${deltaMs} * interval '1 millisecond'),
-            active_run_started_at = case
-              when active_run_started_at is null then null
-              else active_run_started_at + (${deltaMs} * interval '1 millisecond')
-            end
-          where id = ${session.id}
-        `;
+        await tx
+          .update(agentSessions)
+          .set({
+            createdAt: sql`${agentSessions.createdAt} + (${deltaMs} * interval '1 millisecond')`,
+            updatedAt: sql`${agentSessions.updatedAt} + (${deltaMs} * interval '1 millisecond')`,
+            activeRunStartedAt: sql`case
+              when ${agentSessions.activeRunStartedAt} is null then null
+              else ${agentSessions.activeRunStartedAt} + (${deltaMs} * interval '1 millisecond')
+            end`
+          })
+          .where(eq(agentSessions.id, session.id));
 
-        await sql`
-          update agent_sessions as sessions
-          set updated_at = coalesce(
-            (
-              select max(messages.created_at)
-              from session_messages as messages
-              where messages.session_id = sessions.id
-            ),
-            sessions.updated_at
-          )
-          where sessions.id = ${session.id}
-        `;
+        await tx
+          .update(agentSessions)
+          .set({
+            updatedAt: sql`coalesce(
+              (
+                select max(${sessionMessages.createdAt})
+                from ${sessionMessages}
+                where ${sessionMessages.sessionId} = ${agentSessions.id}
+              ),
+              ${agentSessions.updatedAt}
+            )`
+          })
+          .where(eq(agentSessions.id, session.id));
       });
     }
 
@@ -253,7 +262,7 @@ async function main(): Promise<void> {
       );
     }
   } finally {
-    await database.end({ timeout: 1 });
+    await database.$client.end({ timeout: 1 });
   }
 }
 

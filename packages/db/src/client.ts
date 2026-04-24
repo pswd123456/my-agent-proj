@@ -1,9 +1,15 @@
-import postgres from "postgres";
-import type { Sql } from "postgres";
+import postgres, { type Sql } from "postgres";
+
+import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
+
+import { productSchema, type ProductSchema } from "./schema.js";
 
 export const DATABASE_URL_ENV = "DATABASE_URL";
 
-export type ProductDatabaseClient = Sql<Record<string, unknown>>;
+export type ProductDatabaseConnection = Sql<Record<string, unknown>>;
+export type ProductDatabaseClient = PostgresJsDatabase<ProductSchema> & {
+  $client: ProductDatabaseConnection;
+};
 
 export function resolveDatabaseUrl(
   env: NodeJS.ProcessEnv = process.env
@@ -12,12 +18,19 @@ export function resolveDatabaseUrl(
   return databaseUrl ? databaseUrl : null;
 }
 
-export function createPostgresDatabase(
+export function createPostgresConnection(
   connectionString: string
-): ProductDatabaseClient {
+): ProductDatabaseConnection {
   return postgres(connectionString, {
     max: 5,
     idle_timeout: 5,
     prepare: false
-  }) as ProductDatabaseClient;
+  }) as ProductDatabaseConnection;
+}
+
+export function createPostgresDatabase(
+  connectionString: string
+): ProductDatabaseClient {
+  const client = createPostgresConnection(connectionString);
+  return drizzle(client, { schema: productSchema }) as ProductDatabaseClient;
 }

@@ -68,6 +68,7 @@
 - 文档与默认 prompt 应先按“通用个人助手 runtime”表述
 - `apps/api` 当前默认装配仍然挂着日程相关 repository 与 tools
 - 这意味着现阶段运行时仍然可以直接完成日程管理闭环
+- runtime 已经会基于 session 的 `workingDirectory` 扫描 `.agent/skills/`，并通过 `skills_loaded` trace 记录本轮实际发现的 skills
 - 后续如果要把 capability pack 做成真正的按需装配，再继续下沉 registry / prompt fragment / app wiring
 
 这个阶段先不强行把日程 tool schema 收成动态加载，是为了避免同时改动：

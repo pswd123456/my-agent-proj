@@ -86,6 +86,10 @@ export function getStateTone(
     return "text-[var(--app-status-success)]";
   }
 
+  if (loopState === "interrupted") {
+    return "text-[var(--app-status-warning)]";
+  }
+
   if (loopState === "failed") {
     return "text-[var(--app-status-danger)]";
   }
@@ -356,13 +360,19 @@ export function SessionWorkbenchSidebar({
             {sessions.map((session) => {
               const isActive = session.sessionId === selectedSessionId;
               const isDeleting = deletingSessionId === session.sessionId;
+              const stateLabel = session.interruptRequested
+                ? "stopping"
+                : session.loopState;
+              const stateToneClass = session.interruptRequested
+                ? "text-[var(--app-status-warning)]"
+                : getStateTone(session.loopState);
 
               if (collapsed) {
                 return (
                   <button
                     key={session.sessionId}
                     type="button"
-                    title={`${session.sessionId.slice(0, 8)} · ${session.loopState}`}
+                    title={`${session.sessionId.slice(0, 8)} · ${stateLabel}`}
                     aria-label={`切换到会话 ${session.sessionId.slice(0, 8)}`}
                     onClick={() => onSelectSession(session.sessionId)}
                     className={`grid h-14 w-full place-items-center rounded-[var(--app-radius-lg)] border text-center transition ${
@@ -370,9 +380,9 @@ export function SessionWorkbenchSidebar({
                         ? "border-[var(--app-border-accent)] bg-[var(--app-bg-elevated)] shadow-[inset_0_0_0_1px_var(--app-border-accent)]"
                         : "border-[var(--app-border-subtle)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_82%,transparent)] hover:border-[var(--app-border-strong)]"
                     }`}
-                  >
-                    <span
-                      className={`font-mono text-[0.7rem] uppercase ${getStateTone(session.loopState)}`}
+                    >
+                      <span
+                      className={`font-mono text-[0.7rem] uppercase ${stateToneClass}`}
                     >
                       {session.sessionId.slice(0, 4)}
                     </span>
@@ -399,9 +409,9 @@ export function SessionWorkbenchSidebar({
                         {session.sessionId.slice(0, 8)}
                       </div>
                       <div
-                        className={`mt-2 text-sm font-medium ${getStateTone(session.loopState)}`}
+                        className={`mt-2 text-sm font-medium ${stateToneClass}`}
                       >
-                        {session.loopState}
+                        {stateLabel}
                       </div>
                     </button>
                     <button
@@ -422,6 +432,11 @@ export function SessionWorkbenchSidebar({
                     <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[0.72rem] text-[var(--app-text-muted)]">
                       <span>{formatTimestamp(session.updatedAt)}</span>
                       <div className="flex flex-wrap items-center gap-2">
+                        {session.interruptRequested ? (
+                          <span className="text-[var(--app-status-warning)]">
+                            停止中
+                          </span>
+                        ) : null}
                         {session.pendingPermission ? (
                           <span className="text-[var(--app-status-warning)]">
                             等待 permission

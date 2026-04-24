@@ -29,12 +29,14 @@ function createToolExecutionContext(input: {
   routineRepository: RoutineRepository;
   sessionManager: SessionManager;
   tool: ReturnType<ToolRegistry["get"]>;
+  abortSignal?: AbortSignal;
   allowWorkspaceEscape?: boolean;
 }): ToolExecutionContext {
   return {
     sessionId: input.session.sessionId,
     userId: input.session.context.userId,
     workingDirectory: input.session.workingDirectory,
+    ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
     routineRepository: input.routineRepository,
     sessionManager: input.sessionManager,
     allowWorkspaceEscape:
@@ -72,6 +74,7 @@ export async function executeToolAction(input: {
   eventSink: RunEventSink | undefined;
   skipPermissionCheck?: boolean;
   skipAppendToolCall?: boolean;
+  abortSignal?: AbortSignal;
   allowWorkspaceEscape?: boolean;
 }): Promise<ExecuteToolActionResult> {
   let session = input.session;
@@ -198,6 +201,7 @@ export async function executeToolAction(input: {
     routineRepository: input.routineRepository,
     sessionManager: input.sessionManager,
     tool,
+    ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
     ...(typeof input.allowWorkspaceEscape === "boolean"
       ? { allowWorkspaceEscape: input.allowWorkspaceEscape }
       : {})

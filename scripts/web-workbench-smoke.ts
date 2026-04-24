@@ -30,7 +30,8 @@ const baseSession = {
     loopState: "running",
     turnCount: 1,
     lastError: null,
-    pendingToolCallIds: []
+    pendingToolCallIds: [],
+    interruptRequested: false
   },
   inputTokensCount: 12,
   promptCacheKey: "cache-a",

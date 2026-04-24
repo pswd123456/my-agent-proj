@@ -133,6 +133,7 @@ export class AgentRuntime {
     }
 
     const runId = randomUUID();
+    const interruptController = new AbortController();
     const acquiredSession = await this.options.sessionManager.acquireExecution(
       input.sessionId,
       {
@@ -146,8 +147,28 @@ export class AgentRuntime {
       throw new SessionExecutionInProgressError(input.sessionId);
     }
     session = acquiredSession;
+    let interruptWatcher: ReturnType<typeof setInterval> | null = null;
+    let interruptCheckInFlight = false;
 
     try {
+      interruptWatcher = setInterval(() => {
+        if (interruptCheckInFlight || interruptController.signal.aborted) {
+          return;
+        }
+
+        interruptCheckInFlight = true;
+        void this.options.sessionManager
+          .isInterruptRequested(input.sessionId, runId)
+          .then((requested) => {
+            if (requested) {
+              interruptController.abort();
+            }
+          })
+          .finally(() => {
+            interruptCheckInFlight = false;
+          });
+      }, 150);
+
       return await runSessionLoop({
         client: this.options.client,
         sessionManager: this.options.sessionManager,
@@ -157,6 +178,9 @@ export class AgentRuntime {
         promptBuilder: this.promptBuilder,
         session,
         message: input.message,
+        abortSignal: interruptController.signal,
+        isInterruptRequested: () =>
+          this.options.sessionManager.isInterruptRequested(input.sessionId, runId),
         ...(typeof input.permissionReply === "boolean"
           ? { permissionReply: input.permissionReply }
           : {}),
@@ -167,6 +191,10 @@ export class AgentRuntime {
         eventSink
       });
     } finally {
+      if (interruptWatcher) {
+        clearInterval(interruptWatcher);
+      }
+
       try {
         await this.options.sessionManager.releaseExecution(
           input.sessionId,
