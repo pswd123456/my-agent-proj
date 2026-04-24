@@ -168,6 +168,10 @@ export async function handlePendingPermissionReply(input: {
     status: "running",
     pendingPermissionRequest: null
   });
+  session = await input.sessionManager.setLoopState(
+    session.sessionId,
+    "waiting for tool result"
+  );
   if (approvalRules) {
     session = await input.sessionManager.updateContext(session.sessionId, {
       shellAllowPatterns: [
@@ -243,6 +247,7 @@ export async function handlePendingPermissionReply(input: {
     session.sessionId,
     []
   );
+  session = await input.sessionManager.setLoopState(session.sessionId, "running");
   return {
     kind: "approved",
     session,

@@ -42,6 +42,7 @@ export interface CreateSessionPayload {
   yoloMode?: boolean;
   contextWindow?: number;
   maxTurns?: number;
+  enabledCapabilityPacks?: string[];
 }
 
 export interface UpdateSessionSettingsPayload {
@@ -51,6 +52,7 @@ export interface UpdateSessionSettingsPayload {
   toolAllowList?: string[];
   toolAskList?: string[];
   toolDenyList?: string[];
+  enabledCapabilityPacks?: string[];
 }
 
 export interface UpdateUserSettingsPayload {
@@ -63,6 +65,7 @@ export interface UpdateUserSettingsPayload {
   toolAllowList?: string[];
   toolAskList?: string[];
   toolDenyList?: string[];
+  enabledCapabilityPacks?: string[];
 }
 
 export interface ListSessionRoutinesResult {

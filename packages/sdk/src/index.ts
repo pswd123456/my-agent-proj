@@ -8,7 +8,10 @@ export type {
   RoutineRecord,
   SessionSettingsRecord
 } from "@ai-app-template/domain";
-export { PERMISSION_TOOL_OPTIONS } from "@ai-app-template/domain";
+export {
+  CAPABILITY_PACK_OPTIONS,
+  PERMISSION_TOOL_OPTIONS
+} from "@ai-app-template/domain";
 
 export type {
   ApiClientConfig,

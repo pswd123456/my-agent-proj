@@ -1,46 +1,64 @@
 # 项目概览
 
-## 定位
+## 当前定位
 
-- 本仓库当前已经不是纯模板说明，而是一个围绕“通用个人助手 runtime”演进的 `TypeScript` 全栈 MVP
-- 当前默认主线优先面向工作区理解、文件操作、执行可观测性和后续可扩展的助手型能力
-- `日程管理` 是当前已经真实落地的第一个 capability pack，而不是整个仓库的永久默认身份
-- 整体协作仍然遵循“重后端、轻前端”：先把 runtime、session、tool、trace 和数据层边界做对，再补产品层体验
-- 当前代码中的 workspace 包名仍使用 `@ai-app-template/*` 前缀，这是现阶段的实现命名，不影响实际分层判断
+- 仓库主线是一个以 `TypeScript` + `Bun` 为主栈的通用个人助手 `agent runtime`
+- 当前优先服务工作区理解、文件操作、执行可观测性，以及后续 capability pack 扩展
+- `日程管理` 是已经落地的第一个 capability pack，不再代表整个仓库的默认产品身份
 
-## 当前主链路
+## 当前运行主链路
 
-- `apps/web` 提供当前的工作台式 Web UI，负责会话列表、对话输入、流式输出和 trace / prompt / tool 观察
-- `packages/sdk` 负责把 Web 对 API 的调用封装成稳定客户端
-- `apps/api` 是当前唯一权威入口，负责创建 session、触发执行、输出 SSE 流、暴露 trace，并暂时继续承载已落地的 routine 相关接口
-- `packages/agent` 提供实际的 agent runtime：prompt builder、模型适配、tool registry、session manager、skills loader、trace manager 和执行循环
-- `packages/db` 负责 PostgreSQL 连接、Drizzle schema/migrations、`SettingsRepository` 和 `RoutineRepository`
-- `packages/tokens`、`packages/ui-patterns` 和 `packages/ui` 负责共享视觉 token、页面骨架和基础 UI
-- `packages/domain` 负责日程、session context、session settings、权限规则、tool result 等纯领域结构和校验辅助
+- `apps/api` 是当前运行主入口，负责 session 生命周期、设置读取、runtime 装配、SSE 输出、trace 查询与恢复接口
+- `apps/web` 是当前唯一产品层前端，主要承载 workbench、会话可视化、trace 与调试观察
+- `packages/agent` 提供 runtime loop、prompt、provider 适配、session manager、tool registry、skills、trace 与 system log
+- `packages/db` 提供 PostgreSQL 访问、schema 初始化、settings repository、routine repository
+- `packages/domain` 提供 session settings、session context、权限规则和 routine 领域模型
+- `packages/sdk` 提供给 Web 使用的 API client、摘要转换与跨层类型
 
-## 当前运行模型
+## 当前默认行为
 
-- 真实 loop 入口在 [`packages/agent/src/runtime.ts`](/Users/boneda/gitrepo/my-agent-proj/packages/agent/src/runtime.ts)
-- API 在 [`apps/api/src/index.ts`](/Users/boneda/gitrepo/my-agent-proj/apps/api/src/index.ts) 中组装 runtime：模型 client、session manager、settings repository、当前已挂载的 routine repository、tool registry、trace manager 和 prompt builder
-- session 创建会先读取或创建用户 settings，再叠加显式覆盖，最后解析出 `workingDirectory`、`maxTurns` 和权限规则
-- runtime 会根据 `session.workingDirectory` 扫描 `.agent/skills/`，把合法 skill 的 `name` 和 `description` 注入本轮动态上下文，并通过 `skills_loaded` trace 记录本轮发现结果
-- session 主存储当前走 PostgreSQL；用户 settings 也走 PostgreSQL；数据库模式通过 Drizzle migrations 管理；trace 走 `tmp/agent-sessions/sessions/<sessionId>.trace.jsonl`
-- provider 侧当前通过 `Anthropic SDK` 访问 MiniMax 的 Anthropic-compatible 接口
-- 一次执行的核心闭环是：`user message -> runtime.run -> model response -> tool call/result -> next turn or final answer`
+- session 默认工作目录是仓库根下的 `agent-workspace/`
+- session 默认 `contextWindow` 是 `200000`
+- session 默认 `maxTurns` 是 `50`，接口允许的上限是 `200`
+- 默认启用的 capability packs 是 `workspace` 和 `schedule`
+- 用户级 settings 已持久化到 `agent_settings`，当前包含：
+  - `workingDirectory`
+  - `yoloMode`
+  - `contextWindow`
+  - `maxTurns`
+  - `shellAllowPatterns` / `shellDenyPatterns`
+  - `toolAllowList` / `toolAskList` / `toolDenyList`
+  - `enabledCapabilityPacks`
 
-## 当前交付范围
+## API 现状
 
-- `Web MVP` 已经落地，重点是可观测的调试工作台，而不是最终消费级 UI
-- `API + agent runtime + PostgreSQL` 是当前最稳定、最应优先维护的主链路
-- 当前 runtime 主线应按“通用个人助手底座”理解，而不是直接等同于某个单一日程产品
-- 日程管理闭环仍然是当前仓库里最完整的一组已落地业务能力
-- 当前 session 默认工作目录仍是 repo 根下的 `agent-workspace/`，可在用户 settings 或创建 session 时覆盖
-- 当前没有独立 `worker` 进程；若本地还能看到 `apps/worker/` 目录，那只是残留构建产物，不应作为现状架构理解
-- 后续若扩展到 iOS、小程序或桌面端，应优先复用 `sdk`、领域模型和 runtime 能力，而不是复制 UI 逻辑
+当前 API 不只是 session create/execute：
 
-## 当前文档应该回答什么
+- `GET /health`
+- `GET/POST /sessions`
+- `GET/PATCH/DELETE /sessions/:sessionId`
+- `POST /sessions/:sessionId/execute`
+- `POST /sessions/:sessionId/execute/stream`
+- `POST /sessions/:sessionId/interrupt`
+- `POST /sessions/:sessionId/snapshot`
+- `POST /sessions/:sessionId/recover`
+- `GET /sessions/:sessionId/trace`
+- `GET /system-logs`
+- `GET/PATCH /users/:userId/settings`
+- `GET /sessions/:sessionId/routines`
+- `POST /sessions/:sessionId/routines/reset`
 
-- 如果你想知道“系统现在到底怎么跑”，先看 [架构图](./diagram.md)
-- 如果你想知道“仓库主线和专项能力怎么分”，看 [主线与能力包](./capability-packs.md)
-- 如果你想知道“哪些技术已经真的落地，哪些还只是模板遗留或预留”，看 [技术栈选择](./tech-stack.md)
-- 如果你想知道“新能力该放在哪一层”，看 [工作目录与模块分层](./workspace-structure.md)
+文档描述这些接口时，应优先以 `apps/api/src/app.ts` 当前实现为准。
+
+## 关于 `apps/worker`
+
+- 当前仓库里存在 `apps/worker/` 目录和残留构建产物
+- 但它没有 `package.json`，也不在根工作区脚本的实际启动链路中
+- 因此它应被视为历史残留或未启用目录，而不是当前运行架构的一部分
+
+## 推荐阅读顺序
+
+- 想先建立全局认知：读 `docs/architecture/diagram.md`
+- 想判断主线与专项能力边界：读 `docs/architecture/capability-packs.md`
+- 想确认目录职责和模块归属：读 `docs/architecture/workspace-structure.md`
+- 想确认技术事实而不是计划：读 `docs/architecture/tech-stack.md`

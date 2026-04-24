@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 
-import type { AnthropicMessage, AnthropicToolDefinition } from "./model.js";
+import type {
+  AnthropicMessage,
+  AnthropicToolChoice,
+  AnthropicToolDefinition
+} from "./model.js";
 import type {
   ConversationBlock,
   JsonValue,
@@ -9,6 +13,8 @@ import type {
 } from "./types.js";
 import type { SkillDescriptor } from "./skills/index.js";
 import type { ToolRegistry } from "./tools/registry.js";
+import { normalizeCapabilityPacks } from "@ai-app-template/domain";
+import { estimatePromptTokens } from "./runtime/token-budget.js";
 
 export interface PromptEnvelope {
   system: string;
@@ -21,6 +27,7 @@ export interface PromptEnvelope {
 
 export interface PromptBuilderOptions {
   systemPrompt?: string;
+  toolChoice?: AnthropicToolChoice;
 }
 
 export interface PromptRuntimeContext {
@@ -35,6 +42,8 @@ const DEFAULT_SYSTEM_PROMPT = [
   "Prefer inspecting the current workspace or persisted state before taking actions that depend on existing context.",
   "When a capability is not exposed in the current tool list, say so briefly instead of inventing hidden tools.",
   "When a tool returns INVALID_TOOL_INPUT or other validation errors, correct the tool call instead of repeating the same mistake.",
+  "Before taking an action, briefly state your immediate intent in one short sentence so the user can follow what you are about to do.",
+  "Keep pre-action intent text concrete and short; do not restate the whole task or write long plans unless the user asks for them.",
   "When the session contains a pending confirmation payload and the user answers yes/no or revises the time, treat it as a response to that pending confirmation.",
   "Some file writes, deletes, moves, shell commands, and network requests may trigger a permission pause before execution.",
   "When YOLO mode is enabled in the runtime context, destructive workspace-file operations may run without a permission pause, but shell/network approvals still require confirmation unless this session already granted them.",
@@ -48,25 +57,12 @@ const EPHEMERAL_CACHE_CONTROL = {
   type: "ephemeral"
 } as const;
 
-const SCHEDULE_READ_TOOL_NAMES = [
-  "list_routine_by_date",
-  "list_routine_by_week",
-  "search_routine_by_oclock"
-] as const;
-
-const SCHEDULE_WRITE_TOOL_NAMES = [
-  "create_routine",
-  "edit_routine",
-  "delete_routine"
-] as const;
+const HISTORY_COMPACTION_TRIGGER_RATIO = 0.6;
+const HISTORY_COMPACTION_TAIL_MESSAGES = 18;
+const COMPACTED_TEXT_LIMIT = 1_200;
 
 function toolSummary(tools: AnthropicToolDefinition[]): string {
-  return tools
-    .map(
-      (tool) =>
-        `- ${tool.name}: ${tool.description}\n  schema: ${JSON.stringify(tool.input_schema)}`
-    )
-    .join("\n");
+  return tools.map((tool) => tool.name).join(", ");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -77,6 +73,9 @@ function createPrefixMessage(
   session: SessionSnapshot,
   tools: AnthropicToolDefinition[]
 ): AnthropicMessage {
+  const enabledCapabilityPacks = normalizeCapabilityPacks(
+    session.context.enabledCapabilityPacks
+  );
   return {
     role: "user",
     content: [
@@ -87,62 +86,72 @@ function createPrefixMessage(
           `Workspace root: ${session.workingDirectory}`,
           `Current date context: ${session.context.currentDateContext}`,
           `YOLO mode: ${session.context.yoloMode ? "enabled" : "disabled"}`,
-          "Mounted tool surface: unified flat registry",
-          "Available tools:",
-          toolSummary(tools)
+          `Enabled capability packs: ${enabledCapabilityPacks.join(", ") || "none"}`,
+          `Mounted tools: ${toolSummary(tools) || "none"}`
         ].join("\n")
       }
     ]
   };
 }
 
+function truncateText(text: string, maxCharacters: number): string {
+  if (text.length <= maxCharacters) {
+    return text;
+  }
+
+  return `${text.slice(0, maxCharacters)}\n...[truncated ${text.length - maxCharacters} chars]`;
+}
+
+function summarizeCompactedBlock(block: ConversationBlock): string {
+  if (block.kind === "user") {
+    return `user: ${truncateText(block.content, 320)}`;
+  }
+
+  if (block.kind === "assistant") {
+    return `assistant: ${truncateText(block.content, 420)}`;
+  }
+
+  if (block.kind === "tool call") {
+    return `tool call: ${block.toolName} ${truncateText(JSON.stringify(block.input), 320)}`;
+  }
+
+  return `tool result: ${block.toolName} ${block.isError ? "failed" : "succeeded"}; ${truncateText(block.output, 520)}`;
+}
+
+function compactHistoryBlocks(blocks: ConversationBlock[]): ConversationBlock[] {
+  if (blocks.length <= HISTORY_COMPACTION_TAIL_MESSAGES) {
+    return blocks;
+  }
+
+  const tailCandidateStart = Math.max(
+    0,
+    blocks.length - HISTORY_COMPACTION_TAIL_MESSAGES
+  );
+  const tailStart = blocks.findIndex(
+    (block, index) => index >= tailCandidateStart && block.kind === "user"
+  );
+  const effectiveTailStart = tailStart === -1 ? tailCandidateStart : tailStart;
+  const compacted = blocks.slice(0, effectiveTailStart);
+  const tail = blocks.slice(effectiveTailStart);
+  const summary = compacted.map(summarizeCompactedBlock).join("\n");
+
+  return [
+    {
+      id: "history-compaction-summary",
+      kind: "user",
+      content: [
+        `[History compacted: ${compacted.length} older blocks summarized to reduce context.]`,
+        truncateText(summary, COMPACTED_TEXT_LIMIT)
+      ].join("\n"),
+      createdAt: new Date(0).toISOString()
+    },
+    ...tail
+  ];
+}
+
 function createDomainInstructions(tools: AnthropicToolDefinition[]): string[] {
-  const toolNames = new Set(tools.map((tool) => tool.name));
-  const availableReadTools = SCHEDULE_READ_TOOL_NAMES.filter((toolName) =>
-    toolNames.has(toolName)
-  );
-  const availableWriteTools = SCHEDULE_WRITE_TOOL_NAMES.filter((toolName) =>
-    toolNames.has(toolName)
-  );
-  const instructions: string[] = [];
-
-  if (availableReadTools.length > 0) {
-    instructions.push(
-      `If you need to inspect existing routines before writing, call ${availableReadTools.join(", ")} first.`
-    );
-  }
-
-  if (availableWriteTools.length > 0) {
-    instructions.push(
-      `You may call ${availableWriteTools.join(", ")} directly only when the requested change is safe and conflict-free.`
-    );
-  }
-
-  if (
-    toolNames.has("create_routine") &&
-    toolNames.has("ask_for_confirmation")
-  ) {
-    instructions.push(
-      "If a new routine would overlap an existing one, do not call ask_for_confirmation or overwrite anything; surface the overlap as an error."
-    );
-  }
-
-  if (toolNames.has("ask_for_confirmation")) {
-    instructions.push(
-      "Use ask_for_confirmation only for overwrite-risk edits, ambiguous delete targets, or other high-risk inference that does not create an overlapping routine."
-    );
-  }
-
-  if (availableReadTools.length > 0 || availableWriteTools.length > 0) {
-    instructions.unshift(
-      "Routine-management tools are currently mounted as one capability pack in this runtime."
-    );
-    instructions.push(
-      "When the user expresses times ambiguously, default the date context to the provided current_date_context when no date is named, default duration to 60 minutes when only a start time is given, and use fixed constraints before placing flexible tasks."
-    );
-  }
-
-  return instructions;
+  void tools;
+  return [];
 }
 
 function createRuntimeContextMessage(
@@ -214,28 +223,6 @@ function createTextContent(text: string): AnthropicMessage["content"][number] {
   };
 }
 
-function createToolUseContent(
-  block: Extract<ConversationBlock, { kind: "tool call" }>
-): AnthropicMessage["content"][number] {
-  return {
-    type: "tool_use",
-    id: block.toolCallId,
-    name: block.toolName,
-    input: block.input
-  };
-}
-
-function createToolResultContent(
-  block: Extract<ConversationBlock, { kind: "tool result" }>
-): AnthropicMessage["content"][number] {
-  return {
-    type: "tool_result",
-    tool_use_id: block.toolCallId,
-    content: block.output,
-    is_error: block.isError
-  };
-}
-
 export function toAnthropicMessages(
   blocks: ConversationBlock[]
 ): AnthropicMessage[] {
@@ -278,11 +265,31 @@ export function toAnthropicMessages(
     }
 
     if (block.kind === "tool call") {
-      append("assistant", createToolUseContent(block));
+      append("assistant", {
+        type: "tool_use",
+        id: block.toolCallId,
+        name: block.toolName,
+        input: block.input
+      });
       continue;
     }
 
-    append("user", createToolResultContent(block));
+    if (block.kind === "tool result") {
+      flush();
+      messages.push(
+        createAnthropicMessage("user", [
+          {
+            type: "tool_result",
+            tool_use_id: block.toolCallId,
+            content: block.output,
+            is_error: block.isError
+          }
+        ])
+      );
+      continue;
+    }
+
+    continue;
   }
 
   flush();
@@ -290,7 +297,10 @@ export function toAnthropicMessages(
 }
 
 export class PromptBuilder {
-  constructor(private readonly systemPrompt = DEFAULT_SYSTEM_PROMPT) {}
+  constructor(
+    private readonly systemPrompt = DEFAULT_SYSTEM_PROMPT,
+    private readonly toolChoice?: AnthropicToolChoice
+  ) {}
 
   build(
     session: SessionSnapshot,
@@ -306,12 +316,28 @@ export class PromptBuilder {
       .filter((section) => section.length > 0)
       .join("\n");
     const prefixMessage = createPrefixMessage(session, tools);
-    const messages = toAnthropicMessages(session.messages);
+    const baseMessages = toAnthropicMessages(session.messages);
     const runtimeContextMessage = createRuntimeContextMessage(
       session,
       runtimeContext
     );
     const skillsContextMessage = createSkillsContextMessage(skills);
+    const shouldCompactHistory =
+      estimatePromptTokens(
+        {
+          system,
+          prefixMessages: [prefixMessage],
+          messages: baseMessages,
+          runtimeContextMessages: [runtimeContextMessage, skillsContextMessage],
+          tools,
+          cacheKey: ""
+        },
+        this.toolChoice
+      ) >
+      Math.floor(session.contextWindow * HISTORY_COMPACTION_TRIGGER_RATIO);
+    const messages = shouldCompactHistory
+      ? toAnthropicMessages(compactHistoryBlocks(session.messages))
+      : baseMessages;
     const cacheKey = createHash("sha256")
       .update(system)
       .update("\n")
@@ -334,7 +360,7 @@ export class PromptBuilder {
 export function createPromptBuilder(
   options: PromptBuilderOptions = {}
 ): PromptBuilder {
-  return new PromptBuilder(options.systemPrompt);
+  return new PromptBuilder(options.systemPrompt, options.toolChoice);
 }
 
 function pad(value: number): string {

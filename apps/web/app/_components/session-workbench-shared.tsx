@@ -2,7 +2,11 @@
 
 import type { SessionSnapshot, SessionSummary } from "@ai-app-template/sdk";
 
-import { parseDateString } from "./session-workbench-state";
+import {
+  getSessionDisplayState,
+  parseDateString,
+  type SessionDisplayState
+} from "./session-workbench-state";
 import { sidebarPanels, type SidebarPanelId } from "./session-workbench-types";
 
 interface CreateSessionDialogProps {
@@ -56,6 +60,75 @@ export function stringify(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
+export interface PromptMessageSection {
+  turnCount: number;
+  createdAt: string;
+  summary: string;
+  mode: "full" | "diff";
+  fullText: string;
+  addedText: string;
+  removedText: string;
+}
+
+function normalizeMessageLines(value: unknown): string[] {
+  const text = JSON.stringify(value, null, 2) ?? "";
+  return text.split("\n");
+}
+
+function formatDeltaLines(lines: string[], prefix: "+" | "-"): string {
+  if (!lines.length) {
+    return "(none)";
+  }
+
+  return lines.map((line) => `${prefix} ${line}`).join("\n");
+}
+
+export function buildPromptMessageSections(
+  promptEvents: Array<
+    Extract<import("@ai-app-template/sdk").RunStreamEvent, { kind: "prompt" }>
+  >
+): PromptMessageSection[] {
+  let previousSerialized: string[] | null = null;
+
+  return promptEvents.map((event) => {
+    const currentSerialized = normalizeMessageLines({
+      prefixMessages: event.prefixMessages,
+      messages: event.messages,
+      runtimeContextMessages: event.runtimeContextMessages
+    });
+
+    if (!previousSerialized) {
+      previousSerialized = currentSerialized;
+      return {
+        turnCount: event.turnCount,
+        createdAt: event.createdAt,
+        summary: `完整上下文 · ${currentSerialized.length} lines`,
+        mode: "full",
+        fullText: currentSerialized.join("\n"),
+        addedText: "",
+        removedText: ""
+      };
+    }
+
+    const previousSet = new Set(previousSerialized);
+    const currentSet = new Set(currentSerialized);
+    const added = currentSerialized.filter((line) => !previousSet.has(line));
+    const removed = previousSerialized.filter((line) => !currentSet.has(line));
+
+    previousSerialized = currentSerialized;
+
+    return {
+      turnCount: event.turnCount,
+      createdAt: event.createdAt,
+      summary: `增量视图 · +${added.length} / -${removed.length}`,
+      mode: "diff",
+      fullText: currentSerialized.join("\n"),
+      addedText: formatDeltaLines(added, "+"),
+      removedText: formatDeltaLines(removed, "-")
+    };
+  });
+}
+
 export function formatTokenCount(value: number): string {
   return Math.max(0, value).toLocaleString("zh-CN");
 }
@@ -99,6 +172,23 @@ export function getStateTone(
   }
 
   return "text-[var(--app-text-secondary)]";
+}
+
+export function getDisplayStateToneClass(
+  tone: SessionDisplayState["tone"]
+): string {
+  switch (tone) {
+    case "active":
+      return "text-[var(--app-border-accent)]";
+    case "success":
+      return "text-[var(--app-status-success)]";
+    case "warning":
+      return "text-[var(--app-status-warning)]";
+    case "danger":
+      return "text-[var(--app-status-danger)]";
+    case "neutral":
+      return "text-[var(--app-text-secondary)]";
+  }
 }
 
 export function getPermissionFamilyLabel(family: string): string {
@@ -360,19 +450,17 @@ export function SessionWorkbenchSidebar({
             {sessions.map((session) => {
               const isActive = session.sessionId === selectedSessionId;
               const isDeleting = deletingSessionId === session.sessionId;
-              const stateLabel = session.interruptRequested
-                ? "stopping"
-                : session.loopState;
-              const stateToneClass = session.interruptRequested
-                ? "text-[var(--app-status-warning)]"
-                : getStateTone(session.loopState);
+              const displayState = getSessionDisplayState(session);
+              const stateToneClass = getDisplayStateToneClass(
+                displayState.tone
+              );
 
               if (collapsed) {
                 return (
                   <button
                     key={session.sessionId}
                     type="button"
-                    title={`${session.sessionId.slice(0, 8)} · ${stateLabel}`}
+                    title={`${session.sessionId.slice(0, 8)} · ${displayState.label}`}
                     aria-label={`切换到会话 ${session.sessionId.slice(0, 8)}`}
                     onClick={() => onSelectSession(session.sessionId)}
                     className={`grid h-14 w-full place-items-center rounded-[var(--app-radius-lg)] border text-center transition ${
@@ -380,8 +468,8 @@ export function SessionWorkbenchSidebar({
                         ? "border-[var(--app-border-accent)] bg-[var(--app-bg-elevated)] shadow-[inset_0_0_0_1px_var(--app-border-accent)]"
                         : "border-[var(--app-border-subtle)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_82%,transparent)] hover:border-[var(--app-border-strong)]"
                     }`}
-                    >
-                      <span
+                  >
+                    <span
                       className={`font-mono text-[0.7rem] uppercase ${stateToneClass}`}
                     >
                       {session.sessionId.slice(0, 4)}
@@ -410,8 +498,9 @@ export function SessionWorkbenchSidebar({
                       </div>
                       <div
                         className={`mt-2 text-sm font-medium ${stateToneClass}`}
+                        title={displayState.detail}
                       >
-                        {stateLabel}
+                        {displayState.label}
                       </div>
                     </button>
                     <button
@@ -432,19 +521,14 @@ export function SessionWorkbenchSidebar({
                     <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[0.72rem] text-[var(--app-text-muted)]">
                       <span>{formatTimestamp(session.updatedAt)}</span>
                       <div className="flex flex-wrap items-center gap-2">
-                        {session.interruptRequested ? (
-                          <span className="text-[var(--app-status-warning)]">
-                            停止中
-                          </span>
-                        ) : null}
                         {session.pendingPermission ? (
                           <span className="text-[var(--app-status-warning)]">
-                            等待 permission
+                            权限
                           </span>
                         ) : null}
                         {session.pendingConfirmation ? (
                           <span className="text-[var(--app-status-warning)]">
-                            等待确认
+                            冲突确认
                           </span>
                         ) : null}
                         {session.yoloMode ? (

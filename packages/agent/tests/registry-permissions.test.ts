@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { ToolRegistry, createWorkspaceToolRegistry } from "../src/tools/registry.js";
+import {
+  ToolRegistry,
+  createWorkspaceToolRegistry
+} from "../src/tools/registry.js";
 import type { RuntimeTool } from "../src/tools/runtime-tool.js";
 
 describe("ToolRegistry stage4 metadata contract", () => {
@@ -13,6 +16,7 @@ describe("ToolRegistry stage4 metadata contract", () => {
       "copy_path",
       "create_directory",
       "delete_path",
+      "edit_file",
       "list_directory",
       "make_http_request",
       "move_path",
@@ -45,8 +49,8 @@ describe("ToolRegistry stage4 metadata contract", () => {
       }
     } satisfies Omit<RuntimeTool, "getPermissionRequest">;
 
-    expect(() =>
-      registry.register(badTool as RuntimeTool)
-    ).toThrow(/getPermissionRequest/);
+    expect(() => registry.register(badTool as RuntimeTool)).toThrow(
+      /getPermissionRequest/
+    );
   });
 });

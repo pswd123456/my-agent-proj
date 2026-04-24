@@ -5,6 +5,7 @@ import type {
   SessionSettingsRecord
 } from "@ai-app-template/domain";
 import {
+  normalizeCapabilityPacks,
   normalizePermissionRuleLists,
   resolveSessionSettingsDefaults,
   sanitizeContextWindow,
@@ -30,12 +31,15 @@ function toIsoString(value: string): string {
   const hasExplicitTimeZone =
     normalized.endsWith("Z") || /[+-]\d{2}:\d{2}$/.test(normalized) || tzMatch;
   const parsedValue = tzMatch
-    ? normalized.replace(/([+-]\d{2})(\d{2})?$/, (_, hours: string, minutes?: string) =>
-        `${hours}:${minutes ?? "00"}`
+    ? normalized.replace(
+        /([+-]\d{2})(\d{2})?$/,
+        (_, hours: string, minutes?: string) => `${hours}:${minutes ?? "00"}`
       )
     : normalized;
 
-  return new Date(hasExplicitTimeZone ? parsedValue : `${normalized}Z`).toISOString();
+  return new Date(
+    hasExplicitTimeZone ? parsedValue : `${normalized}Z`
+  ).toISOString();
 }
 
 function parseJsonValue(value: unknown): unknown {
@@ -79,6 +83,9 @@ export function mapSettingsRow(row: SettingsRow): SessionSettingsRecord {
     toolAllowList: permissionRules.toolAllowList,
     toolAskList: permissionRules.toolAskList,
     toolDenyList: permissionRules.toolDenyList,
+    enabledCapabilityPacks: normalizeCapabilityPacks(
+      toStringArray(row.enabledCapabilityPacks)
+    ),
     createdAt: toIsoString(row.createdAt),
     updatedAt: toIsoString(row.updatedAt)
   };
@@ -89,8 +96,7 @@ function buildPatchedSettings(
   patch: SessionSettingsInput
 ): SessionSettingsRecord {
   const permissionRules = normalizePermissionRuleLists({
-    shellAllowPatterns:
-      patch.shellAllowPatterns ?? current.shellAllowPatterns,
+    shellAllowPatterns: patch.shellAllowPatterns ?? current.shellAllowPatterns,
     shellDenyPatterns: patch.shellDenyPatterns ?? current.shellDenyPatterns,
     toolAllowList: patch.toolAllowList ?? current.toolAllowList,
     toolAskList: patch.toolAskList ?? current.toolAskList,
@@ -119,6 +125,9 @@ function buildPatchedSettings(
     toolAllowList: permissionRules.toolAllowList,
     toolAskList: permissionRules.toolAskList,
     toolDenyList: permissionRules.toolDenyList,
+    enabledCapabilityPacks: Array.isArray(patch.enabledCapabilityPacks)
+      ? normalizeCapabilityPacks(patch.enabledCapabilityPacks)
+      : current.enabledCapabilityPacks,
     updatedAt: new Date().toISOString()
   };
 }
@@ -146,6 +155,7 @@ export class PostgresSettingsRepository implements SettingsRepository {
         toolAllowList: defaults.toolAllowList,
         toolAskList: defaults.toolAskList,
         toolDenyList: defaults.toolDenyList,
+        enabledCapabilityPacks: defaults.enabledCapabilityPacks,
         createdAt: defaults.createdAt,
         updatedAt: defaults.updatedAt
       })
@@ -180,6 +190,7 @@ export class PostgresSettingsRepository implements SettingsRepository {
         toolAllowList: next.toolAllowList,
         toolAskList: next.toolAskList,
         toolDenyList: next.toolDenyList,
+        enabledCapabilityPacks: next.enabledCapabilityPacks,
         createdAt: next.createdAt,
         updatedAt: next.updatedAt
       })
@@ -195,6 +206,7 @@ export class PostgresSettingsRepository implements SettingsRepository {
           toolAllowList: next.toolAllowList,
           toolAskList: next.toolAskList,
           toolDenyList: next.toolDenyList,
+          enabledCapabilityPacks: next.enabledCapabilityPacks,
           updatedAt: next.updatedAt
         }
       })

@@ -38,6 +38,7 @@ export class MemorySessionManager implements SessionManager {
       toolAllowList?: string[];
       toolAskList?: string[];
       toolDenyList?: string[];
+      enabledCapabilityPacks?: string[];
     } = {
       sessionId: randomUUID(),
       workingDirectory: resolveWorkingDirectory(input.workingDirectory),
@@ -70,6 +71,9 @@ export class MemorySessionManager implements SessionManager {
     }
     if (Array.isArray(input.toolDenyList)) {
       createSnapshotInput.toolDenyList = input.toolDenyList;
+    }
+    if (Array.isArray(input.enabledCapabilityPacks)) {
+      createSnapshotInput.enabledCapabilityPacks = input.enabledCapabilityPacks;
     }
 
     const snapshot = createSnapshot(createSnapshotInput);

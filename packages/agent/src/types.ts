@@ -89,6 +89,7 @@ export interface CreateSessionInput {
   toolAllowList?: string[];
   toolAskList?: string[];
   toolDenyList?: string[];
+  enabledCapabilityPacks?: string[];
 }
 
 export interface RunSessionInput {

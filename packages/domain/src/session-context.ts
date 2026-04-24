@@ -1,4 +1,5 @@
 import type { DomainJsonValue } from "./json.js";
+import type { CapabilityPackName } from "./session-settings.js";
 import type { PermissionRuleLists } from "./permission-rules.js";
 
 export type ScheduleSessionStatus =
@@ -61,6 +62,7 @@ export interface ScheduleSessionContext {
   toolAllowList: string[];
   toolAskList: string[];
   toolDenyList: string[];
+  enabledCapabilityPacks: CapabilityPackName[];
   pendingPermissionRequest: PendingPermissionRequest | null;
   pendingConfirmationPayload: PendingConfirmationPayload | null;
   pendingConflictSummary: string | null;

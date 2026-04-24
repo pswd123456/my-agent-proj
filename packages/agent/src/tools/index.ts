@@ -5,6 +5,7 @@ export * from "./create-routine.js";
 export * from "./delete-path.js";
 export * from "./delete-routine.js";
 export * from "./edit-routine.js";
+export * from "./edit-file.js";
 export * from "./list-routine-by-date.js";
 export * from "./list-routine-by-week.js";
 export * from "./list-directory.js";

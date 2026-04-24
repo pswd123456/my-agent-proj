@@ -5,7 +5,7 @@
 当前包含：
 
 - `apps/web`：Web workbench
-- `apps/api`：会话、执行、trace，以及当前已挂载的 routine 相关 API
+- `apps/api`：会话、执行、trace、system logs、settings，以及当前已挂载的 routine 相关 API
 - `packages/agent`：runtime、session、tools、trace
 - `packages/db`：PostgreSQL schema、Drizzle migrations 与持久化访问
 
@@ -106,10 +106,11 @@ curl http://localhost:3001/health
 最小 session 调试流程：
 
 1. `POST /sessions` 创建 session
-2. `POST /sessions/:sessionId/execute` 发起执行
-3. `POST /sessions/:sessionId/execute/stream` 查看流式事件
-4. `GET /sessions/:sessionId/trace` 读取 trace
-5. 或直接查看 `tmp/agent-sessions/sessions/<sessionId>.trace.jsonl`
+2. `POST /sessions/:sessionId/execute` 或 `POST /sessions/:sessionId/execute/stream` 发起执行
+3. `GET /sessions/:sessionId/trace` 读取 trace
+4. `GET /system-logs` 查看运行日志
+5. 必要时用 `POST /sessions/:sessionId/interrupt` 中断，或用 `POST /sessions/:sessionId/recover` 恢复快照
+6. 或直接查看 `tmp/agent-sessions/sessions/<sessionId>.trace.jsonl`
 
 这个仓库里，`thinking` 会写入 trace，但不会回灌到下一轮 `messages`。
 

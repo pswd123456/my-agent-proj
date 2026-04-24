@@ -172,7 +172,8 @@ function matchesConversationBlock(
 ): boolean {
   if (block.kind === "assistant" && event.kind === "assistant_text") {
     return (
-      block.id === event.assistantMessageId || block.content === event.text
+      block.id === event.assistantMessageId ||
+      block.content === (event.snapshot ?? event.text)
     );
   }
 
@@ -212,6 +213,14 @@ export function getTimelineEventKey(event: RunStreamEvent): string {
   }
 
   return `${event.kind}-${event.createdAt}`;
+}
+
+export function getTimelineEventRenderKey(event: RunStreamEvent): string {
+  if (event.kind === "assistant_text") {
+    return `${event.kind}-${event.assistantMessageId}-${event.createdAt}`;
+  }
+
+  return getTimelineEventKey(event);
 }
 
 export function buildTimelineItems(input: {

@@ -1,7 +1,11 @@
-import { PERMISSION_TOOL_OPTIONS } from "@ai-app-template/sdk";
+import {
+  CAPABILITY_PACK_OPTIONS,
+  PERMISSION_TOOL_OPTIONS
+} from "@ai-app-template/sdk";
 
 export const inspectorTabs = [
   { id: "prompt", label: "Prompt" },
+  { id: "messages", label: "Messages" },
   { id: "thinking", label: "Thinking" },
   { id: "tools", label: "Tools" },
   { id: "trace", label: "Trace" }
@@ -12,6 +16,10 @@ export const sidebarPanels = [
   { id: "calendar", label: "Calendar", title: "日历" },
   { id: "inspector", label: "Inspector", title: "调试详情" }
 ] as const;
+
+export function clearActiveSidebarPanel(): null {
+  return null;
+}
 
 export const DEFAULT_MAX_TURNS = 50;
 export const MAX_TURNS_LIMIT = 200;
@@ -36,6 +44,8 @@ export interface SettingsFormState {
   toolAllowList: string[];
   toolAskList: string[];
   toolDenyList: string[];
+  enabledCapabilityPacks: string[];
 }
 
 export const permissionToolOptions = PERMISSION_TOOL_OPTIONS;
+export const capabilityPackOptions = CAPABILITY_PACK_OPTIONS;

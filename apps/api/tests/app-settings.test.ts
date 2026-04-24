@@ -1,8 +1,15 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtemp } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
 import { SESSION_MAX_TURNS_LIMIT } from "@ai-app-template/domain";
 import type { SessionSnapshot } from "@ai-app-template/agent";
-import { createMemorySessionManager } from "@ai-app-template/agent";
+import {
+  FileSystemLogManager,
+  createLogger,
+  createMemorySessionManager
+} from "@ai-app-template/agent";
 import {
   createMemoryRoutineRepository,
   createMemorySettingsRepository
@@ -13,10 +20,16 @@ import { resolveApiWorkingDirectory } from "../src/working-directory.js";
 
 const workspaceRoot = "/Users/boneda/gitrepo/my-agent-proj";
 
-function createTestApp() {
+async function createTestApp() {
   const sessionManager = createMemorySessionManager();
   const routineRepository = createMemoryRoutineRepository();
   const settingsRepository = createMemorySettingsRepository();
+  const logDir = await mkdtemp(path.join(os.tmpdir(), "api-log-"));
+  const systemLogManager = new FileSystemLogManager(logDir, {
+    maxBytes: 4096,
+    maxFiles: 2
+  });
+  const apiLogger = createLogger({ manager: systemLogManager, component: "api" });
 
   return {
     app: createApiApp({
@@ -30,16 +43,20 @@ function createTestApp() {
         },
         async deleteEvents() {}
       },
+      systemLogManager,
+      apiLogger,
       buildWorkingDirectory(input) {
         return resolveApiWorkingDirectory(workspaceRoot, input);
       },
       defaultModel: "MiniMax-M2.7"
-    })
+    }),
+    sessionManager,
+    systemLogManager
   };
 }
 
 async function createSession(
-  app: ReturnType<typeof createTestApp>["app"],
+  app: Awaited<ReturnType<typeof createTestApp>>["app"],
   input: Record<string, unknown>
 ) {
   const response = await app.request("/sessions", {
@@ -55,7 +72,7 @@ async function createSession(
 
 describe("createApiApp settings bootstrap", () => {
   test("creates a new session from repo defaults when no user settings exist yet", async () => {
-    const { app } = createTestApp();
+    const { app } = await createTestApp();
 
     const session = await createSession(app, {
       userId: "stage5-default-user"
@@ -71,7 +88,7 @@ describe("createApiApp settings bootstrap", () => {
   });
 
   test("uses updated user settings for the next newly created session", async () => {
-    const { app } = createTestApp();
+    const { app } = await createTestApp();
 
     const updateResponse = await app.request(
       "/users/stage5-settings-user/settings",
@@ -102,7 +119,7 @@ describe("createApiApp settings bootstrap", () => {
   });
 
   test("syncs normalized permission rules onto the current session", async () => {
-    const { app } = createTestApp();
+    const { app } = await createTestApp();
 
     const session = await createSession(app, {
       userId: "stage5-permission-user"
@@ -131,7 +148,7 @@ describe("createApiApp settings bootstrap", () => {
   });
 
   test("clamps persisted max turns to the shared session limit", async () => {
-    const { app } = createTestApp();
+    const { app } = await createTestApp();
 
     const updateResponse = await app.request("/users/stage5-limit-user/settings", {
       method: "PATCH",
@@ -161,5 +178,46 @@ describe("createApiApp settings bootstrap", () => {
       session: SessionSnapshot;
     };
     expect(createPayload.session.maxTurns).toBe(SESSION_MAX_TURNS_LIMIT);
+  });
+
+  test("lists system logs with filters", async () => {
+    const { app, systemLogManager } = await createTestApp();
+    await systemLogManager.append({
+      timestamp: new Date().toISOString(),
+      level: "info",
+      component: "api",
+      event: "seeded",
+      sessionId: "session-x",
+      requestId: "req-1",
+      details: { ok: true }
+    });
+
+    const response = await app.request(
+      "/system-logs?sessionId=session-x&component=api&limit=10"
+    );
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload.records).toHaveLength(1);
+    expect(payload.records[0]?.event).toBe("seeded");
+  });
+
+  test("writes api log on create session", async () => {
+    const { app, systemLogManager } = await createTestApp();
+    await app.request("/sessions", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-request-id": "req-create"
+      },
+      body: JSON.stringify({ userId: "log-user" })
+    });
+
+    const payload = await systemLogManager.query({ component: "api", limit: 20 });
+    expect(
+      payload.records.some((record) => record.event === "session_created")
+    ).toBe(true);
+    expect(
+      payload.records.some((record) => record.requestId === "req-create")
+    ).toBe(true);
   });
 });

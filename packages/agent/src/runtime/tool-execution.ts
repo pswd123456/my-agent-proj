@@ -9,6 +9,7 @@ import type { ToolExecutionContext } from "../tools/runtime-tool.js";
 import { buildToolCallBlock, buildToolResultBlock } from "./blocks.js";
 import { checkToolPermission } from "./permission-checker.js";
 import { emitTraceEvent } from "./run-events.js";
+import { compactToolResultForContext } from "./tool-output-compaction.js";
 
 export type ExecuteToolActionResult =
   | {
@@ -40,7 +41,8 @@ function createToolExecutionContext(input: {
     routineRepository: input.routineRepository,
     sessionManager: input.sessionManager,
     allowWorkspaceEscape:
-      input.allowWorkspaceEscape ?? input.tool?.sandboxProfile === "workspace-rooted",
+      input.allowWorkspaceEscape ??
+      input.tool?.sandboxProfile === "workspace-rooted",
     permissionRules: {
       shellAllowPatterns: input.session.context.shellAllowPatterns ?? [],
       shellDenyPatterns: input.session.context.shellDenyPatterns ?? [],
@@ -304,13 +306,14 @@ export async function executeToolAction(input: {
     (validation.value ?? input.toolInput) as Record<string, JsonValue>,
     executionContext
   );
+  const compactedContent = compactToolResultForContext(result.content);
 
   session = await input.sessionManager.appendBlock(
     session.sessionId,
     buildToolResultBlock({
       id: input.toolCallId,
       name: input.toolName,
-      content: result.content,
+      content: compactedContent,
       isError: result.state === "failed"
     })
   );

@@ -20,3 +20,10 @@
 - 做 UI、一致性、tokens、组件策略、页面模板相关工作时，从 `docs/design-system/` 开始
 - 若某项约定已经沉淀为专题文档，后续应优先更新专题文档，而不是把补充内容继续加回入口页
 - `docs/plan/` 主要保留阶段规划和历史实现笔记，适合回看演进过程，不是当前架构的首选入口
+
+## 当前推荐事实源
+
+- API 路由、请求体和返回结构以 `apps/api/src/app.ts` 为准
+- session 默认值、capability pack 默认装配和 `maxTurns`/`contextWindow` 上限以 `packages/domain/src/session-settings.ts` 为准
+- runtime 实际装配方式以 `apps/api/src/index.ts` 为准
+- trace、权限流和工具执行边界以 `packages/agent/src/` 下对应实现为准

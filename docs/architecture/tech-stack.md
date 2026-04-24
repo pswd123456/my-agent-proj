@@ -39,9 +39,10 @@
 - prompt 拼装在 `packages/agent/src/prompt.ts`
 - provider 适配在 `packages/agent/src/model.ts`
 - session 抽象和 PostgreSQL / file / memory 实现在 `packages/agent/src/session/`
+- runtime 已落地 permission checker、interrupt、tool compaction 和 system log 边界
 - workspace skill discovery 在 `packages/agent/src/skills/`
 - tool registry 与具体工具在 `packages/agent/src/tools/`
-- trace 以 JSONL 追加写入 `tmp/agent-sessions/sessions/`
+- trace 以 JSONL 追加写入 `tmp/agent-sessions/sessions/`；system log 以结构化 JSONL 写入 `tmp/agent-sessions/logs/` 并按大小轮转
 
 ### 数据层
 
@@ -57,7 +58,6 @@
 ## 当前没有落地的模板项
 
 - `OpenAPI`：文档和类型权威源目前仍然是运行代码与 `packages/sdk`，不是生成式 OpenAPI
-- `Drizzle ORM`：当前数据库读写主体已切到 Drizzle，migrations 由 `drizzle-kit` / Drizzle migrator 管理
 - `LangGraph`：当前 runtime 主路径不是 LangGraph 编排，而是仓库内自定义 loop
 - `Better Auth`：当前仓库未看到已接入的鉴权主链路
 - `pg-boss` / 向量检索 / 多模型编排：目前都还不是运行主链路的一部分

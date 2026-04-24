@@ -1,15 +1,20 @@
 import { Hono } from "hono";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 import type {
   AgentRuntime,
+  JsonValue,
+  Logger,
   SessionManager,
   SessionSnapshot,
+  SystemLogManager,
   TraceManager
 } from "@ai-app-template/agent";
 import {
   DEFAULT_SESSION_SETTINGS_USER_ID,
   SESSION_MAX_TURNS_LIMIT,
+  normalizeCapabilityPacks,
   normalizePermissionRuleLists,
   sanitizeContextWindow,
   sanitizeSessionMaxTurns
@@ -25,7 +30,8 @@ const createSessionBodySchema = z.object({
   userId: z.string().optional(),
   yoloMode: z.boolean().optional(),
   contextWindow: z.number().int().min(1000).optional(),
-  maxTurns: z.number().int().min(1).optional()
+  maxTurns: z.number().int().min(1).optional(),
+  enabledCapabilityPacks: z.array(z.string()).optional()
 });
 
 const updateSessionSettingsBodySchema = z
@@ -35,7 +41,8 @@ const updateSessionSettingsBodySchema = z
     shellDenyPatterns: z.array(z.string()).optional(),
     toolAllowList: z.array(z.string()).optional(),
     toolAskList: z.array(z.string()).optional(),
-    toolDenyList: z.array(z.string()).optional()
+    toolDenyList: z.array(z.string()).optional(),
+    enabledCapabilityPacks: z.array(z.string()).optional()
   })
   .refine(
     (value) =>
@@ -44,7 +51,8 @@ const updateSessionSettingsBodySchema = z
       Array.isArray(value.shellDenyPatterns) ||
       Array.isArray(value.toolAllowList) ||
       Array.isArray(value.toolAskList) ||
-      Array.isArray(value.toolDenyList),
+      Array.isArray(value.toolDenyList) ||
+      Array.isArray(value.enabledCapabilityPacks),
     {
       message: "At least one session settings field is required."
     }
@@ -60,7 +68,8 @@ const updateUserSettingsBodySchema = z
     shellDenyPatterns: z.array(z.string()).optional(),
     toolAllowList: z.array(z.string()).optional(),
     toolAskList: z.array(z.string()).optional(),
-    toolDenyList: z.array(z.string()).optional()
+    toolDenyList: z.array(z.string()).optional(),
+    enabledCapabilityPacks: z.array(z.string()).optional()
   })
   .refine(
     (value) =>
@@ -72,7 +81,8 @@ const updateUserSettingsBodySchema = z
       Array.isArray(value.shellDenyPatterns) ||
       Array.isArray(value.toolAllowList) ||
       Array.isArray(value.toolAskList) ||
-      Array.isArray(value.toolDenyList),
+      Array.isArray(value.toolDenyList) ||
+      Array.isArray(value.enabledCapabilityPacks),
     {
       message: "At least one settings field is required."
     }
@@ -93,11 +103,23 @@ const listRoutinesQuerySchema = z.object({
   endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 });
 
+const systemLogsQuerySchema = z.object({
+  sessionId: z.string().optional(),
+  level: z.enum(["debug", "info", "warn", "error"]).optional(),
+  component: z
+    .enum(["runtime", "permission", "tool-execution", "confirmation", "interrupt", "api"])
+    .optional(),
+  limit: z.coerce.number().int().min(1).max(500).optional(),
+  cursor: z.string().optional()
+});
+
 export interface ApiAppDependencies {
   sessionManager: SessionManager;
   routineRepository: RoutineRepository;
   settingsRepository: SettingsRepository;
   traceManager: TraceManager;
+  systemLogManager: SystemLogManager;
+  apiLogger?: Logger;
   buildWorkingDirectory(input?: string): string;
   runtimeFactory?: (session: SessionSnapshot) => AgentRuntime;
   defaultModel?: string;
@@ -125,6 +147,7 @@ function toCreateSessionInput(input: {
   yoloModeOverride: boolean | undefined;
   contextWindowOverride: number | undefined;
   maxTurnsOverride: number | undefined;
+  enabledCapabilityPacksOverride: string[] | undefined;
   buildWorkingDirectory: ApiAppDependencies["buildWorkingDirectory"];
 }): {
   workingDirectory: string;
@@ -138,6 +161,7 @@ function toCreateSessionInput(input: {
   toolAllowList: string[];
   toolAskList: string[];
   toolDenyList: string[];
+  enabledCapabilityPacks: string[];
 } {
   return {
     workingDirectory: input.buildWorkingDirectory(
@@ -156,13 +180,48 @@ function toCreateSessionInput(input: {
     shellDenyPatterns: input.settings.shellDenyPatterns,
     toolAllowList: input.settings.toolAllowList,
     toolAskList: input.settings.toolAskList,
-    toolDenyList: input.settings.toolDenyList
+    toolDenyList: input.settings.toolDenyList,
+    enabledCapabilityPacks:
+      input.enabledCapabilityPacksOverride ??
+      input.settings.enabledCapabilityPacks
   };
 }
 
 function encodeSseEvent<T extends { kind: string }>(event: T): Uint8Array {
   const payload = JSON.stringify(event);
   return new TextEncoder().encode(`event: ${event.kind}\ndata: ${payload}\n\n`);
+}
+
+function getRequestId(c: { req: { header(name: string): string | undefined } }): string {
+  return c.req.header("x-request-id")?.trim() || randomUUID();
+}
+
+async function logApiEvent(input: {
+  logger: Logger | undefined;
+  requestId: string;
+  event: string;
+  level?: "debug" | "info" | "warn" | "error";
+  sessionId?: string;
+  details?: Record<string, unknown>;
+}) {
+  const logger = input.logger?.child({
+    requestId: input.requestId,
+    ...(input.sessionId ? { sessionId: input.sessionId } : {})
+  });
+  if (!logger) {
+    return;
+  }
+
+  const details = (input.details ?? null) as JsonValue;
+  if (input.level === "debug") {
+    await logger.debug(input.event, details);
+  } else if (input.level === "warn") {
+    await logger.warn(input.event, details);
+  } else if (input.level === "error") {
+    await logger.error(input.event, details);
+  } else {
+    await logger.info(input.event, details);
+  }
 }
 
 export function createApiApp(dependencies: ApiAppDependencies) {
@@ -195,6 +254,7 @@ export function createApiApp(dependencies: ApiAppDependencies) {
   });
 
   app.post("/sessions", async (c) => {
+    const requestId = getRequestId(c);
     const body = createSessionBodySchema.parse(await c.req.json());
     const userId = resolveUserId(dependencies, body.userId);
     const settings = await dependencies.settingsRepository.getOrCreate(userId);
@@ -206,11 +266,19 @@ export function createApiApp(dependencies: ApiAppDependencies) {
       yoloModeOverride: body.yoloMode,
       contextWindowOverride: body.contextWindow,
       maxTurnsOverride: body.maxTurns,
+      enabledCapabilityPacksOverride: body.enabledCapabilityPacks,
       buildWorkingDirectory: dependencies.buildWorkingDirectory
     });
 
     const session =
       await dependencies.sessionManager.createSession(createInput);
+    await logApiEvent({
+      logger: dependencies.apiLogger,
+      requestId,
+      event: "session_created",
+      sessionId: session.sessionId,
+      details: { userId, workingDirectory: session.workingDirectory }
+    });
     return c.json({ session }, 201);
   });
 
@@ -253,19 +321,31 @@ export function createApiApp(dependencies: ApiAppDependencies) {
         : {}),
       ...(Array.isArray(body.toolDenyList)
         ? { toolDenyList: body.toolDenyList }
+        : {}),
+      ...(Array.isArray(body.enabledCapabilityPacks)
+        ? { enabledCapabilityPacks: body.enabledCapabilityPacks }
         : {})
     });
     return c.json({ settings });
   });
 
   app.get("/sessions/:sessionId", async (c) => {
+    const requestId = getRequestId(c);
+    const sessionId = c.req.param("sessionId");
     const session = await dependencies.sessionManager.getSession(
-      c.req.param("sessionId")
+      sessionId
     );
     if (!session) {
       return c.json({ error: "Session not found." }, 404);
     }
 
+    await logApiEvent({
+      logger: dependencies.apiLogger,
+      requestId,
+      event: "session_interrupt_requested",
+      sessionId,
+      details: { found: Boolean(session) }
+    });
     return c.json({ session });
   });
 
@@ -294,12 +374,20 @@ export function createApiApp(dependencies: ApiAppDependencies) {
       shellDenyPatterns: permissionRules.shellDenyPatterns,
       toolAllowList: permissionRules.toolAllowList,
       toolAskList: permissionRules.toolAskList,
-      toolDenyList: permissionRules.toolDenyList
+      toolDenyList: permissionRules.toolDenyList,
+      ...(Array.isArray(body.enabledCapabilityPacks)
+        ? {
+            enabledCapabilityPacks: normalizeCapabilityPacks(
+              body.enabledCapabilityPacks
+            )
+          }
+        : {})
     });
     return c.json({ session: updated });
   });
 
   app.delete("/sessions/:sessionId", async (c) => {
+    const requestId = getRequestId(c);
     const sessionId = c.req.param("sessionId");
     const isExecutionActive =
       await dependencies.sessionManager.isExecutionActive(sessionId);
@@ -323,8 +411,10 @@ export function createApiApp(dependencies: ApiAppDependencies) {
   });
 
   app.post("/sessions/:sessionId/interrupt", async (c) => {
+    const requestId = getRequestId(c);
     const sessionId = c.req.param("sessionId");
-    const session = await dependencies.sessionManager.requestInterrupt(sessionId);
+    const session =
+      await dependencies.sessionManager.requestInterrupt(sessionId);
     if (!session) {
       return c.json(
         {
@@ -476,7 +566,32 @@ export function createApiApp(dependencies: ApiAppDependencies) {
     return c.json({ snapshot: session });
   });
 
+  app.get("/system-logs", async (c) => {
+    const requestId = getRequestId(c);
+    const query = systemLogsQuerySchema.parse(c.req.query());
+    const result = await dependencies.systemLogManager.query({
+      ...(query.sessionId ? { sessionId: query.sessionId } : {}),
+      ...(query.level ? { level: query.level } : {}),
+      ...(query.component ? { component: query.component } : {}),
+      ...(typeof query.limit === "number" ? { limit: query.limit } : {}),
+      ...(query.cursor ? { cursor: query.cursor } : {})
+    });
+    await logApiEvent({
+      logger: dependencies.apiLogger,
+      requestId,
+      event: "system_logs_read",
+      details: {
+        sessionId: query.sessionId ?? null,
+        level: query.level ?? null,
+        component: query.component ?? null,
+        returned: result.records.length
+      }
+    });
+    return c.json(result);
+  });
+
   app.get("/sessions/:sessionId/trace", async (c) => {
+    const requestId = getRequestId(c);
     const sessionId = c.req.param("sessionId");
     const session = await dependencies.sessionManager.getSession(sessionId);
     if (!session) {

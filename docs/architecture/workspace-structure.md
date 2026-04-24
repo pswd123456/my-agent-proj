@@ -31,16 +31,16 @@
 ### `apps/`
 
 - 放具体应用与部署单元
-- `api` 是当前主入口，负责 session 生命周期、执行触发、SSE 输出、trace 查询、用户 settings 读取与归一化，并暂时继续暴露已落地的 routine 相关接口
+- `api` 是当前主入口，负责 session 生命周期、执行触发、SSE 输出、trace / system log 查询、用户 settings 读取与归一化、interrupt、snapshot / recover，以及已落地的 routine 相关接口
 - `web` 是当前唯一产品层前端，主要承担工作台和调试可观测性；它消费 `packages/tokens`、`packages/ui-patterns` 和 `packages/ui`
 - agent session 的默认工作目录不再直接落在 repo root，而是 repo 根下的 `agent-workspace/`
-- 当前没有纳入主链路的独立 `worker` 应用；本地残留构建目录不作为架构事实
+- `apps/worker/` 当前仅作为残留目录存在；它没有进入 workspace 启动链路，也不应被表述为已启用应用
 
 ### `packages/`
 
 - 放跨应用复用的共享能力
 - `agent` 放 runtime、prompt、provider 适配、session 抽象、skills、tools 和 trace
-- `db` 放数据库连接、schema 初始化、settings repository 和 routine repository
+- `db` 放数据库连接、schema 初始化、settings repository、session 持久化配套和 routine repository
 - `domain` 放日程、session context、session settings 和权限规则等纯领域模型
 - `sdk` 放 API client、会话摘要转换和跨层类型导出
 - `tokens` 放设计 token
@@ -70,7 +70,7 @@
 ### `tmp/`
 
 - 放临时文件、中间产物和可观测性输出
-- 当前 trace 文件默认在 `tmp/agent-sessions/sessions/<sessionId>.trace.jsonl`
+- 当前 trace 文件默认在 `tmp/agent-sessions/sessions/<sessionId>.trace.jsonl`；system log 默认在 `tmp/agent-sessions/logs/system.log.jsonl`，按大小轮转
 
 ## 放置原则
 

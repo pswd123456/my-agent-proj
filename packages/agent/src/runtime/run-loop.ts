@@ -21,6 +21,7 @@ import {
 import type { SessionManager } from "../session.js";
 import { discoverWorkspaceSkills } from "../skills/index.js";
 import type { TraceManager } from "../trace.js";
+import type { Logger } from "../system-log.js";
 import type { JsonValue, RunSessionResult, SessionSnapshot } from "../types.js";
 import type { ToolRegistry } from "../tools/registry.js";
 import {
@@ -29,8 +30,10 @@ import {
   buildUserBlockContent,
   extractThinkingBlocks,
   extractToolCalls,
+  extractToolCallsFromTextBlocks,
   renderPendingConfirmationAnswer,
-  renderPendingPermissionAnswer
+  renderPendingPermissionAnswer,
+  stripTextToolCallMarkup
 } from "./blocks.js";
 import { completeLocally } from "./complete-run.js";
 import { handlePendingConfirmationReply } from "./confirmation.js";
@@ -88,6 +91,7 @@ export async function runSessionLoop(input: {
   maxTokens: number | undefined;
   toolChoice: AnthropicToolChoice | undefined;
   eventSink: RunEventSink | undefined;
+  logger?: Logger;
 }): Promise<RunSessionResult> {
   let session = input.session;
   const runtimeContext = {
@@ -456,19 +460,27 @@ export async function runSessionLoop(input: {
 
       const assistantTexts: string[] = [];
       const toolCalls = extractToolCalls(responseBlocks);
+      const recoveredToolCalls =
+        toolCalls.length > 0 ? [] : extractToolCallsFromTextBlocks(responseBlocks);
+      const resolvedToolCalls = toolCalls.length > 0 ? toolCalls : recoveredToolCalls;
 
       for (const [blockIndex, block] of responseBlocks.entries()) {
         if (block.type !== "text") {
           continue;
         }
 
-        assistantTexts.push(block.text);
+        const visibleText = stripTextToolCallMarkup(block.text);
+        if (visibleText.length === 0) {
+          continue;
+        }
+
+        assistantTexts.push(visibleText);
         const assistantMessageId =
           streamedAssistantTexts.get(blockIndex)?.assistantMessageId ??
           randomUUID();
         session = await input.sessionManager.appendBlock(
           session.sessionId,
-          buildAssistantBlockContent(block.text, assistantMessageId)
+          buildAssistantBlockContent(visibleText, assistantMessageId)
         );
         if (!streamedAssistantTexts.has(blockIndex)) {
           await emitTraceEvent({
@@ -479,7 +491,7 @@ export async function runSessionLoop(input: {
               kind: "assistant_text",
               turnCount,
               assistantMessageId,
-              text: block.text
+              text: visibleText
             }
           });
         }
@@ -493,21 +505,34 @@ export async function runSessionLoop(input: {
         }
       }
 
-      if (toolCalls.length > 0) {
+      if (resolvedToolCalls.length > 0) {
+        if (toolCalls.length === 0 && recoveredToolCalls.length > 0) {
+          await emitTraceEvent({
+            traceManager: input.traceManager,
+            eventSink: input.eventSink,
+            sessionId: session.sessionId,
+            event: {
+              kind: "fallback",
+              turnCount,
+              reason: "provider_text_tool_call",
+              summary: `Recovered  tool call from assistant text.`
+            }
+          });
+        }
         session = await input.sessionManager.setLoopState(
           session.sessionId,
           "waiting for tool result"
         );
         session = await input.sessionManager.setPendingToolCallIds(
           session.sessionId,
-          toolCalls.map((toolCall) => toolCall.id)
+resolvedToolCalls.map((toolCall) => toolCall.id)
         );
         session = await input.sessionManager.setLastError(
           session.sessionId,
           null
         );
 
-        for (const toolCall of toolCalls) {
+        for (const toolCall of resolvedToolCalls) {
           const executed = await executeToolAction({
             sessionManager: input.sessionManager,
             routineRepository: input.routineRepository,
@@ -774,6 +799,9 @@ export async function runSessionLoop(input: {
     }
 
     const message = error instanceof Error ? error.message : String(error);
+    session = await input.sessionManager.updateContext(session.sessionId, {
+      status: "failed"
+    });
     session = await input.sessionManager.setLoopState(
       session.sessionId,
       "failed"
@@ -782,6 +810,21 @@ export async function runSessionLoop(input: {
       session.sessionId,
       message
     );
+    await emitTraceEvent({
+      traceManager: input.traceManager,
+      eventSink: input.eventSink,
+      sessionId: session.sessionId,
+      event: {
+        kind: "run_error",
+        turnCount: currentTurnCount,
+        error: message,
+        stopReason,
+        loopState: session.sessionState.loopState,
+        contextStatus: session.context.status,
+        pendingToolCallIds: [...session.sessionState.pendingToolCallIds],
+        ...(error instanceof Error && error.stack ? { stack: error.stack } : {})
+      }
+    });
     if (input.eventSink) {
       await emitRunEvent(
         input.eventSink,

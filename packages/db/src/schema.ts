@@ -25,6 +25,7 @@ const defaultToolAskListJson = JSON.stringify([
   "search_text",
   "create_directory",
   "write_file",
+  "edit_file",
   "copy_path",
   "move_path",
   "delete_path",
@@ -44,6 +45,9 @@ function toSqlJsonbLiteral(value: string): string {
 }
 
 const defaultToolAskListJsonLiteral = toSqlJsonbLiteral(defaultToolAskListJson);
+const defaultCapabilityPacksJsonLiteral = toSqlJsonbLiteral(
+  JSON.stringify(["workspace", "schedule"])
+);
 const defaultJsonbArray = sql.raw("'[]'::jsonb");
 
 export const routines = pgTable(
@@ -112,12 +116,16 @@ export const agentSessions = pgTable(
       .$type<string[]>()
       .notNull()
       .default(defaultJsonbArray),
-    pendingPermissionRequest: jsonb("pending_permission_request").$type<
-      PendingPermissionRequest | null
-    >(),
-    pendingConfirmationPayload: jsonb("pending_confirmation_payload").$type<
-      PendingConfirmationPayload | null
-    >(),
+    enabledCapabilityPacks: jsonb("enabled_capability_packs")
+      .$type<string[]>()
+      .notNull()
+      .default(sql.raw(defaultCapabilityPacksJsonLiteral)),
+    pendingPermissionRequest: jsonb(
+      "pending_permission_request"
+    ).$type<PendingPermissionRequest | null>(),
+    pendingConfirmationPayload: jsonb(
+      "pending_confirmation_payload"
+    ).$type<PendingConfirmationPayload | null>(),
     pendingConflictSummary: text("pending_conflict_summary"),
     lastUserMessage: text("last_user_message"),
     workingDirectory: text("working_directory").notNull(),
@@ -183,6 +191,10 @@ export const agentSettings = pgTable("agent_settings", {
     .$type<string[]>()
     .notNull()
     .default(defaultJsonbArray),
+  enabledCapabilityPacks: jsonb("enabled_capability_packs")
+    .$type<string[]>()
+    .notNull()
+    .default(sql.raw(defaultCapabilityPacksJsonLiteral)),
   createdAt: timestamp("created_at", {
     mode: "string",
     withTimezone: true
@@ -223,10 +235,9 @@ export const sessionMessages = pgTable(
       table.sessionId,
       table.messageIndex
     ),
-    sessionMessageUnique: uniqueIndex("session_messages_session_id_message_index_key").on(
-      table.sessionId,
-      table.messageIndex
-    )
+    sessionMessageUnique: uniqueIndex(
+      "session_messages_session_id_message_index_key"
+    ).on(table.sessionId, table.messageIndex)
   })
 );
 
@@ -239,9 +250,10 @@ export const productSchema = {
 
 export type ProductSchema = typeof productSchema;
 
-export function isTimestampWithoutTimeZoneColumn(
-  column: { data_type: string; udt_name: string }
-): boolean {
+export function isTimestampWithoutTimeZoneColumn(column: {
+  data_type: string;
+  udt_name: string;
+}): boolean {
   return (
     column.data_type === "timestamp without time zone" ||
     column.udt_name === "timestamp"

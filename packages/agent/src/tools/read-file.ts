@@ -3,10 +3,57 @@ import { promises as fs } from "node:fs";
 import type { RuntimeTool } from "./runtime-tool.js";
 import {
   normalizeWorkspacePath,
-  readTextFileWithLimit,
   toRelativeWorkspacePath
 } from "./workspace.js";
-import { createToolResult, failureResult, successResult } from "./tool-result.js";
+import {
+  createToolResult,
+  failureResult,
+  successResult
+} from "./tool-result.js";
+
+function normalizePositiveInteger(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.floor(value)
+    : null;
+}
+
+function readLineRange(
+  content: string,
+  startLine: number | null,
+  endLine: number | null,
+  maxCharacters: number | null
+): {
+  content: string;
+  startLine: number;
+  endLine: number;
+  totalLines: number;
+  truncated: boolean;
+} {
+  const lines = content.split("\n");
+  const totalLines = lines.length;
+  const normalizedStartLine = startLine ?? 1;
+  const normalizedEndLine = endLine ?? totalLines;
+  const selectedLines = lines.slice(normalizedStartLine - 1, normalizedEndLine);
+  const selectedContent = selectedLines.join("\n");
+
+  if (maxCharacters === null || selectedContent.length <= maxCharacters) {
+    return {
+      content: selectedContent,
+      startLine: normalizedStartLine,
+      endLine: normalizedEndLine,
+      totalLines,
+      truncated: false
+    };
+  }
+
+  return {
+    content: selectedContent.slice(0, maxCharacters),
+    startLine: normalizedStartLine,
+    endLine: normalizedEndLine,
+    totalLines,
+    truncated: true
+  };
+}
 
 export function createReadFileTool(workingDirectory: string): RuntimeTool {
   return {
@@ -27,31 +74,79 @@ export function createReadFileTool(workingDirectory: string): RuntimeTool {
         maxCharacters: {
           type: "number",
           description: "Optional character limit for the returned content."
+        },
+        startLine: {
+          type: "number",
+          description: "Optional 1-based first line to read."
+        },
+        endLine: {
+          type: "number",
+          description: "Optional 1-based last line to read, inclusive."
         }
       },
       required: ["path"],
       additionalProperties: false
     },
     getSandboxTargets(input) {
-      return [typeof input.path === "string" && input.path.length > 0 ? input.path : "."];
+      return [
+        typeof input.path === "string" && input.path.length > 0
+          ? input.path
+          : "."
+      ];
     },
     validate(input) {
+      const issues: Array<{ field: string; issue: string }> = [];
       const path = input.path;
-      if (typeof path === "string" && path.length > 0) {
-        return { ok: true, value: input };
+      if (typeof path !== "string" || path.length === 0) {
+        issues.push({
+          field: "path",
+          issue: "path is required."
+        });
       }
 
-      return {
-        ok: false,
-        issues: [
-          {
-            field: "path",
-            issue: "path is required."
-          }
-        ]
-      };
+      const startLine = normalizePositiveInteger(input.startLine);
+      const endLine = normalizePositiveInteger(input.endLine);
+      if (input.startLine !== undefined && startLine === null) {
+        issues.push({
+          field: "startLine",
+          issue: "startLine must be a positive number."
+        });
+      }
+      if (input.endLine !== undefined && endLine === null) {
+        issues.push({
+          field: "endLine",
+          issue: "endLine must be a positive number."
+        });
+      }
+      if (startLine !== null && endLine !== null && endLine < startLine) {
+        issues.push({
+          field: "endLine",
+          issue: "endLine must be greater than or equal to startLine."
+        });
+      }
+
+      if (issues.length > 0) {
+        return { ok: false, issues };
+      }
+
+      return { ok: true, value: input };
     },
     async execute(input, context) {
+      const validation = this.validate(input);
+      if (!validation.ok) {
+        return failureResult(
+          createToolResult({
+            ok: false,
+            code: "INVALID_TOOL_INPUT",
+            message: "Invalid read_file input.",
+            validationErrors: validation.issues ?? []
+          }),
+          `[read_file] invalid input\n${(validation.issues ?? [])
+            .map((issue) => `- ${issue.field}: ${issue.issue}`)
+            .join("\n")}`
+        );
+      }
+
       const rawPath = input.path;
       if (typeof rawPath !== "string" || rawPath.length === 0) {
         return failureResult(
@@ -70,10 +165,9 @@ export function createReadFileTool(workingDirectory: string): RuntimeTool {
         );
       }
 
-      const maxCharacters =
-        typeof input.maxCharacters === "number" && input.maxCharacters > 0
-          ? Math.floor(input.maxCharacters)
-          : 12_000;
+      const maxCharacters = normalizePositiveInteger(input.maxCharacters);
+      const startLine = normalizePositiveInteger(input.startLine);
+      const endLine = normalizePositiveInteger(input.endLine);
 
       try {
         const absolutePath = normalizeWorkspacePath(
@@ -94,8 +188,11 @@ export function createReadFileTool(workingDirectory: string): RuntimeTool {
           );
         }
 
-        const { text, truncated } = await readTextFileWithLimit(
-          absolutePath,
+        const text = await fs.readFile(absolutePath, "utf8");
+        const lineRange = readLineRange(
+          text,
+          startLine,
+          endLine,
           maxCharacters
         );
 
@@ -106,8 +203,11 @@ export function createReadFileTool(workingDirectory: string): RuntimeTool {
             message: "File read successfully.",
             data: {
               path: toRelativeWorkspacePath(workingDirectory, absolutePath),
-              truncated,
-              content: text
+              truncated: lineRange.truncated,
+              startLine: lineRange.startLine,
+              endLine: lineRange.endLine,
+              totalLines: lineRange.totalLines,
+              content: lineRange.content
             }
           }),
           `[read_file] success\n- ${toRelativeWorkspacePath(

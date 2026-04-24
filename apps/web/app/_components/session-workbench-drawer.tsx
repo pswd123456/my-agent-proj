@@ -7,10 +7,8 @@ import type {
   SessionSnapshot
 } from "@ai-app-template/sdk";
 
-import type { ToolRow } from "./session-workbench-state";
-import { getTimelineEventKey } from "./session-timeline";
 import {
-  inspectorTabs,
+  capabilityPackOptions,
   MAX_TURNS_LIMIT,
   permissionToolOptions,
   type InspectorTabId,
@@ -19,23 +17,31 @@ import {
 } from "./session-workbench-types";
 import {
   formatDayLabel,
-  formatTimestamp,
   formatWorkingDirectory,
-  getDebugPreClass,
-  getInspectorCardClass,
-  getPermissionDecisionLabel,
   getPermissionToolLabel,
-  getSoftBlockClass,
-  stringify
+  getSoftBlockClass
 } from "./session-workbench-shared";
-
-type PromptEvent = Extract<RunStreamEvent, { kind: "prompt" }>;
-type ThinkingEvent = Extract<RunStreamEvent, { kind: "thinking" }>;
+import { SessionWorkbenchInspector } from "./session-workbench-inspector";
+import type { ToolRow } from "./session-workbench-state";
 
 const sectionHeadingClassName =
   "text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]";
 const tertiaryHeadingClassName =
   "text-[0.68rem] uppercase tracking-[0.14em] text-[var(--app-text-muted)]";
+
+function formatToolOptionLabel(toolName: string): string {
+  return toolName.replaceAll("_", " ");
+}
+
+function formatCapabilityPackLabel(packName: string): string {
+  return packName === "workspace" ? "Workspace" : "Schedule";
+}
+
+function formatCapabilityPackDescription(packName: string): string {
+  return packName === "workspace"
+    ? "文件、搜索、shell 与网络等工作区能力。"
+    : "日程创建、编辑、查询与冲突确认相关能力。";
+}
 
 interface SessionWorkbenchDrawerProps {
   activeSidebarPanel: SidebarPanelId | null;
@@ -56,6 +62,7 @@ interface SessionWorkbenchDrawerProps {
   latestPromptEvent: PromptEvent | undefined;
   thinkingEvents: ThinkingEvent[];
   toolRows: ToolRow[];
+  promptEvents: PromptEvent[];
   onResetAllRoutines: () => void;
   onSelectTab: (tabId: InspectorTabId) => void;
   onSettingsFormChange: (patch: Partial<SettingsFormState>) => void;
@@ -65,7 +72,11 @@ interface SessionWorkbenchDrawerProps {
     toolName: string,
     target: "allow" | "ask" | "deny"
   ) => void;
+  onSettingsCapabilityPackToggle: (packName: string) => void;
 }
+
+type PromptEvent = Extract<RunStreamEvent, { kind: "prompt" }>;
+type ThinkingEvent = Extract<RunStreamEvent, { kind: "thinking" }>;
 
 export function SessionWorkbenchDrawer({
   activeSidebarPanel,
@@ -86,12 +97,14 @@ export function SessionWorkbenchDrawer({
   latestPromptEvent,
   thinkingEvents,
   toolRows,
+  promptEvents,
   onResetAllRoutines,
   onSelectTab,
   onSettingsFormChange,
   onSettingsBlur,
   onSettingsYoloModeChange,
-  onSettingsPermissionToolToggle
+  onSettingsPermissionToolToggle,
+  onSettingsCapabilityPackToggle
 }: SessionWorkbenchDrawerProps) {
   if (!activeSidebarPanel) {
     return null;
@@ -169,14 +182,11 @@ export function SessionWorkbenchDrawer({
                     }
                     onBlur={onSettingsBlur}
                     rows={3}
-                    placeholder={"ls *\nls -la *"}
-                    className="w-full resize-none rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
+                    className="w-full rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
                   />
                 </label>
                 <label className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
-                  <span className={tertiaryHeadingClassName}>
-                    Deny Patterns
-                  </span>
+                  <span className={tertiaryHeadingClassName}>Deny Patterns</span>
                   <textarea
                     value={settingsForm.shellDenyPatterns}
                     onChange={(event) =>
@@ -186,220 +196,177 @@ export function SessionWorkbenchDrawer({
                     }
                     onBlur={onSettingsBlur}
                     rows={3}
-                    placeholder={"rm -rf *"}
-                    className="w-full resize-none rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
+                    className="w-full rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
                   />
                 </label>
               </div>
 
-              <div className="grid gap-3">
+              <div className="grid gap-2">
+                <div className={sectionHeadingClassName}>Execution</div>
+                <label className="flex items-center justify-between gap-3 rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm text-[var(--app-text-secondary)]">
+                  <div>
+                    <div className="text-sm text-[var(--app-text-primary)]">YOLO</div>
+                    <div className="mt-1 text-xs leading-5 text-[var(--app-text-muted)]">
+                      打开后，工作区文件操作可直接执行；shell / network 仍按权限规则处理。
+                    </div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={settingsForm.yoloMode}
+                    onChange={(event) =>
+                      onSettingsYoloModeChange(event.target.checked)
+                    }
+                    className="h-4 w-4 accent-[var(--app-border-accent)]"
+                  />
+                </label>
+
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <label className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
+                    <span className={tertiaryHeadingClassName}>Context Window</span>
+                    <input
+                      value={settingsForm.contextWindow}
+                      onChange={(event) =>
+                        onSettingsFormChange({ contextWindow: event.target.value })
+                      }
+                      onBlur={onSettingsBlur}
+                      inputMode="numeric"
+                      className="w-full rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
+                    />
+                  </label>
+                  <label className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
+                    <span className={tertiaryHeadingClassName}>Max Turns</span>
+                    <input
+                      value={settingsForm.maxTurns}
+                      onChange={(event) =>
+                        onSettingsFormChange({ maxTurns: event.target.value })
+                      }
+                      onBlur={onSettingsBlur}
+                      inputMode="numeric"
+                      className="w-full rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <div className="grid gap-2">
                 <div className={sectionHeadingClassName}>Tool Permission</div>
                 <div className="grid gap-2">
-                  <div className={tertiaryHeadingClassName}>
-                    Allow / Ask / Deny Buttons
-                  </div>
-                  <div className="grid gap-2">
-                    {permissionToolOptions.map((toolName) => {
-                      const isAllowed =
-                        settingsForm.toolAllowList.includes(toolName);
-                      const isAsk = settingsForm.toolAskList.includes(toolName);
-                      const isDenied =
-                        settingsForm.toolDenyList.includes(toolName);
-                      const permissionStateLabel =
-                        isAllowed && isDenied
-                          ? "冲突"
-                          : isAllowed
-                            ? "已允许"
-                            : isAsk
-                              ? "询问"
-                              : isDenied
-                                ? "已拒绝"
-                                : "询问";
-                      const permissionStateClass =
-                        isAllowed && isDenied
-                          ? "border-[var(--app-status-warning)] text-[var(--app-status-warning)]"
-                          : isAllowed
-                            ? "border-[var(--app-status-success)] text-[var(--app-status-success)]"
-                            : isAsk
-                              ? "border-[var(--app-border-accent)] text-[var(--app-text-primary)]"
-                              : isDenied
-                                ? "border-[var(--app-status-danger)] text-[var(--app-status-danger)]"
-                                : "border-[var(--app-border-subtle)] text-[var(--app-text-muted)]";
-                      const isSavingThisTool =
-                        pendingPermissionToolName === toolName &&
-                        savingSettings;
-
-                      return (
-                        <div
-                          key={toolName}
-                          className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--app-radius-md)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_78%,transparent)] px-3 py-3"
-                        >
-                          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                            <span className="text-sm text-[var(--app-text-secondary)]">
-                              {getPermissionToolLabel(toolName)}
-                            </span>
-                            <span
-                              className={`rounded-[var(--app-radius-pill)] border px-2.5 py-1 text-[0.72rem] uppercase tracking-[0.14em] ${permissionStateClass}`}
-                            >
-                              {isSavingThisTool
-                                ? "保存中"
-                                : permissionStateLabel}
-                            </span>
+                  {permissionToolOptions.map((tool) => {
+                    const decision = settingsForm.toolDenyList.includes(tool)
+                      ? "deny"
+                      : settingsForm.toolAllowList.includes(tool)
+                        ? "allow"
+                        : "ask";
+                    return (
+                      <div
+                        key={tool}
+                        className="flex items-center justify-between gap-3 rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3"
+                      >
+                        <div>
+                          <div className="text-sm text-[var(--app-text-primary)]">
+                            {formatToolOptionLabel(tool)}
                           </div>
-                          <div className="flex gap-2">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                onSettingsPermissionToolToggle(
-                                  toolName,
-                                  "allow"
-                                )
-                              }
-                              disabled={loadingSettings || savingSettings}
-                              className={`rounded-[var(--app-radius-pill)] border px-3 py-1.5 text-xs transition ${
-                                isAllowed
-                                  ? "border-[var(--app-status-success)] bg-[color:color-mix(in_srgb,var(--app-status-success)_10%,transparent)] text-[var(--app-status-success)]"
-                                  : "border-[var(--app-border-subtle)] text-[var(--app-text-muted)] hover:border-[var(--app-status-success)] hover:text-[var(--app-status-success)]"
-                              } disabled:cursor-not-allowed`}
-                            >
-                              Allow
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                onSettingsPermissionToolToggle(toolName, "ask")
-                              }
-                              disabled={loadingSettings || savingSettings}
-                              className={`rounded-[var(--app-radius-pill)] border px-3 py-1.5 text-xs transition ${
-                                isAsk
-                                  ? "border-[var(--app-border-accent)] bg-[color:color-mix(in_srgb,var(--app-border-accent)_12%,transparent)] text-[var(--app-text-primary)]"
-                                  : "border-[var(--app-border-subtle)] text-[var(--app-text-muted)] hover:border-[var(--app-border-accent)] hover:text-[var(--app-text-primary)]"
-                              } disabled:cursor-not-allowed`}
-                            >
-                              Ask
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                onSettingsPermissionToolToggle(toolName, "deny")
-                              }
-                              disabled={loadingSettings || savingSettings}
-                              className={`rounded-[var(--app-radius-pill)] border px-3 py-1.5 text-xs transition ${
-                                isDenied
-                                  ? "border-[var(--app-status-danger)] bg-[color:color-mix(in_srgb,var(--app-status-danger)_10%,transparent)] text-[var(--app-status-danger)]"
-                                  : "border-[var(--app-border-subtle)] text-[var(--app-text-muted)] hover:border-[var(--app-status-danger)] hover:text-[var(--app-status-danger)]"
-                              } disabled:cursor-not-allowed`}
-                            >
-                              Deny
-                            </button>
+                          <div className="mt-1 text-xs leading-5 text-[var(--app-text-muted)]">
+                            {tool}
                           </div>
                         </div>
-                      );
-                    })}
-                  </div>
+                        <div className="flex items-center gap-2">
+                          {(["allow", "ask", "deny"] as const).map((target) => (
+                            <button
+                              key={target}
+                              type="button"
+                              onClick={() =>
+                                onSettingsPermissionToolToggle(tool, target)
+                              }
+                              className={`rounded-[var(--app-radius-pill)] border px-3 py-1 text-xs transition ${
+                                decision === target
+                                  ? "border-[var(--app-border-accent)] bg-[var(--app-bg-elevated)] text-[var(--app-text-primary)]"
+                                  : "border-[var(--app-border-subtle)] text-[var(--app-text-muted)] hover:border-[var(--app-border-strong)] hover:text-[var(--app-text-primary)]"
+                              }`}
+                            >
+                              {target}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
-                  <span className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
-                    Context Window
-                  </span>
-                  <input
-                    type="number"
-                    min={1_000}
-                    value={settingsForm.contextWindow}
-                    onChange={(event) =>
-                      onSettingsFormChange({
-                        contextWindow: event.target.value
-                      })
-                    }
-                    onBlur={onSettingsBlur}
-                    className="w-full rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm text-[var(--app-text-primary)] outline-none transition focus:border-[var(--app-border-accent)]"
-                  />
-                </label>
-
-                <label className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
-                  <span className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
-                    Default Max Turns
-                  </span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={MAX_TURNS_LIMIT}
-                    value={settingsForm.maxTurns}
-                    onChange={(event) =>
-                      onSettingsFormChange({
-                        maxTurns: event.target.value
-                      })
-                    }
-                    onBlur={onSettingsBlur}
-                    className="w-full rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm text-[var(--app-text-primary)] outline-none transition focus:border-[var(--app-border-accent)]"
-                  />
-                </label>
+              <div className="grid gap-2">
+                <div className={sectionHeadingClassName}>Capability Packs</div>
+                <div className="grid gap-2">
+                  {capabilityPackOptions.map((pack) => {
+                    const checked = settingsForm.enabledCapabilityPacks.includes(pack);
+                    return (
+                      <label
+                        key={pack}
+                        className="flex items-start gap-3 rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm text-[var(--app-text-secondary)]"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => onSettingsCapabilityPackToggle(pack)}
+                          className="mt-1 h-4 w-4 accent-[var(--app-border-accent)]"
+                        />
+                        <div>
+                          <div className="text-sm text-[var(--app-text-primary)]">
+                            {formatCapabilityPackLabel(pack)}
+                          </div>
+                          <div className="mt-1 text-xs leading-5 text-[var(--app-text-muted)]">
+                            {formatCapabilityPackDescription(pack)}
+                          </div>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
               </div>
 
-              <label className="flex items-center justify-between gap-4 rounded-[var(--app-radius-lg)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_82%,transparent)] px-4 py-4">
-                <div>
-                  <div className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
-                    YOLO Mode
-                  </div>
-                  <div className="mt-2 text-sm leading-6 text-[var(--app-text-secondary)]">
-                    作为新会话的默认值使用。开启后会放宽部分文件操作确认，其他高风险操作仍需审批。
-                  </div>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={settingsForm.yoloMode}
-                  onChange={(event) =>
-                    onSettingsYoloModeChange(event.target.checked)
-                  }
-                  disabled={loadingSettings || savingSettings}
-                  className="h-5 w-5 rounded border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] text-[var(--app-status-success)]"
-                />
-              </label>
-
-              <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-[var(--app-text-muted)]">
-                <span>{settingsStatusText}</span>
-                <span>
-                  当前会话: cwd{" "}
-                  {formatWorkingDirectory(
-                    currentSession?.workingDirectory ?? "--"
-                  )}{" "}
-                  / yolo {currentSession?.context.yoloMode ? "on" : "off"}
-                </span>
+              <div className="text-xs text-[var(--app-text-muted)]">
+                {loadingSettings
+                  ? "正在同步设置..."
+                  : savingSettings
+                    ? "正在保存设置..."
+                    : pendingPermissionToolName
+                      ? `最近处理权限：${getPermissionToolLabel(pendingPermissionToolName)}`
+                      : settingsStatusText}
               </div>
             </div>
           ) : null}
 
           {activeSidebarPanel === "calendar" ? (
-            <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(11rem,1fr))]">
-              <div className="col-span-full flex justify-end">
+            <div className="grid gap-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm text-[var(--app-text-primary)]">
+                    当前工作周
+                  </div>
+                  <div className="mt-1 text-xs text-[var(--app-text-muted)]">
+                    {currentSession?.context.currentDateContext ?? "--"}
+                  </div>
+                </div>
                 <button
                   type="button"
                   onClick={onResetAllRoutines}
-                  disabled={
-                    !currentSession ||
-                    loadingSession ||
-                    submitting ||
-                    resettingRoutines
-                  }
-                  className="inline-flex items-center justify-center rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-3 py-1.5 text-xs font-medium text-[var(--app-text-secondary)] transition hover:border-[var(--app-status-danger)] hover:text-[var(--app-status-danger)] disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={resettingRoutines || submitting}
+                  className="rounded-[var(--app-radius-pill)] border border-[var(--app-status-danger)] px-4 py-2 text-xs text-[var(--app-status-danger)] transition hover:bg-[color:color-mix(in_srgb,var(--app-status-danger)_12%,transparent)] disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {resettingRoutines ? "清空中..." : "清空日程数据"}
+                  {resettingRoutines ? "重置中..." : "重置所有日程"}
                 </button>
               </div>
 
               {weekDates.map((date) => (
                 <div
                   key={date}
-                  className="min-w-0 rounded-[var(--app-radius-lg)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_84%,var(--app-bg-surface)_16%)] px-3 py-3"
+                  className="rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_72%,transparent)] px-4 py-4"
                 >
-                  <div className="text-[0.72rem] uppercase tracking-[0.16em] text-[var(--app-text-muted)]">
+                  <div className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
                     {formatDayLabel(date)}
                   </div>
                   <div className="mt-3 grid gap-2">
-                    {(groupedRoutines.get(date) ?? []).map((routine) => (
+                    {groupedRoutines.get(date)?.map((routine) => (
                       <div
                         key={routine.id}
                         className="rounded-[var(--app-radius-md)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_90%,white_10%)] px-3 py-2"
@@ -424,241 +391,15 @@ export function SessionWorkbenchDrawer({
           ) : null}
 
           {activeSidebarPanel === "inspector" ? (
-            <div className="flex min-h-[24rem] min-w-0 flex-col">
-              <div className="flex min-w-0 flex-wrap gap-2">
-                {inspectorTabs.map((tab) => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() => onSelectTab(tab.id)}
-                    className={`rounded-[var(--app-radius-pill)] border px-3 py-1.5 text-xs font-medium transition ${
-                      activeTab === tab.id
-                        ? "border-[var(--app-border-accent)] bg-[var(--app-bg-elevated)] text-[var(--app-text-primary)]"
-                        : "border-[var(--app-border-subtle)] text-[var(--app-text-muted)] hover:border-[var(--app-border-strong)] hover:text-[var(--app-text-secondary)]"
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-
-              <div className="mt-4 min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto pr-1">
-                {activeTab === "prompt" ? (
-                  latestPromptEvent ? (
-                    <div className="grid min-w-0 gap-4">
-                      <div className={getSoftBlockClass()}>
-                        <p className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
-                          System
-                        </p>
-                        <pre className={getDebugPreClass()}>
-                          {latestPromptEvent.system}
-                        </pre>
-                      </div>
-                      <div className={getSoftBlockClass()}>
-                        <p className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
-                          Prefix Messages
-                        </p>
-                        <pre className={getDebugPreClass()}>
-                          {stringify(latestPromptEvent.prefixMessages)}
-                        </pre>
-                      </div>
-                      <div className={getSoftBlockClass()}>
-                        <p className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
-                          Messages
-                        </p>
-                        <pre className={getDebugPreClass()}>
-                          {stringify(latestPromptEvent.messages)}
-                        </pre>
-                      </div>
-                      <div className={getSoftBlockClass()}>
-                        <p className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
-                          Runtime Context Messages
-                        </p>
-                        <pre className={getDebugPreClass()}>
-                          {stringify(latestPromptEvent.runtimeContextMessages)}
-                        </pre>
-                      </div>
-                      <div className={getSoftBlockClass()}>
-                        <p className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
-                          Tools / Choice
-                        </p>
-                        <pre className={getDebugPreClass()}>
-                          {stringify({
-                            tools: latestPromptEvent.tools,
-                            toolChoice: latestPromptEvent.toolChoice,
-                            cacheKey: latestPromptEvent.cacheKey
-                          })}
-                        </pre>
-                      </div>
-                    </div>
-                  ) : (
-                    <div
-                      className={getSoftBlockClass(
-                        "py-6 text-sm text-[var(--app-text-muted)]"
-                      )}
-                    >
-                      暂无 prompt 事件。
-                    </div>
-                  )
-                ) : null}
-
-                {activeTab === "thinking" ? (
-                  thinkingEvents.length ? (
-                    <div className="grid min-w-0 gap-3">
-                      {thinkingEvents.map((event) => (
-                        <article
-                          key={`${event.createdAt}-${event.signature}`}
-                          className={getInspectorCardClass(
-                            "text-sm leading-7 text-[var(--app-text-muted)]"
-                          )}
-                        >
-                          <div className="mb-2 font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
-                            {formatTimestamp(event.createdAt)}
-                          </div>
-                          <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">
-                            {event.text}
-                          </div>
-                        </article>
-                      ))}
-                    </div>
-                  ) : (
-                    <div
-                      className={getSoftBlockClass(
-                        "py-6 text-sm text-[var(--app-text-muted)]"
-                      )}
-                    >
-                      暂无 thinking 事件。
-                    </div>
-                  )
-                ) : null}
-
-                {activeTab === "tools" ? (
-                  toolRows.length ? (
-                    <div className="grid min-w-0 gap-4">
-                      {toolRows.map((row) => (
-                        <article
-                          key={row.toolCallId}
-                          className={getInspectorCardClass()}
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="break-all text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
-                                {row.toolCallId}
-                              </div>
-                              <div className="mt-2 text-sm font-medium text-[var(--app-text-primary)]">
-                                {row.toolName}
-                              </div>
-                            </div>
-                            <div
-                              className={`text-xs ${
-                                row.isError
-                                  ? "text-[var(--app-status-danger)]"
-                                  : "text-[var(--app-status-success)]"
-                              }`}
-                            >
-                              {row.isError ? "failed" : "ok"}
-                            </div>
-                          </div>
-                          <div className="mt-4 grid min-w-0 gap-3">
-                            <div className={getSoftBlockClass("px-3 py-3")}>
-                              <p className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
-                                Input
-                              </p>
-                              <pre className={getDebugPreClass("surface")}>
-                                {row.input ? stringify(row.input) : "null"}
-                              </pre>
-                            </div>
-                            <div className={getSoftBlockClass("px-3 py-3")}>
-                              <p className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
-                                Raw Output
-                              </p>
-                              <pre className={getDebugPreClass("surface")}>
-                                {row.output ?? "pending"}
-                              </pre>
-                            </div>
-                            <div className={getSoftBlockClass("px-3 py-3")}>
-                              <p className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
-                                Display Text
-                              </p>
-                              <pre className={getDebugPreClass("surface")}>
-                                {row.displayText ?? "pending"}
-                              </pre>
-                            </div>
-                            {(row.permissionDecision ||
-                              row.permissionSummary ||
-                              row.permissionReason) && (
-                              <div className={getSoftBlockClass("px-3 py-3")}>
-                                <p className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
-                                  Permission
-                                </p>
-                                <pre className={getDebugPreClass("surface")}>
-                                  {stringify({
-                                    decision: getPermissionDecisionLabel(
-                                      row.permissionDecision
-                                    ),
-                                    family: row.permissionFamily,
-                                    permissionProfile: row.permissionProfile,
-                                    summary: row.permissionSummary,
-                                    contextNote: row.permissionContextNote,
-                                    reason: row.permissionReason
-                                  })}
-                                </pre>
-                              </div>
-                            )}
-                          </div>
-                        </article>
-                      ))}
-                    </div>
-                  ) : (
-                    <div
-                      className={getSoftBlockClass(
-                        "py-6 text-sm text-[var(--app-text-muted)]"
-                      )}
-                    >
-                      暂无工具事件。
-                    </div>
-                  )
-                ) : null}
-
-                {activeTab === "trace" ? (
-                  inspectorEvents.length ? (
-                    <div className="grid min-w-0 gap-2">
-                      {inspectorEvents.map((event) => (
-                        <div
-                          key={getTimelineEventKey(event)}
-                          className="min-w-0 rounded-[var(--app-radius-md)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_78%,transparent)] px-3 py-3"
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
-                              {event.kind}
-                            </div>
-                            <div className="text-[0.72rem] text-[var(--app-text-muted)]">
-                              {formatTimestamp(event.createdAt)}
-                            </div>
-                          </div>
-                          <pre
-                            className={getDebugPreClass("surface").replace(
-                              "mt-2 ",
-                              "mt-3 "
-                            )}
-                          >
-                            {stringify(event)}
-                          </pre>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div
-                      className={getSoftBlockClass(
-                        "py-6 text-sm text-[var(--app-text-muted)]"
-                      )}
-                    >
-                      暂无 trace 事件。
-                    </div>
-                  )
-                ) : null}
-              </div>
-            </div>
+            <SessionWorkbenchInspector
+              activeTab={activeTab}
+              inspectorEvents={inspectorEvents}
+              latestPromptEvent={latestPromptEvent}
+              thinkingEvents={thinkingEvents}
+              toolRows={toolRows}
+              promptEvents={promptEvents}
+              onSelectTab={onSelectTab}
+            />
           ) : null}
         </div>
       </WorkbenchPanel>

@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { createCreateRoutineTool } from "../src/tools/create-routine.js";
 import { ToolRegistry } from "../src/tools/registry.js";
 import { createPromptBuilder } from "../src/prompt.js";
-import type { SessionSnapshot } from "../src/types.js";
+import type { ConversationBlock, SessionSnapshot } from "../src/types.js";
 
 function createSessionSnapshot(): SessionSnapshot {
   return {
@@ -108,11 +108,169 @@ describe("PromptBuilder skill context", () => {
 
     const promptEnvelope = promptBuilder.build(session, toolRegistry);
 
-    expect(promptEnvelope.system).toContain(
-      "Routine-management tools are currently mounted as one capability pack in this runtime."
+    expect(JSON.stringify(promptEnvelope.prefixMessages[0])).toContain(
+      "Mounted tools: create_routine"
     );
-    expect(promptEnvelope.system).toContain(
-      "You may call create_routine directly only when the requested change is safe and conflict-free."
+    expect(JSON.stringify(promptEnvelope.prefixMessages[0])).toContain(
+      "Enabled capability packs: workspace, schedule"
     );
+  });
+
+  test("keeps the recent tool chain when compacting a single-user long run", () => {
+    const promptBuilder = createPromptBuilder();
+    const session = createSessionSnapshot();
+    const blocks: ConversationBlock[] = [
+      {
+        id: "user-1",
+        kind: "user",
+        content: "检查 ../ 下的项目文件，告诉我项目中的agent loop是怎么实现的",
+        createdAt: "2026-04-24T00:00:00.000Z"
+      }
+    ];
+
+    for (let index = 0; index < 12; index += 1) {
+      blocks.push(
+        {
+          id: `assistant-${index}`,
+          kind: "assistant",
+          content: `继续查看第 ${index} 个候选路径`,
+          createdAt: "2026-04-24T00:00:00.000Z"
+        },
+        {
+          id: `tool-call-${index}`,
+          kind: "tool call",
+          toolCallId: `call-${index}`,
+          toolName: index === 11 ? "list_directory" : "read_file",
+          input:
+            index === 11
+              ? { path: "../packages/agent/src" }
+              : { path: `../missing-${index}.ts` },
+          createdAt: "2026-04-24T00:00:00.000Z"
+        },
+        {
+          id: `tool-result-${index}`,
+          kind: "tool result",
+          toolCallId: `call-${index}`,
+          toolName: index === 11 ? "list_directory" : "read_file",
+          output:
+            index === 11
+              ? JSON.stringify({
+                  ok: true,
+                  data: {
+                    path: "../packages/agent/src",
+                    entries: [
+                      { name: "runtime.ts", kind: "file" },
+                      { name: "runtime", kind: "directory" },
+                      { name: "tools", kind: "directory" }
+                    ]
+                  }
+                })
+              : JSON.stringify({
+                  ok: false,
+                  message: `ENOENT: ../missing-${index}.ts`
+                }),
+          isError: index !== 11,
+          createdAt: "2026-04-24T00:00:00.000Z"
+        }
+      );
+    }
+
+    session.messages = blocks;
+
+    const promptEnvelope = promptBuilder.build(session, new ToolRegistry());
+    const serializedMessages = JSON.stringify(promptEnvelope.messages);
+
+    expect(serializedMessages).not.toContain("[History compacted:");
+    expect(serializedMessages).toContain("../missing-0.ts");
+    expect(serializedMessages).toContain("ENOENT: ../missing-0.ts");
+    expect(serializedMessages).not.toContain("[Historical tool call]");
+    expect(serializedMessages).not.toContain("[Historical tool result]");
+  });
+
+  test("drops standalone historical tool blocks from anthropic messages", () => {
+    const session = createSessionSnapshot();
+    session.messages = [
+      {
+        id: "user-1",
+        kind: "user",
+        content: "检查 agent loop",
+        createdAt: "2026-04-24T00:00:00.000Z"
+      },
+      {
+        id: "tool-call-1",
+        kind: "tool call",
+        toolCallId: "call-1",
+        toolName: "read_file",
+        input: { path: "../packages/agent/src/runtime/run-loop.ts" },
+        createdAt: "2026-04-24T00:00:01.000Z"
+      },
+      {
+        id: "tool-result-1",
+        kind: "tool result",
+        toolCallId: "call-1",
+        toolName: "read_file",
+        output: "export async function runSessionLoop() {}",
+        isError: false,
+        createdAt: "2026-04-24T00:00:02.000Z"
+      }
+    ];
+
+    const promptEnvelope = createPromptBuilder().build(
+      session,
+      new ToolRegistry()
+    );
+
+    expect(JSON.stringify(promptEnvelope.messages)).not.toContain(
+      "[Historical tool call]"
+    );
+    expect(JSON.stringify(promptEnvelope.messages)).not.toContain(
+      "[Historical tool result]"
+    );
+  });
+
+  test("does not serialize compacted historical tool calls as assistant text", () => {
+    const promptBuilder = createPromptBuilder();
+    const session = createSessionSnapshot();
+
+    session.messages = [
+      {
+        id: "user-1",
+        kind: "user",
+        content: "先看下项目结构",
+        createdAt: "2026-04-24T00:00:00.000Z"
+      },
+      {
+        id: "tool-call-1",
+        kind: "tool call",
+        toolCallId: "call-1",
+        toolName: "list_directory",
+        input: { path: ".." },
+        state: "completed",
+        createdAt: "2026-04-24T00:00:01.000Z"
+      },
+      {
+        id: "tool-result-1",
+        kind: "tool result",
+        toolCallId: "call-1",
+        toolName: "list_directory",
+        output: JSON.stringify({ ok: true }),
+        isError: false,
+        state: "success",
+        createdAt: "2026-04-24T00:00:02.000Z"
+      },
+      {
+        id: "assistant-1",
+        kind: "assistant",
+        content: "我继续往下看。",
+        createdAt: "2026-04-24T00:00:03.000Z"
+      }
+    ];
+
+    const promptEnvelope = promptBuilder.build(session, new ToolRegistry());
+    const serializedMessages = JSON.stringify(promptEnvelope.messages);
+
+    expect(serializedMessages).not.toContain("[Historical tool call]");
+    expect(serializedMessages).not.toContain("[Historical tool result]");
+    expect(serializedMessages).toContain("我继续往下看。");
   });
 });

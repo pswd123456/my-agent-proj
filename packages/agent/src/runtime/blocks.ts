@@ -79,6 +79,141 @@ export function extractToolCalls(blocks: AnthropicContentBlock[]): Array<{
     }));
 }
 
+export function extractToolCallsFromTextBlocks(
+  blocks: AnthropicContentBlock[]
+): Array<{
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+}> {
+  const toolCalls: Array<{
+    id: string;
+    name: string;
+    input: Record<string, unknown>;
+  }> = [];
+
+  for (const block of blocks) {
+    if (block.type !== "text") {
+      continue;
+    }
+
+    const parsed = parseTextToolCalls(block.text);
+    if (parsed.length > 0) {
+      toolCalls.push(...parsed);
+    }
+  }
+
+  return toolCalls;
+}
+
+function parseTextToolCalls(text: string): Array<{
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+}> {
+  const matches = [...text.matchAll(/\[TOOL_CALL\]([\s\S]*?)\[\/TOOL_CALL\]/g)];
+  if (matches.length === 0) {
+    return [];
+  }
+
+  const toolCalls: Array<{
+    id: string;
+    name: string;
+    input: Record<string, unknown>;
+  }> = [];
+
+  for (const match of matches) {
+    const rawInner = match[1];
+    if (typeof rawInner !== "string") {
+      continue;
+    }
+    const inner = rawInner.trim();
+    const nameMatch = inner.match(/tool\s*=>\s*"([^"]+)"/);
+    if (!nameMatch) {
+      continue;
+    }
+
+    const argsSectionMatch = inner.match(/args\s*=>\s*\{([\s\S]*?)\}\s*$/);
+    const toolInput = argsSectionMatch
+      ? parseRubyStyleArgsObject(argsSectionMatch[1] ?? "")
+      : {};
+
+    toolCalls.push({
+      id: `text-tool-call-${randomUUID()}`,
+      name: nameMatch[1] ?? "",
+      input: toolInput
+    });
+
+    if (match.length === 0) {
+      continue;
+    }
+  }
+
+  return toolCalls;
+}
+
+export function stripTextToolCallMarkup(text: string): string {
+  if (!text.includes("[TOOL_CALL]")) {
+    return text;
+  }
+
+  return text
+    .replace(/\[TOOL_CALL\][\s\S]*?\[\/TOOL_CALL\]/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function parseRubyStyleArgsObject(raw: string): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  const lines = raw
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  for (const line of lines) {
+    const argMatch = line.match(/^--([A-Za-z0-9_]+)\s+(.+)$/);
+    if (!argMatch) {
+      continue;
+    }
+
+    const key = argMatch[1];
+    const rawValue = argMatch[2];
+    if (typeof key !== "string" || typeof rawValue !== "string") {
+      continue;
+    }
+    result[key] = parseTextToolValue(rawValue.trim());
+  }
+
+  return result;
+}
+
+function parseTextToolValue(rawValue: string): unknown {
+  if (
+    (rawValue.startsWith('"') && rawValue.endsWith('"')) ||
+    (rawValue.startsWith("'") && rawValue.endsWith("'"))
+  ) {
+    return rawValue.slice(1, -1);
+  }
+
+  if (rawValue === "true") {
+    return true;
+  }
+
+  if (rawValue === "false") {
+    return false;
+  }
+
+  if (rawValue === "null") {
+    return null;
+  }
+
+  if (/^-?\d+(?:\.\d+)?$/.test(rawValue)) {
+    return Number(rawValue);
+  }
+
+  return rawValue;
+}
+
 export function extractThinkingBlocks(blocks: AnthropicContentBlock[]): Array<{
   text: string;
   signature: string;

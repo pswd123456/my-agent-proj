@@ -52,7 +52,7 @@ describe("permission card feedback", () => {
     expect(feedback?.tone).toBe("approved");
     expect(view?.tone).toBe("approved");
     expect(view?.showActions).toBe(false);
-    expect(view?.detailText).toContain("正在继续执行");
+    expect(view?.detailText).toBe("已同意");
   });
 
   test("keeps approved feedback for a short post-success window after the request clears", () => {
@@ -69,7 +69,7 @@ describe("permission card feedback", () => {
 
     expect(view?.key).toBe(getPermissionRequestKey(pendingPermissionRequest));
     expect(view?.tone).toBe("approved");
-    expect(view?.detailText).toContain("已处理");
+    expect(view?.detailText).toBe("已同意");
   });
 
   test("shows rejected feedback when the user cancels", () => {
@@ -86,7 +86,7 @@ describe("permission card feedback", () => {
 
     expect(feedback?.tone).toBe("rejected");
     expect(view?.tone).toBe("rejected");
-    expect(view?.detailText).toContain("正在结束本次操作");
+    expect(view?.detailText).toBe("已取消");
   });
 });
 

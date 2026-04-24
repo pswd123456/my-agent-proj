@@ -4,6 +4,7 @@ import {
   DEFAULT_CONTEXT_WINDOW,
   DEFAULT_SESSION_MAX_TURNS,
   createPermissionRuleLists,
+  normalizeCapabilityPacks,
   type ScheduleSessionContext
 } from "@ai-app-template/domain";
 
@@ -39,6 +40,7 @@ export function createSnapshot(input: {
   toolAllowList?: string[];
   toolAskList?: string[];
   toolDenyList?: string[];
+  enabledCapabilityPacks?: string[];
 }): SessionSnapshot {
   const contextInput = {
     ...(typeof input.userId === "string" ? { userId: input.userId } : {}),
@@ -59,6 +61,9 @@ export function createSnapshot(input: {
       : {}),
     ...(Array.isArray(input.toolDenyList)
       ? { toolDenyList: input.toolDenyList }
+      : {}),
+    ...(Array.isArray(input.enabledCapabilityPacks)
+      ? { enabledCapabilityPacks: input.enabledCapabilityPacks }
       : {})
   };
   return {
@@ -88,7 +93,10 @@ export function cloneSnapshot(snapshot: SessionSnapshot): SessionSnapshot {
       shellDenyPatterns: permissionRules.shellDenyPatterns ?? [],
       toolAllowList: permissionRules.toolAllowList ?? [],
       toolAskList: permissionRules.toolAskList ?? [],
-      toolDenyList: permissionRules.toolDenyList ?? []
+      toolDenyList: permissionRules.toolDenyList ?? [],
+      enabledCapabilityPacks: normalizeCapabilityPacks(
+        cloned.context.enabledCapabilityPacks
+      )
     },
     sessionState: {
       ...cloned.sessionState,
@@ -113,6 +121,7 @@ export function createScheduleSessionContext(
     toolAllowList?: string[];
     toolAskList?: string[];
     toolDenyList?: string[];
+    enabledCapabilityPacks?: string[];
   } = {}
 ): ScheduleSessionContext {
   const permissionRules = createPermissionRuleLists();
@@ -128,6 +137,9 @@ export function createScheduleSessionContext(
     toolAllowList: input.toolAllowList ?? permissionRules.toolAllowList,
     toolAskList: input.toolAskList ?? permissionRules.toolAskList,
     toolDenyList: input.toolDenyList ?? permissionRules.toolDenyList,
+    enabledCapabilityPacks: normalizeCapabilityPacks(
+      input.enabledCapabilityPacks
+    ),
     pendingPermissionRequest: null,
     pendingConfirmationPayload: null,
     pendingConflictSummary: null,
@@ -201,6 +213,8 @@ export function isSessionSnapshot(value: unknown): value is SessionSnapshot {
       Array.isArray(value.context.toolAskList)) &&
     (typeof value.context.toolDenyList === "undefined" ||
       Array.isArray(value.context.toolDenyList)) &&
+    (typeof value.context.enabledCapabilityPacks === "undefined" ||
+      Array.isArray(value.context.enabledCapabilityPacks)) &&
     Object.prototype.hasOwnProperty.call(
       value.context,
       "pendingPermissionRequest"

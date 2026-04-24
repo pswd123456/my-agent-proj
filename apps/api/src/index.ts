@@ -7,6 +7,8 @@ import {
   createMiniMaxRuntime,
   createPromptBuilder,
   createFileTraceManager,
+  createFileSystemLogManager,
+  createLogger,
   resolveToolChoice,
   resolveSessionStateDirectory,
   type SessionSnapshot
@@ -30,6 +32,8 @@ import {
 const workspaceRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const stateDirectory = resolveSessionStateDirectory(workspaceRoot);
 const traceManager = createFileTraceManager(stateDirectory);
+const systemLogManager = createFileSystemLogManager(stateDirectory, process.env);
+const apiLogger = createLogger({ manager: systemLogManager, component: "api" });
 const promptBuilder = createPromptBuilder();
 const miniMaxRuntime = createMiniMaxRuntime(process.env);
 const toolChoice = resolveToolChoice(process.env);
@@ -64,9 +68,12 @@ function createRuntime(session: SessionSnapshot) {
     routineRepository,
     toolRegistry: createDefaultToolRegistry({
       workingDirectory: session.workingDirectory,
-      routineRepository
+      routineRepository,
+      enabledCapabilityPacks: session.context.enabledCapabilityPacks
     }),
     traceManager,
+    systemLogManager,
+    runtimeLogger: createLogger({ manager: systemLogManager, component: "runtime" }),
     promptBuilder,
     maxTurns: 50,
     ...(toolChoice ? { toolChoice } : {})
@@ -78,6 +85,8 @@ export const app = createApiApp({
   routineRepository,
   settingsRepository,
   traceManager,
+  systemLogManager,
+  apiLogger,
   buildWorkingDirectory,
   ...(miniMaxRuntime ? { runtimeFactory: createRuntime } : {}),
   ...(miniMaxRuntime ? { defaultModel: miniMaxRuntime.model } : {}),

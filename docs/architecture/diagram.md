@@ -36,6 +36,7 @@ flowchart LR
   minimax["MiniMax
   Anthropic-compatible API"]
   trace["tmp/agent-sessions/sessions/*.trace.jsonl"]
+  logs["tmp/agent-sessions/logs/system.log.jsonl*"]
 
   user --> web
   web --> ui
@@ -50,6 +51,7 @@ flowchart LR
   db --> postgres
   agent --> minimax
   agent --> trace
+  agent --> logs
 ```
 
 ## 一次 session 的执行链路
@@ -105,6 +107,6 @@ sequenceDiagram
 
 - `apps/api` 是当前运行主入口，负责把各层装配起来
 - `packages/agent` 是执行核心，既包含 runtime loop，也包含 prompt、session、skills、tools 和 trace
-- `PostgreSQL` 保存 session 与 routine 数据，`tmp/` 主要保存 trace
+- `PostgreSQL` 保存 session 与 routine 数据，`tmp/` 主要保存 trace 与 system logs
 - `settingsRepository` 保存用户级 session settings，包含工作目录、yolo、context window、max turns 和权限规则
 - 本地若存在 `apps/worker/` 残留构建产物，也不应视为当前运行架构的一部分

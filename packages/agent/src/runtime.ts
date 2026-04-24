@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 
+import type { Logger, SystemLogManager } from "./system-log.js";
+
 import type { RoutineRepository } from "@ai-app-template/db";
 
 import type {
@@ -24,6 +26,8 @@ import type { RunEventSink } from "./events.js";
 import { runSessionLoop } from "./runtime/run-loop.js";
 
 export interface AgentRuntimeOptions {
+  systemLogManager?: SystemLogManager;
+  runtimeLogger?: Logger;
   client: AnthropicCompatibleClient;
   model: string;
   sessionManager: SessionManager;
@@ -47,9 +51,11 @@ export class SessionExecutionInProgressError extends Error {
 
 export class AgentRuntime {
   private readonly promptBuilder: PromptBuilder;
+  private readonly runtimeLogger: Logger | undefined;
 
   constructor(private readonly options: AgentRuntimeOptions) {
     this.promptBuilder = options.promptBuilder ?? createPromptBuilder();
+    this.runtimeLogger = options.runtimeLogger;
   }
 
   async createSession(
@@ -65,6 +71,7 @@ export class AgentRuntime {
       toolAllowList?: string[];
       toolAskList?: string[];
       toolDenyList?: string[];
+      enabledCapabilityPacks?: string[];
     } = {}
   ): ReturnType<SessionManager["createSession"]> {
     const createInput: {
@@ -79,6 +86,7 @@ export class AgentRuntime {
       toolAllowList?: string[];
       toolAskList?: string[];
       toolDenyList?: string[];
+      enabledCapabilityPacks?: string[];
     } = {
       model: input.model ?? this.options.model
     };
@@ -113,6 +121,9 @@ export class AgentRuntime {
     if (Array.isArray(input.toolDenyList)) {
       createInput.toolDenyList = input.toolDenyList;
     }
+    if (Array.isArray(input.enabledCapabilityPacks)) {
+      createInput.enabledCapabilityPacks = input.enabledCapabilityPacks;
+    }
 
     return this.options.sessionManager.createSession(createInput);
   }
@@ -133,6 +144,14 @@ export class AgentRuntime {
     }
 
     const runId = randomUUID();
+    const runtimeLogger = this.runtimeLogger?.child({
+      sessionId: input.sessionId,
+      runId
+    });
+    await runtimeLogger?.info("run_started", {
+      hasMessage: typeof input.message === "string",
+      permissionReply: input.permissionReply ?? null
+    });
     const interruptController = new AbortController();
     const acquiredSession = await this.options.sessionManager.acquireExecution(
       input.sessionId,
@@ -169,7 +188,7 @@ export class AgentRuntime {
           });
       }, 150);
 
-      return await runSessionLoop({
+      const runLoopInput = {
         client: this.options.client,
         sessionManager: this.options.sessionManager,
         routineRepository: this.options.routineRepository,
@@ -188,14 +207,28 @@ export class AgentRuntime {
           input.maxTurns ?? session.maxTurns ?? this.options.maxTurns ?? 50,
         maxTokens: this.options.maxTokens,
         toolChoice: this.options.toolChoice,
-        eventSink
+        eventSink,
+        ...(runtimeLogger ? { logger: runtimeLogger } : {})
+      };
+      const result = await runSessionLoop(runLoopInput);
+      await runtimeLogger?.info("run_completed", {
+        stopReason: result.stopReason,
+        toolCallCount: result.toolCallCount,
+        toolResultCount: result.toolResultCount
       });
+      return result;
+    } catch (error) {
+      await runtimeLogger?.error("run_failed", {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
     } finally {
       if (interruptWatcher) {
         clearInterval(interruptWatcher);
       }
 
       try {
+        await runtimeLogger?.debug("release_execution", { sessionId: input.sessionId });
         await this.options.sessionManager.releaseExecution(
           input.sessionId,
           runId

@@ -2,10 +2,11 @@ import { randomUUID } from "node:crypto";
 
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 
-import type {
-  PendingConfirmationPayload,
-  PendingPermissionRequest,
-  ScheduleSessionContext
+import {
+  normalizeCapabilityPacks,
+  type PendingConfirmationPayload,
+  type PendingPermissionRequest,
+  type ScheduleSessionContext
 } from "@ai-app-template/domain";
 
 import type { ProductDatabaseClient } from "@ai-app-template/db";
@@ -69,12 +70,15 @@ export function toIsoString(value: string | Date): string {
   const hasExplicitTimeZone =
     normalized.endsWith("Z") || /[+-]\d{2}:\d{2}$/.test(normalized) || tzMatch;
   const parsedValue = tzMatch
-    ? normalized.replace(/([+-]\d{2})(\d{2})?$/, (_, hours: string, minutes?: string) =>
-        `${hours}:${minutes ?? "00"}`
+    ? normalized.replace(
+        /([+-]\d{2})(\d{2})?$/,
+        (_, hours: string, minutes?: string) => `${hours}:${minutes ?? "00"}`
       )
     : normalized;
 
-  return new Date(hasExplicitTimeZone ? parsedValue : `${normalized}Z`).toISOString();
+  return new Date(
+    hasExplicitTimeZone ? parsedValue : `${normalized}Z`
+  ).toISOString();
 }
 
 function toConversationBlock(row: SessionMessageRow): ConversationBlock {
@@ -126,9 +130,7 @@ function toConversationBlock(row: SessionMessageRow): ConversationBlock {
 }
 
 function toSessionContext(row: SessionRow): ScheduleSessionContext {
-  const pendingPermissionRequest = parseJsonValue(
-    row.pendingPermissionRequest
-  );
+  const pendingPermissionRequest = parseJsonValue(row.pendingPermissionRequest);
   const pendingConfirmationPayload = parseJsonValue(
     row.pendingConfirmationPayload
   );
@@ -143,6 +145,9 @@ function toSessionContext(row: SessionRow): ScheduleSessionContext {
     toolAllowList: toStringArray(row.toolAllowList),
     toolAskList: toStringArray(row.toolAskList),
     toolDenyList: toStringArray(row.toolDenyList),
+    enabledCapabilityPacks: normalizeCapabilityPacks(
+      toStringArray(row.enabledCapabilityPacks)
+    ),
     pendingPermissionRequest: isRecord(pendingPermissionRequest)
       ? (pendingPermissionRequest as unknown as PendingPermissionRequest)
       : null,
@@ -239,6 +244,7 @@ export class PostgresSessionManager implements SessionManager {
       toolAllowList?: string[];
       toolAskList?: string[];
       toolDenyList?: string[];
+      enabledCapabilityPacks?: string[];
     } = {
       sessionId: randomUUID(),
       workingDirectory: resolveWorkingDirectory(input.workingDirectory),
@@ -271,6 +277,9 @@ export class PostgresSessionManager implements SessionManager {
     }
     if (Array.isArray(input.toolDenyList)) {
       createSnapshotInput.toolDenyList = input.toolDenyList;
+    }
+    if (Array.isArray(input.enabledCapabilityPacks)) {
+      createSnapshotInput.enabledCapabilityPacks = input.enabledCapabilityPacks;
     }
 
     const snapshot = createSnapshot(createSnapshotInput);
@@ -324,7 +333,9 @@ export class PostgresSessionManager implements SessionManager {
       .from(agentSessions)
       .orderBy(asc(agentSessions.updatedAt));
 
-    const sessions = await Promise.all(rows.map((row) => this.getSession(row.id)));
+    const sessions = await Promise.all(
+      rows.map((row) => this.getSession(row.id))
+    );
     return sessions.flatMap((session) => (session ? [session] : []));
   }
 
@@ -579,7 +590,12 @@ export class PostgresSessionManager implements SessionManager {
         interruptRequested: false,
         updatedAt: releasedAt
       })
-      .where(and(eq(agentSessions.id, sessionId), eq(agentSessions.activeRunId, runId)));
+      .where(
+        and(
+          eq(agentSessions.id, sessionId),
+          eq(agentSessions.activeRunId, runId)
+        )
+      );
 
     return this.getSession(sessionId);
   }
@@ -615,6 +631,7 @@ export class PostgresSessionManager implements SessionManager {
         toolAllowList: snapshot.context.toolAllowList,
         toolAskList: snapshot.context.toolAskList,
         toolDenyList: snapshot.context.toolDenyList,
+        enabledCapabilityPacks: snapshot.context.enabledCapabilityPacks,
         pendingPermissionRequest: snapshot.context.pendingPermissionRequest,
         pendingConfirmationPayload: snapshot.context.pendingConfirmationPayload,
         pendingConflictSummary: snapshot.context.pendingConflictSummary,
@@ -645,8 +662,10 @@ export class PostgresSessionManager implements SessionManager {
           toolAllowList: snapshot.context.toolAllowList,
           toolAskList: snapshot.context.toolAskList,
           toolDenyList: snapshot.context.toolDenyList,
+          enabledCapabilityPacks: snapshot.context.enabledCapabilityPacks,
           pendingPermissionRequest: snapshot.context.pendingPermissionRequest,
-          pendingConfirmationPayload: snapshot.context.pendingConfirmationPayload,
+          pendingConfirmationPayload:
+            snapshot.context.pendingConfirmationPayload,
           pendingConflictSummary: snapshot.context.pendingConflictSummary,
           lastUserMessage: snapshot.context.lastUserMessage,
           workingDirectory: snapshot.workingDirectory,

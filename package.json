@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "dev": "set -a && . ./.env && set +a && turbo run dev --parallel",
+    "dev:packages": "turbo run dev --parallel --filter='./packages/*'",
     "build": "turbo run build",
     "design:lint": "bunx @google/design.md lint DESIGN.md",
     "lint": "turbo run lint",

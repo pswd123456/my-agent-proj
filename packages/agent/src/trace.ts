@@ -60,6 +60,8 @@ export interface TraceTextEvent {
   turnCount: number;
   assistantMessageId: string;
   text: string;
+  delta?: string;
+  snapshot?: string;
 }
 
 export interface TraceThinkingEvent {
@@ -143,6 +145,17 @@ export interface TraceTurnEndEvent {
   loopState: SessionSnapshot["sessionState"]["loopState"];
 }
 
+export interface TraceRunErrorEvent {
+  kind: "run_error";
+  turnCount: number;
+  error: string;
+  stopReason: string | null;
+  loopState: SessionSnapshot["sessionState"]["loopState"];
+  contextStatus: SessionSnapshot["context"]["status"];
+  pendingToolCallIds: string[];
+  stack?: string;
+}
+
 export type TraceEvent =
   | TracePromptEvent
   | TraceResponseEvent
@@ -159,7 +172,8 @@ export type TraceEvent =
   | TraceInterruptRequestedEvent
   | TraceInterruptedEvent
   | TraceFallbackEvent
-  | TraceTurnEndEvent;
+  | TraceTurnEndEvent
+  | TraceRunErrorEvent;
 
 export interface TraceRecord {
   sessionId: string;

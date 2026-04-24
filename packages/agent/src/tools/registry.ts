@@ -1,6 +1,7 @@
 import type { AnthropicToolDefinition } from "../model.js";
 
 import type { RoutineRepository } from "@ai-app-template/db";
+import type { CapabilityPackName } from "@ai-app-template/domain";
 
 import { createAskForConfirmationTool } from "./ask-for-confirmation.js";
 import { createCopyPathTool } from "./copy-path.js";
@@ -8,6 +9,7 @@ import { createCreateDirectoryTool } from "./create-directory.js";
 import { createCreateRoutineTool } from "./create-routine.js";
 import { createDeletePathTool } from "./delete-path.js";
 import { createDeleteRoutineTool } from "./delete-routine.js";
+import { createEditFileTool } from "./edit-file.js";
 import { createEditRoutineTool } from "./edit-routine.js";
 import { createListRoutineByDateTool } from "./list-routine-by-date.js";
 import { createListRoutineByWeekTool } from "./list-routine-by-week.js";
@@ -85,7 +87,10 @@ export class ToolRegistry {
   }
 }
 
-function registerTools(registry: ToolRegistry, tools: RuntimeTool[]): ToolRegistry {
+function registerTools(
+  registry: ToolRegistry,
+  tools: RuntimeTool[]
+): ToolRegistry {
   for (const tool of tools) {
     registry.register(tool);
   }
@@ -101,6 +106,7 @@ export function createWorkspaceToolRegistry(options: {
     createListDirectoryTool(options.workingDirectory),
     createSearchTextTool(options.workingDirectory),
     createWriteFileTool(options.workingDirectory),
+    createEditFileTool(options.workingDirectory),
     createCreateDirectoryTool(options.workingDirectory),
     createDeletePathTool(options.workingDirectory),
     createMovePathTool(options.workingDirectory),
@@ -128,13 +134,23 @@ export function createScheduleToolRegistry(options: {
 export function createDefaultToolRegistry(options: {
   workingDirectory: string;
   routineRepository: RoutineRepository;
+  enabledCapabilityPacks?: readonly string[];
 }): ToolRegistry {
   const registry = new ToolRegistry();
-  for (const tool of createWorkspaceToolRegistry(options).list()) {
-    registry.register(tool);
+  const enabled = new Set(
+    options.enabledCapabilityPacks ??
+      (["workspace", "schedule"] satisfies CapabilityPackName[])
+  );
+
+  if (enabled.has("workspace")) {
+    for (const tool of createWorkspaceToolRegistry(options).list()) {
+      registry.register(tool);
+    }
   }
-  for (const tool of createScheduleToolRegistry(options).list()) {
-    registry.register(tool);
+  if (enabled.has("schedule")) {
+    for (const tool of createScheduleToolRegistry(options).list()) {
+      registry.register(tool);
+    }
   }
 
   return registry;

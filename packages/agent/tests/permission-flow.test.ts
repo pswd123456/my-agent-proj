@@ -176,6 +176,8 @@ describe("Stage 4 permission flow", () => {
         permissionRequest.session.sessionId
       );
       expect(sessionAfterApproval?.context.pendingPermissionRequest).toBeNull();
+      expect(sessionAfterApproval?.context.status).toBe("running");
+      expect(sessionAfterApproval?.sessionState.loopState).toBe("running");
 
       const secondPermissionRequest = await executeToolAction({
         sessionManager,

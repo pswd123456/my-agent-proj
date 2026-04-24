@@ -15,6 +15,24 @@ import {
   type TurnUsageSummary
 } from "./session-workbench-types";
 
+type SessionDisplayStateInput = Pick<
+  SessionSummary,
+  | "loopState"
+  | "status"
+  | "pendingToolCallIds"
+  | "interruptRequested"
+  | "pendingPermission"
+  | "pendingConfirmation"
+>;
+
+export interface SessionDisplayState {
+  label: string;
+  detail: string;
+  tone: "neutral" | "active" | "success" | "warning" | "danger";
+  isWaitingForUser: boolean;
+  isActiveExecution: boolean;
+}
+
 export interface ToolRow {
   toolCallId: string;
   toolName: string;
@@ -105,6 +123,116 @@ export function findReusableNewSessionSummary(
   return sessions.find(isReusableNewSessionSummary) ?? null;
 }
 
+export function getSessionDisplayState(
+  session: SessionDisplayStateInput
+): SessionDisplayState {
+  if (session.interruptRequested) {
+    return {
+      label: "停止中",
+      detail: "已请求中断，正在等待 runtime 停到安全边界。",
+      tone: "warning",
+      isWaitingForUser: false,
+      isActiveExecution: true
+    };
+  }
+
+  if (
+    session.pendingPermission ||
+    session.status === "waiting_for_permission"
+  ) {
+    return {
+      label: "等待权限确认",
+      detail: "工具调用已暂停，需要先处理权限请求。",
+      tone: "warning",
+      isWaitingForUser: true,
+      isActiveExecution: false
+    };
+  }
+
+  if (
+    session.pendingConfirmation ||
+    session.status === "waiting_for_conflict_confirmation"
+  ) {
+    return {
+      label: "等待冲突确认",
+      detail: "检测到日程冲突，需要确认后继续执行。",
+      tone: "warning",
+      isWaitingForUser: true,
+      isActiveExecution: false
+    };
+  }
+
+  if (session.loopState === "waiting for tool result") {
+    const pendingCount = session.pendingToolCallIds.length;
+    return {
+      label:
+        pendingCount > 0 ? `等待工具结果 · ${pendingCount}` : "等待工具结果",
+      detail: "模型已发起工具调用，runtime 正在等待工具返回。",
+      tone: "active",
+      isWaitingForUser: false,
+      isActiveExecution: true
+    };
+  }
+
+  if (session.loopState === "running" || session.status === "running") {
+    return {
+      label: "执行中",
+      detail: "模型或 runtime 正在处理当前请求。",
+      tone: "active",
+      isWaitingForUser: false,
+      isActiveExecution: true
+    };
+  }
+
+  if (session.loopState === "interrupted") {
+    return {
+      label: "已中断",
+      detail: "本轮执行已被中断，可以继续发送新请求。",
+      tone: "warning",
+      isWaitingForUser: true,
+      isActiveExecution: false
+    };
+  }
+
+  if (session.loopState === "failed" || session.status === "failed") {
+    return {
+      label: "失败",
+      detail: "本轮执行失败，请查看错误或 trace 后继续。",
+      tone: "danger",
+      isWaitingForUser: true,
+      isActiveExecution: false
+    };
+  }
+
+  if (session.loopState === "completed" || session.status === "completed") {
+    return {
+      label: "已完成",
+      detail: "本轮执行已完成，可以继续发送新请求。",
+      tone: "success",
+      isWaitingForUser: true,
+      isActiveExecution: false
+    };
+  }
+
+  if (session.loopState === "waiting for input") {
+    return {
+      label: "等待输入",
+      detail: "会话空闲，正在等待下一条用户输入。",
+      tone: "neutral",
+      isWaitingForUser: true,
+      isActiveExecution: false
+    };
+  }
+
+  return {
+    label: "空闲",
+    detail: "会话尚未开始执行。",
+    tone: "neutral",
+    isWaitingForUser: true,
+    isActiveExecution: false
+  };
+}
+
 export function canInterruptSessionExecution(input: {
   session: SessionSnapshot | null;
   submitting: boolean;
@@ -123,14 +251,20 @@ export function canInterruptSessionExecution(input: {
     return true;
   }
 
-  if (session.context.status !== "running") {
+  const displayState = getSessionDisplayState({
+    loopState: session.sessionState.loopState,
+    status: session.context.status,
+    pendingToolCallIds: session.sessionState.pendingToolCallIds,
+    interruptRequested: session.sessionState.interruptRequested,
+    pendingPermission: Boolean(session.context.pendingPermissionRequest),
+    pendingConfirmation: Boolean(session.context.pendingConfirmationPayload)
+  });
+
+  if (!displayState.isActiveExecution) {
     return false;
   }
 
-  return (
-    session.sessionState.loopState === "running" ||
-    session.sessionState.loopState === "waiting for tool result"
-  );
+  return true;
 }
 
 export function flattenTraceRecords(records: TraceRecord[]): RunStreamEvent[] {
@@ -344,7 +478,8 @@ export function toSettingsFormState(
     shellDenyPatterns: (settings?.shellDenyPatterns ?? []).join("\n"),
     toolAllowList: [...(settings?.toolAllowList ?? [])],
     toolAskList: [...(settings?.toolAskList ?? [])],
-    toolDenyList: [...(settings?.toolDenyList ?? [])]
+    toolDenyList: [...(settings?.toolDenyList ?? [])],
+    enabledCapabilityPacks: [...(settings?.enabledCapabilityPacks ?? [])]
   };
 }
 
@@ -370,7 +505,8 @@ export function normalizeSettingsFormState(
     shellDenyPatterns: normalizePatternText(form.shellDenyPatterns),
     toolAllowList: normalizeList(form.toolAllowList),
     toolAskList: normalizeList(form.toolAskList),
-    toolDenyList: normalizeList(form.toolDenyList)
+    toolDenyList: normalizeList(form.toolDenyList),
+    enabledCapabilityPacks: normalizeList(form.enabledCapabilityPacks)
   };
 }
 

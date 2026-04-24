@@ -34,12 +34,14 @@ import {
   formatTokenCount,
   formatWorkingDirectory,
   getBubbleClass,
+  getDisplayStateToneClass,
   getDebugPreClass,
   getInspectorCardClass,
   getPermissionFamilyLabel,
   getSoftBlockClass,
   stringify
 } from "./session-workbench-shared";
+import { getSessionDisplayState } from "./session-workbench-state";
 
 interface SessionWorkbenchConversationPanelProps {
   currentSession: SessionSnapshot | null;
@@ -95,7 +97,7 @@ interface ComposerActionView {
   disabled: boolean;
 }
 
-const PERMISSION_FEEDBACK_HIDE_DELAY_MS = 1800;
+const PERMISSION_FEEDBACK_HIDE_DELAY_MS = 200;
 
 function escapeTimelineItemKey(key: string): string {
   return key.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
@@ -196,12 +198,8 @@ export function buildPermissionCardView(input: {
           : "Permission Rejected",
       detailText:
         feedback.tone === "approved"
-          ? submitting
-            ? "已同意，正在继续执行。"
-            : "已同意，本次权限请求已处理。"
-          : submitting
-            ? "已拒绝，正在结束本次操作。"
-            : "已拒绝本次权限请求。",
+          ? "已同意"
+          : "已取消",
       showActions: false
     };
   }
@@ -216,7 +214,7 @@ export function buildPermissionCardView(input: {
     summaryText: pendingPermissionRequest.summaryText,
     tone: "pending",
     title: "Permission Request",
-    detailText: "请选择是否允许继续执行这次高风险操作。",
+    detailText: "",
     showActions: true
   };
 }
@@ -831,6 +829,20 @@ export function SessionWorkbenchConversationPanel({
     feedback: permissionCardFeedback,
     submitting
   });
+  const displayState = currentSession
+    ? getSessionDisplayState({
+        loopState: currentSession.sessionState.loopState,
+        status: currentSession.context.status,
+        pendingToolCallIds: currentSession.sessionState.pendingToolCallIds,
+        interruptRequested: currentSession.sessionState.interruptRequested,
+        pendingPermission: Boolean(
+          currentSession.context.pendingPermissionRequest
+        ),
+        pendingConfirmation: Boolean(
+          currentSession.context.pendingConfirmationPayload
+        )
+      })
+    : null;
   const composerActionView = buildComposerActionView({
     canInterrupt,
     interrupting,
@@ -1019,6 +1031,14 @@ export function SessionWorkbenchConversationPanel({
                 <span className="min-w-0 font-mono text-[var(--app-text-primary)]">
                   {currentSession?.sessionId ?? "loading"}
                 </span>
+                {displayState ? (
+                  <span
+                    className={`rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-3 py-1 text-[0.72rem] font-medium ${getDisplayStateToneClass(displayState.tone)}`}
+                    title={displayState.detail}
+                  >
+                    {displayState.label}
+                  </span>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => void handleCopySessionId()}
@@ -1097,18 +1117,18 @@ export function SessionWorkbenchConversationPanel({
                 {permissionCardView ? (
                   <div
                     key={permissionCardView.key}
-                    className={`rounded-[var(--app-radius-lg)] px-4 py-4 transition-colors ${
+                    className={`relative z-0 -mb-5 rounded-t-[var(--app-radius-lg)] rounded-b-none border-x border-t px-4 pb-6 pt-3 transition-all ${
                       permissionCardView.tone === "approved"
-                        ? "border border-[color:color-mix(in_srgb,var(--app-status-success)_56%,var(--app-border-subtle)_44%)] bg-[color:color-mix(in_srgb,var(--app-status-success)_14%,var(--app-bg-surface)_86%)]"
+                        ? "border-[color:color-mix(in_srgb,var(--app-status-success)_45%,var(--app-border-subtle)_55%)] bg-[color:color-mix(in_srgb,var(--app-status-success)_10%,var(--app-bg-surface)_90%)]"
                         : permissionCardView.tone === "rejected"
-                          ? "border border-[color:color-mix(in_srgb,var(--app-status-danger)_56%,var(--app-border-subtle)_44%)] bg-[color:color-mix(in_srgb,var(--app-status-danger)_12%,var(--app-bg-surface)_88%)]"
-                          : "border border-[color:color-mix(in_srgb,var(--app-status-warning)_56%,var(--app-border-subtle)_44%)] bg-[color:color-mix(in_srgb,var(--app-status-warning)_14%,var(--app-bg-surface)_86%)]"
+                          ? "border-[color:color-mix(in_srgb,var(--app-status-danger)_42%,var(--app-border-subtle)_58%)] bg-[color:color-mix(in_srgb,var(--app-status-danger)_9%,var(--app-bg-surface)_91%)]"
+                          : "border-[color:color-mix(in_srgb,var(--app-status-warning)_56%,var(--app-border-subtle)_44%)] bg-[color:color-mix(in_srgb,var(--app-status-warning)_14%,var(--app-bg-surface)_86%)]"
                     }`}
                   >
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                       <div className="min-w-0">
                         <div
-                          className={`font-mono text-[0.72rem] uppercase tracking-[0.18em] ${
+                          className={`font-mono text-[0.65rem] uppercase tracking-[0.16em] ${
                             permissionCardView.tone === "approved"
                               ? "text-[var(--app-status-success)]"
                               : permissionCardView.tone === "rejected"
@@ -1118,27 +1138,26 @@ export function SessionWorkbenchConversationPanel({
                         >
                           {permissionCardView.title}
                         </div>
-                        <div className="mt-2 text-sm font-medium text-[var(--app-text-primary)]">
-                          {permissionCardView.toolName}
-                        </div>
-                        <div className="mt-2 text-sm leading-7 text-[var(--app-text-secondary)]">
+                        <div className="mt-1 text-sm font-medium leading-6 text-[var(--app-text-primary)]">
                           {permissionCardView.summaryText}
                         </div>
-                        <div
-                          className={`mt-2 text-sm ${
-                            permissionCardView.tone === "approved"
-                              ? "text-[var(--app-status-success)]"
-                              : permissionCardView.tone === "rejected"
-                                ? "text-[var(--app-status-danger)]"
-                                : "text-[var(--app-text-muted)]"
-                          }`}
-                        >
-                          {permissionCardView.detailText}
-                        </div>
+                        {permissionCardView.detailText ? (
+                          <div
+                            className={`mt-1 text-xs ${
+                              permissionCardView.tone === "approved"
+                                ? "text-[var(--app-status-success)]"
+                                : permissionCardView.tone === "rejected"
+                                  ? "text-[var(--app-status-danger)]"
+                                  : "text-[var(--app-text-muted)]"
+                            }`}
+                          >
+                            {permissionCardView.detailText}
+                          </div>
+                        ) : null}
                       </div>
 
                       {permissionCardView.showActions ? (
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex shrink-0 flex-wrap gap-2">
                           {buildPermissionQuickReplies(
                             pendingPermissionRequest
                           ).map((option) => (
@@ -1155,7 +1174,7 @@ export function SessionWorkbenchConversationPanel({
                                 onPermissionQuickReply(option.reply);
                               }}
                               disabled={submitting}
-                              className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-accent)] bg-[var(--app-bg-elevated)] px-4 py-2 text-sm font-medium text-[var(--app-text-primary)] transition hover:border-[var(--app-status-success)] hover:text-[var(--app-status-success)] disabled:cursor-not-allowed disabled:opacity-50"
+                              className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-accent)] bg-[var(--app-bg-elevated)] px-3 py-1.5 text-sm font-medium text-[var(--app-text-primary)] transition hover:border-[var(--app-status-success)] hover:text-[var(--app-status-success)] disabled:cursor-not-allowed disabled:opacity-50"
                             >
                               {option.label}
                             </button>
@@ -1172,14 +1191,14 @@ export function SessionWorkbenchConversationPanel({
                               onPermissionQuickReply("取消");
                             }}
                             disabled={submitting}
-                            className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-4 py-2 text-sm text-[var(--app-text-secondary)] transition hover:border-[var(--app-status-danger)] hover:text-[var(--app-status-danger)] disabled:cursor-not-allowed disabled:opacity-50"
+                            className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-3 py-1.5 text-sm text-[var(--app-text-secondary)] transition hover:border-[var(--app-status-danger)] hover:text-[var(--app-status-danger)] disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             取消
                           </button>
                         </div>
                       ) : (
                         <div
-                          className={`rounded-[var(--app-radius-pill)] border px-3 py-1 text-[0.72rem] uppercase tracking-[0.14em] ${
+                          className={`rounded-[var(--app-radius-pill)] border px-2.5 py-1 text-[0.68rem] uppercase tracking-[0.14em] ${
                             permissionCardView.tone === "approved"
                               ? "border-[var(--app-status-success)] text-[var(--app-status-success)]"
                               : "border-[var(--app-status-danger)] text-[var(--app-status-danger)]"
@@ -1199,7 +1218,7 @@ export function SessionWorkbenchConversationPanel({
                   onChange={(event) => onMessageChange(event.target.value)}
                   rows={3}
                   placeholder="输入你的请求"
-                  className="w-full resize-none rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm leading-7 text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
+                  className={`relative z-10 w-full resize-none border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm leading-7 text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)] ${permissionCardView ? "-mt-2 rounded-[var(--app-radius-lg)]" : "rounded-[var(--app-radius-lg)]"}`}
                 />
 
                 <div className="flex flex-wrap items-center justify-between gap-3">

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { RunStreamEvent, SessionSnapshot } from "@ai-app-template/sdk";
 
-import { buildTimelineItems } from "./session-timeline";
+import { buildTimelineItems, getTimelineEventRenderKey } from "./session-timeline";
 
 const firstUser: Extract<
   SessionSnapshot["messages"][number],
@@ -345,5 +345,66 @@ describe("buildTimelineItems", () => {
         .filter((item) => item.type === "event")
         .map((item) => item.event.kind)
     ).toEqual(["turn_start", "thinking", "assistant_text"]);
+  });
+
+  test("renders provider-emitted historical tool text as assistant text instead of tool call", () => {
+    const historicalAssistantEvent: Extract<
+      RunStreamEvent,
+      { kind: "assistant_text" }
+    > = {
+      kind: "assistant_text",
+      sessionId: "session-1",
+      createdAt: "2026-04-24T08:35:24.179Z",
+      turnCount: 4,
+      assistantMessageId: "assistant-historical-1",
+      text: '[Historical tool call] list_directory {"path":"../apps/worker/src"}'
+    };
+
+    const items = buildTimelineItems({
+      messages: [firstUser],
+      historyEvents: [turnStart, historicalAssistantEvent],
+      streamEvents: []
+    });
+
+    const events = items.filter(
+      (item): item is Extract<(typeof items)[number], { type: "event" }> =>
+        item.type === "event"
+    );
+
+    expect(events.map((item) => item.event.kind)).toEqual([
+      "turn_start",
+      "assistant_text"
+    ]);
+    expect(events[1]?.event.kind).toBe("assistant_text");
+    if (events[1]?.event.kind === "assistant_text") {
+      expect(events[1].event.text).toContain("[Historical tool call]");
+    }
+  });
+
+  test("assistant text keys stay unique across streamed snapshots", () => {
+    const partialAssistantEvent: Extract<
+      RunStreamEvent,
+      { kind: "assistant_text" }
+    > = {
+      kind: "assistant_text",
+      sessionId: "session-1",
+      createdAt: "2026-04-24T08:35:24.100Z",
+      turnCount: 1,
+      assistantMessageId: "assistant-stream-dup-1",
+      text: "先看"
+    };
+
+    const finalAssistantEvent: Extract<
+      RunStreamEvent,
+      { kind: "assistant_text" }
+    > = {
+      ...partialAssistantEvent,
+      createdAt: "2026-04-24T08:35:24.200Z",
+      text: "先看看这个问题。"
+    };
+
+    expect(getTimelineEventRenderKey(partialAssistantEvent)).not.toBe(
+      getTimelineEventRenderKey(finalAssistantEvent)
+    );
   });
 });

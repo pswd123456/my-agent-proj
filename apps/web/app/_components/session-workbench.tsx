@@ -39,6 +39,7 @@ import {
 } from "./session-workbench-ui";
 import {
   DEFAULT_MAX_TURNS,
+  clearActiveSidebarPanel,
   type InspectorTabId,
   type SettingsFormState,
   type SidebarPanelId
@@ -139,6 +140,10 @@ export function SessionWorkbench() {
   function getCreateSessionPayload(): { userId?: string } {
     const userId = preferredUserIdRef.current?.trim();
     return userId ? { userId } : {};
+  }
+
+  function focusConversationView() {
+    setActiveSidebarPanel(clearActiveSidebarPanel());
   }
 
   useEffect(() => {
@@ -285,6 +290,7 @@ export function SessionWorkbench() {
     const reusableSession = findReusableNewSessionSummary(sessions);
     if (reusableSession) {
       setErrorText(null);
+      focusConversationView();
       setSelectedSessionId(reusableSession.sessionId);
       setStreamEvents([]);
       router.replace(`/?sessionId=${reusableSession.sessionId}`, {
@@ -300,6 +306,7 @@ export function SessionWorkbench() {
       setSessions((current) =>
         mergeSessionSummary(current, session, toSessionSummary)
       );
+      focusConversationView();
       setSelectedSessionId(session.sessionId);
       setCurrentSession(session);
       setTraceRecords([]);
@@ -314,6 +321,7 @@ export function SessionWorkbench() {
   }
 
   function handleSelectSession(sessionId: string) {
+    focusConversationView();
     setSelectedSessionId(sessionId);
     setStreamEvents([]);
     router.replace(`/?sessionId=${sessionId}`, { scroll: false });
@@ -419,8 +427,9 @@ export function SessionWorkbench() {
           }
 
           if (
-            runEvent.kind === "run_complete" ||
-            runEvent.kind === "run_error"
+            (runEvent.kind === "run_complete" ||
+              runEvent.kind === "run_error") &&
+            "session" in runEvent
           ) {
             const nextSession = runEvent.session;
             if (nextSession) {
@@ -507,7 +516,8 @@ export function SessionWorkbench() {
         shellDenyPatterns: splitPatternLines(normalizedForm.shellDenyPatterns),
         toolAllowList: normalizedForm.toolAllowList,
         toolAskList: normalizedForm.toolAskList,
-        toolDenyList: normalizedForm.toolDenyList
+        toolDenyList: normalizedForm.toolDenyList,
+        enabledCapabilityPacks: normalizedForm.enabledCapabilityPacks
       });
       setUserSettings(updated);
       setSettingsForm(toSettingsFormState(updated));
@@ -521,7 +531,8 @@ export function SessionWorkbench() {
             shellDenyPatterns: updated.shellDenyPatterns,
             toolAllowList: updated.toolAllowList,
             toolAskList: updated.toolAskList,
-            toolDenyList: updated.toolDenyList
+            toolDenyList: updated.toolDenyList,
+            enabledCapabilityPacks: updated.enabledCapabilityPacks
           }
         );
         setCurrentSession(syncedSession);
@@ -607,6 +618,23 @@ export function SessionWorkbench() {
     await handleSaveUserSettings(nextForm);
   }
 
+  async function handleSettingsCapabilityPackToggle(packName: string) {
+    if (savingSettings) {
+      return;
+    }
+
+    const exists = settingsForm.enabledCapabilityPacks.includes(packName);
+    const nextEnabled = exists
+      ? settingsForm.enabledCapabilityPacks.filter((item) => item !== packName)
+      : [...settingsForm.enabledCapabilityPacks, packName];
+
+    const nextForm = patchSettingsForm(settingsForm, {
+      enabledCapabilityPacks: nextEnabled
+    });
+    setSettingsForm(nextForm);
+    await handleSaveUserSettings(nextForm);
+  }
+
   async function handleResetAllRoutines() {
     if (!currentSession || resettingRoutines) {
       return;
@@ -661,6 +689,10 @@ export function SessionWorkbench() {
       (event): event is Extract<RunStreamEvent, { kind: "prompt" }> =>
         event.kind === "prompt"
     );
+  const promptEvents = inspectorEvents.filter(
+    (event): event is Extract<RunStreamEvent, { kind: "prompt" }> =>
+      event.kind === "prompt"
+  );
   const thinkingEvents = inspectorEvents.filter(
     (event): event is Extract<RunStreamEvent, { kind: "thinking" }> =>
       event.kind === "thinking"
@@ -752,6 +784,7 @@ export function SessionWorkbench() {
               latestPromptEvent={latestPromptEvent}
               thinkingEvents={thinkingEvents}
               toolRows={toolRows}
+              promptEvents={promptEvents}
               onResetAllRoutines={() => void handleResetAllRoutines()}
               onSelectTab={setActiveTab}
               onSettingsFormChange={handleSettingsFormChange}
@@ -761,6 +794,9 @@ export function SessionWorkbench() {
               }
               onSettingsPermissionToolToggle={(toolName, target) =>
                 void handleSettingsPermissionToolToggle(toolName, target)
+              }
+              onSettingsCapabilityPackToggle={(packName) =>
+                void handleSettingsCapabilityPackToggle(packName)
               }
             />
           ) : (

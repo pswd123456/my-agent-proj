@@ -6,6 +6,13 @@ import { createToolResult, failureResult, successResult } from "./tool-result.js
 import { truncateText } from "./workspace.js";
 
 const exec = promisify(execCallback);
+const DEFAULT_TIMEOUT_MS = 120_000;
+
+function normalizeTimeoutMs(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.floor(value)
+    : DEFAULT_TIMEOUT_MS;
+}
 
 export function createRunShellCommandTool(): RuntimeTool {
   return {
@@ -55,10 +62,7 @@ export function createRunShellCommandTool(): RuntimeTool {
     async execute(input, context) {
       const command =
         typeof input.command === "string" ? input.command.trim() : "";
-      const timeoutMs =
-        typeof input.timeoutMs === "number" && input.timeoutMs > 0
-          ? Math.floor(input.timeoutMs)
-          : 30_000;
+      const timeoutMs = normalizeTimeoutMs(input.timeoutMs);
 
       if (!command) {
         return failureResult(
@@ -88,7 +92,8 @@ export function createRunShellCommandTool(): RuntimeTool {
               command,
               stdout: truncateText(stdout, 12_000),
               stderr: truncateText(stderr, 6_000),
-              working_directory: context.workingDirectory
+              working_directory: context.workingDirectory,
+              timeout_ms: timeoutMs
             }
           }),
           `[run_shell_command] success\n- ${command}`
@@ -106,6 +111,29 @@ export function createRunShellCommandTool(): RuntimeTool {
         }
 
         const message = error instanceof Error ? error.message : String(error);
+        const shellError = error as NodeJS.ErrnoException & {
+          killed?: boolean;
+          signal?: NodeJS.Signals;
+          stdout?: string;
+          stderr?: string;
+        };
+        if (shellError.killed && shellError.signal === "SIGTERM") {
+          return failureResult(
+            createToolResult({
+              ok: false,
+              code: "SHELL_COMMAND_TIMEOUT",
+              message,
+              data: {
+                command,
+                stdout: truncateText(shellError.stdout ?? "", 12_000),
+                stderr: truncateText(shellError.stderr ?? "", 6_000),
+                working_directory: context.workingDirectory,
+                timeout_ms: timeoutMs
+              }
+            }),
+            `[run_shell_command] timed out\n- ${command}\n- timeout: ${timeoutMs}ms`
+          );
+        }
         return failureResult(
           createToolResult({
             ok: false,
