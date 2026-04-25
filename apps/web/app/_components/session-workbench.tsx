@@ -757,6 +757,20 @@ export function SessionWorkbench() {
     !currentSession.sessionState.interruptRequested &&
     !submitting
   );
+  const sidebarToggleLabel = isSessionRailCollapsed
+    ? "展开会话侧边栏"
+    : "收起会话侧边栏";
+  const sidebarToggleButton = (
+    <button
+      type="button"
+      title={sidebarToggleLabel}
+      aria-label={sidebarToggleLabel}
+      onClick={() => setIsSessionRailCollapsed((current) => !current)}
+      className="inline-flex items-center justify-center rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-3 py-1 text-[0.72rem] uppercase tracking-[0.14em] text-[var(--app-text-muted)] transition hover:border-[var(--app-border-strong)] hover:text-[var(--app-text-primary)]"
+    >
+      {isSessionRailCollapsed ? ">>" : "<<"}
+    </button>
+  );
 
   function handleAssistantAnimationComplete(itemKey: string) {
     setRunViewState((current) =>
@@ -766,23 +780,22 @@ export function SessionWorkbench() {
 
   return (
     <main className="min-h-screen bg-[var(--app-bg-canvas)] text-[var(--app-text-primary)]">
-      <div className="mx-auto flex min-h-screen w-full max-w-[1760px] flex-col gap-4 px-4 py-4 lg:flex-row lg:items-start lg:gap-5 lg:px-6">
-        <SessionWorkbenchSidebar
-          sessions={renderedSessions}
-          selectedSessionId={selectedSessionId}
-          activeSidebarPanel={activeSidebarPanel}
-          collapsed={isSessionRailCollapsed}
-          deletingSessionId={deletingSessionId}
-          loading={loading}
-          creatingSession={creatingSession}
-          onCreateSession={handleCreateSession}
-          onSelectSession={handleSelectSession}
-          onDeleteSession={(sessionId) => void handleDeleteSession(sessionId)}
-          onToggleCollapsed={() =>
-            setIsSessionRailCollapsed((current) => !current)
-          }
-          onToggleSidebarPanel={handleToggleSidebarPanel}
-        />
+      <div className="mx-auto flex min-h-screen w-full max-w-[1840px] flex-col gap-5 px-4 py-4 lg:flex-row lg:items-start lg:gap-6 lg:px-6">
+        {isSessionRailCollapsed ? null : (
+          <SessionWorkbenchSidebar
+            sessions={renderedSessions}
+            selectedSessionId={selectedSessionId}
+            activeSidebarPanel={activeSidebarPanel}
+            collapsed={false}
+            deletingSessionId={deletingSessionId}
+            loading={loading}
+            creatingSession={creatingSession}
+            onCreateSession={handleCreateSession}
+            onSelectSession={handleSelectSession}
+            onDeleteSession={(sessionId) => void handleDeleteSession(sessionId)}
+            onToggleSidebarPanel={handleToggleSidebarPanel}
+          />
+        )}
 
         <div className="relative min-h-[calc(100vh-2rem)] min-w-0 flex-1 lg:h-[calc(100vh-2rem)]">
           {showSidebarPanel ? (
@@ -822,6 +835,7 @@ export function SessionWorkbench() {
               onSettingsCapabilityPackToggle={(packName) =>
                 void handleSettingsCapabilityPackToggle(packName)
               }
+              headerActions={sidebarToggleButton}
             />
           ) : (
             <SessionWorkbenchConversationPanel
@@ -846,6 +860,7 @@ export function SessionWorkbench() {
                 void handlePermissionQuickReply(reply)
               }
               onAssistantAnimationComplete={handleAssistantAnimationComplete}
+              headerActions={sidebarToggleButton}
             />
           )}
         </div>

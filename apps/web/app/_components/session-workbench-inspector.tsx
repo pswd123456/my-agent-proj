@@ -9,6 +9,7 @@ import { getTimelineEventRenderKey } from "./session-timeline";
 import { type InspectorTabId, inspectorTabs } from "./session-workbench-types";
 import {
   buildPromptMessageSections,
+  extractDynamicPromptMessages,
   formatTimestamp,
   getDebugPreClass,
   getInspectorCardClass,
@@ -63,7 +64,7 @@ function FlatBlock({
   meta?: string;
 }) {
   const shellClassName =
-    "min-w-0 rounded-[var(--app-radius-md)] border border-[var(--app-border-subtle)] px-3 py-3";
+    "min-w-0 rounded-[var(--app-radius-md)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_54%,transparent)] bg-transparent px-3 py-3";
 
   if (collapsed) {
     return (
@@ -222,6 +223,8 @@ function PromptTabPanel({ latestPromptEvent }: { latestPromptEvent: PromptEvent 
     return <EmptyInspectorState message="暂无 prompt 事件。" />;
   }
 
+  const dynamicPromptMessages = extractDynamicPromptMessages(latestPromptEvent);
+
   return (
     <div className="grid min-w-0 gap-3">
       <PlainCard>
@@ -241,11 +244,29 @@ function PromptTabPanel({ latestPromptEvent }: { latestPromptEvent: PromptEvent 
               toolCount: latestPromptEvent.tools.length,
               prefixMessageCount: latestPromptEvent.prefixMessages?.length ?? 0,
               runtimeContextCount: latestPromptEvent.runtimeContextMessages?.length ?? 0,
+              dynamicPromptCount: dynamicPromptMessages.length,
               conversationMessageCount: latestPromptEvent.messages.length
             })}
           />
         </div>
       </PlainCard>
+      {dynamicPromptMessages.length > 0 ? (
+        <PlainCard>
+          <SectionTitle label="Dynamic Prompt" meta="运行时动态注入" />
+          <div className="mt-3 grid gap-3">
+            <FlatBlock
+              label="Injected Messages"
+              tone="surface"
+              collapsed={shouldCollapseLongText(dynamicPromptMessages.join("\n\n"))}
+              summary={summarizeText(
+                dynamicPromptMessages.join(" "),
+                "展开查看动态注入内容"
+              )}
+              value={dynamicPromptMessages.join("\n\n")}
+            />
+          </div>
+        </PlainCard>
+      ) : null}
     </div>
   );
 }
@@ -328,7 +349,7 @@ function ToolTabPanel({ toolRows }: { toolRows: ToolRow[] }) {
               <div className={`text-xs uppercase tracking-[0.14em] ${statusToneClass}`}>{statusLabel}</div>
             </div>
 
-            <div className="mt-3 grid min-w-0 gap-3 xl:grid-cols-2">
+            <div className="mt-3 grid min-w-0 gap-3">
               <FlatBlock
                 label="Input"
                 tone="surface"
@@ -459,7 +480,7 @@ function TraceTabPanel({ inspectorEvents }: { inspectorEvents: RunStreamEvent[] 
           {latestTurnEvents.map((event) => (
             <details
               key={getTimelineEventRenderKey(event)}
-              className="min-w-0 rounded-[var(--app-radius-md)] border border-[var(--app-border-subtle)] px-3 py-3"
+              className="min-w-0 rounded-[var(--app-radius-md)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_54%,transparent)] bg-transparent px-3 py-3"
             >
               <summary className="cursor-pointer list-none">
                 <SectionTitle

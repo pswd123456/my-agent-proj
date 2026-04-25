@@ -50,6 +50,7 @@ function createToolExecutionContext(input: {
       toolAskList: input.session.context.toolAskList ?? [],
       toolDenyList: input.session.context.toolDenyList ?? []
     },
+    sessionMessages: input.session.messages,
     sessionContext: {
       status: input.session.context.status,
       currentDateContext: input.session.context.currentDateContext,

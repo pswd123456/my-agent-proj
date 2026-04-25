@@ -27,7 +27,6 @@ interface SessionWorkbenchSidebarProps {
   onCreateSession: () => void;
   onSelectSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string) => void;
-  onToggleCollapsed: () => void;
   onToggleSidebarPanel: (panelId: SidebarPanelId) => void;
 }
 
@@ -100,9 +99,26 @@ export function buildPromptMessageSections(
     Extract<import("@ai-app-template/sdk").RunStreamEvent, { kind: "prompt" }>
   >
 ): PromptMessageSection[] {
+  const latestPromptEventsByTurn = new Map<number, (typeof promptEvents)[number]>();
+
+  for (const event of promptEvents) {
+    const previous = latestPromptEventsByTurn.get(event.turnCount);
+    if (!previous || previous.createdAt.localeCompare(event.createdAt) <= 0) {
+      latestPromptEventsByTurn.set(event.turnCount, event);
+    }
+  }
+
+  const orderedPromptEvents = [...latestPromptEventsByTurn.values()].sort((left, right) => {
+    if (left.turnCount !== right.turnCount) {
+      return left.turnCount - right.turnCount;
+    }
+
+    return left.createdAt.localeCompare(right.createdAt);
+  });
+
   let previousSerialized: string[] | null = null;
 
-  return promptEvents.map((event) => {
+  return orderedPromptEvents.map((event) => {
     const currentSerialized = normalizeMessageLines({
       prefixMessages: event.prefixMessages,
       messages: event.messages,
@@ -139,6 +155,20 @@ export function buildPromptMessageSections(
       removedText: formatDeltaLines(removed, "-")
     };
   });
+}
+
+export function extractDynamicPromptMessages(
+  promptEvent:
+    | Extract<import("@ai-app-template/sdk").RunStreamEvent, { kind: "prompt" }>
+    | undefined
+): string[] {
+  if (!promptEvent || !Array.isArray(promptEvent.dynamicPromptMessages)) {
+    return [];
+  }
+
+  return promptEvent.dynamicPromptMessages.filter(
+    (value): value is string => typeof value === "string" && value.trim().length > 0
+  );
 }
 
 export function formatTokenCount(value: number): string {
@@ -260,10 +290,10 @@ export function getPermissionDecisionLabel(
 
 export function getBubbleClass(kind: "user" | "assistant"): string {
   if (kind === "user") {
-    return "ml-auto max-w-[88%] rounded-[var(--app-radius-lg)] rounded-br-md border border-[var(--app-border-accent)] bg-[var(--app-bg-elevated)] px-4 py-3 text-sm leading-7 text-[var(--app-text-primary)]";
+    return "ml-auto max-w-[88%] rounded-[var(--app-radius-md)] rounded-br-sm bg-[color:color-mix(in_srgb,var(--app-bg-elevated)_88%,var(--app-border-accent)_12%)] px-4 py-3 text-sm leading-7 text-[var(--app-text-primary)]";
   }
 
-  return "max-w-[92%] rounded-[var(--app-radius-lg)] rounded-bl-md border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm leading-7 text-[var(--app-text-secondary)]";
+  return "max-w-[92%] rounded-[var(--app-radius-md)] rounded-bl-sm bg-[color:color-mix(in_srgb,var(--app-bg-surface)_92%,var(--app-bg-canvas)_8%)] px-4 py-3 text-sm leading-7 text-[var(--app-text-secondary)]";
 }
 
 export function getDebugPreClass(
@@ -271,18 +301,18 @@ export function getDebugPreClass(
 ): string {
   const backgroundClass =
     surface === "surface"
-      ? "bg-[color:color-mix(in_srgb,var(--app-bg-surface)_88%,white_12%)]"
-      : "bg-[color:color-mix(in_srgb,var(--app-bg-muted)_88%,var(--app-bg-surface)_12%)]";
+      ? "bg-[color:color-mix(in_srgb,var(--app-bg-surface)_95%,transparent)]"
+      : "bg-[color:color-mix(in_srgb,var(--app-bg-muted)_64%,var(--app-bg-surface)_36%)]";
 
-  return `mt-2 min-w-0 whitespace-pre-wrap rounded-[var(--app-radius-lg)] ${backgroundClass} px-3 py-3 text-xs leading-6 text-[var(--app-text-secondary)] [overflow-wrap:anywhere]`;
+  return `mt-2 min-w-0 whitespace-pre-wrap rounded-[var(--app-radius-md)] ${backgroundClass} px-3 py-3 text-xs leading-6 text-[var(--app-text-secondary)] [overflow-wrap:anywhere]`;
 }
 
 export function getInspectorCardClass(extraClassName = ""): string {
-  return `min-w-0 rounded-[var(--app-radius-lg)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_86%,var(--app-bg-surface)_14%)] px-4 py-4 ${extraClassName}`.trim();
+  return `min-w-0 rounded-[var(--app-radius-md)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_55%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_96%,transparent)] px-4 py-4 ${extraClassName}`.trim();
 }
 
 export function getSoftBlockClass(extraClassName = ""): string {
-  return `min-w-0 rounded-[var(--app-radius-lg)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_82%,transparent)] px-4 py-4 ${extraClassName}`.trim();
+  return `min-w-0 rounded-[var(--app-radius-md)] border border-dashed border-[color:color-mix(in_srgb,var(--app-border-subtle)_52%,transparent)] bg-transparent px-4 py-4 ${extraClassName}`.trim();
 }
 
 export function CreateSessionDialog({
@@ -303,7 +333,7 @@ export function CreateSessionDialog({
         onClick={onClose}
         className="absolute inset-0 bg-black/55"
       />
-      <div className="relative z-10 w-full max-w-lg rounded-[var(--app-radius-xl)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-5 py-5 shadow-[var(--app-shadow-lg)]">
+      <div className="relative z-10 w-full max-w-lg rounded-[var(--app-radius-xl)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_96%,transparent)] px-5 py-5 shadow-none">
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
@@ -359,7 +389,6 @@ export function SessionWorkbenchSidebar({
   onCreateSession,
   onSelectSession,
   onDeleteSession,
-  onToggleCollapsed,
   onToggleSidebarPanel
 }: SessionWorkbenchSidebarProps) {
   const railWidthClass = collapsed ? "lg:w-[92px]" : "lg:w-[320px]";
@@ -390,8 +419,8 @@ export function SessionWorkbenchSidebar({
           onClick={() => onToggleSidebarPanel(panel.id)}
           className={`flex h-11 w-full items-center justify-center rounded-[var(--app-radius-lg)] border text-[0.72rem] font-medium uppercase tracking-[0.14em] transition ${
             isActive
-              ? "border-[var(--app-border-accent)] bg-[var(--app-bg-elevated)] text-[var(--app-text-primary)]"
-              : "border-[var(--app-border-subtle)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_78%,transparent)] text-[var(--app-text-muted)] hover:border-[var(--app-border-strong)] hover:text-[var(--app-text-primary)]"
+              ? "border-[color:color-mix(in_srgb,var(--app-border-accent)_68%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-elevated)_90%,transparent)] text-[var(--app-text-primary)]"
+              : "border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] bg-transparent text-[var(--app-text-muted)] hover:border-[var(--app-border-strong)] hover:text-[var(--app-text-primary)]"
           }`}
         >
           {getPanelShortLabel(panel.id)}
@@ -406,8 +435,8 @@ export function SessionWorkbenchSidebar({
         onClick={() => onToggleSidebarPanel(panel.id)}
         className={`flex items-center justify-between rounded-[var(--app-radius-lg)] border px-3 py-2.5 text-left text-sm transition ${
           isActive
-            ? "border-[var(--app-border-accent)] bg-[var(--app-bg-elevated)] text-[var(--app-text-primary)]"
-            : "border-[var(--app-border-subtle)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_78%,transparent)] text-[var(--app-text-secondary)] hover:border-[var(--app-border-strong)] hover:text-[var(--app-text-primary)]"
+            ? "border-[color:color-mix(in_srgb,var(--app-border-accent)_68%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-elevated)_90%,transparent)] text-[var(--app-text-primary)]"
+            : "border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] bg-transparent text-[var(--app-text-secondary)] hover:border-[var(--app-border-strong)] hover:text-[var(--app-text-primary)]"
         }`}
       >
         <span>{panel.title}</span>
@@ -422,47 +451,34 @@ export function SessionWorkbenchSidebar({
     <aside
       className={`w-full shrink-0 lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)] ${railWidthClass}`}
     >
-      <div className="flex h-full min-h-[20rem] flex-col rounded-[var(--app-radius-xl)] border border-[var(--app-border-subtle)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_92%,var(--app-bg-elevated)_8%)] shadow-[var(--app-shadow-lg)]">
+      <div className="flex h-full min-h-[20rem] flex-col rounded-[var(--app-radius-xl)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_96%,transparent)] shadow-none">
         <div
-          className={`border-b border-[var(--app-border-subtle)] ${collapsed ? "px-3 py-3" : "px-4 py-4"}`}
+          className={`border-b border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] ${collapsed ? "px-3 py-3" : "px-4 py-4"}`}
         >
-          <div
-            className={`flex items-start gap-3 ${collapsed ? "justify-center" : "justify-between"}`}
-          >
-            {collapsed ? null : (
-              <div className="min-w-0">
-                <div className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
-                  Sessions
-                </div>
-                <div className="mt-2 text-base font-semibold text-[var(--app-text-primary)]">
-                  会话侧边栏
-                </div>
+          {collapsed ? null : (
+            <div className="min-w-0">
+              <div className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
+                Sessions
               </div>
-            )}
-            <button
-              type="button"
-              title={collapsed ? "展开会话侧边栏" : "收起会话侧边栏"}
-              aria-label={collapsed ? "展开会话侧边栏" : "收起会话侧边栏"}
-              onClick={onToggleCollapsed}
-              className={`inline-flex items-center justify-center rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] text-xs text-[var(--app-text-muted)] transition hover:border-[var(--app-border-strong)] hover:text-[var(--app-text-primary)] ${collapsed ? "h-10 w-full" : "h-9 px-3"}`}
-            >
-              {collapsed ? ">>" : "<<"}
-            </button>
-          </div>
+              <div className="mt-2 text-base font-semibold text-[var(--app-text-primary)]">
+                会话侧边栏
+              </div>
+            </div>
+          )}
           <button
             type="button"
             onClick={onCreateSession}
             disabled={loading || creatingSession}
             title="创建新会话"
             aria-label="创建新会话"
-            className={`inline-flex items-center justify-center rounded-[var(--app-radius-pill)] border border-[var(--app-border-accent)] bg-[var(--app-bg-elevated)] font-medium text-[var(--app-text-primary)] transition hover:border-[var(--app-status-success)] hover:text-[var(--app-status-success)] disabled:cursor-not-allowed disabled:opacity-50 ${collapsed ? "mt-3 h-10 w-full text-lg leading-none" : "mt-4 w-full px-4 py-2 text-sm"}`}
+            className={`inline-flex items-center justify-center rounded-[var(--app-radius-pill)] border border-[color:color-mix(in_srgb,var(--app-border-accent)_68%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-elevated)_90%,transparent)] font-medium text-[var(--app-text-primary)] transition hover:border-[var(--app-status-success)] hover:text-[var(--app-status-success)] disabled:cursor-not-allowed disabled:opacity-50 ${collapsed ? "mt-3 h-10 w-full text-lg leading-none" : "mt-4 w-full px-4 py-2 text-sm"}`}
           >
             {collapsed ? "+" : "创建新会话"}
           </button>
         </div>
 
         <div
-          className={`border-b border-[var(--app-border-subtle)] ${collapsed ? "px-3 py-3" : "px-4 py-4"}`}
+          className={`border-b border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] ${collapsed ? "px-3 py-3" : "px-4 py-4"}`}
         >
           {collapsed ? null : (
             <div className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
@@ -499,8 +515,8 @@ export function SessionWorkbenchSidebar({
                     onClick={() => onSelectSession(session.sessionId)}
                     className={`grid h-14 w-full place-items-center rounded-[var(--app-radius-lg)] border text-center transition ${
                       isActive
-                        ? "border-[var(--app-border-accent)] bg-[var(--app-bg-elevated)] shadow-[inset_0_0_0_1px_var(--app-border-accent)]"
-                        : "border-[var(--app-border-subtle)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_82%,transparent)] hover:border-[var(--app-border-strong)]"
+                        ? "border-[color:color-mix(in_srgb,var(--app-border-accent)_68%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-elevated)_90%,transparent)]"
+                        : "border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] bg-transparent hover:border-[var(--app-border-strong)]"
                     }`}
                   >
                     <span
@@ -517,8 +533,8 @@ export function SessionWorkbenchSidebar({
                   key={session.sessionId}
                   className={`rounded-[var(--app-radius-lg)] px-3 py-3 transition ${
                     isActive
-                      ? "bg-[color:color-mix(in_srgb,var(--app-bg-elevated)_72%,var(--app-bg-surface)_28%)] shadow-[inset_0_0_0_1px_var(--app-border-accent)]"
-                      : "bg-[color:color-mix(in_srgb,var(--app-bg-muted)_82%,transparent)] hover:bg-[color:color-mix(in_srgb,var(--app-bg-muted)_92%,var(--app-bg-surface)_8%)]"
+                      ? "bg-[color:color-mix(in_srgb,var(--app-bg-elevated)_88%,transparent)] ring-1 ring-inset ring-[color:color-mix(in_srgb,var(--app-border-accent)_68%,transparent)]"
+                      : "bg-transparent hover:bg-[color:color-mix(in_srgb,var(--app-bg-surface)_94%,transparent)]"
                   }`}
                 >
                   <div className="flex items-start justify-between gap-3">

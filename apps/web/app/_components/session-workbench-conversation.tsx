@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
   type FormEvent
 } from "react";
 
@@ -71,6 +72,7 @@ interface SessionWorkbenchConversationPanelProps {
   onInterrupt: () => void;
   onPermissionQuickReply: (reply: string) => void;
   onAssistantAnimationComplete: (itemKey: string) => void;
+  headerActions?: ReactNode;
 }
 
 interface AssistantTextBubbleProps {
@@ -1309,7 +1311,8 @@ export function SessionWorkbenchConversationPanel({
   onSubmit,
   onInterrupt,
   onPermissionQuickReply,
-  onAssistantAnimationComplete
+  onAssistantAnimationComplete,
+  headerActions
 }: SessionWorkbenchConversationPanelProps) {
   const [copyButtonLabel, setCopyButtonLabel] = useState("复制");
   const [permissionCardFeedback, setPermissionCardFeedback] =
@@ -1830,30 +1833,31 @@ export function SessionWorkbenchConversationPanel({
   }
 
   return (
-    <section className="rounded-[var(--app-radius-xl)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_72%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_92%,var(--app-bg-elevated)_8%)] shadow-[var(--app-shadow-sm)] lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:overflow-hidden">
-      <div className="px-4 py-4 lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
-        <div className="flex min-h-[calc(100vh-8rem)] flex-col gap-4 lg:min-h-0 lg:flex-1">
-          <div className={getSoftBlockClass("flex flex-col gap-2")}>
-            <div>
-              <div className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
-                Active Session
-              </div>
-              <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
-                <span className="min-w-0 font-mono text-[var(--app-text-primary)]">
-                  {currentSession?.sessionId ?? "loading"}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => void handleCopySessionId()}
-                  disabled={!currentSession?.sessionId}
-                  className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-3 py-1 text-[0.72rem] uppercase tracking-[0.14em] text-[var(--app-text-muted)] transition hover:border-[var(--app-border-accent)] hover:text-[var(--app-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {copyButtonLabel}
-                </button>
-              </div>
-            </div>
+    <section className="rounded-[var(--app-radius-xl)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_96%,transparent)] shadow-none lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:overflow-hidden">
+      <header className="flex items-start justify-between gap-3 px-4 pb-3 pt-4">
+        <div className="min-w-0 flex-1">
+          <div className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
+            Active Session
           </div>
+          <h2 className="mt-2 truncate font-mono text-sm font-medium text-[var(--app-text-primary)]">
+            {currentSession?.sessionId ?? "当前会话"}
+          </h2>
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
+          <button
+            type="button"
+            onClick={() => void handleCopySessionId()}
+            disabled={!currentSession?.sessionId}
+            className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-3 py-1 text-[0.72rem] uppercase tracking-[0.14em] text-[var(--app-text-muted)] transition hover:border-[var(--app-border-accent)] hover:text-[var(--app-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {copyButtonLabel}
+          </button>
+          {headerActions}
+        </div>
+      </header>
 
+      <div className="px-4 pb-4 lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
+        <div className="flex min-h-[calc(100vh-8rem)] flex-col gap-4 lg:min-h-0 lg:flex-1">
           <div
             ref={conversationViewportRef}
             className="min-h-0 flex-1 overflow-y-auto pb-80 pr-1"
@@ -1875,7 +1879,7 @@ export function SessionWorkbenchConversationPanel({
               previousViewportScrollTopRef.current = viewport.scrollTop;
             }}
           >
-            <div ref={timelineContentRef} className="grid gap-4">
+            <div ref={timelineContentRef} className="grid gap-3">
               {loading && !currentSession ? (
                 <div
                   className={getSoftBlockClass(
@@ -1910,11 +1914,11 @@ export function SessionWorkbenchConversationPanel({
 
           <div className="sticky bottom-3 z-10 mt-auto px-1">
             <form onSubmit={onSubmit} className="grid gap-3">
-              <div className="grid gap-3 rounded-[var(--app-radius-xl)] bg-[var(--app-bg-canvas)] p-1">
+              <div className="grid gap-3 rounded-[var(--app-radius-xl)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_95%,transparent)] px-4 py-4">
                 {permissionCardView ? (
                   <div
                     key={permissionCardView.key}
-                    className={`relative z-0 -mb-5 rounded-t-[var(--app-radius-lg)] rounded-b-none border-x border-t px-4 pb-6 pt-3 transition-all ${
+                    className={`relative z-0 rounded-[var(--app-radius-lg)] border px-4 pb-4 pt-3 transition-all ${
                       permissionCardView.tone === "approved"
                         ? "border-[color:color-mix(in_srgb,var(--app-status-success)_45%,var(--app-border-subtle)_55%)] bg-[color:color-mix(in_srgb,var(--app-status-success)_10%,var(--app-bg-surface)_90%)]"
                         : permissionCardView.tone === "rejected"
@@ -2015,7 +2019,7 @@ export function SessionWorkbenchConversationPanel({
                   onChange={(event) => onMessageChange(event.target.value)}
                   rows={3}
                   placeholder="输入你的请求"
-                  className={`relative z-10 w-full resize-none border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm leading-7 text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)] ${permissionCardView ? "-mt-2 rounded-[var(--app-radius-lg)]" : "rounded-[var(--app-radius-lg)]"}`}
+                  className="relative z-10 w-full resize-none rounded-[var(--app-radius-lg)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-canvas)_14%,var(--app-bg-surface)_86%)] px-4 py-3 text-sm leading-7 text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
                 />
 
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -2080,7 +2084,7 @@ export function SessionWorkbenchConversationPanel({
                 </div>
 
                 {errorText ? (
-                  <div className="rounded-[var(--app-radius-lg)] bg-[color:color-mix(in_srgb,var(--app-status-danger)_12%,var(--app-bg-muted)_88%)] px-4 py-3 text-sm text-[var(--app-status-danger)]">
+                  <div className="rounded-[var(--app-radius-lg)] border border-[color:color-mix(in_srgb,var(--app-status-danger)_35%,var(--app-border-subtle)_65%)] bg-[color:color-mix(in_srgb,var(--app-status-danger)_10%,var(--app-bg-surface)_90%)] px-4 py-3 text-sm text-[var(--app-status-danger)]">
                     {errorText}
                   </div>
                 ) : null}

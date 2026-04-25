@@ -5,7 +5,8 @@ import type { RuntimeTool } from "./runtime-tool.js";
 import {
   getPathKind,
   normalizeWorkspacePath,
-  toRelativeWorkspacePath
+  toRelativeWorkspacePath,
+  writeTextFileAtomic
 } from "./workspace.js";
 import { createToolResult, failureResult, successResult } from "./tool-result.js";
 
@@ -117,7 +118,10 @@ export function createWriteFileTool(workingDirectory: string): RuntimeTool {
         }
 
         const existed = (await getPathKind(absolutePath)) === "file";
-        await fs.writeFile(absolutePath, content, "utf8");
+        const existingStat = existed ? await fs.stat(absolutePath) : null;
+        await writeTextFileAtomic(absolutePath, content, {
+          ...(existingStat ? { mode: existingStat.mode } : {})
+        });
 
         return successResult(
           createToolResult({

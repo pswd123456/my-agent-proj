@@ -21,6 +21,7 @@ export interface TracePromptEvent {
   prefixMessages: AnthropicMessage[];
   messages: AnthropicMessage[];
   runtimeContextMessages: AnthropicMessage[];
+  dynamicPromptMessages?: string[];
   tools: Array<{
     name: string;
     description: string;

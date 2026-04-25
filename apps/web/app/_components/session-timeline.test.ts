@@ -868,6 +868,39 @@ describe("buildConversationViewItems compact mode", () => {
     ]);
   });
 
+  test("does not fold when the first assistant text arrives before any tool execution", () => {
+    const interimAssistantEvent: Extract<
+      RunStreamEvent,
+      { kind: "assistant_text" }
+    > = {
+      kind: "assistant_text",
+      sessionId: "session-1",
+      createdAt: "2026-04-21T18:46:21.780Z",
+      turnCount: 1,
+      assistantMessageId: "assistant-interim",
+      text: "我先看一下。"
+    };
+
+    const view = buildConversationViewItems({
+      timelineItems: [
+        messageItem(firstUser),
+        eventItem(turnStart),
+        eventItem(thinkingEvent),
+        eventItem(interimAssistantEvent)
+      ],
+      mode: "compact"
+    });
+
+    expect(view.map((item) => item.type)).toEqual([
+      "timeline",
+      "timeline",
+      "timeline"
+    ]);
+    expect(
+      view.some((item) => item.type === "compact-collapsed-flow")
+    ).toBeFalse();
+  });
+
   test("folds the final answer's preceding execution flow", () => {
     const finalAssistantEvent: Extract<
       RunStreamEvent,
@@ -906,6 +939,103 @@ describe("buildConversationViewItems compact mode", () => {
         "compact-tool"
       ]);
     }
+  });
+
+  test("keeps earlier collapsed turns folded when a later turn also collapses", () => {
+    const secondUser: Extract<
+      SessionSnapshot["messages"][number],
+      { kind: "user" }
+    > = {
+      id: "user-2",
+      kind: "user",
+      content: "再看一下明天",
+      createdAt: "2026-04-21T18:47:03.349Z"
+    };
+    const secondTurnStart: Extract<RunStreamEvent, { kind: "turn_start" }> = {
+      ...turnStart,
+      createdAt: "2026-04-21T18:47:03.364Z",
+      turnCount: 2
+    };
+    const secondThinkingEvent: Extract<RunStreamEvent, { kind: "thinking" }> = {
+      ...thinkingEvent,
+      createdAt: "2026-04-21T18:47:21.692Z",
+      turnCount: 2,
+      thinkingMessageId: "thinking-2",
+      signature: "sig-2",
+      text: "再检查一下后续日程。"
+    };
+    const secondToolCall: Extract<RunStreamEvent, { kind: "tool_call" }> = {
+      ...currentToolCall,
+      createdAt: "2026-04-21T18:47:21.720Z",
+      turnCount: 2,
+      toolCallId: "call-current-2"
+    };
+    const secondToolResult: Extract<RunStreamEvent, { kind: "tool_result" }> = {
+      ...currentToolResult,
+      createdAt: "2026-04-21T18:47:21.735Z",
+      turnCount: 2,
+      toolCallId: "call-current-2"
+    };
+    const firstFinalAssistantEvent: Extract<
+      RunStreamEvent,
+      { kind: "assistant_text" }
+    > = {
+      kind: "assistant_text",
+      sessionId: "session-1",
+      createdAt: "2026-04-21T18:46:21.800Z",
+      turnCount: 1,
+      assistantMessageId: "assistant-final-1",
+      text: "第一轮已经处理好了。"
+    };
+    const secondFinalAssistantEvent: Extract<
+      RunStreamEvent,
+      { kind: "assistant_text" }
+    > = {
+      kind: "assistant_text",
+      sessionId: "session-1",
+      createdAt: "2026-04-21T18:47:21.800Z",
+      turnCount: 2,
+      assistantMessageId: "assistant-final-2",
+      text: "第二轮也处理好了。"
+    };
+
+    const view = buildConversationViewItems({
+      timelineItems: [
+        messageItem(firstUser),
+        eventItem(turnStart),
+        eventItem(thinkingEvent),
+        eventItem(currentToolCall),
+        eventItem(currentToolResult),
+        eventItem(firstFinalAssistantEvent),
+        messageItem(secondUser),
+        eventItem(secondTurnStart),
+        eventItem(secondThinkingEvent),
+        eventItem(secondToolCall),
+        eventItem(secondToolResult),
+        eventItem(secondFinalAssistantEvent)
+      ],
+      mode: "compact"
+    });
+
+    expect(view.map((item) => item.type)).toEqual([
+      "timeline",
+      "compact-collapsed-flow",
+      "timeline",
+      "timeline",
+      "compact-collapsed-flow",
+      "timeline"
+    ]);
+
+    const collapsedItems = view.filter(
+      (item): item is Extract<typeof item, { type: "compact-collapsed-flow" }> =>
+        item.type === "compact-collapsed-flow"
+    );
+    expect(collapsedItems).toHaveLength(2);
+    expect(collapsedItems.map((item) => item.hiddenCount)).toEqual([2, 2]);
+    expect(collapsedItems.map((item) => item.key)).toEqual([
+      "compact-collapsed-flow-event-assistant_text-assistant-final-1",
+      "compact-collapsed-flow-event-assistant_text-assistant-final-2"
+    ]);
   });
 
   test("anchors collapsed flow scrolling to the turn's user message while keeping the final assistant key", () => {

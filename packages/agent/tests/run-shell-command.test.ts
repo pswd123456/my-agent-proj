@@ -14,6 +14,7 @@ function createContext(): ToolExecutionContext {
       status: "running",
       currentDateContext: "2026-04-24",
       yoloMode: false,
+      workspaceEscapeAllowed: false,
       shellAllowPatterns: [],
       shellDenyPatterns: [],
       toolAllowList: [],
@@ -21,17 +22,13 @@ function createContext(): ToolExecutionContext {
       toolDenyList: []
     },
     permissionRules: {
-      shell: {
-        allow: [],
-        ask: [],
-        deny: []
-      },
-      tools: {
-        allow: [],
-        ask: [],
-        deny: []
-      }
-    }
+      shellAllowPatterns: [],
+      shellDenyPatterns: [],
+      toolAllowList: [],
+      toolAskList: [],
+      toolDenyList: []
+    },
+    sessionMessages: []
   };
 }
 

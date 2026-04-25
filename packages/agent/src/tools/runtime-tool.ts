@@ -6,7 +6,7 @@ import type {
 } from "@ai-app-template/domain";
 
 import type { SessionManager } from "../session/contracts.js";
-import type { JsonValue, ToolState } from "../types.js";
+import type { ConversationBlock, JsonValue, ToolState } from "../types.js";
 
 export type RuntimeToolFamily =
   | "workspace-file"
@@ -44,6 +44,7 @@ export interface ToolExecutionContext {
     toolDenyList: string[];
   };
   permissionRules: PermissionRuleLists;
+  sessionMessages: ConversationBlock[];
   allowWorkspaceEscape?: boolean;
 }
 

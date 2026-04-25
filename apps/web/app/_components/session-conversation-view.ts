@@ -394,92 +394,97 @@ function isAssistantMessageItem(item: ConversationViewItem): boolean {
   );
 }
 
-function compactFinalFlow(
+function isExecutionFlowItem(item: ConversationViewItem): boolean {
+  return (
+    item.type === "compact-tool" ||
+    item.type === "compact-file-batch" ||
+    isAssistantMessageItem(item)
+  );
+}
+
+function isRunCompleteItem(item: ConversationViewItem): boolean {
+  return (
+    item.type === "timeline" &&
+    item.item.type === "event" &&
+    item.item.event.kind === "run_complete"
+  );
+}
+
+function compactFinalFlowSegment(
   items: ConversationViewItem[]
 ): ConversationViewItem[] {
-  const finalAssistant = [...items]
-    .reverse()
-    .map((item) => {
-      const event = getAssistantEvent(item);
-      return {
-        item,
-        event
-      };
-    })
-    .find(({ event }) => event && event.text.trim().length > 0);
-
-  if (!finalAssistant?.event) {
+  if (items.length <= 1 || !isUserInputItem(items[0]!)) {
     return items;
   }
 
-  const finalAssistantIndex = items.findIndex(
-    (item) => item.key === finalAssistant.item.key
-  );
-  if (finalAssistantIndex < 0) {
+  const finalAssistantIndex = [...items.keys()]
+    .reverse()
+    .find((index) => {
+      const event = getAssistantEvent(items[index]!);
+      return Boolean(event && event.text.trim().length > 0);
+    });
+
+  if (finalAssistantIndex === undefined || finalAssistantIndex < 1) {
     return items;
   }
 
   const hasLaterExecution = items
     .slice(finalAssistantIndex + 1)
-    .some((item) => {
-      if (isUserInputItem(item)) {
-        return false;
-      }
-
-      return !(
-        item.type === "timeline" &&
-        item.item.type === "event" &&
-        item.item.event.kind === "run_complete"
-      );
-    });
+    .some((item) => !isRunCompleteItem(item));
   if (hasLaterExecution) {
     return items;
   }
 
-  let flowStartIndex = -1;
-  for (let index = finalAssistantIndex - 1; index >= 0; index -= 1) {
-    if (isUserInputItem(items[index]!)) {
-      flowStartIndex = index;
-      break;
-    }
-  }
-  const hiddenKeys = new Set<string>();
-  const hiddenItems: ConversationViewItem[] = [];
-
-  for (const [index, item] of items.entries()) {
-    if (item.key === finalAssistant.item.key || isUserInputItem(item)) {
-      continue;
-    }
-
-    if (index > flowStartIndex && index < finalAssistantIndex) {
-      hiddenKeys.add(item.key);
-      hiddenItems.push(item);
-    }
-  }
-
+  const hiddenItems = items.slice(1, finalAssistantIndex);
   if (hiddenItems.length === 0) {
     return items;
   }
 
+  if (!hiddenItems.some(isExecutionFlowItem)) {
+    return items;
+  }
+
+  return [
+    items[0]!,
+    {
+      type: "compact-collapsed-flow",
+      key: `compact-collapsed-flow-${items[finalAssistantIndex]!.key}`,
+      createdAt: hiddenItems[0]!.createdAt,
+      hiddenCount: hiddenItems.length,
+      originalItems: hiddenItems
+    },
+    items[finalAssistantIndex]!,
+    ...items.slice(finalAssistantIndex + 1)
+  ];
+}
+
+function compactFinalFlow(items: ConversationViewItem[]): ConversationViewItem[] {
   const next: ConversationViewItem[] = [];
-  let inserted = false;
-  for (const item of items) {
-    if (hiddenKeys.has(item.key)) {
+  let segmentStart = 0;
+  let currentIndex = 0;
+
+  while (currentIndex < items.length) {
+    if (!isUserInputItem(items[currentIndex]!)) {
+      currentIndex += 1;
       continue;
     }
 
-    if (item.key === finalAssistant.item.key && !inserted) {
-      next.push({
-        type: "compact-collapsed-flow",
-        key: `compact-collapsed-flow-${finalAssistant.item.key}`,
-        createdAt: hiddenItems[0]!.createdAt,
-        hiddenCount: hiddenItems.length,
-        originalItems: hiddenItems
-      });
-      inserted = true;
+    if (segmentStart < currentIndex) {
+      next.push(...items.slice(segmentStart, currentIndex));
     }
 
-    next.push(item);
+    let segmentEnd = currentIndex + 1;
+    while (segmentEnd < items.length && !isUserInputItem(items[segmentEnd]!)) {
+      segmentEnd += 1;
+    }
+
+    next.push(...compactFinalFlowSegment(items.slice(currentIndex, segmentEnd)));
+    segmentStart = segmentEnd;
+    currentIndex = segmentEnd;
+  }
+
+  if (segmentStart < items.length) {
+    next.push(...items.slice(segmentStart));
   }
 
   return next;

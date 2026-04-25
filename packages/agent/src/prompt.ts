@@ -21,6 +21,7 @@ export interface PromptEnvelope {
   prefixMessages: AnthropicMessage[];
   messages: AnthropicMessage[];
   runtimeContextMessages: AnthropicMessage[];
+  dynamicPromptMessages: string[];
   tools: AnthropicToolDefinition[];
   cacheKey: string;
 }
@@ -33,6 +34,8 @@ export interface PromptBuilderOptions {
 export interface PromptRuntimeContext {
   currentDateTimeContext: string;
   currentTimeZone: string;
+  currentTurnCount?: number;
+  maxTurns?: number;
 }
 
 const DEFAULT_SYSTEM_PROMPT = [
@@ -161,7 +164,7 @@ function createDomainInstructions(tools: AnthropicToolDefinition[]): string[] {
 function createRuntimeContextMessage(
   session: SessionSnapshot,
   runtimeContext: PromptRuntimeContext
-): AnthropicMessage {
+): { message: AnthropicMessage; dynamicPromptMessages: string[] } {
   const pendingConfirmation = session.context.pendingConfirmationPayload;
   const pendingText = pendingConfirmation
     ? JSON.stringify(pendingConfirmation, null, 2)
@@ -170,24 +173,49 @@ function createRuntimeContextMessage(
   const permissionText = pendingPermissionRequest
     ? JSON.stringify(pendingPermissionRequest, null, 2)
     : "none";
+  const currentTurnCount =
+    typeof runtimeContext.currentTurnCount === "number"
+      ? Math.max(0, Math.floor(runtimeContext.currentTurnCount))
+      : null;
+  const maxTurns =
+    typeof runtimeContext.maxTurns === "number"
+      ? Math.max(1, Math.floor(runtimeContext.maxTurns))
+      : null;
+  const shouldWarnNearTurnBudget =
+    currentTurnCount !== null &&
+    maxTurns !== null &&
+    currentTurnCount < maxTurns &&
+    currentTurnCount / maxTurns >= 0.9;
+  const dynamicPromptMessages = shouldWarnNearTurnBudget
+    ? [
+        "Turn budget is nearly exhausted. Consolidate work, avoid exploratory detours, and prefer a final answer or a crisp blocking question."
+      ]
+    : [];
+  const runtimeLines = [
+    "Runtime context for this run:",
+    `Current local datetime: ${runtimeContext.currentDateTimeContext}`,
+    `Current timezone: ${runtimeContext.currentTimeZone}`,
+    `Working directory: ${session.workingDirectory}`,
+    `Session status: ${session.context.status}`,
+    `YOLO mode: ${session.context.yoloMode ? "enabled" : "disabled"}`,
+    `Pending permission request: ${permissionText}`,
+    `Pending confirmation payload: ${pendingText}`
+  ];
+  if (dynamicPromptMessages.length > 0) {
+    runtimeLines.push(...dynamicPromptMessages);
+  }
 
   return {
-    role: "user",
-    content: [
-      {
-        type: "text",
-        text: [
-          "Runtime context for this run:",
-          `Current local datetime: ${runtimeContext.currentDateTimeContext}`,
-          `Current timezone: ${runtimeContext.currentTimeZone}`,
-          `Working directory: ${session.workingDirectory}`,
-          `Session status: ${session.context.status}`,
-          `YOLO mode: ${session.context.yoloMode ? "enabled" : "disabled"}`,
-          `Pending permission request: ${permissionText}`,
-          `Pending confirmation payload: ${pendingText}`
-        ].join("\n")
-      }
-    ]
+    message: {
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: runtimeLines.join("\n")
+        }
+      ]
+    },
+    dynamicPromptMessages
   };
 }
 
@@ -330,7 +358,10 @@ export class PromptBuilder {
       .join("\n");
     const prefixMessage = createPrefixMessage(session, tools);
     const baseMessages = toAnthropicMessages(session.messages);
-    const runtimeContextMessage = createRuntimeContextMessage(
+    const {
+      message: runtimeContextMessage,
+      dynamicPromptMessages
+    } = createRuntimeContextMessage(
       session,
       runtimeContext
     );
@@ -342,6 +373,7 @@ export class PromptBuilder {
           prefixMessages: [prefixMessage],
           messages: baseMessages,
           runtimeContextMessages: [runtimeContextMessage, skillsContextMessage],
+          dynamicPromptMessages,
           tools,
           cacheKey: ""
         },
@@ -363,6 +395,7 @@ export class PromptBuilder {
       prefixMessages: [prefixMessage],
       messages,
       runtimeContextMessages: [runtimeContextMessage, skillsContextMessage],
+      dynamicPromptMessages,
       tools,
       cacheKey
     };

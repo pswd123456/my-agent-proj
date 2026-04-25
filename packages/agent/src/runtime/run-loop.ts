@@ -250,7 +250,11 @@ export async function runSessionLoop(input: {
       const promptEnvelope = input.promptBuilder.build(
         session,
         input.toolRegistry,
-        runtimeContext,
+        {
+          ...runtimeContext,
+          currentTurnCount: turnCount,
+          maxTurns: input.maxTurns
+        },
         discoveredSkills.skills
       );
       session = await input.sessionManager.setPromptCacheKey(
@@ -295,6 +299,7 @@ export async function runSessionLoop(input: {
           prefixMessages: promptEnvelope.prefixMessages,
           messages: promptEnvelope.messages,
           runtimeContextMessages: promptEnvelope.runtimeContextMessages,
+          dynamicPromptMessages: promptEnvelope.dynamicPromptMessages,
           tools: promptEnvelope.tools,
           toolChoice: input.toolChoice ?? null,
           cacheKey: promptEnvelope.cacheKey

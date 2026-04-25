@@ -158,6 +158,48 @@ describe("PromptBuilder skill context", () => {
     );
   });
 
+  test("injects a soft warning when the turn budget is at least 90% used", () => {
+    const promptBuilder = createPromptBuilder();
+    const session = createSessionSnapshot();
+    const promptEnvelope = promptBuilder.build(
+      session,
+      new ToolRegistry(),
+      {
+        currentDateTimeContext: "2026-04-26 10:00",
+        currentTimeZone: "Asia/Shanghai",
+        currentTurnCount: 9,
+        maxTurns: 10
+      }
+    );
+
+    expect(JSON.stringify(promptEnvelope.runtimeContextMessages[0])).toContain(
+      "Turn budget is nearly exhausted. Consolidate work, avoid exploratory detours, and prefer a final answer or a crisp blocking question."
+    );
+    expect(promptEnvelope.dynamicPromptMessages).toEqual([
+      "Turn budget is nearly exhausted. Consolidate work, avoid exploratory detours, and prefer a final answer or a crisp blocking question."
+    ]);
+  });
+
+  test("does not inject a soft warning before the 90% turn-budget threshold", () => {
+    const promptBuilder = createPromptBuilder();
+    const session = createSessionSnapshot();
+    const promptEnvelope = promptBuilder.build(
+      session,
+      new ToolRegistry(),
+      {
+        currentDateTimeContext: "2026-04-26 10:00",
+        currentTimeZone: "Asia/Shanghai",
+        currentTurnCount: 8,
+        maxTurns: 10
+      }
+    );
+
+    expect(
+      JSON.stringify(promptEnvelope.runtimeContextMessages[0])
+    ).not.toContain("Turn budget is nearly exhausted.");
+    expect(promptEnvelope.dynamicPromptMessages).toEqual([]);
+  });
+
   test("adds routine guidance only when routine tools are mounted", () => {
     const promptBuilder = createPromptBuilder();
     const session = createSessionSnapshot();

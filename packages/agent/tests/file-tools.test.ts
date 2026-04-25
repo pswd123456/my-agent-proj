@@ -12,8 +12,10 @@ import path from "node:path";
 
 import { createEditFileTool } from "../src/tools/edit-file.js";
 import { createReadFileTool } from "../src/tools/read-file.js";
+import { createWriteFileTool } from "../src/tools/write-file.js";
 import type { ToolExecutionContext } from "../src/tools/runtime-tool.js";
 import { preflightWorkspaceSandboxTargets } from "../src/tools/workspace.js";
+import type { ConversationBlock } from "../src/types.js";
 
 const cleanupPaths = new Set<string>();
 
@@ -23,7 +25,29 @@ async function createWorkspace(): Promise<string> {
   return workspace;
 }
 
-function createContext(workingDirectory: string): ToolExecutionContext {
+function createToolCallBlock(input: {
+  toolName: string;
+  toolCallId: string;
+  toolInput: Record<string, string | number | boolean | null>;
+}): ConversationBlock {
+  return {
+    id: input.toolCallId,
+    kind: "tool call",
+    toolCallId: input.toolCallId,
+    toolName: input.toolName,
+    input: input.toolInput,
+    state: "pending",
+    createdAt: new Date().toISOString()
+  };
+}
+
+function createContext(
+  workingDirectory: string,
+  options: {
+    allowWorkspaceEscape?: boolean;
+    sessionMessages?: ConversationBlock[];
+  } = {}
+): ToolExecutionContext {
   return {
     sessionId: "session-1",
     userId: "user-1",
@@ -47,7 +71,11 @@ function createContext(workingDirectory: string): ToolExecutionContext {
       toolAllowList: [],
       toolAskList: [],
       toolDenyList: []
-    }
+    },
+    sessionMessages: options.sessionMessages ?? [],
+    ...(typeof options.allowWorkspaceEscape === "boolean"
+      ? { allowWorkspaceEscape: options.allowWorkspaceEscape }
+      : {})
   };
 }
 
@@ -123,6 +151,121 @@ describe("read_file", () => {
     expect(result.state).toBe("failed");
     expect(result.result.code).toBe("INVALID_TOOL_INPUT");
   });
+
+  test("blocks binary files", async () => {
+    const workspace = await createWorkspace();
+    await writeFile(
+      path.join(workspace, "image.bin"),
+      Buffer.from([0, 159, 12, 0])
+    );
+
+    const result = await createReadFileTool(workspace).execute(
+      {
+        path: "image.bin"
+      },
+      createContext(workspace)
+    );
+
+    expect(result.state).toBe("failed");
+    expect(result.result.code).toBe("BINARY_FILE_NOT_SUPPORTED");
+  });
+
+  test("blocks device targets even when workspace escape is allowed", async () => {
+    const workspace = await createWorkspace();
+
+    const result = await createReadFileTool(workspace).execute(
+      {
+        path: "/dev/null"
+      },
+      createContext(workspace, {
+        allowWorkspaceEscape: true
+      })
+    );
+
+    expect(result.state).toBe("failed");
+    expect(result.result.code).toBe("TARGET_NOT_REGULAR_FILE");
+  });
+
+  test("stops when requested output exceeds the safe limit", async () => {
+    const workspace = await createWorkspace();
+    await writeFile(
+      path.join(workspace, "huge.txt"),
+      `${"x".repeat(200_001)}\n`
+    );
+
+    const result = await createReadFileTool(workspace).execute(
+      {
+        path: "huge.txt"
+      },
+      createContext(workspace)
+    );
+
+    expect(result.state).toBe("failed");
+    expect(result.result.code).toBe("READ_OUTPUT_LIMIT_EXCEEDED");
+  });
+
+  test("emits a warning for repeated reads and blocks tight read loops", async () => {
+    const workspace = await createWorkspace();
+    await writeFile(path.join(workspace, "notes.txt"), "one\ntwo\n");
+
+    const warningResult = await createReadFileTool(workspace).execute(
+      {
+        path: "notes.txt"
+      },
+      createContext(workspace, {
+        sessionMessages: [
+          createToolCallBlock({
+            toolName: "read_file",
+            toolCallId: "call-1",
+            toolInput: { path: "notes.txt" }
+          }),
+          createToolCallBlock({
+            toolName: "read_file",
+            toolCallId: "call-2",
+            toolInput: { path: "notes.txt" }
+          })
+        ]
+      })
+    );
+
+    expect(warningResult.state).toBe("success");
+    expect(warningResult.result.data).toMatchObject({
+      warnings: [expect.stringContaining("Repeated reads")]
+    });
+
+    const blockedResult = await createReadFileTool(workspace).execute(
+      {
+        path: "notes.txt"
+      },
+      createContext(workspace, {
+        sessionMessages: [
+          createToolCallBlock({
+            toolName: "read_file",
+            toolCallId: "call-1",
+            toolInput: { path: "notes.txt" }
+          }),
+          createToolCallBlock({
+            toolName: "read_file",
+            toolCallId: "call-2",
+            toolInput: { path: "notes.txt" }
+          }),
+          createToolCallBlock({
+            toolName: "read_file",
+            toolCallId: "call-3",
+            toolInput: { path: "notes.txt" }
+          }),
+          createToolCallBlock({
+            toolName: "read_file",
+            toolCallId: "call-4",
+            toolInput: { path: "notes.txt" }
+          })
+        ]
+      })
+    );
+
+    expect(blockedResult.state).toBe("failed");
+    expect(blockedResult.result.code).toBe("REPEATED_WORKSPACE_ACCESS_BLOCKED");
+  });
 });
 
 describe("edit_file", () => {
@@ -196,6 +339,40 @@ describe("edit_file", () => {
     );
 
     expect(request?.summaryText).toContain("notes.txt");
+  });
+
+  test("preserves complete content when write_file overwrites an existing file", async () => {
+    const workspace = await createWorkspace();
+    const targetPath = path.join(workspace, "notes.txt");
+    await writeFile(targetPath, "old content\n");
+
+    const result = await createWriteFileTool(workspace).execute(
+      {
+        path: "notes.txt",
+        content: "new content\nwith two lines\n"
+      },
+      createContext(workspace)
+    );
+
+    expect(result.state).toBe("success");
+    await expect(readFile(targetPath, "utf8")).resolves.toBe(
+      "new content\nwith two lines\n"
+    );
+  });
+
+  test("fails write_file when the parent directory is missing", async () => {
+    const workspace = await createWorkspace();
+
+    const result = await createWriteFileTool(workspace).execute(
+      {
+        path: "missing/notes.txt",
+        content: "hello"
+      },
+      createContext(workspace)
+    );
+
+    expect(result.state).toBe("failed");
+    expect(result.result.code).toBe("WRITE_FILE_PARENT_MISSING");
   });
 });
 

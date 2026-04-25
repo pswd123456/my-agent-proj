@@ -23,8 +23,8 @@ export function WorkbenchPanel({
   children
 }: WorkbenchPanelProps) {
   return (
-    <section className="rounded-[var(--app-radius-xl)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_72%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_92%,var(--app-bg-elevated)_8%)] shadow-[var(--app-shadow-sm)]">
-      <header className="flex items-start justify-between gap-3 px-4 pb-3 pt-4">
+    <section className="rounded-[var(--app-radius-xl)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_96%,transparent)] shadow-none">
+      <header className="flex items-start justify-between gap-3 px-4 pb-2 pt-4">
         <div className="min-w-0">
           <p className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
             {eyebrow}
@@ -44,7 +44,7 @@ export function WorkbenchPanel({
           </div>
         ) : null}
       </header>
-      <div className="px-4 pb-4">{children}</div>
+      <div className="px-4 pb-4 pt-1">{children}</div>
     </section>
   );
 }
@@ -57,11 +57,11 @@ export function ConversationWorkbench({
 }: ConversationWorkbenchProps) {
   return (
     <main className="min-h-screen bg-[var(--app-bg-canvas)] text-[var(--app-text-primary)]">
-      <div className="mx-auto flex min-h-screen w-full max-w-[1680px] flex-col gap-4 px-4 py-4 lg:px-6">
-        <section className="rounded-[var(--app-radius-xl)] border border-[var(--app-border-strong)] bg-[var(--app-bg-elevated)] px-5 py-5 shadow-[var(--app-shadow-md)]">
+      <div className="mx-auto flex min-h-screen w-full max-w-[1800px] flex-col gap-5 px-4 py-4 lg:px-6">
+        <section className="rounded-[var(--app-radius-xl)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_62%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-elevated)_96%,transparent)] px-5 py-5 shadow-none">
           {header}
         </section>
-        <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[260px_minmax(0,1fr)_380px]">
+        <div className="grid min-h-0 flex-1 gap-5 xl:grid-cols-[280px_minmax(0,1fr)_360px]">
           <div className="min-h-0">{rail}</div>
           <div className="min-h-0">{main}</div>
           <div className="min-h-0">{inspector}</div>

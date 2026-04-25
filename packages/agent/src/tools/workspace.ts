@@ -1,5 +1,8 @@
+import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+
+import type { ConversationBlock, JsonValue } from "../types.js";
 
 const IGNORED_DIRECTORIES = new Set([
   ".git",
@@ -9,6 +12,9 @@ const IGNORED_DIRECTORIES = new Set([
   "node_modules",
   "coverage"
 ]);
+const RECENT_WORKSPACE_ACTIVITY_WINDOW = 18;
+const REPEATED_ACTIVITY_WARN_THRESHOLD = 2;
+const REPEATED_ACTIVITY_BLOCK_THRESHOLD = 4;
 
 export class WorkspaceSandboxError extends Error {
   constructor(message = "Path escapes the working directory.") {
@@ -34,6 +40,12 @@ export interface WorkspaceSandboxPreflightResult {
   targets: WorkspaceSandboxTargetPreflight[];
   outsideTargets: WorkspaceSandboxTargetPreflight[];
   symlinkEscapeTargets: WorkspaceSandboxTargetPreflight[];
+}
+
+export interface RepeatedWorkspaceActivityAssessment {
+  repeatCount: number;
+  shouldWarn: boolean;
+  shouldBlock: boolean;
 }
 
 function isPathInside(basePath: string, targetPath: string): boolean {
@@ -181,6 +193,145 @@ export async function pathExists(targetPath: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+export async function writeTextFileAtomic(
+  targetPath: string,
+  content: string,
+  options: {
+    mode?: number;
+  } = {}
+): Promise<void> {
+  const temporaryPath = path.join(
+    path.dirname(targetPath),
+    `.${path.basename(targetPath)}.tmp-${randomUUID()}`
+  );
+  let handle: Awaited<ReturnType<typeof fs.open>> | null = null;
+
+  try {
+    handle = await fs.open(temporaryPath, "wx", options.mode);
+    await handle.writeFile(content, "utf8");
+    await handle.sync();
+    await handle.close();
+    handle = null;
+
+    await fs.rename(temporaryPath, targetPath);
+  } catch (error) {
+    if (handle) {
+      try {
+        await handle.close();
+      } catch {
+        // ignore close errors while cleaning up a failed atomic write
+      }
+    }
+
+    try {
+      await fs.rm(temporaryPath, { force: true });
+    } catch {
+      // ignore temp cleanup failures after a failed atomic write
+    }
+
+    throw error;
+  }
+}
+
+function normalizeRepeatPath(
+  workingDirectory: string,
+  rawPath: unknown
+): string {
+  if (typeof rawPath !== "string" || rawPath.length === 0) {
+    return ".";
+  }
+
+  return toRelativeWorkspacePath(
+    workingDirectory,
+    path.resolve(workingDirectory, rawPath)
+  );
+}
+
+function buildRepeatedActivityFingerprint(input: {
+  toolName: "read_file" | "search_text";
+  toolInput: Record<string, JsonValue>;
+  workingDirectory: string;
+}): string {
+  if (input.toolName === "read_file") {
+    return JSON.stringify({
+      toolName: input.toolName,
+      path: normalizeRepeatPath(input.workingDirectory, input.toolInput.path),
+      startLine:
+        typeof input.toolInput.startLine === "number"
+          ? Math.floor(input.toolInput.startLine)
+          : null,
+      endLine:
+        typeof input.toolInput.endLine === "number"
+          ? Math.floor(input.toolInput.endLine)
+          : null
+    });
+  }
+
+  return JSON.stringify({
+    toolName: input.toolName,
+    query:
+      typeof input.toolInput.query === "string"
+        ? input.toolInput.query.trim()
+        : "",
+    path: normalizeRepeatPath(input.workingDirectory, input.toolInput.path),
+    regex: input.toolInput.regex === true,
+    caseSensitive:
+      typeof input.toolInput.caseSensitive === "boolean"
+        ? input.toolInput.caseSensitive
+        : true,
+    fileGlob:
+      typeof input.toolInput.fileGlob === "string"
+        ? input.toolInput.fileGlob.trim()
+        : "",
+    outputMode:
+      typeof input.toolInput.outputMode === "string"
+        ? input.toolInput.outputMode
+        : "content"
+  });
+}
+
+export function assessRepeatedWorkspaceActivity(input: {
+  toolName: "read_file" | "search_text";
+  toolInput: Record<string, JsonValue>;
+  workingDirectory: string;
+  sessionMessages: ConversationBlock[];
+}): RepeatedWorkspaceActivityAssessment {
+  const fingerprint = buildRepeatedActivityFingerprint(input);
+  const recentBlocks = input.sessionMessages.slice(
+    -RECENT_WORKSPACE_ACTIVITY_WINDOW
+  );
+
+  let recentWindowStart = 0;
+  for (let index = recentBlocks.length - 1; index >= 0; index -= 1) {
+    if (recentBlocks[index]?.kind === "user") {
+      recentWindowStart = index + 1;
+      break;
+    }
+  }
+
+  let repeatCount = 0;
+  for (const block of recentBlocks.slice(recentWindowStart)) {
+    if (block.kind !== "tool call" || block.toolName !== input.toolName) {
+      continue;
+    }
+
+    const blockFingerprint = buildRepeatedActivityFingerprint({
+      toolName: input.toolName,
+      toolInput: block.input,
+      workingDirectory: input.workingDirectory
+    });
+    if (blockFingerprint === fingerprint) {
+      repeatCount += 1;
+    }
+  }
+
+  return {
+    repeatCount,
+    shouldWarn: repeatCount >= REPEATED_ACTIVITY_WARN_THRESHOLD,
+    shouldBlock: repeatCount >= REPEATED_ACTIVITY_BLOCK_THRESHOLD
+  };
 }
 
 export async function getPathKind(

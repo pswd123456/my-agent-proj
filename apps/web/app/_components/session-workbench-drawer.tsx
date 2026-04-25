@@ -1,5 +1,7 @@
 "use client";
 
+import type { ReactNode } from "react";
+
 import { WorkbenchPanel } from "@ai-app-template/ui-patterns";
 import type {
   RoutineRecord,
@@ -96,6 +98,7 @@ interface SessionWorkbenchDrawerProps {
     target: "allow" | "ask" | "deny"
   ) => void;
   onSettingsCapabilityPackToggle: (packName: string) => void;
+  headerActions?: ReactNode;
 }
 
 type PromptEvent = Extract<RunStreamEvent, { kind: "prompt" }>;
@@ -128,7 +131,8 @@ export function SessionWorkbenchDrawer({
   onSettingsYoloModeChange,
   onSettingsDebugConversationViewChange,
   onSettingsPermissionToolToggle,
-  onSettingsCapabilityPackToggle
+  onSettingsCapabilityPackToggle,
+  headerActions
 }: SessionWorkbenchDrawerProps) {
   if (!activeSidebarPanel) {
     return null;
@@ -162,6 +166,7 @@ export function SessionWorkbenchDrawer({
               ? (currentSession?.context.currentDateContext ?? "--")
               : `${inspectorEvents.length} events`
         }
+        headerActions={headerActions}
       >
         <div className="grid min-h-0 min-w-0 gap-3">
           {activeSidebarPanel === "settings" ? (

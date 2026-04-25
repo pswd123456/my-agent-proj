@@ -4,7 +4,8 @@ import type { RuntimeTool } from "./runtime-tool.js";
 import {
   getPathKind,
   normalizeWorkspacePath,
-  toRelativeWorkspacePath
+  toRelativeWorkspacePath,
+  writeTextFileAtomic
 } from "./workspace.js";
 import {
   createToolResult,
@@ -223,6 +224,7 @@ export function createEditFileTool(workingDirectory: string): RuntimeTool {
           );
         }
 
+        const originalStat = await fs.stat(absolutePath);
         const originalContent = await fs.readFile(absolutePath, "utf8");
         const totalLines = splitEditableLines(originalContent).length;
         if (startLine > totalLines || endLine > totalLines) {
@@ -258,7 +260,16 @@ export function createEditFileTool(workingDirectory: string): RuntimeTool {
           replacementLines,
           startLine
         });
-        await fs.writeFile(absolutePath, edit.content, "utf8");
+        const latestStat = await fs.stat(absolutePath);
+        const staleWarning =
+          latestStat.mtimeMs !== originalStat.mtimeMs ||
+          latestStat.size !== originalStat.size
+            ? "File metadata changed while preparing this edit; newer content may have been overwritten."
+            : null;
+        await writeTextFileAtomic(absolutePath, edit.content, {
+          mode: originalStat.mode
+        });
+        const warnings = staleWarning ? [staleWarning] : [];
 
         return successResult(
           createToolResult({
@@ -271,13 +282,16 @@ export function createEditFileTool(workingDirectory: string): RuntimeTool {
               endLine,
               replacedLineCount: edit.replacedLineCount,
               newLineCount: edit.newLineCount,
-              diff
+              diff,
+              ...(warnings.length > 0 ? { warnings } : {})
             }
           }),
           `[edit_file] success\n- ${toRelativeWorkspacePath(
             workingDirectory,
             absolutePath
-          )}\n- replaced lines ${startLine}-${endLine}`
+          )}\n- replaced lines ${startLine}-${endLine}${
+            warnings.length > 0 ? "\n- warnings emitted" : ""
+          }`
         );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
