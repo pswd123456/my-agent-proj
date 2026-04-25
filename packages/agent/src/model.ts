@@ -166,6 +166,13 @@ export interface AnthropicTextDeltaSnapshot {
   text: string;
 }
 
+export interface AnthropicThinkingDeltaSnapshot {
+  blockIndex: number;
+  delta?: string;
+  text: string;
+  signature: string;
+}
+
 export interface AnthropicCompatibleClient {
   messages: {
     create(input: AnthropicMessageRequest): Promise<AnthropicMessageResponse>;
@@ -252,6 +259,9 @@ export async function streamAnthropicMessage(input: {
   onTextDelta?: (
     snapshot: AnthropicTextDeltaSnapshot
   ) => void | Promise<void>;
+  onThinkingDelta?: (
+    snapshot: AnthropicThinkingDeltaSnapshot
+  ) => void | Promise<void>;
 }): Promise<AnthropicMessageResponse> {
   if (!input.client.messages.stream) {
     return input.client.messages.create(input.request);
@@ -259,6 +269,7 @@ export async function streamAnthropicMessage(input: {
 
   const stream = input.client.messages.stream(input.request);
   const textSnapshots = new Map<number, string>();
+  const thinkingSnapshots = new Map<number, { text: string; signature: string }>();
   const abortStream = () => {
     if (typeof stream.abort === "function") {
       try {
@@ -282,19 +293,50 @@ export async function streamAnthropicMessage(input: {
 
   try {
     for await (const event of stream) {
+      if (event.type !== "content_block_delta") {
+        continue;
+      }
+
+      if (event.delta.type === "text_delta") {
+        const nextText = `${textSnapshots.get(event.index) ?? ""}${event.delta.text}`;
+        textSnapshots.set(event.index, nextText);
+        await input.onTextDelta?.({
+          blockIndex: event.index,
+          delta: event.delta.text,
+          text: nextText
+        });
+        continue;
+      }
+
       if (
-        event.type !== "content_block_delta" ||
-        event.delta.type !== "text_delta"
+        event.delta.type !== "thinking_delta" &&
+        event.delta.type !== "signature_delta"
       ) {
         continue;
       }
 
-      const nextText = `${textSnapshots.get(event.index) ?? ""}${event.delta.text}`;
-      textSnapshots.set(event.index, nextText);
-      await input.onTextDelta?.({
+      const currentThinking = thinkingSnapshots.get(event.index) ?? {
+        text: "",
+        signature: ""
+      };
+      const nextThinking =
+        event.delta.type === "thinking_delta"
+          ? {
+              text: `${currentThinking.text}${event.delta.thinking}`,
+              signature: currentThinking.signature
+            }
+          : {
+              text: currentThinking.text,
+              signature: `${currentThinking.signature}${event.delta.signature}`
+            };
+      thinkingSnapshots.set(event.index, nextThinking);
+      await input.onThinkingDelta?.({
         blockIndex: event.index,
-        delta: event.delta.text,
-        text: nextText
+        ...(event.delta.type === "thinking_delta"
+          ? { delta: event.delta.thinking }
+          : {}),
+        text: nextThinking.text,
+        signature: nextThinking.signature
       });
     }
 

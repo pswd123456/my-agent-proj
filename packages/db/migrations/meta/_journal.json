@@ -15,6 +15,13 @@
       "when": 1777012823339,
       "tag": "0001_capability_packs",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1777094400000,
+      "tag": "0002_debug_conversation_view",
+      "breakpoints": true
     }
   ]
 }

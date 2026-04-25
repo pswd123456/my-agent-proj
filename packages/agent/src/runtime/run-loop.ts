@@ -26,9 +26,9 @@ import type { JsonValue, RunSessionResult, SessionSnapshot } from "../types.js";
 import type { ToolRegistry } from "../tools/registry.js";
 import {
   buildAssistantBlockContent,
+  buildAssistantThinkingBlockContent,
   buildFallbackAnswer,
   buildUserBlockContent,
-  extractThinkingBlocks,
   extractToolCalls,
   extractToolCallsFromTextBlocks,
   renderPendingConfirmationAnswer,
@@ -45,6 +45,12 @@ import { executeToolAction } from "./tool-execution.js";
 interface StreamedAssistantSnapshot {
   assistantMessageId: string;
   text: string;
+}
+
+interface StreamedThinkingSnapshot {
+  thinkingMessageId: string;
+  text: string;
+  signature: string;
 }
 
 function getInterruptedAssistantSnapshot(
@@ -382,6 +388,10 @@ export async function runSessionLoop(input: {
         number,
         StreamedAssistantSnapshot
       >();
+      const streamedThinkingSnapshots = new Map<
+        number,
+        StreamedThinkingSnapshot
+      >();
       currentStreamedAssistantTexts = streamedAssistantTexts;
       const response = await streamAnthropicMessage({
         client: input.client,
@@ -403,6 +413,30 @@ export async function runSessionLoop(input: {
               turnCount,
               assistantMessageId: current.assistantMessageId,
               text
+            }
+          });
+        },
+        onThinkingDelta: async ({ blockIndex, delta, text, signature }) => {
+          const current = streamedThinkingSnapshots.get(blockIndex) ?? {
+            thinkingMessageId: randomUUID(),
+            text: "",
+            signature: ""
+          };
+          current.text = text;
+          current.signature = signature;
+          streamedThinkingSnapshots.set(blockIndex, current);
+          await emitTraceEvent({
+            traceManager: input.traceManager,
+            eventSink: input.eventSink,
+            sessionId: session.sessionId,
+            event: {
+              kind: "thinking",
+              turnCount,
+              thinkingMessageId: current.thinkingMessageId,
+              text,
+              signature,
+              ...(delta ? { delta } : {}),
+              snapshot: text
             }
           });
         }
@@ -447,7 +481,28 @@ export async function runSessionLoop(input: {
         }
       });
 
-      for (const thinkingBlock of extractThinkingBlocks(responseBlocks)) {
+      const thinkingBlocks = responseBlocks.flatMap((block, blockIndex) =>
+        block.type === "thinking"
+          ? [
+              {
+                blockIndex,
+                text: block.thinking,
+                signature: block.signature
+              }
+            ]
+          : []
+      );
+      for (const thinkingBlock of thinkingBlocks) {
+        const streamedSnapshot = streamedThinkingSnapshots.get(
+          thinkingBlock.blockIndex
+        );
+        if (
+          streamedSnapshot &&
+          streamedSnapshot.text === thinkingBlock.text &&
+          streamedSnapshot.signature === thinkingBlock.signature
+        ) {
+          continue;
+        }
         await emitTraceEvent({
           traceManager: input.traceManager,
           eventSink: input.eventSink,
@@ -455,8 +510,12 @@ export async function runSessionLoop(input: {
           event: {
             kind: "thinking",
             turnCount,
+            ...(streamedSnapshot
+              ? { thinkingMessageId: streamedSnapshot.thinkingMessageId }
+              : {}),
             text: thinkingBlock.text,
-            signature: thinkingBlock.signature
+            signature: thinkingBlock.signature,
+            snapshot: thinkingBlock.text
           }
         });
       }
@@ -469,6 +528,18 @@ export async function runSessionLoop(input: {
           : extractToolCallsFromTextBlocks(responseBlocks);
       const resolvedToolCalls =
         toolCalls.length > 0 ? toolCalls : recoveredToolCalls;
+
+      if (toolCalls.length > 0) {
+        for (const thinkingBlock of thinkingBlocks) {
+          if (thinkingBlock.signature.trim().length === 0) {
+            continue;
+          }
+          session = await input.sessionManager.appendBlock(
+            session.sessionId,
+            buildAssistantThinkingBlockContent(thinkingBlock)
+          );
+        }
+      }
 
       for (const [blockIndex, block] of responseBlocks.entries()) {
         if (block.type !== "text") {

@@ -90,6 +90,7 @@ interface SessionWorkbenchDrawerProps {
   onSettingsFormChange: (patch: Partial<SettingsFormState>) => void;
   onSettingsBlur: () => void;
   onSettingsYoloModeChange: (checked: boolean) => void;
+  onSettingsDebugConversationViewChange: (checked: boolean) => void;
   onSettingsPermissionToolToggle: (
     toolName: string,
     target: "allow" | "ask" | "deny"
@@ -125,6 +126,7 @@ export function SessionWorkbenchDrawer({
   onSettingsFormChange,
   onSettingsBlur,
   onSettingsYoloModeChange,
+  onSettingsDebugConversationViewChange,
   onSettingsPermissionToolToggle,
   onSettingsCapabilityPackToggle
 }: SessionWorkbenchDrawerProps) {
@@ -169,7 +171,8 @@ export function SessionWorkbenchDrawer({
                   "text-sm leading-6 text-[var(--app-text-secondary)]"
                 )}
               >
-                这里配置默认值。修改后会自动保存，后续新建会话会直接使用；当前会话的权限和 yolo 也会同步更新。
+                这里配置默认值。修改后会自动保存，后续新建会话会直接使用；当前会话的权限和
+                yolo 也会同步更新。
               </div>
 
               <label className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
@@ -212,7 +215,9 @@ export function SessionWorkbenchDrawer({
                   />
                 </label>
                 <label className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
-                  <span className={tertiaryHeadingClassName}>Deny Patterns</span>
+                  <span className={tertiaryHeadingClassName}>
+                    Deny Patterns
+                  </span>
                   <textarea
                     value={settingsForm.shellDenyPatterns}
                     onChange={(event) =>
@@ -231,9 +236,12 @@ export function SessionWorkbenchDrawer({
                 <div className={sectionHeadingClassName}>Execution</div>
                 <label className="flex items-center justify-between gap-3 rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm text-[var(--app-text-secondary)]">
                   <div>
-                    <div className="text-sm text-[var(--app-text-primary)]">YOLO</div>
+                    <div className="text-sm text-[var(--app-text-primary)]">
+                      YOLO
+                    </div>
                     <div className="mt-1 text-xs leading-5 text-[var(--app-text-muted)]">
-                      打开后，工作区文件操作可直接执行；shell / network 仍按权限规则处理。
+                      打开后，工作区文件操作可直接执行；shell / network
+                      仍按权限规则处理。
                     </div>
                   </div>
                   <input
@@ -246,13 +254,38 @@ export function SessionWorkbenchDrawer({
                   />
                 </label>
 
+                <label className="flex items-center justify-between gap-3 rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm text-[var(--app-text-secondary)]">
+                  <div>
+                    <div className="text-sm text-[var(--app-text-primary)]">
+                      调试对话视图
+                    </div>
+                    <div className="mt-1 text-xs leading-5 text-[var(--app-text-muted)]">
+                      显示完整 turns、thinking、工具调用和结果。
+                    </div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={settingsForm.debugConversationView}
+                    onChange={(event) =>
+                      onSettingsDebugConversationViewChange(
+                        event.target.checked
+                      )
+                    }
+                    className="h-4 w-4 accent-[var(--app-border-accent)]"
+                  />
+                </label>
+
                 <div className="grid gap-2 sm:grid-cols-2">
                   <label className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
-                    <span className={tertiaryHeadingClassName}>Context Window</span>
+                    <span className={tertiaryHeadingClassName}>
+                      Context Window
+                    </span>
                     <input
                       value={settingsForm.contextWindow}
                       onChange={(event) =>
-                        onSettingsFormChange({ contextWindow: event.target.value })
+                        onSettingsFormChange({
+                          contextWindow: event.target.value
+                        })
                       }
                       onBlur={onSettingsBlur}
                       inputMode="numeric"
@@ -278,7 +311,8 @@ export function SessionWorkbenchDrawer({
                 <div className={sectionHeadingClassName}>Capabilities</div>
                 <div className="grid gap-2">
                   {capabilityPackOptions.map((pack) => {
-                    const checked = settingsForm.enabledCapabilityPacks.includes(pack);
+                    const checked =
+                      settingsForm.enabledCapabilityPacks.includes(pack);
                     return (
                       <label
                         key={pack}
@@ -303,7 +337,9 @@ export function SessionWorkbenchDrawer({
                   })}
                 </div>
                 <div className="grid gap-2">
-                  <div className={tertiaryHeadingClassName}>Tool Permission</div>
+                  <div className={tertiaryHeadingClassName}>
+                    Tool Permission
+                  </div>
                   {visiblePermissionTools.map((tool) => {
                     const decision = settingsForm.toolDenyList.includes(tool)
                       ? "deny"

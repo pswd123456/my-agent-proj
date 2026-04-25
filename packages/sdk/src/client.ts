@@ -66,6 +66,7 @@ export interface UpdateUserSettingsPayload {
   toolAskList?: string[];
   toolDenyList?: string[];
   enabledCapabilityPacks?: string[];
+  debugConversationView?: boolean;
 }
 
 export interface ListSessionRoutinesResult {

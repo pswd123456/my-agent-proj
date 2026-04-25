@@ -3,8 +3,15 @@ import { describe, expect, test } from "bun:test";
 import type { RunStreamEvent, SessionSnapshot } from "@ai-app-template/sdk";
 
 import {
+  buildConversationViewItems,
+  getCompactCollapsedFlowAnchors,
+  getCompactCollapsedFlowScrollTargetKey
+} from "./session-conversation-view";
+import {
   buildTimelineItems,
-  getTimelineEventRenderKey
+  getTimelineEventKey,
+  getTimelineEventRenderKey,
+  type TimelineItem
 } from "./session-timeline";
 
 const firstUser: Extract<
@@ -57,6 +64,7 @@ const thinkingEvent: Extract<RunStreamEvent, { kind: "thinking" }> = {
   sessionId: "session-1",
   createdAt: "2026-04-21T18:46:21.692Z",
   turnCount: 1,
+  thinkingMessageId: "thinking-1",
   text: "需要先检查现有日程。",
   signature: "sig-1"
 };
@@ -72,6 +80,47 @@ const currentToolCall: Extract<RunStreamEvent, { kind: "tool_call" }> = {
     routine_id: "routine-2"
   }
 };
+
+const currentToolResult: Extract<RunStreamEvent, { kind: "tool_result" }> = {
+  kind: "tool_result",
+  sessionId: "session-1",
+  createdAt: "2026-04-21T18:46:21.735Z",
+  turnCount: 1,
+  toolCallId: "call-current",
+  toolName: "delete_routine",
+  output: "ok",
+  isError: false
+};
+
+const turnEnd: Extract<RunStreamEvent, { kind: "turn_end" }> = {
+  kind: "turn_end",
+  sessionId: "session-1",
+  createdAt: "2026-04-21T18:46:21.740Z",
+  turnCount: 1,
+  loopState: "completed"
+};
+
+function eventItem(
+  event: RunStreamEvent
+): Extract<TimelineItem, { type: "event" }> {
+  return {
+    type: "event",
+    key: `event-${getTimelineEventKey(event)}`,
+    createdAt: event.createdAt,
+    event
+  };
+}
+
+function messageItem(
+  block: SessionSnapshot["messages"][number]
+): Extract<TimelineItem, { type: "message" }> {
+  return {
+    type: "message",
+    key: `message-${block.id}`,
+    createdAt: block.createdAt,
+    block
+  };
+}
 
 const permissionRequestEvent: Extract<
   RunStreamEvent,
@@ -163,6 +212,15 @@ const interruptedRunCompleteEvent: Extract<
   }
 };
 
+const skillsLoadedEvent: Extract<RunStreamEvent, { kind: "skills_loaded" }> = {
+  kind: "skills_loaded",
+  sessionId: "session-1",
+  createdAt: "2026-04-21T18:46:21.739Z",
+  turnCount: 1,
+  skills: [],
+  diagnostics: []
+};
+
 describe("buildTimelineItems", () => {
   test("keeps turn boundaries and the current turn's thinking ahead of tool calls", () => {
     const items = buildTimelineItems({
@@ -245,6 +303,32 @@ describe("buildTimelineItems", () => {
         .filter((item) => item.type === "event")
         .map((item) => item.event.kind)
     ).toEqual(["turn_start", "assistant_text", "tool_result"]);
+  });
+
+  test("uses thinking trace events instead of duplicating persisted thinking blocks", () => {
+    const thinkingBlock: Extract<
+      SessionSnapshot["messages"][number],
+      { kind: "assistant thinking" }
+    > = {
+      id: "thinking-block-1",
+      kind: "assistant thinking",
+      content: thinkingEvent.text,
+      signature: thinkingEvent.signature,
+      createdAt: thinkingEvent.createdAt
+    };
+
+    const items = buildTimelineItems({
+      messages: [firstUser, thinkingBlock],
+      historyEvents: [turnStart, thinkingEvent],
+      streamEvents: []
+    });
+
+    expect(items.filter((item) => item.type === "message")).toHaveLength(1);
+    expect(
+      items
+        .filter((item) => item.type === "event")
+        .map((item) => item.event.kind)
+    ).toEqual(["turn_start", "thinking"]);
   });
 
   test("places permission requests between tool calls and tool results", () => {
@@ -341,6 +425,20 @@ describe("buildTimelineItems", () => {
         .filter((item) => item.type === "event")
         .map((item) => item.event.kind)
     ).toEqual(["turn_start", "run_complete"]);
+  });
+
+  test("does not render skills loaded events in the conversation timeline", () => {
+    const items = buildTimelineItems({
+      messages: [firstUser],
+      historyEvents: [turnStart, skillsLoadedEvent, thinkingEvent],
+      streamEvents: []
+    });
+
+    expect(
+      items
+        .filter((item) => item.type === "event")
+        .map((item) => item.event.kind)
+    ).toEqual(["turn_start", "thinking"]);
   });
 
   test("collapses streamed assistant snapshots by assistant message id", () => {
@@ -506,5 +604,349 @@ describe("buildTimelineItems", () => {
     expect(getTimelineEventRenderKey(partialAssistantEvent)).not.toBe(
       getTimelineEventRenderKey(finalAssistantEvent)
     );
+  });
+
+  test("collapses streamed thinking snapshots by thinking message id", () => {
+    const partialThinkingEvent: Extract<RunStreamEvent, { kind: "thinking" }> = {
+      kind: "thinking",
+      sessionId: "session-1",
+      createdAt: "2026-04-24T08:35:24.100Z",
+      turnCount: 1,
+      thinkingMessageId: "thinking-stream-1",
+      text: "先看",
+      signature: ""
+    };
+
+    const finalThinkingEvent: Extract<RunStreamEvent, { kind: "thinking" }> = {
+      ...partialThinkingEvent,
+      createdAt: "2026-04-24T08:35:24.200Z",
+      text: "先看看这个问题。",
+      signature: "sig-thinking-stream-1"
+    };
+
+    const items = buildTimelineItems({
+      messages: [firstUser],
+      historyEvents: [turnStart, partialThinkingEvent, finalThinkingEvent],
+      streamEvents: []
+    });
+
+    const thinkingEvents = items.filter(
+      (item): item is Extract<(typeof items)[number], { type: "event" }> =>
+        item.type === "event" && item.event.kind === "thinking"
+    );
+
+    expect(thinkingEvents).toHaveLength(1);
+    expect(thinkingEvents[0]?.event.text).toBe("先看看这个问题。");
+    if (thinkingEvents[0]?.event.kind === "thinking") {
+      expect(thinkingEvents[0].event.signature).toBe("sig-thinking-stream-1");
+    }
+  });
+
+  test("thinking render keys stay unique across streamed snapshots", () => {
+    const partialThinkingEvent: Extract<RunStreamEvent, { kind: "thinking" }> = {
+      kind: "thinking",
+      sessionId: "session-1",
+      createdAt: "2026-04-24T08:35:24.100Z",
+      turnCount: 1,
+      thinkingMessageId: "thinking-stream-dup-1",
+      text: "先看",
+      signature: ""
+    };
+
+    const finalThinkingEvent: Extract<RunStreamEvent, { kind: "thinking" }> = {
+      ...partialThinkingEvent,
+      createdAt: "2026-04-24T08:35:24.200Z",
+      text: "先看看这个问题。",
+      signature: "sig-thinking-stream-dup-1"
+    };
+
+    expect(getTimelineEventRenderKey(partialThinkingEvent)).not.toBe(
+      getTimelineEventRenderKey(finalThinkingEvent)
+    );
+  });
+});
+
+describe("buildConversationViewItems compact mode", () => {
+  test("collapses a tool call and result into one updated tool item", () => {
+    const runningView = buildConversationViewItems({
+      timelineItems: [
+        messageItem(firstUser),
+        eventItem(turnStart),
+        eventItem(currentToolCall)
+      ],
+      mode: "compact"
+    });
+    const doneView = buildConversationViewItems({
+      timelineItems: [
+        messageItem(firstUser),
+        eventItem(turnStart),
+        eventItem(currentToolCall),
+        eventItem(currentToolResult)
+      ],
+      mode: "compact"
+    });
+
+    expect(runningView.map((item) => item.type)).toEqual([
+      "timeline",
+      "compact-tool"
+    ]);
+    expect(doneView.map((item) => item.type)).toEqual([
+      "timeline",
+      "compact-tool"
+    ]);
+    expect(runningView[1]?.type).toBe("compact-tool");
+    expect(doneView[1]?.type).toBe("compact-tool");
+    if (runningView[1]?.type === "compact-tool") {
+      expect(runningView[1].title).toContain("正在编辑");
+    }
+    if (doneView[1]?.type === "compact-tool") {
+      expect(doneView[1].title).toContain("已编辑");
+      expect(doneView[1].originalItems).toHaveLength(2);
+    }
+  });
+
+  test("merges adjacent successful read and search tools into one file batch", () => {
+    const readCall: Extract<RunStreamEvent, { kind: "tool_call" }> = {
+      ...currentToolCall,
+      createdAt: "2026-04-21T18:46:21.710Z",
+      toolCallId: "call-read",
+      toolName: "read_file",
+      input: { path: "apps/web/app/page.tsx" }
+    };
+    const readResult: Extract<RunStreamEvent, { kind: "tool_result" }> = {
+      ...currentToolResult,
+      createdAt: "2026-04-21T18:46:21.711Z",
+      toolCallId: "call-read",
+      toolName: "read_file"
+    };
+    const searchCall: Extract<RunStreamEvent, { kind: "tool_call" }> = {
+      ...currentToolCall,
+      createdAt: "2026-04-21T18:46:21.712Z",
+      toolCallId: "call-search",
+      toolName: "search_text",
+      input: { query: "debugConversationView", path: "apps/web" }
+    };
+    const searchResult: Extract<RunStreamEvent, { kind: "tool_result" }> = {
+      ...currentToolResult,
+      createdAt: "2026-04-21T18:46:21.713Z",
+      toolCallId: "call-search",
+      toolName: "search_text"
+    };
+
+    const view = buildConversationViewItems({
+      timelineItems: [
+        messageItem(firstUser),
+        eventItem(readCall),
+        eventItem(readResult),
+        eventItem(searchCall),
+        eventItem(searchResult)
+      ],
+      mode: "compact"
+    });
+
+    expect(view.map((item) => item.type)).toEqual([
+      "timeline",
+      "compact-file-batch"
+    ]);
+    if (view[1]?.type === "compact-file-batch") {
+      expect(view[1].title).toBe("已搜索和阅读 2 个文件");
+      expect(view[1].targets).toEqual([
+        "apps/web/app/page.tsx",
+        "debugConversationView @ apps/web"
+      ]);
+    }
+  });
+
+  test("does not merge read and search tools across assistant text", () => {
+    const readCall: Extract<RunStreamEvent, { kind: "tool_call" }> = {
+      ...currentToolCall,
+      createdAt: "2026-04-21T18:46:21.710Z",
+      toolCallId: "call-read",
+      toolName: "read_file",
+      input: { path: "README.md" }
+    };
+    const readResult: Extract<RunStreamEvent, { kind: "tool_result" }> = {
+      ...currentToolResult,
+      createdAt: "2026-04-21T18:46:21.711Z",
+      toolCallId: "call-read",
+      toolName: "read_file"
+    };
+    const assistantEvent: Extract<RunStreamEvent, { kind: "assistant_text" }> =
+      {
+        kind: "assistant_text",
+        sessionId: "session-1",
+        createdAt: "2026-04-21T18:46:21.712Z",
+        turnCount: 1,
+        assistantMessageId: "assistant-between",
+        text: "先看这里。"
+      };
+    const searchCall: Extract<RunStreamEvent, { kind: "tool_call" }> = {
+      ...currentToolCall,
+      createdAt: "2026-04-21T18:46:21.713Z",
+      toolCallId: "call-search",
+      toolName: "search_text",
+      input: { query: "SessionWorkbench" }
+    };
+    const searchResult: Extract<RunStreamEvent, { kind: "tool_result" }> = {
+      ...currentToolResult,
+      createdAt: "2026-04-21T18:46:21.714Z",
+      toolCallId: "call-search",
+      toolName: "search_text"
+    };
+
+    const view = buildConversationViewItems({
+      timelineItems: [
+        messageItem(firstUser),
+        eventItem(readCall),
+        eventItem(readResult),
+        eventItem(assistantEvent),
+        eventItem(searchCall),
+        eventItem(searchResult)
+      ],
+      mode: "compact"
+    });
+
+    expect(view.map((item) => item.type)).toEqual([
+      "timeline",
+      "compact-tool",
+      "timeline",
+      "compact-tool"
+    ]);
+  });
+
+  test("filters turn boundary events from compact mode", () => {
+    const view = buildConversationViewItems({
+      timelineItems: [
+        messageItem(firstUser),
+        eventItem(turnStart),
+        eventItem(currentToolCall),
+        eventItem(turnEnd)
+      ],
+      mode: "compact"
+    });
+
+    expect(
+      view.some(
+        (item) =>
+          item.type === "timeline" &&
+          item.item.type === "event" &&
+          (item.item.event.kind === "turn_start" ||
+            item.item.event.kind === "turn_end")
+      )
+    ).toBe(false);
+  });
+
+  test("folds the preceding execution flow as soon as the final answer starts streaming", () => {
+    const streamingAssistantEvent: Extract<
+      RunStreamEvent,
+      { kind: "assistant_text" }
+    > = {
+      kind: "assistant_text",
+      sessionId: "session-1",
+      createdAt: "2026-04-21T18:46:21.800Z",
+      turnCount: 1,
+      assistantMessageId: "assistant-streaming",
+      text: "正在整理结果..."
+    };
+
+    const view = buildConversationViewItems({
+      timelineItems: [
+        messageItem(firstUser),
+        eventItem(turnStart),
+        eventItem(thinkingEvent),
+        eventItem(currentToolCall),
+        eventItem(currentToolResult),
+        eventItem(streamingAssistantEvent)
+      ],
+      mode: "compact"
+    });
+
+    expect(view.map((item) => item.type)).toEqual([
+      "timeline",
+      "compact-collapsed-flow",
+      "timeline"
+    ]);
+  });
+
+  test("folds the final answer's preceding execution flow", () => {
+    const finalAssistantEvent: Extract<
+      RunStreamEvent,
+      { kind: "assistant_text" }
+    > = {
+      kind: "assistant_text",
+      sessionId: "session-1",
+      createdAt: "2026-04-21T18:46:21.800Z",
+      turnCount: 1,
+      assistantMessageId: "assistant-final",
+      text: "已经处理好了。"
+    };
+
+    const view = buildConversationViewItems({
+      timelineItems: [
+        messageItem(firstUser),
+        eventItem(turnStart),
+        eventItem(thinkingEvent),
+        eventItem(currentToolCall),
+        eventItem(currentToolResult),
+        eventItem(finalAssistantEvent),
+        eventItem(turnEnd)
+      ],
+      mode: "compact"
+    });
+
+    expect(view.map((item) => item.type)).toEqual([
+      "timeline",
+      "compact-collapsed-flow",
+      "timeline"
+    ]);
+    if (view[1]?.type === "compact-collapsed-flow") {
+      expect(view[1].hiddenCount).toBe(2);
+      expect(view[1].originalItems.map((item) => item.type)).toEqual([
+        "timeline",
+        "compact-tool"
+      ]);
+    }
+  });
+
+  test("anchors collapsed flow scrolling to the turn's user message while keeping the final assistant key", () => {
+    const finalAssistantEvent: Extract<
+      RunStreamEvent,
+      { kind: "assistant_text" }
+    > = {
+      kind: "assistant_text",
+      sessionId: "session-1",
+      createdAt: "2026-04-21T18:46:21.800Z",
+      turnCount: 1,
+      assistantMessageId: "assistant-final",
+      text: "已经处理好了。"
+    };
+
+    const view = buildConversationViewItems({
+      timelineItems: [
+        messageItem(firstUser),
+        eventItem(turnStart),
+        eventItem(thinkingEvent),
+        eventItem(currentToolCall),
+        eventItem(currentToolResult),
+        eventItem(finalAssistantEvent),
+        eventItem(turnEnd)
+      ],
+      mode: "compact"
+    });
+
+    expect(
+      getCompactCollapsedFlowScrollTargetKey({
+        items: view,
+        collapsedFlowKey:
+          "compact-collapsed-flow-event-assistant_text-assistant-final"
+      })
+    ).toBe("message-user-1");
+    expect(
+      getCompactCollapsedFlowAnchors({
+        items: view,
+        collapsedFlowKey:
+          "compact-collapsed-flow-event-assistant_text-assistant-final"
+      }).assistantItemKey
+    ).toBe("event-assistant_text-assistant-final");
   });
 });

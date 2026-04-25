@@ -69,7 +69,8 @@ const updateUserSettingsBodySchema = z
     toolAllowList: z.array(z.string()).optional(),
     toolAskList: z.array(z.string()).optional(),
     toolDenyList: z.array(z.string()).optional(),
-    enabledCapabilityPacks: z.array(z.string()).optional()
+    enabledCapabilityPacks: z.array(z.string()).optional(),
+    debugConversationView: z.boolean().optional()
   })
   .refine(
     (value) =>
@@ -82,7 +83,8 @@ const updateUserSettingsBodySchema = z
       Array.isArray(value.toolAllowList) ||
       Array.isArray(value.toolAskList) ||
       Array.isArray(value.toolDenyList) ||
-      Array.isArray(value.enabledCapabilityPacks),
+      Array.isArray(value.enabledCapabilityPacks) ||
+      typeof value.debugConversationView === "boolean",
     {
       message: "At least one settings field is required."
     }
@@ -107,7 +109,14 @@ const systemLogsQuerySchema = z.object({
   sessionId: z.string().optional(),
   level: z.enum(["debug", "info", "warn", "error"]).optional(),
   component: z
-    .enum(["runtime", "permission", "tool-execution", "confirmation", "interrupt", "api"])
+    .enum([
+      "runtime",
+      "permission",
+      "tool-execution",
+      "confirmation",
+      "interrupt",
+      "api"
+    ])
     .optional(),
   limit: z.coerce.number().int().min(1).max(500).optional(),
   cursor: z.string().optional()
@@ -192,7 +201,9 @@ function encodeSseEvent<T extends { kind: string }>(event: T): Uint8Array {
   return new TextEncoder().encode(`event: ${event.kind}\ndata: ${payload}\n\n`);
 }
 
-function getRequestId(c: { req: { header(name: string): string | undefined } }): string {
+function getRequestId(c: {
+  req: { header(name: string): string | undefined };
+}): string {
   return c.req.header("x-request-id")?.trim() || randomUUID();
 }
 
@@ -324,6 +335,9 @@ export function createApiApp(dependencies: ApiAppDependencies) {
         : {}),
       ...(Array.isArray(body.enabledCapabilityPacks)
         ? { enabledCapabilityPacks: body.enabledCapabilityPacks }
+        : {}),
+      ...(typeof body.debugConversationView === "boolean"
+        ? { debugConversationView: body.debugConversationView }
         : {})
     });
     return c.json({ settings });
@@ -332,9 +346,7 @@ export function createApiApp(dependencies: ApiAppDependencies) {
   app.get("/sessions/:sessionId", async (c) => {
     const requestId = getRequestId(c);
     const sessionId = c.req.param("sessionId");
-    const session = await dependencies.sessionManager.getSession(
-      sessionId
-    );
+    const session = await dependencies.sessionManager.getSession(sessionId);
     if (!session) {
       return c.json({ error: "Session not found." }, 404);
     }

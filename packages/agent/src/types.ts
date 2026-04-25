@@ -31,6 +31,12 @@ export interface AssistantConversationBlock extends BaseConversationBlock {
   content: string;
 }
 
+export interface AssistantThinkingConversationBlock extends BaseConversationBlock {
+  kind: "assistant thinking";
+  content: string;
+  signature: string;
+}
+
 export interface ToolCallConversationBlock extends BaseConversationBlock {
   kind: "tool call";
   toolCallId: string;
@@ -51,6 +57,7 @@ export interface ToolResultConversationBlock extends BaseConversationBlock {
 export type ConversationBlock =
   | UserConversationBlock
   | AssistantConversationBlock
+  | AssistantThinkingConversationBlock
   | ToolCallConversationBlock
   | ToolResultConversationBlock;
 

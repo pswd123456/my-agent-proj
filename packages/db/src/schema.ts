@@ -195,6 +195,9 @@ export const agentSettings = pgTable("agent_settings", {
     .$type<string[]>()
     .notNull()
     .default(sql.raw(defaultCapabilityPacksJsonLiteral)),
+  debugConversationView: boolean("debug_conversation_view")
+    .notNull()
+    .default(false),
   createdAt: timestamp("created_at", {
     mode: "string",
     withTimezone: true

@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 import type { RunStreamEvent } from "@ai-app-template/sdk";
 
+import { getTimelineEventKey } from "./session-timeline";
+
 import {
   appendStreamEvent,
   beginRun,
@@ -11,7 +13,18 @@ import {
   resetRunView
 } from "./run-view-state-manager";
 
-function createAssistantEvent(kind: RunStreamEvent["kind"]): RunStreamEvent {
+function createAnimatedEvent(kind: "assistant_text" | "thinking"): RunStreamEvent {
+  if (kind === "thinking") {
+    return {
+      kind,
+      sessionId: "session-1",
+      createdAt: "2026-04-24T00:00:00.000Z",
+      turnCount: 1,
+      text: "thinking",
+      signature: "sig-1"
+    } as RunStreamEvent;
+  }
+
   return {
     kind,
     sessionId: "session-1",
@@ -33,20 +46,29 @@ describe("run-view-state-manager", () => {
     expect(state.streamEvents).toHaveLength(0);
   });
 
-  test("assistant events are tracked for animation cleanup", () => {
+  test("assistant and thinking events are tracked for animation cleanup", () => {
     const started = beginRun(createRunViewState(), {
       createdAt: "2026-04-24T00:00:00.000Z",
       text: "hi"
     });
     const next = appendStreamEvent(
-      started,
-      createAssistantEvent("assistant_text")
+      appendStreamEvent(started, createAnimatedEvent("assistant_text")),
+      createAnimatedEvent("thinking")
     );
-    const key = [...next.recentAssistantEventKeys][0];
+    const keys = [...next.recentAssistantEventKeys];
 
-    expect(next.recentAssistantEventKeys.size).toBe(1);
+    expect(next.recentAssistantEventKeys).toEqual(
+      new Set([
+        getTimelineEventKey(createAnimatedEvent("assistant_text")),
+        getTimelineEventKey(createAnimatedEvent("thinking"))
+      ])
+    );
+
+    const afterAssistant = markAssistantAnimationComplete(next, keys[0]!);
+    expect(afterAssistant.recentAssistantEventKeys.size).toBe(1);
     expect(
-      markAssistantAnimationComplete(next, key).recentAssistantEventKeys.size
+      markAssistantAnimationComplete(afterAssistant, keys[1]!)
+        .recentAssistantEventKeys.size
     ).toBe(0);
   });
 

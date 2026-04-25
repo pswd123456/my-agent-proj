@@ -41,7 +41,7 @@ export function appendStreamEvent(
     streamEvents: [...state.streamEvents, event]
   };
 
-  if (event.kind !== "assistant_text") {
+  if (event.kind !== "assistant_text" && event.kind !== "thinking") {
     return nextState;
   }
 

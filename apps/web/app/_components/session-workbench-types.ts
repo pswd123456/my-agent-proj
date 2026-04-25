@@ -45,6 +45,7 @@ export interface SettingsFormState {
   toolAskList: string[];
   toolDenyList: string[];
   enabledCapabilityPacks: string[];
+  debugConversationView: boolean;
 }
 
 export const permissionToolOptions = PERMISSION_TOOL_OPTIONS;

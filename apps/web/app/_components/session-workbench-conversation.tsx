@@ -21,6 +21,15 @@ import {
   TYPEWRITER_FRAME_MS
 } from "./message-typewriter";
 import {
+  buildConversationViewItems,
+  getCompactCollapsedFlowAnchors,
+  getCompactCollapsedFlowScrollTargetKey,
+  type CompactCollapsedFlowViewItem,
+  type CompactFileBatchViewItem,
+  type CompactToolViewItem,
+  type ConversationViewItem
+} from "./session-conversation-view";
+import {
   buildConversationScrollSnapshot,
   getConversationScrollIntent,
   getConversationResizeAutoFollowIntent,
@@ -35,14 +44,11 @@ import {
   formatTokenCount,
   formatWorkingDirectory,
   getBubbleClass,
-  getDisplayStateToneClass,
   getDebugPreClass,
   getInspectorCardClass,
-  getPermissionFamilyLabel,
   getSoftBlockClass,
   stringify
 } from "./session-workbench-shared";
-import { getSessionDisplayState } from "./session-workbench-state";
 
 interface SessionWorkbenchConversationPanelProps {
   currentSession: SessionSnapshot | null;
@@ -51,6 +57,7 @@ interface SessionWorkbenchConversationPanelProps {
   streamEventKeys: Set<string>;
   recentAssistantEventKeys: Set<string>;
   turnUsageByTurnCount: Map<number, TurnUsageSummary>;
+  debugConversationView: boolean;
   pendingPermissionRequest: SessionSnapshot["context"]["pendingPermissionRequest"];
   message: string;
   submitting: boolean;
@@ -69,35 +76,37 @@ interface AssistantTextBubbleProps {
   content: string;
   itemKey: string;
   animate: boolean;
+  labelTimestamp?: string | undefined;
   streaming?: boolean;
   onAnimationComplete?: (itemKey: string) => void;
 }
 
-function AssistantRobotIcon() {
+interface TypewriterTextContentProps {
+  content: string;
+  itemKey: string;
+  animate: boolean;
+  streaming?: boolean;
+  renderMarkdownWhenSettled?: boolean;
+  className: string;
+  onAnimationComplete?: (itemKey: string) => void;
+}
+
+type MessageRole = "user" | "assistant";
+
+function MessageRoleLabel({
+  role,
+  timestamp
+}: {
+  role: MessageRole;
+  timestamp?: string | undefined;
+}) {
   return (
-    <span
-      aria-hidden
-      className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-[var(--app-border-subtle)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_82%,transparent)] text-[var(--app-text-secondary)]"
-    >
-      <svg
-        viewBox="0 0 24 24"
-        className="h-3.5 w-3.5"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M12 4v3" />
-        <path d="M9 4h6" />
-        <rect x="5" y="8" width="14" height="10" rx="3" />
-        <path d="M8 18v2" />
-        <path d="M16 18v2" />
-        <circle cx="9.5" cy="13" r="1" fill="currentColor" stroke="none" />
-        <circle cx="14.5" cy="13" r="1" fill="currentColor" stroke="none" />
-        <path d="M9 15.8h6" />
-      </svg>
-    </span>
+    <div className="flex items-center gap-2 font-mono text-[0.65rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
+      <span>{role === "user" ? "USER" : "ASSISTANT"}</span>
+      {timestamp ? (
+        <span className="tracking-[0.08em]">{formatTimestamp(timestamp)}</span>
+      ) : null}
+    </div>
   );
 }
 
@@ -121,6 +130,9 @@ interface PermissionCardView {
 }
 
 const PERMISSION_FEEDBACK_HIDE_DELAY_MS = 200;
+const AUTO_COLLAPSE_ANIMATION_MS = 240;
+const COLLAPSE_SCROLL_TOP_OFFSET_PX = 20;
+const SMOOTH_SCROLL_DURATION_MS = 320;
 
 interface ComposerActionView {
   buttonLabel: string;
@@ -210,9 +222,8 @@ export function createPermissionCardFeedback(
 export function buildPermissionCardView(input: {
   pendingPermissionRequest: SessionSnapshot["context"]["pendingPermissionRequest"];
   feedback: PermissionCardFeedback | null;
-  submitting: boolean;
 }): PermissionCardView | null {
-  const { pendingPermissionRequest, feedback, submitting } = input;
+  const { pendingPermissionRequest, feedback } = input;
   const requestKey = getPermissionRequestKey(pendingPermissionRequest);
 
   if (feedback && (!requestKey || requestKey === feedback.requestKey)) {
@@ -272,19 +283,22 @@ function renderUserMessageBlock(
   block: Extract<SessionSnapshot["messages"][number], { kind: "user" }>
 ) {
   return (
-    <div key={block.id} className={getBubbleClass("user")}>
-      {block.content}
+    <div key={block.id} className="flex flex-col items-end gap-1">
+      <MessageRoleLabel role="user" timestamp={block.createdAt} />
+      <div className={getBubbleClass("user")}>{block.content}</div>
     </div>
   );
 }
 
-function AssistantTextBubble({
+function TypewriterTextContent({
   content,
   itemKey,
   animate,
   streaming = false,
+  renderMarkdownWhenSettled = true,
+  className,
   onAnimationComplete
-}: AssistantTextBubbleProps) {
+}: TypewriterTextContentProps) {
   const characters = useMemo(
     () => splitTypewriterCharacters(content),
     [content]
@@ -348,7 +362,8 @@ function AssistantTextBubble({
     visibleLength
   });
   const isTyping = animate && visibleLength < totalLength;
-  const showPlainText = renderMode === "plaintext";
+  const showPlainText =
+    !renderMarkdownWhenSettled || renderMode === "plaintext";
   const visibleContent = showPlainText
     ? characters.slice(0, visibleLength).join("")
     : content;
@@ -359,33 +374,52 @@ function AssistantTextBubble({
   }
 
   return (
-    <div className="flex items-start gap-3">
-      <AssistantRobotIcon />
-      <div
-        className={`${getBubbleClass("assistant")} min-w-0 flex-1 ${
+    <div className={className}>
+      {showPlainText ? (
+        <div className="min-w-0 whitespace-pre-wrap text-sm leading-7 text-inherit [overflow-wrap:anywhere]">
+          {visibleContent}
+          {showCursor ? (
+            <span
+              aria-hidden
+              className="ml-1 inline-block h-[1em] w-[0.55ch] translate-y-[0.12em] animate-pulse rounded-[2px] bg-[var(--app-accent)] align-baseline"
+            />
+          ) : null}
+        </div>
+      ) : (
+        <MessageMarkdown content={visibleContent} />
+      )}
+    </div>
+  );
+}
+
+function AssistantTextBubble({
+  content,
+  itemKey,
+  animate,
+  labelTimestamp,
+  streaming = false,
+  onAnimationComplete
+}: AssistantTextBubbleProps) {
+  return (
+    <div className="flex flex-col items-start gap-1">
+      <MessageRoleLabel role="assistant" timestamp={labelTimestamp} />
+      <TypewriterTextContent
+        content={content}
+        itemKey={itemKey}
+        animate={animate}
+        streaming={streaming}
+        className={`${getBubbleClass("assistant")} min-w-0 ${
           animate ? "[overflow-anchor:none]" : ""
         }`}
-      >
-        {showPlainText ? (
-          <div className="min-w-0 whitespace-pre-wrap text-sm leading-7 text-inherit [overflow-wrap:anywhere]">
-            {visibleContent}
-            {showCursor ? (
-              <span
-                aria-hidden
-                className="ml-1 inline-block h-[1em] w-[0.55ch] translate-y-[0.12em] animate-pulse rounded-[2px] bg-[var(--app-accent)] align-baseline"
-              />
-            ) : null}
-          </div>
-        ) : (
-          <MessageMarkdown content={visibleContent} />
-        )}
-      </div>
+        {...(onAnimationComplete ? { onAnimationComplete } : {})}
+      />
     </div>
   );
 }
 
 function renderAssistantMessageBlock(
-  block: Extract<SessionSnapshot["messages"][number], { kind: "assistant" }>
+  block: Extract<SessionSnapshot["messages"][number], { kind: "assistant" }>,
+  showTimestamp = false
 ) {
   return (
     <AssistantTextBubble
@@ -393,7 +427,31 @@ function renderAssistantMessageBlock(
       itemKey={block.id}
       content={block.content}
       animate={false}
+      labelTimestamp={showTimestamp ? block.createdAt : undefined}
     />
+  );
+}
+
+function renderAssistantThinkingBlock(
+  block: Extract<
+    SessionSnapshot["messages"][number],
+    { kind: "assistant thinking" }
+  >
+) {
+  return (
+    <article
+      key={block.id}
+      className={getInspectorCardClass(
+        "text-sm leading-7 text-[var(--app-text-muted)]"
+      )}
+    >
+      <div className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
+        Thinking
+      </div>
+      <div className="mt-3 whitespace-pre-wrap [overflow-wrap:anywhere]">
+        {block.content}
+      </div>
+    </article>
   );
 }
 
@@ -453,13 +511,23 @@ function renderToolResultBlock(
   );
 }
 
-function renderConversationBlock(block: SessionSnapshot["messages"][number]) {
+function renderConversationBlock(
+  block: SessionSnapshot["messages"][number],
+  timestampedAssistantMessageIds: Set<string>
+) {
   if (block.kind === "user") {
     return renderUserMessageBlock(block);
   }
 
   if (block.kind === "assistant") {
-    return renderAssistantMessageBlock(block);
+    return renderAssistantMessageBlock(
+      block,
+      timestampedAssistantMessageIds.has(block.id)
+    );
+  }
+
+  if (block.kind === "assistant thinking") {
+    return renderAssistantThinkingBlock(block);
   }
 
   if (block.kind === "tool call") {
@@ -471,8 +539,12 @@ function renderConversationBlock(block: SessionSnapshot["messages"][number]) {
 
 function renderPendingUserMessage(text: string, createdAt: string) {
   return (
-    <div key={`pending-user-${createdAt}`} className={getBubbleClass("user")}>
-      {text}
+    <div
+      key={`pending-user-${createdAt}`}
+      className="flex flex-col items-end gap-1"
+    >
+      <MessageRoleLabel role="user" timestamp={createdAt} />
+      <div className={getBubbleClass("user")}>{text}</div>
     </div>
   );
 }
@@ -481,6 +553,7 @@ function renderExecutionEvent(
   event: RunStreamEvent,
   streamEventKeys: Set<string>,
   recentAssistantEventKeys: Set<string>,
+  timestampedAssistantEventKeys: Set<string>,
   onAssistantAnimationComplete: (itemKey: string) => void,
   turnUsageByTurnCount: Map<number, TurnUsageSummary>
 ) {
@@ -494,6 +567,11 @@ function renderExecutionEvent(
         itemKey={eventKey}
         content={event.text}
         animate={streaming || recentAssistantEventKeys.has(eventKey)}
+        labelTimestamp={
+          timestampedAssistantEventKeys.has(eventKey)
+            ? event.createdAt
+            : undefined
+        }
         streaming={streaming}
         onAnimationComplete={onAssistantAnimationComplete}
       />
@@ -501,9 +579,12 @@ function renderExecutionEvent(
   }
 
   if (event.kind === "thinking") {
+    const eventKey = getTimelineEventKey(event);
+    const streaming = streamEventKeys.has(eventKey);
+
     return (
       <article
-        key={getTimelineEventKey(event)}
+        key={eventKey}
         className={getInspectorCardClass(
           "text-sm leading-7 text-[var(--app-text-muted)]"
         )}
@@ -512,13 +593,16 @@ function renderExecutionEvent(
           <div className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
             Thinking
           </div>
-          <div className="text-[0.72rem] text-[var(--app-text-muted)]">
-            {formatTimestamp(event.createdAt)}
-          </div>
         </div>
-        <div className="mt-3 whitespace-pre-wrap [overflow-wrap:anywhere]">
-          {event.text}
-        </div>
+        <TypewriterTextContent
+          content={event.text}
+          itemKey={eventKey}
+          animate={streaming || recentAssistantEventKeys.has(eventKey)}
+          streaming={streaming}
+          renderMarkdownWhenSettled={false}
+          className="mt-3 text-[var(--app-text-muted)]"
+          onAnimationComplete={onAssistantAnimationComplete}
+        />
       </article>
     );
   }
@@ -793,6 +877,8 @@ function renderTimelineItem(
   item: TimelineItem,
   streamEventKeys: Set<string>,
   recentAssistantEventKeys: Set<string>,
+  timestampedAssistantEventKeys: Set<string>,
+  timestampedAssistantMessageIds: Set<string>,
   onAssistantAnimationComplete: (itemKey: string) => void,
   turnUsageByTurnCount: Map<number, TurnUsageSummary>
 ): React.ReactNode {
@@ -801,6 +887,7 @@ function renderTimelineItem(
       item.event,
       streamEventKeys,
       recentAssistantEventKeys,
+      timestampedAssistantEventKeys,
       onAssistantAnimationComplete,
       turnUsageByTurnCount
     );
@@ -810,7 +897,380 @@ function renderTimelineItem(
     return renderPendingUserMessage(item.text, item.createdAt);
   }
 
-  return renderConversationBlock(item.block);
+  return renderConversationBlock(item.block, timestampedAssistantMessageIds);
+}
+
+function renderCompactToolItem(
+  item: CompactToolViewItem,
+  expanded: boolean,
+  onToggleExpanded: (key: string) => void,
+  renderNestedItems: (items: ConversationViewItem[]) => React.ReactNode
+) {
+  return (
+    <article key={item.key} className={getInspectorCardClass()}>
+      <button
+        type="button"
+        onClick={() => onToggleExpanded(item.key)}
+        className="flex w-full items-center justify-between gap-3 text-left"
+      >
+        <div className="min-w-0">
+          <div className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
+            Tool
+          </div>
+          <div className="mt-2 min-w-0 text-sm font-medium text-[var(--app-text-primary)] [overflow-wrap:anywhere]">
+            {item.title}
+          </div>
+        </div>
+      </button>
+      <div
+        aria-hidden={!expanded}
+        className={`grid transition-[grid-template-rows,opacity,margin-top] duration-200 ease-[var(--app-ease-standard)] ${
+          expanded
+            ? "mt-3 grid-rows-[1fr] opacity-100"
+            : "mt-0 grid-rows-[0fr] opacity-0"
+        }`}
+      >
+        <div className="min-h-0 overflow-hidden">
+          <div className="grid gap-3">
+            {renderNestedItems(item.originalItems)}
+          </div>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function renderCompactFileBatchItem(
+  item: CompactFileBatchViewItem,
+  expanded: boolean,
+  onToggleExpanded: (key: string) => void,
+  renderNestedItems: (items: ConversationViewItem[]) => React.ReactNode
+) {
+  return (
+    <article key={item.key} className={getInspectorCardClass()}>
+      <button
+        type="button"
+        onClick={() => onToggleExpanded(item.key)}
+        className="flex w-full items-center justify-between gap-3 text-left"
+      >
+        <div className="min-w-0">
+          <div className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
+            Files
+          </div>
+          <div className="mt-2 text-sm font-medium text-[var(--app-text-primary)]">
+            {item.title}
+          </div>
+        </div>
+      </button>
+      {expanded ? (
+        <div className="mt-3 grid gap-3">
+          <div className="grid gap-1 text-xs leading-5 text-[var(--app-text-muted)]">
+            {item.targets.map((target) => (
+              <div key={target} className="min-w-0 [overflow-wrap:anywhere]">
+                {target}
+              </div>
+            ))}
+          </div>
+          {renderNestedItems(item.originalItems)}
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function renderCompactCollapsedFlowItem(
+  item: CompactCollapsedFlowViewItem,
+  expanded: boolean,
+  autoCollapseOnMount: boolean,
+  onToggleExpanded: (key: string) => void,
+  onAutoCollapseComplete: (key: string) => void,
+  renderNestedItems: (items: ConversationViewItem[]) => React.ReactNode
+) {
+  return (
+    <CompactCollapsedFlowCard
+      item={item}
+      expanded={expanded}
+      autoCollapseOnMount={autoCollapseOnMount}
+      onToggleExpanded={onToggleExpanded}
+      onAutoCollapseComplete={onAutoCollapseComplete}
+      renderNestedItems={renderNestedItems}
+    />
+  );
+}
+
+function CompactCollapsedFlowCard(props: {
+  item: CompactCollapsedFlowViewItem;
+  expanded: boolean;
+  autoCollapseOnMount: boolean;
+  onToggleExpanded: (key: string) => void;
+  onAutoCollapseComplete: (key: string) => void;
+  renderNestedItems: (items: ConversationViewItem[]) => React.ReactNode;
+}) {
+  const {
+    item,
+    expanded,
+    autoCollapseOnMount,
+    onToggleExpanded,
+    onAutoCollapseComplete,
+    renderNestedItems
+  } = props;
+  const [autoCollapsed, setAutoCollapsed] = useState(
+    () => !autoCollapseOnMount
+  );
+
+  useEffect(() => {
+    if (!autoCollapseOnMount) {
+      setAutoCollapsed(true);
+      return undefined;
+    }
+
+    setAutoCollapsed(false);
+    const frameId = window.requestAnimationFrame(() => {
+      setAutoCollapsed(true);
+    });
+    const timeoutId = window.setTimeout(() => {
+      onAutoCollapseComplete(item.key);
+    }, AUTO_COLLAPSE_ANIMATION_MS);
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      window.clearTimeout(timeoutId);
+    };
+  }, [autoCollapseOnMount, item.key, onAutoCollapseComplete]);
+
+  const showExpandedContent =
+    expanded || (autoCollapseOnMount && !autoCollapsed);
+
+  return (
+    <article
+      key={item.key}
+      className="min-w-0 rounded-[var(--app-radius-lg)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_82%,transparent)] px-4 py-3 text-sm text-[var(--app-text-secondary)]"
+    >
+      <button
+        type="button"
+        onClick={() => onToggleExpanded(item.key)}
+        disabled={autoCollapseOnMount && !autoCollapsed}
+        className="flex w-full items-center justify-between gap-3 text-left"
+      >
+        <span>前面还有 {item.hiddenCount} 条消息</span>
+        <span className="shrink-0 text-[0.72rem] text-[var(--app-text-muted)]">
+          {showExpandedContent ? "收起" : "展开"}
+        </span>
+      </button>
+      <div
+        aria-hidden={!showExpandedContent}
+        className={`grid transition-[grid-template-rows,opacity,margin-top] duration-200 ease-[var(--app-ease-standard)] ${
+          showExpandedContent
+            ? "mt-3 grid-rows-[1fr] opacity-100"
+            : "mt-0 grid-rows-[0fr] opacity-0"
+        }`}
+      >
+        <div className="min-h-0 overflow-hidden">
+          <div className="grid gap-3">
+            {renderNestedItems(item.originalItems)}
+          </div>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function renderConversationViewItem(
+  item: ConversationViewItem,
+  input: {
+    streamEventKeys: Set<string>;
+    recentAssistantEventKeys: Set<string>;
+    timestampedAssistantEventKeys: Set<string>;
+    timestampedAssistantMessageIds: Set<string>;
+    hiddenItemKeys: Set<string>;
+    autoCollapseKeys: Set<string>;
+    onAssistantAnimationComplete: (itemKey: string) => void;
+    turnUsageByTurnCount: Map<number, TurnUsageSummary>;
+    expandedKeys: Set<string>;
+    onToggleExpanded: (key: string) => void;
+    onAutoCollapseComplete: (key: string) => void;
+  }
+): React.ReactNode {
+  const renderNestedItems = (items: ConversationViewItem[]) =>
+    items.map((nestedItem) => (
+      <div key={nestedItem.key} className="min-w-0">
+        {renderConversationViewItem(nestedItem, input)}
+      </div>
+    ));
+
+  if (input.hiddenItemKeys.has(item.key)) {
+    return null;
+  }
+
+  if (item.type === "timeline") {
+    return renderTimelineItem(
+      item.item,
+      input.streamEventKeys,
+      input.recentAssistantEventKeys,
+      input.timestampedAssistantEventKeys,
+      input.timestampedAssistantMessageIds,
+      input.onAssistantAnimationComplete,
+      input.turnUsageByTurnCount
+    );
+  }
+
+  const expanded = input.expandedKeys.has(item.key);
+
+  if (item.type === "compact-tool") {
+    return renderCompactToolItem(
+      item,
+      expanded,
+      input.onToggleExpanded,
+      renderNestedItems
+    );
+  }
+
+  if (item.type === "compact-file-batch") {
+    return renderCompactFileBatchItem(
+      item,
+      expanded,
+      input.onToggleExpanded,
+      renderNestedItems
+    );
+  }
+
+  return renderCompactCollapsedFlowItem(
+    item,
+    expanded,
+    input.autoCollapseKeys.has(item.key),
+    input.onToggleExpanded,
+    input.onAutoCollapseComplete,
+    renderNestedItems
+  );
+}
+
+function getConversationViewEvent(
+  item: ConversationViewItem
+): RunStreamEvent | null {
+  if (item.type === "timeline" && item.item.type === "event") {
+    return item.item.event;
+  }
+
+  return null;
+}
+
+function getConversationViewAssistantMessageId(
+  item: ConversationViewItem
+): string | null {
+  if (
+    item.type === "timeline" &&
+    item.item.type === "message" &&
+    item.item.block.kind === "assistant"
+  ) {
+    return item.item.block.id;
+  }
+
+  return null;
+}
+
+function getConversationViewTurnCount(
+  item: ConversationViewItem
+): number | null {
+  const event = getConversationViewEvent(item);
+  if (event && "turnCount" in event) {
+    return event.turnCount;
+  }
+
+  if (item.type === "compact-tool") {
+    const firstEvent = item.originalItems
+      .map(getConversationViewEvent)
+      .find((nestedEvent): nestedEvent is RunStreamEvent =>
+        Boolean(nestedEvent && "turnCount" in nestedEvent)
+      );
+    return firstEvent && "turnCount" in firstEvent
+      ? firstEvent.turnCount
+      : null;
+  }
+
+  if (item.type === "compact-file-batch") {
+    const firstTool = item.originalItems.find(
+      (nestedItem): nestedItem is CompactToolViewItem =>
+        nestedItem.type === "compact-tool"
+    );
+    return firstTool ? getConversationViewTurnCount(firstTool) : null;
+  }
+
+  return null;
+}
+
+function shouldInvalidateAssistantFinalCandidate(
+  item: ConversationViewItem
+): boolean {
+  const event = getConversationViewEvent(item);
+  if (!event) {
+    return item.type !== "timeline";
+  }
+
+  return (
+    event.kind !== "turn_end" &&
+    event.kind !== "run_complete" &&
+    event.kind !== "assistant_text"
+  );
+}
+
+function getTimestampedAssistantKeys(items: ConversationViewItem[]): {
+  eventKeys: Set<string>;
+  messageIds: Set<string>;
+} {
+  const eventKeys = new Set<string>();
+  const messageIds = new Set<string>();
+  let currentTurnCount: number | null = null;
+  let finalAssistantCandidate:
+    | { kind: "event"; key: string }
+    | { kind: "message"; id: string }
+    | null = null;
+
+  function flushCurrentTurn() {
+    if (!finalAssistantCandidate) {
+      return;
+    }
+
+    if (finalAssistantCandidate.kind === "event") {
+      eventKeys.add(finalAssistantCandidate.key);
+    } else {
+      messageIds.add(finalAssistantCandidate.id);
+    }
+  }
+
+  for (const item of items) {
+    const itemTurnCount = getConversationViewTurnCount(item);
+    if (itemTurnCount !== null && itemTurnCount !== currentTurnCount) {
+      flushCurrentTurn();
+      currentTurnCount = itemTurnCount;
+      finalAssistantCandidate = null;
+    }
+
+    const event = getConversationViewEvent(item);
+    if (event?.kind === "assistant_text") {
+      finalAssistantCandidate = {
+        kind: "event",
+        key: getTimelineEventKey(event)
+      };
+      continue;
+    }
+
+    const assistantMessageId = getConversationViewAssistantMessageId(item);
+    if (assistantMessageId) {
+      finalAssistantCandidate = {
+        kind: "message",
+        id: assistantMessageId
+      };
+      continue;
+    }
+
+    if (shouldInvalidateAssistantFinalCandidate(item)) {
+      finalAssistantCandidate = null;
+    }
+  }
+
+  flushCurrentTurn();
+
+  return { eventKeys, messageIds };
 }
 
 function hasRenderableTimelineContent(node: React.ReactNode): boolean {
@@ -824,6 +1284,7 @@ export function SessionWorkbenchConversationPanel({
   streamEventKeys,
   recentAssistantEventKeys,
   turnUsageByTurnCount,
+  debugConversationView,
   pendingPermissionRequest,
   message,
   submitting,
@@ -840,6 +1301,15 @@ export function SessionWorkbenchConversationPanel({
   const [copyButtonLabel, setCopyButtonLabel] = useState("复制");
   const [permissionCardFeedback, setPermissionCardFeedback] =
     useState<PermissionCardFeedback | null>(null);
+  const [expandedCompactItemKeys, setExpandedCompactItemKeys] = useState<
+    Set<string>
+  >(new Set());
+  const [autoCollapsingItemKeys, setAutoCollapsingItemKeys] = useState<
+    Set<string>
+  >(new Set());
+  const seenCollapsedFlowKeysRef = useRef<Set<string>>(new Set());
+  const pendingCollapsedFlowScrollTargetRef = useRef<string | null>(null);
+  const pendingAssistantRevealSkipKeyRef = useRef<string | null>(null);
   const conversationViewportRef = useRef<HTMLDivElement | null>(null);
   const timelineContentRef = useRef<HTMLDivElement | null>(null);
   const previousScrollSnapshotRef = useRef(buildConversationScrollSnapshot([]));
@@ -848,32 +1318,90 @@ export function SessionWorkbenchConversationPanel({
   const previousViewportScrollTopRef = useRef(0);
   const skipNextResizeAutoFollowRef = useRef(false);
   const resizeAutoFollowResetFrameRef = useRef<number | null>(null);
+  const smoothScrollResetTimeoutRef = useRef<number | null>(null);
   const permissionRequestKey = getPermissionRequestKey(
     pendingPermissionRequest
   );
+  const conversationViewItems = useMemo(
+    () =>
+      buildConversationViewItems({
+        timelineItems,
+        mode: debugConversationView ? "debug" : "compact"
+      }),
+    [debugConversationView, timelineItems]
+  );
+  const collapsedFlowAnchorsByKey = useMemo(() => {
+    const next = new Map<
+      string,
+      { scrollTargetKey: string | null; assistantItemKey: string | null }
+    >();
+
+    for (const item of conversationViewItems) {
+      if (item.type !== "compact-collapsed-flow") {
+        continue;
+      }
+
+      next.set(
+        item.key,
+        getCompactCollapsedFlowAnchors({
+          items: conversationViewItems,
+          collapsedFlowKey: item.key
+        })
+      );
+    }
+
+    return next;
+  }, [conversationViewItems]);
+  const hiddenAssistantItemKeys = useMemo(() => {
+    const next = new Set<string>();
+
+    for (const key of autoCollapsingItemKeys) {
+      const assistantItemKey =
+        collapsedFlowAnchorsByKey.get(key)?.assistantItemKey;
+      if (assistantItemKey) {
+        next.add(assistantItemKey);
+      }
+    }
+
+    return next;
+  }, [autoCollapsingItemKeys, collapsedFlowAnchorsByKey]);
+  const visibleConversationViewItems = useMemo(
+    () =>
+      conversationViewItems.filter(
+        (item) => !hiddenAssistantItemKeys.has(item.key)
+      ),
+    [conversationViewItems, hiddenAssistantItemKeys]
+  );
+  const scrollItems = useMemo(
+    () =>
+      visibleConversationViewItems.map((item) => {
+        if (item.type === "timeline" && item.item.type === "event") {
+          return {
+            key: item.key,
+            type: "event",
+            event: item.item.event
+          };
+        }
+
+        return {
+          key: item.key,
+          type: item.type
+        };
+      }),
+    [visibleConversationViewItems]
+  );
   const scrollSnapshot = useMemo(
-    () => buildConversationScrollSnapshot(timelineItems),
-    [timelineItems]
+    () => buildConversationScrollSnapshot(scrollItems),
+    [scrollItems]
+  );
+  const timestampedAssistantKeys = useMemo(
+    () => getTimestampedAssistantKeys(conversationViewItems),
+    [conversationViewItems]
   );
   const permissionCardView = buildPermissionCardView({
     pendingPermissionRequest,
-    feedback: permissionCardFeedback,
-    submitting
+    feedback: permissionCardFeedback
   });
-  const displayState = currentSession
-    ? getSessionDisplayState({
-        loopState: currentSession.sessionState.loopState,
-        status: currentSession.context.status,
-        pendingToolCallIds: currentSession.sessionState.pendingToolCallIds,
-        interruptRequested: currentSession.sessionState.interruptRequested,
-        pendingPermission: Boolean(
-          currentSession.context.pendingPermissionRequest
-        ),
-        pendingConfirmation: Boolean(
-          currentSession.context.pendingConfirmationPayload
-        )
-      })
-    : null;
   const composerActionView = buildComposerActionView({
     canInterrupt,
     interrupting,
@@ -881,34 +1409,93 @@ export function SessionWorkbenchConversationPanel({
   });
   const renderedTimelineItems = useMemo(
     () =>
-      timelineItems
+      visibleConversationViewItems
         .map((item) => ({
           item,
-          content: renderTimelineItem(
-            item,
+          content: renderConversationViewItem(item, {
             streamEventKeys,
             recentAssistantEventKeys,
+            timestampedAssistantEventKeys: timestampedAssistantKeys.eventKeys,
+            timestampedAssistantMessageIds: timestampedAssistantKeys.messageIds,
+            hiddenItemKeys: hiddenAssistantItemKeys,
+            autoCollapseKeys: autoCollapsingItemKeys,
             onAssistantAnimationComplete,
-            turnUsageByTurnCount
-          )
+            turnUsageByTurnCount,
+            expandedKeys: expandedCompactItemKeys,
+            onToggleExpanded: (key) => {
+              setExpandedCompactItemKeys((current) => {
+                const next = new Set(current);
+                if (next.has(key)) {
+                  next.delete(key);
+                  const scrollTargetKey =
+                    getCompactCollapsedFlowScrollTargetKey({
+                      items: conversationViewItems,
+                      collapsedFlowKey: key
+                    }) ?? null;
+                  if (scrollTargetKey) {
+                    pendingCollapsedFlowScrollTargetRef.current =
+                      scrollTargetKey;
+                  }
+                } else {
+                  next.add(key);
+                }
+                return next;
+              });
+            },
+            onAutoCollapseComplete: (key) => {
+              const assistantItemKey =
+                collapsedFlowAnchorsByKey.get(key)?.assistantItemKey ?? null;
+              if (assistantItemKey) {
+                pendingAssistantRevealSkipKeyRef.current = assistantItemKey;
+              }
+              setAutoCollapsingItemKeys((current) => {
+                if (!current.has(key)) {
+                  return current;
+                }
+
+                const next = new Set(current);
+                next.delete(key);
+                return next;
+              });
+            }
+          })
         }))
         .filter((entry) => hasRenderableTimelineContent(entry.content)),
     [
-      timelineItems,
+      visibleConversationViewItems,
       streamEventKeys,
       recentAssistantEventKeys,
+      timestampedAssistantKeys,
+      hiddenAssistantItemKeys,
+      autoCollapsingItemKeys,
       onAssistantAnimationComplete,
-      turnUsageByTurnCount
+      turnUsageByTurnCount,
+      expandedCompactItemKeys,
+      conversationViewItems,
+      collapsedFlowAnchorsByKey
     ]
   );
 
   const scrollTimelineItemIntoView = useEffectEvent(
-    (itemKey: string | null, block: "start" | "end") => {
+    (
+      itemKey: string | null,
+      options?: {
+        block?: "start" | "end";
+        behavior?: "instant" | "smooth";
+        topOffsetPx?: number;
+      }
+    ) => {
       const viewport = conversationViewportRef.current;
       const timelineContent = timelineContentRef.current;
       if (!viewport || !timelineContent || !itemKey) {
         return;
       }
+
+      const {
+        block = "end",
+        behavior = "instant",
+        topOffsetPx = 0
+      } = options ?? {};
 
       const itemElement = timelineContent.querySelector<HTMLElement>(
         `[data-timeline-item-key="${escapeTimelineItemKey(itemKey)}"]`
@@ -921,7 +1508,7 @@ export function SessionWorkbenchConversationPanel({
       const itemBottom = itemTop + itemElement.offsetHeight;
       const nextScrollTop =
         block === "start"
-          ? itemTop
+          ? Math.max(0, itemTop - topOffsetPx)
           : Math.max(0, itemBottom - viewport.clientHeight);
 
       if (Math.abs(viewport.scrollTop - nextScrollTop) < 1) {
@@ -930,13 +1517,32 @@ export function SessionWorkbenchConversationPanel({
       }
 
       isProgrammaticScrollRef.current = true;
-      viewport.scrollTop = nextScrollTop;
+      if (smoothScrollResetTimeoutRef.current !== null) {
+        window.clearTimeout(smoothScrollResetTimeoutRef.current);
+        smoothScrollResetTimeoutRef.current = null;
+      }
+
+      if (behavior === "smooth" && typeof viewport.scrollTo === "function") {
+        viewport.scrollTo({
+          top: nextScrollTop,
+          behavior: "smooth"
+        });
+        smoothScrollResetTimeoutRef.current = window.setTimeout(() => {
+          isProgrammaticScrollRef.current = false;
+          previousViewportScrollTopRef.current =
+            conversationViewportRef.current?.scrollTop ?? nextScrollTop;
+          smoothScrollResetTimeoutRef.current = null;
+        }, SMOOTH_SCROLL_DURATION_MS);
+      } else {
+        viewport.scrollTop = nextScrollTop;
+        window.requestAnimationFrame(() => {
+          isProgrammaticScrollRef.current = false;
+          previousViewportScrollTopRef.current =
+            conversationViewportRef.current?.scrollTop ?? nextScrollTop;
+        });
+      }
+
       previousViewportScrollTopRef.current = nextScrollTop;
-      window.requestAnimationFrame(() => {
-        isProgrammaticScrollRef.current = false;
-        previousViewportScrollTopRef.current =
-          conversationViewportRef.current?.scrollTop ?? nextScrollTop;
-      });
     }
   );
 
@@ -951,10 +1557,9 @@ export function SessionWorkbenchConversationPanel({
       return;
     }
 
-    scrollTimelineItemIntoView(
-      targetKey,
-      scrollSnapshot.latestTurnStartKey === targetKey ? "start" : "end"
-    );
+    scrollTimelineItemIntoView(targetKey, {
+      block: scrollSnapshot.latestTurnStartKey === targetKey ? "start" : "end"
+    });
   });
 
   const clearPendingResizeAutoFollowSkip = useEffectEvent(() => {
@@ -965,6 +1570,17 @@ export function SessionWorkbenchConversationPanel({
 
     window.cancelAnimationFrame(frameId);
     resizeAutoFollowResetFrameRef.current = null;
+  });
+
+  const clearPendingSmoothScrollReset = useEffectEvent(() => {
+    const timeoutId = smoothScrollResetTimeoutRef.current;
+    if (timeoutId === null) {
+      return;
+    }
+
+    window.clearTimeout(timeoutId);
+    smoothScrollResetTimeoutRef.current = null;
+    isProgrammaticScrollRef.current = false;
   });
 
   const armResizeAutoFollowSkip = useEffectEvent(() => {
@@ -1006,7 +1622,10 @@ export function SessionWorkbenchConversationPanel({
       return;
     }
 
-    if (permissionRequestKey === permissionCardFeedback.requestKey && !submitting) {
+    if (
+      permissionRequestKey === permissionCardFeedback.requestKey &&
+      !submitting
+    ) {
       setPermissionCardFeedback(null);
     }
   }, [permissionCardFeedback, permissionRequestKey, submitting]);
@@ -1038,14 +1657,69 @@ export function SessionWorkbenchConversationPanel({
   }, [submitting]);
 
   useEffect(() => {
+    const currentCollapsedKeys = new Set(
+      conversationViewItems
+        .filter((item) => item.type === "compact-collapsed-flow")
+        .map((item) => item.key)
+    );
+
     previousScrollSnapshotRef.current = buildConversationScrollSnapshot([]);
     previousViewportScrollTopRef.current = 0;
     autoFollowLatestRef.current = true;
     skipNextResizeAutoFollowRef.current = false;
+    seenCollapsedFlowKeysRef.current = currentCollapsedKeys;
+    pendingCollapsedFlowScrollTargetRef.current = null;
+    pendingAssistantRevealSkipKeyRef.current = null;
+    setExpandedCompactItemKeys(new Set());
+    setAutoCollapsingItemKeys(new Set());
     clearPendingResizeAutoFollowSkip();
-  }, [currentSession?.sessionId]);
+    clearPendingSmoothScrollReset();
+  }, [currentSession?.sessionId, debugConversationView]);
 
-  useEffect(() => clearPendingResizeAutoFollowSkip, [clearPendingResizeAutoFollowSkip]);
+  useEffect(() => {
+    const nextAutoCollapseKeys: string[] = [];
+
+    for (const item of conversationViewItems) {
+      if (item.type !== "compact-collapsed-flow") {
+        continue;
+      }
+
+      if (seenCollapsedFlowKeysRef.current.has(item.key)) {
+        continue;
+      }
+
+      seenCollapsedFlowKeysRef.current.add(item.key);
+      nextAutoCollapseKeys.push(item.key);
+    }
+
+    if (nextAutoCollapseKeys.length === 0) {
+      return;
+    }
+
+    const lastKey = nextAutoCollapseKeys.at(-1) ?? null;
+    if (lastKey) {
+      const scrollTargetKey =
+        collapsedFlowAnchorsByKey.get(lastKey)?.scrollTargetKey ?? null;
+      if (scrollTargetKey) {
+        pendingCollapsedFlowScrollTargetRef.current = scrollTargetKey;
+      }
+    }
+
+    setAutoCollapsingItemKeys((current) => {
+      const next = new Set(current);
+      for (const key of nextAutoCollapseKeys) {
+        next.add(key);
+      }
+      return next;
+    });
+  }, [collapsedFlowAnchorsByKey, conversationViewItems]);
+
+  useEffect(() => {
+    return () => {
+      clearPendingResizeAutoFollowSkip();
+      clearPendingSmoothScrollReset();
+    };
+  }, []);
 
   useLayoutEffect(() => {
     const intent = getConversationScrollIntent({
@@ -1054,19 +1728,47 @@ export function SessionWorkbenchConversationPanel({
       followLatest: autoFollowLatestRef.current
     });
 
+    if (
+      intent === "follow-latest-item" &&
+      pendingAssistantRevealSkipKeyRef.current &&
+      pendingAssistantRevealSkipKeyRef.current === scrollSnapshot.latestItemKey
+    ) {
+      pendingAssistantRevealSkipKeyRef.current = null;
+      armResizeAutoFollowSkip();
+      previousScrollSnapshotRef.current = scrollSnapshot;
+      return;
+    }
+
     if (intent === "align-latest-turn") {
       armResizeAutoFollowSkip();
-      scrollTimelineItemIntoView(scrollSnapshot.latestTurnAnchorKey, "start");
+      scrollTimelineItemIntoView(scrollSnapshot.latestTurnAnchorKey, {
+        block: "start"
+      });
     } else if (intent === "follow-latest-item") {
       armResizeAutoFollowSkip();
       keepLatestTurnInView();
     }
 
     previousScrollSnapshotRef.current = scrollSnapshot;
+  }, [scrollSnapshot]);
+
+  useLayoutEffect(() => {
+    const targetKey = pendingCollapsedFlowScrollTargetRef.current;
+    if (!targetKey) {
+      return;
+    }
+
+    pendingCollapsedFlowScrollTargetRef.current = null;
+    armResizeAutoFollowSkip();
+    scrollTimelineItemIntoView(targetKey, {
+      block: "start",
+      behavior: "smooth",
+      topOffsetPx: COLLAPSE_SCROLL_TOP_OFFSET_PX
+    });
   }, [
+    expandedCompactItemKeys,
+    autoCollapsingItemKeys,
     armResizeAutoFollowSkip,
-    keepLatestTurnInView,
-    scrollSnapshot,
     scrollTimelineItemIntoView
   ]);
 
@@ -1098,11 +1800,7 @@ export function SessionWorkbenchConversationPanel({
     resizeObserver.observe(timelineContent);
 
     return () => resizeObserver.disconnect();
-  }, [
-    clearPendingResizeAutoFollowSkip,
-    keepLatestTurnInView,
-    scrollSnapshot.latestItemKey
-  ]);
+  }, [scrollSnapshot.latestItemKey]);
 
   async function handleCopySessionId() {
     const sessionId = currentSession?.sessionId;
@@ -1131,14 +1829,6 @@ export function SessionWorkbenchConversationPanel({
                 <span className="min-w-0 font-mono text-[var(--app-text-primary)]">
                   {currentSession?.sessionId ?? "loading"}
                 </span>
-                {displayState ? (
-                  <span
-                    className={`rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-3 py-1 text-[0.72rem] font-medium ${getDisplayStateToneClass(displayState.tone)}`}
-                    title={displayState.detail}
-                  >
-                    {displayState.label}
-                  </span>
-                ) : null}
                 <button
                   type="button"
                   onClick={() => void handleCopySessionId()}
@@ -1327,9 +2017,6 @@ export function SessionWorkbenchConversationPanel({
                         本次执行已中断，可直接继续输入下一条消息。
                       </span>
                     ) : null}
-                    <span className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-3 py-1 text-[var(--app-text-secondary)]">
-                      status {currentSession?.context.status ?? "--"}
-                    </span>
                     <span className="min-w-0 rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-3 py-1 font-mono text-[var(--app-text-secondary)]">
                       cwd{" "}
                       {formatWorkingDirectory(

@@ -162,6 +162,14 @@ export function isConversationBlock(
     return typeof value.id === "string" && typeof value.content === "string";
   }
 
+  if (value.kind === "assistant thinking") {
+    return (
+      typeof value.id === "string" &&
+      typeof value.content === "string" &&
+      typeof value.signature === "string"
+    );
+  }
+
   if (value.kind === "tool call") {
     return (
       typeof value.id === "string" &&

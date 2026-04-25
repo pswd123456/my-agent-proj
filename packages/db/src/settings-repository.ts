@@ -86,6 +86,10 @@ export function mapSettingsRow(row: SettingsRow): SessionSettingsRecord {
     enabledCapabilityPacks: normalizeCapabilityPacks(
       toStringArray(row.enabledCapabilityPacks)
     ),
+    debugConversationView:
+      row.debugConversationView ??
+      (row as { debug_conversation_view?: boolean }).debug_conversation_view ??
+      false,
     createdAt: toIsoString(row.createdAt),
     updatedAt: toIsoString(row.updatedAt)
   };
@@ -128,6 +132,9 @@ function buildPatchedSettings(
     enabledCapabilityPacks: Array.isArray(patch.enabledCapabilityPacks)
       ? normalizeCapabilityPacks(patch.enabledCapabilityPacks)
       : current.enabledCapabilityPacks,
+    ...(typeof patch.debugConversationView === "boolean"
+      ? { debugConversationView: patch.debugConversationView }
+      : {}),
     updatedAt: new Date().toISOString()
   };
 }
@@ -156,6 +163,7 @@ export class PostgresSettingsRepository implements SettingsRepository {
         toolAskList: defaults.toolAskList,
         toolDenyList: defaults.toolDenyList,
         enabledCapabilityPacks: defaults.enabledCapabilityPacks,
+        debugConversationView: defaults.debugConversationView,
         createdAt: defaults.createdAt,
         updatedAt: defaults.updatedAt
       })
@@ -191,6 +199,7 @@ export class PostgresSettingsRepository implements SettingsRepository {
         toolAskList: next.toolAskList,
         toolDenyList: next.toolDenyList,
         enabledCapabilityPacks: next.enabledCapabilityPacks,
+        debugConversationView: next.debugConversationView,
         createdAt: next.createdAt,
         updatedAt: next.updatedAt
       })
@@ -207,6 +216,7 @@ export class PostgresSettingsRepository implements SettingsRepository {
           toolAskList: next.toolAskList,
           toolDenyList: next.toolDenyList,
           enabledCapabilityPacks: next.enabledCapabilityPacks,
+          debugConversationView: next.debugConversationView,
           updatedAt: next.updatedAt
         }
       })

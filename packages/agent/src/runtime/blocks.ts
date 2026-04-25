@@ -32,6 +32,19 @@ export function buildAssistantBlockContent(
   };
 }
 
+export function buildAssistantThinkingBlockContent(input: {
+  text: string;
+  signature: string;
+}): ConversationBlock {
+  return {
+    id: randomUUID(),
+    kind: "assistant thinking",
+    content: input.text,
+    signature: input.signature,
+    createdAt: new Date().toISOString()
+  };
+}
+
 export function buildToolCallBlock(input: {
   id: string;
   name: string;
@@ -236,6 +249,10 @@ export function extractThinkingBlocks(blocks: AnthropicContentBlock[]): Array<{
 function summarizeBlock(block: ConversationBlock): string {
   if (block.kind === "user" || block.kind === "assistant") {
     return `${block.kind}: ${block.content}`;
+  }
+
+  if (block.kind === "assistant thinking") {
+    return "assistant thinking: preserved reasoning for a prior tool-use turn; signature omitted";
   }
 
   if (block.kind === "tool call") {

@@ -29,6 +29,7 @@ export interface SessionSettingsRecord {
   toolAskList: string[];
   toolDenyList: string[];
   enabledCapabilityPacks: CapabilityPackName[];
+  debugConversationView: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -44,6 +45,7 @@ export interface SessionSettingsInput {
   toolAskList?: string[];
   toolDenyList?: string[];
   enabledCapabilityPacks?: string[];
+  debugConversationView?: boolean;
 }
 
 export function resolveSessionSettingsDefaults(
@@ -62,6 +64,7 @@ export function resolveSessionSettingsDefaults(
     toolAskList: [...PERMISSION_TOOL_OPTIONS],
     toolDenyList: [],
     enabledCapabilityPacks: [...DEFAULT_CAPABILITY_PACKS],
+    debugConversationView: false,
     createdAt: timestamp,
     updatedAt: timestamp
   };

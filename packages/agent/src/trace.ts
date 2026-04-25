@@ -67,8 +67,11 @@ export interface TraceTextEvent {
 export interface TraceThinkingEvent {
   kind: "thinking";
   turnCount: number;
+  thinkingMessageId?: string;
   text: string;
   signature: string;
+  delta?: string;
+  snapshot?: string;
 }
 
 export interface TraceToolCallEvent {

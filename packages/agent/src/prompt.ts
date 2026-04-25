@@ -111,6 +111,10 @@ function summarizeCompactedBlock(block: ConversationBlock): string {
     return `assistant: ${truncateText(block.content, 420)}`;
   }
 
+  if (block.kind === "assistant thinking") {
+    return "assistant thinking: preserved reasoning for a prior tool-use turn; signature omitted from compact summary";
+  }
+
   if (block.kind === "tool call") {
     return `tool call: ${block.toolName} ${truncateText(JSON.stringify(block.input), 320)}`;
   }
@@ -118,7 +122,9 @@ function summarizeCompactedBlock(block: ConversationBlock): string {
   return `tool result: ${block.toolName} ${block.isError ? "failed" : "succeeded"}; ${truncateText(block.output, 520)}`;
 }
 
-function compactHistoryBlocks(blocks: ConversationBlock[]): ConversationBlock[] {
+function compactHistoryBlocks(
+  blocks: ConversationBlock[]
+): ConversationBlock[] {
   if (blocks.length <= HISTORY_COMPACTION_TAIL_MESSAGES) {
     return blocks;
   }
@@ -264,6 +270,15 @@ export function toAnthropicMessages(
       continue;
     }
 
+    if (block.kind === "assistant thinking") {
+      append("assistant", {
+        type: "thinking",
+        thinking: block.content,
+        signature: block.signature
+      });
+      continue;
+    }
+
     if (block.kind === "tool call") {
       append("assistant", {
         type: "tool_use",
@@ -333,8 +348,7 @@ export class PromptBuilder {
           cacheKey: ""
         },
         this.toolChoice
-      ) >
-      Math.floor(session.contextWindow * HISTORY_COMPACTION_TRIGGER_RATIO);
+      ) > Math.floor(session.contextWindow * HISTORY_COMPACTION_TRIGGER_RATIO);
     const messages = shouldCompactHistory
       ? toAnthropicMessages(compactHistoryBlocks(session.messages))
       : baseMessages;
@@ -389,6 +403,10 @@ export function summarizeConversationBlocks(
 
       if (block.kind === "tool call") {
         return `tool call: ${block.toolName}`;
+      }
+
+      if (block.kind === "assistant thinking") {
+        return "assistant thinking: preserved reasoning for a prior tool-use turn; signature omitted";
       }
 
       return `tool result: ${block.toolName}`;

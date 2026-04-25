@@ -13,7 +13,8 @@ import {
   getDebugPreClass,
   getInspectorCardClass,
   getPermissionDecisionLabel,
-  stringify
+  stringify,
+  stringifyPromptDebugValue
 } from "./session-workbench-shared";
 
 type PromptEvent = Extract<RunStreamEvent, { kind: "prompt" }>;
@@ -229,12 +230,12 @@ function PromptTabPanel({ latestPromptEvent }: { latestPromptEvent: PromptEvent 
           <FlatBlock
             label="System"
             tone="surface"
-            value={stringify(latestPromptEvent.system)}
+            value={stringifyPromptDebugValue(latestPromptEvent.system)}
           />
           <FlatBlock
             label="Metadata"
             tone="surface"
-            value={stringify({
+            value={stringifyPromptDebugValue({
               cacheKey: latestPromptEvent.cacheKey,
               toolChoice: latestPromptEvent.toolChoice,
               toolCount: latestPromptEvent.tools.length,
@@ -250,14 +251,35 @@ function PromptTabPanel({ latestPromptEvent }: { latestPromptEvent: PromptEvent 
 }
 
 function ThinkingTabPanel({ thinkingEvents }: { thinkingEvents: ThinkingEvent[] }) {
-  if (!thinkingEvents.length) {
+  const dedupedThinkingEvents = useMemo(() => {
+    const latestByKey = new Map<string, ThinkingEvent>();
+
+    for (const event of thinkingEvents) {
+      const key =
+        event.thinkingMessageId ??
+        (event.signature.trim().length > 0 ? event.signature : event.createdAt);
+      latestByKey.set(key, event);
+    }
+
+    return [...latestByKey.values()].sort((left, right) => {
+      if (left.createdAt === right.createdAt) {
+        return left.turnCount - right.turnCount;
+      }
+
+      return left.createdAt.localeCompare(right.createdAt);
+    });
+  }, [thinkingEvents]);
+
+  if (!dedupedThinkingEvents.length) {
     return <EmptyInspectorState message="暂无 thinking 事件。" />;
   }
 
   return (
     <div className="grid min-w-0 gap-3">
-      {thinkingEvents.map((event, index) => (
-        <PlainCard key={`${event.createdAt}-${index}`}>
+      {dedupedThinkingEvents.map((event, index) => (
+        <PlainCard
+          key={event.thinkingMessageId ?? `${event.signature}-${event.createdAt}-${index}`}
+        >
           <SectionTitle
             label={`Turn ${event.turnCount}`}
             meta={`${formatTimestamp(event.createdAt)} · signature ${event.signature}`}
@@ -323,6 +345,11 @@ function ToolTabPanel({ toolRows }: { toolRows: ToolRow[] }) {
                 <FlatBlock
                   label="Permission"
                   tone="surface"
+                  collapsed
+                  summary={summarizeText(
+                    row.permissionSummary,
+                    "展开查看权限详情"
+                  )}
                   value={stringify({
                     decision: getPermissionDecisionLabel(row.permissionDecision),
                     family: row.permissionFamily,

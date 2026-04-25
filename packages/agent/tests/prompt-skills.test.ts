@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { createCreateRoutineTool } from "../src/tools/create-routine.js";
 import { ToolRegistry } from "../src/tools/registry.js";
-import { createPromptBuilder } from "../src/prompt.js";
+import { createPromptBuilder, toAnthropicMessages } from "../src/prompt.js";
 import type { ConversationBlock, SessionSnapshot } from "../src/types.js";
 
 function createSessionSnapshot(): SessionSnapshot {
@@ -42,6 +42,63 @@ function createSessionSnapshot(): SessionSnapshot {
 }
 
 describe("PromptBuilder skill context", () => {
+  test("serializes assistant thinking before the matching tool call", () => {
+    const messages = toAnthropicMessages([
+      {
+        id: "user-1",
+        kind: "user",
+        content: "Read the file.",
+        createdAt: "2026-04-25T00:00:00.000Z"
+      },
+      {
+        id: "thinking-1",
+        kind: "assistant thinking",
+        content: "I need to inspect the requested file before answering.",
+        signature: "thinking-signature-1",
+        createdAt: "2026-04-25T00:00:01.000Z"
+      },
+      {
+        id: "tool-call-1",
+        kind: "tool call",
+        toolCallId: "call-1",
+        toolName: "read_file",
+        input: { path: "README.md" },
+        state: "pending",
+        createdAt: "2026-04-25T00:00:02.000Z"
+      },
+      {
+        id: "tool-result-1",
+        kind: "tool result",
+        toolCallId: "call-1",
+        toolName: "read_file",
+        output: "Hello",
+        isError: false,
+        state: "success",
+        createdAt: "2026-04-25T00:00:03.000Z"
+      }
+    ]);
+
+    expect(messages).toHaveLength(3);
+    expect(messages[1]?.role).toBe("assistant");
+    expect(messages[1]?.content).toEqual([
+      {
+        type: "thinking",
+        thinking: "I need to inspect the requested file before answering.",
+        signature: "thinking-signature-1"
+      },
+      {
+        type: "tool_use",
+        id: "call-1",
+        name: "read_file",
+        input: { path: "README.md" }
+      }
+    ]);
+    expect(messages[2]?.content[0]).toMatchObject({
+      type: "tool_result",
+      tool_use_id: "call-1"
+    });
+  });
+
   test("injects a skill list into runtime context messages", () => {
     const promptBuilder = createPromptBuilder();
     const session = createSessionSnapshot();
@@ -272,5 +329,72 @@ describe("PromptBuilder skill context", () => {
     expect(serializedMessages).not.toContain("[Historical tool call]");
     expect(serializedMessages).not.toContain("[Historical tool result]");
     expect(serializedMessages).toContain("我继续往下看。");
+  });
+
+  test("omits compacted thinking text and signatures from the summary while preserving tail thinking", () => {
+    const promptBuilder = createPromptBuilder();
+    const session = createSessionSnapshot();
+    const blocks: ConversationBlock[] = [
+      {
+        id: "user-1",
+        kind: "user",
+        content: "Run a long investigation.",
+        createdAt: "2026-04-25T00:00:00.000Z"
+      },
+      {
+        id: "old-thinking",
+        kind: "assistant thinking",
+        content: "old private reasoning that should not be summarized verbatim",
+        signature: "old-signature-should-not-leak",
+        createdAt: "2026-04-25T00:00:01.000Z"
+      }
+    ];
+
+    for (let index = 0; index < 18; index += 1) {
+      blocks.push({
+        id: `assistant-${index}`,
+        kind: "assistant",
+        content: `step ${index} ${"x".repeat(80)}`,
+        createdAt: "2026-04-25T00:00:02.000Z"
+      });
+    }
+
+    blocks.push(
+      {
+        id: "tail-thinking",
+        kind: "assistant thinking",
+        content: "tail reasoning must remain protocol-visible",
+        signature: "tail-signature-must-remain",
+        createdAt: "2026-04-25T00:00:03.000Z"
+      },
+      {
+        id: "tail-tool-call",
+        kind: "tool call",
+        toolCallId: "call-tail",
+        toolName: "read_file",
+        input: { path: "src/index.ts" },
+        state: "pending",
+        createdAt: "2026-04-25T00:00:04.000Z"
+      }
+    );
+
+    session.contextWindow = 1_000;
+    session.messages = blocks;
+
+    const promptEnvelope = promptBuilder.build(session, new ToolRegistry());
+    const serializedMessages = JSON.stringify(promptEnvelope.messages);
+
+    expect(serializedMessages).toContain("[History compacted:");
+    expect(serializedMessages).toContain(
+      "assistant thinking: preserved reasoning for a prior tool-use turn; signature omitted from compact summary"
+    );
+    expect(serializedMessages).not.toContain(
+      "old private reasoning that should not be summarized verbatim"
+    );
+    expect(serializedMessages).not.toContain("old-signature-should-not-leak");
+    expect(serializedMessages).toContain(
+      "tail reasoning must remain protocol-visible"
+    );
+    expect(serializedMessages).toContain("tail-signature-must-remain");
   });
 });

@@ -28,7 +28,7 @@ import {
 } from "./shared.js";
 
 type SessionRow = typeof agentSessions.$inferSelect;
-type SessionMessageRow = typeof sessionMessages.$inferSelect;
+export type SessionMessageRow = typeof sessionMessages.$inferSelect;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -81,7 +81,7 @@ export function toIsoString(value: string | Date): string {
   ).toISOString();
 }
 
-function toConversationBlock(row: SessionMessageRow): ConversationBlock {
+export function toConversationBlock(row: SessionMessageRow): ConversationBlock {
   const createdAt = toIsoString(row.createdAt);
   if (row.role === "user") {
     return {
@@ -97,6 +97,18 @@ function toConversationBlock(row: SessionMessageRow): ConversationBlock {
       id: row.id,
       kind: "assistant",
       content: row.content ?? "",
+      createdAt
+    };
+  }
+
+  if (row.role === "assistant_thinking") {
+    const metadata = toJsonRecord(row.inputJson);
+    return {
+      id: row.id,
+      kind: "assistant thinking",
+      content: row.content ?? "",
+      signature:
+        typeof metadata.signature === "string" ? metadata.signature : "",
       createdAt
     };
   }
@@ -159,7 +171,7 @@ function toSessionContext(row: SessionRow): ScheduleSessionContext {
   };
 }
 
-function serializeBlock(block: ConversationBlock): {
+export function serializeBlock(block: ConversationBlock): {
   role: string;
   content: string | null;
   toolName: string | null;
@@ -193,6 +205,20 @@ function serializeBlock(block: ConversationBlock): {
       state: null,
       isError: null,
       inputJson: null,
+      outputText: null,
+      createdAt: block.createdAt
+    };
+  }
+
+  if (block.kind === "assistant thinking") {
+    return {
+      role: "assistant_thinking",
+      content: block.content,
+      toolName: null,
+      toolCallId: null,
+      state: null,
+      isError: null,
+      inputJson: { signature: block.signature },
       outputText: null,
       createdAt: block.createdAt
     };

@@ -29,7 +29,10 @@ async function createTestApp() {
     maxBytes: 4096,
     maxFiles: 2
   });
-  const apiLogger = createLogger({ manager: systemLogManager, component: "api" });
+  const apiLogger = createLogger({
+    manager: systemLogManager,
+    component: "api"
+  });
 
   return {
     app: createApiApp({
@@ -99,12 +102,17 @@ describe("createApiApp settings bootstrap", () => {
           workingDirectory: "apps/web",
           yoloMode: true,
           contextWindow: 123_456,
-          maxTurns: 77
+          maxTurns: 77,
+          debugConversationView: true
         })
       }
     );
 
     expect(updateResponse.status).toBe(200);
+    const updatePayload = (await updateResponse.json()) as {
+      settings: { debugConversationView: boolean };
+    };
+    expect(updatePayload.settings.debugConversationView).toBe(true);
 
     const session = await createSession(app, {
       userId: "stage5-settings-user"
@@ -125,16 +133,19 @@ describe("createApiApp settings bootstrap", () => {
       userId: "stage5-permission-user"
     });
 
-    const response = await app.request(`/sessions/${session.sessionId}/settings`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        yoloMode: true,
-        toolAllowList: ["read_file"],
-        toolAskList: ["read_file", "write_file"],
-        toolDenyList: ["delete_path"]
-      })
-    });
+    const response = await app.request(
+      `/sessions/${session.sessionId}/settings`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          yoloMode: true,
+          toolAllowList: ["read_file"],
+          toolAskList: ["read_file", "write_file"],
+          toolDenyList: ["delete_path"]
+        })
+      }
+    );
 
     expect(response.status).toBe(200);
     const payload = (await response.json()) as {
@@ -150,13 +161,16 @@ describe("createApiApp settings bootstrap", () => {
   test("clamps persisted max turns to the shared session limit", async () => {
     const { app } = await createTestApp();
 
-    const updateResponse = await app.request("/users/stage5-limit-user/settings", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        maxTurns: SESSION_MAX_TURNS_LIMIT + 100
-      })
-    });
+    const updateResponse = await app.request(
+      "/users/stage5-limit-user/settings",
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          maxTurns: SESSION_MAX_TURNS_LIMIT + 100
+        })
+      }
+    );
 
     expect(updateResponse.status).toBe(200);
     const updatePayload = (await updateResponse.json()) as {
@@ -212,7 +226,10 @@ describe("createApiApp settings bootstrap", () => {
       body: JSON.stringify({ userId: "log-user" })
     });
 
-    const payload = await systemLogManager.query({ component: "api", limit: 20 });
+    const payload = await systemLogManager.query({
+      component: "api",
+      limit: 20
+    });
     expect(
       payload.records.some((record) => record.event === "session_created")
     ).toBe(true);

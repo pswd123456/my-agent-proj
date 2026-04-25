@@ -644,7 +644,8 @@ export function toSettingsFormState(
     toolAllowList: [...(settings?.toolAllowList ?? [])],
     toolAskList: [...(settings?.toolAskList ?? [])],
     toolDenyList: [...(settings?.toolDenyList ?? [])],
-    enabledCapabilityPacks: [...(settings?.enabledCapabilityPacks ?? [])]
+    enabledCapabilityPacks: [...(settings?.enabledCapabilityPacks ?? [])],
+    debugConversationView: settings?.debugConversationView ?? false
   };
 }
 
@@ -671,7 +672,8 @@ export function normalizeSettingsFormState(
     toolAllowList: normalizeList(form.toolAllowList),
     toolAskList: normalizeList(form.toolAskList),
     toolDenyList: normalizeList(form.toolDenyList),
-    enabledCapabilityPacks: normalizeList(form.enabledCapabilityPacks)
+    enabledCapabilityPacks: normalizeList(form.enabledCapabilityPacks),
+    debugConversationView: form.debugConversationView
   };
 }
 

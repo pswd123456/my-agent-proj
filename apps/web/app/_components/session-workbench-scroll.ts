@@ -1,4 +1,4 @@
-import type { TimelineItem } from "./session-timeline";
+import type { RunStreamEvent } from "@ai-app-template/sdk";
 
 export interface ConversationScrollSnapshot {
   latestItemKey: string | null;
@@ -37,12 +37,18 @@ interface ConversationResizeAutoFollowIntentInput {
   skipNextResizeAutoFollow: boolean;
 }
 
-function isTurnStartItem(item: TimelineItem): boolean {
-  return item.type === "event" && item.event.kind === "turn_start";
+interface ConversationScrollItem {
+  key: string;
+  type: string;
+  event?: RunStreamEvent;
+}
+
+function isTurnStartItem(item: ConversationScrollItem): boolean {
+  return item.type === "event" && item.event?.kind === "turn_start";
 }
 
 export function buildConversationScrollSnapshot(
-  timelineItems: TimelineItem[]
+  timelineItems: ConversationScrollItem[]
 ): ConversationScrollSnapshot {
   const latestItem = timelineItems.at(-1) ?? null;
   const latestTurnStartKey =

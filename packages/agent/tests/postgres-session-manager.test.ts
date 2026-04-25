@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
-import { toIsoString } from "../src/session/postgres-session-manager.js";
+import {
+  serializeBlock,
+  toConversationBlock,
+  toIsoString,
+  type SessionMessageRow
+} from "../src/session/postgres-session-manager.js";
+import { isConversationBlock } from "../src/session/shared.js";
 
 describe("toIsoString", () => {
   test("preserves timestamps that already include a timezone", () => {
@@ -13,5 +19,56 @@ describe("toIsoString", () => {
     expect(toIsoString("2026-04-21 18:45:18.392")).toBe(
       "2026-04-21T18:45:18.392Z"
     );
+  });
+
+  test("serializes and restores assistant thinking blocks", () => {
+    const serialized = serializeBlock({
+      id: "thinking-1",
+      kind: "assistant thinking",
+      content: "I should call a tool before answering.",
+      signature: "thinking-signature-1",
+      createdAt: "2026-04-25T00:00:00.000Z"
+    });
+
+    expect(serialized).toMatchObject({
+      role: "assistant_thinking",
+      content: "I should call a tool before answering.",
+      inputJson: { signature: "thinking-signature-1" }
+    });
+
+    const row: SessionMessageRow = {
+      id: "thinking-1",
+      sessionId: "session-1",
+      messageIndex: 1,
+      role: serialized.role,
+      content: serialized.content,
+      toolName: serialized.toolName,
+      toolCallId: serialized.toolCallId,
+      state: serialized.state,
+      isError: serialized.isError,
+      inputJson: serialized.inputJson,
+      outputText: serialized.outputText,
+      createdAt: serialized.createdAt
+    };
+
+    expect(toConversationBlock(row)).toEqual({
+      id: "thinking-1",
+      kind: "assistant thinking",
+      content: "I should call a tool before answering.",
+      signature: "thinking-signature-1",
+      createdAt: "2026-04-25T00:00:00.000Z"
+    });
+  });
+
+  test("accepts assistant thinking blocks in session snapshots", () => {
+    expect(
+      isConversationBlock({
+        id: "thinking-1",
+        kind: "assistant thinking",
+        content: "reasoning",
+        signature: "signature-1",
+        createdAt: "2026-04-25T00:00:00.000Z"
+      })
+    ).toBe(true);
   });
 });

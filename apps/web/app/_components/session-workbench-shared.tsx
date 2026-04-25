@@ -60,6 +60,18 @@ export function stringify(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
+function expandEscapedLineBreaks(value: string): string {
+  return value.replace(/\\r\\n|\\n|\\r/g, "\n");
+}
+
+export function stringifyPromptDebugValue(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  return expandEscapedLineBreaks(JSON.stringify(value, null, 2) ?? "");
+}
+
 export interface PromptMessageSection {
   turnCount: number;
   createdAt: string;
@@ -71,7 +83,7 @@ export interface PromptMessageSection {
 }
 
 function normalizeMessageLines(value: unknown): string[] {
-  const text = JSON.stringify(value, null, 2) ?? "";
+  const text = stringifyPromptDebugValue(value);
   return text.split("\n");
 }
 

@@ -33,6 +33,7 @@ function isVisibleTimelineEvent(event: RunStreamEvent): boolean {
   return (
     event.kind !== "prompt" &&
     event.kind !== "response" &&
+    event.kind !== "skills_loaded" &&
     event.kind !== "interrupt_requested" &&
     event.kind !== "interrupted"
   );
@@ -196,6 +197,10 @@ function matchesConversationBlock(
     );
   }
 
+  if (block.kind === "assistant thinking" && event.kind === "thinking") {
+    return block.signature === event.signature || block.content === event.text;
+  }
+
   if (block.kind === "tool call" && event.kind === "tool_call") {
     return block.toolCallId === event.toolCallId;
   }
@@ -212,6 +217,13 @@ export function getTimelineEventKey(event: RunStreamEvent): string {
     return `${event.kind}-${event.assistantMessageId}`;
   }
 
+  if (event.kind === "thinking") {
+    const stableId = event.thinkingMessageId ?? event.signature;
+    return stableId
+      ? `${event.kind}-${stableId}`
+      : `${event.kind}-${event.createdAt}`;
+  }
+
   if (
     event.kind === "tool_call" ||
     event.kind === "tool_result" ||
@@ -221,10 +233,6 @@ export function getTimelineEventKey(event: RunStreamEvent): string {
     event.kind === "permission_blocked"
   ) {
     return `${event.kind}-${event.toolCallId}-${event.createdAt}`;
-  }
-
-  if (event.kind === "thinking") {
-    return `${event.kind}-${event.signature}-${event.createdAt}`;
   }
 
   if (event.kind === "run_complete" || event.kind === "run_error") {
@@ -237,6 +245,13 @@ export function getTimelineEventKey(event: RunStreamEvent): string {
 export function getTimelineEventRenderKey(event: RunStreamEvent): string {
   if (event.kind === "assistant_text") {
     return `${event.kind}-${event.assistantMessageId}-${event.createdAt}`;
+  }
+
+  if (event.kind === "thinking") {
+    const stableId = event.thinkingMessageId ?? event.signature;
+    return stableId
+      ? `${event.kind}-${stableId}-${event.createdAt}`
+      : `${event.kind}-${event.createdAt}`;
   }
 
   return getTimelineEventKey(event);

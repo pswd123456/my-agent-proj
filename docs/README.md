@@ -9,7 +9,9 @@
 - [技术栈总览](./tech-stack.md)
 - [架构文档目录](./architecture/README.md)
 - [阶段文档目录](./plan/README.md)
+- [调查文档目录](./investigation/README.md)
 - [主线与能力包](./architecture/capability-packs.md)
+- [Context 管理](./architecture/context-management/README.md)
 - [设计系统总览](./design-system/README.md)
 
 ## 使用建议
@@ -18,6 +20,7 @@
 - 刚复制模板时，先看 `docs/template/`
 - 做技术栈、工程结构、架构边界相关工作时，从 `docs/architecture/` 开始
 - 如果要判断“仓库主线是什么、哪些只是专项能力”，优先看 `docs/architecture/capability-packs.md`
+- 做 messages 管理、compact、tool result 上下文或 prompt 分层时，优先看 `docs/architecture/context-management/`
 - 做 UI、一致性、tokens、组件策略、页面模板相关工作时，从 `docs/design-system/` 开始
 - 若某项约定已经沉淀为专题文档，后续应优先更新专题文档，而不是把补充内容继续加回入口页
 - `docs/plan/` 主要保留阶段规划、实现规格和历史演进，不是判断当前运行现状的首选入口

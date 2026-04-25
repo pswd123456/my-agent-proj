@@ -464,10 +464,14 @@ export function SessionWorkbench() {
         await refreshSelectedSession(sessionId);
       }
     } catch (error) {
-      setSessionUiState((current) => rollbackSessionUiState(current, sessionId));
+      setSessionUiState((current) =>
+        rollbackSessionUiState(current, sessionId)
+      );
       setErrorText(error instanceof Error ? error.message : String(error));
     } finally {
-      setSessionUiState((current) => finishSessionSubmission(current, sessionId));
+      setSessionUiState((current) =>
+        finishSessionSubmission(current, sessionId)
+      );
       setRunViewState((current) => finishRun(current));
     }
   }
@@ -492,10 +496,14 @@ export function SessionWorkbench() {
 
     try {
       const result = await apiClient.interruptSessionExecution(sessionId);
-      setSessionUiState((current) => setSessionSnapshot(current, result.session));
+      setSessionUiState((current) =>
+        setSessionSnapshot(current, result.session)
+      );
       setSessionRegistry((current) => upsertSession(current, result.session));
     } catch (error) {
-      setSessionUiState((current) => rollbackSessionUiState(current, sessionId));
+      setSessionUiState((current) =>
+        rollbackSessionUiState(current, sessionId)
+      );
       setErrorText(error instanceof Error ? error.message : String(error));
     }
   }
@@ -527,7 +535,8 @@ export function SessionWorkbench() {
         toolAllowList: normalizedForm.toolAllowList,
         toolAskList: normalizedForm.toolAskList,
         toolDenyList: normalizedForm.toolDenyList,
-        enabledCapabilityPacks: normalizedForm.enabledCapabilityPacks
+        enabledCapabilityPacks: normalizedForm.enabledCapabilityPacks,
+        debugConversationView: normalizedForm.debugConversationView
       });
       setUserSettings(updated);
       setSettingsForm(toSettingsFormState(updated));
@@ -623,6 +632,14 @@ export function SessionWorkbench() {
   async function handleSettingsYoloModeChange(checked: boolean) {
     const nextForm = patchSettingsForm(settingsForm, {
       yoloMode: checked
+    });
+    setSettingsForm(nextForm);
+    await handleSaveUserSettings(nextForm);
+  }
+
+  async function handleSettingsDebugConversationViewChange(checked: boolean) {
+    const nextForm = patchSettingsForm(settingsForm, {
+      debugConversationView: checked
     });
     setSettingsForm(nextForm);
     await handleSaveUserSettings(nextForm);
@@ -796,6 +813,9 @@ export function SessionWorkbench() {
               onSettingsYoloModeChange={(checked) =>
                 void handleSettingsYoloModeChange(checked)
               }
+              onSettingsDebugConversationViewChange={(checked) =>
+                void handleSettingsDebugConversationViewChange(checked)
+              }
               onSettingsPermissionToolToggle={(toolName, target) =>
                 void handleSettingsPermissionToolToggle(toolName, target)
               }
@@ -811,6 +831,7 @@ export function SessionWorkbench() {
               streamEventKeys={streamEventKeys}
               recentAssistantEventKeys={recentAssistantEventKeys}
               turnUsageByTurnCount={turnUsageByTurnCount}
+              debugConversationView={settingsForm.debugConversationView}
               pendingPermissionRequest={pendingPermissionRequest}
               message={message}
               submitting={submitting}
