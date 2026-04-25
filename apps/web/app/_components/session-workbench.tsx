@@ -5,12 +5,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 import {
   createApiClient,
-  toSessionSummary,
   type RoutineRecord,
   type RunStreamEvent,
   type SessionSettingsRecord,
   type SessionSnapshot,
-  type SessionSummary,
   type TraceRecord
 } from "@ai-app-template/sdk";
 
@@ -22,15 +20,40 @@ import {
   flattenTraceRecords,
   findReusableNewSessionSummary,
   groupRoutinesByDate,
-  mergeSessionSummary,
   normalizeContextWindow,
   normalizeMaxTurns,
   normalizeSettingsFormState,
   patchSettingsForm,
-  sortSessionSummaries,
   splitPatternLines,
   toSettingsFormState
 } from "./session-workbench-state";
+import {
+  bootstrapSessions,
+  clearCurrentSession,
+  createSessionRegistryState,
+  deleteSession as deleteSessionFromRegistry,
+  deriveRenderedSessions,
+  hydrateSelectedSession,
+  selectSession,
+  upsertSession
+} from "./session-registry-manager";
+import {
+  appendStreamEvent,
+  beginRun,
+  createRunViewState,
+  finishRun,
+  markAssistantAnimationComplete,
+  resetRunView
+} from "./run-view-state-manager";
+import {
+  applyStreamEventToSessionState,
+  beginSessionInterrupt,
+  beginSessionSubmission,
+  createSessionUiState,
+  finishSessionSubmission,
+  rollbackSessionUiState,
+  setSessionSnapshot
+} from "./session-state-manager";
 import { buildTimelineItems, getTimelineEventKey } from "./session-timeline";
 import {
   SessionWorkbenchConversationPanel,
@@ -58,28 +81,19 @@ export function SessionWorkbench() {
   const selectedSessionIdRef = useRef<string | null>(null);
   const preferredUserIdRef = useRef<string | null>(null);
 
-  const [sessions, setSessions] = useState<SessionSummary[]>([]);
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(
-    null
+  const [sessionRegistry, setSessionRegistry] = useState(() =>
+    createSessionRegistryState()
   );
-  const [currentSession, setCurrentSession] = useState<SessionSnapshot | null>(
-    null
+  const [sessionUiState, setSessionUiState] = useState(() =>
+    createSessionUiState(null)
   );
   const [traceRecords, setTraceRecords] = useState<TraceRecord[]>([]);
   const [routines, setRoutines] = useState<RoutineRecord[]>([]);
-  const [streamEvents, setStreamEvents] = useState<RunStreamEvent[]>([]);
-  const [recentAssistantEventKeys, setRecentAssistantEventKeys] = useState<
-    Set<string>
-  >(new Set());
+  const [runViewState, setRunViewState] = useState(() => createRunViewState());
   const [message, setMessage] = useState("");
-  const [pendingUserMessage, setPendingUserMessage] = useState<{
-    createdAt: string;
-    text: string;
-  } | null>(null);
   const [activeTab, setActiveTab] = useState<InspectorTabId>("prompt");
   const [loading, setLoading] = useState(true);
   const [loadingSession, setLoadingSession] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
   const [activeSidebarPanel, setActiveSidebarPanel] =
     useState<SidebarPanelId | null>(null);
   const [isSessionRailCollapsed, setIsSessionRailCollapsed] = useState(false);
@@ -98,11 +112,14 @@ export function SessionWorkbench() {
   const [pendingPermissionToolName, setPendingPermissionToolName] = useState<
     string | null
   >(null);
-  const [interruptingSessionId, setInterruptingSessionId] = useState<
-    string | null
-  >(null);
+  const { sessions, selectedSessionId } = sessionRegistry;
+  const { streamEvents, recentAssistantEventKeys, pendingUserMessage } =
+    runViewState;
   const [maxTurns, setMaxTurns] = useState(String(DEFAULT_MAX_TURNS));
   const [errorText, setErrorText] = useState<string | null>(null);
+  const currentSession = sessionUiState.session;
+  const submitting = sessionUiState.submitting;
+  const interruptingSessionId = sessionUiState.interruptingSessionId;
 
   useEffect(() => {
     selectedSessionIdRef.current = selectedSessionId;
@@ -137,6 +154,11 @@ export function SessionWorkbench() {
       currentSession?.context.userId ?? userSettings?.userId ?? null;
   }, [currentSession, userSettings]);
 
+  const renderedSessions = useMemo(
+    () => deriveRenderedSessions({ ...sessionRegistry, currentSession }),
+    [currentSession, sessionRegistry]
+  );
+
   function getCreateSessionPayload(): { userId?: string } {
     const userId = preferredUserIdRef.current?.trim();
     return userId ? { userId } : {};
@@ -166,18 +188,12 @@ export function SessionWorkbench() {
           return;
         }
 
-        const summaries = sortSessionSummaries(snapshots, toSessionSummary);
-        const fallbackSessionId = summaries[0]?.sessionId ?? null;
-        const nextSessionId = summaries.some(
-          (item) => item.sessionId === requestedSessionId
-        )
-          ? requestedSessionId
-          : fallbackSessionId;
-
-        setSessions(summaries);
-        setSelectedSessionId(nextSessionId);
-        if (nextSessionId) {
-          router.replace(`/?sessionId=${nextSessionId}`, { scroll: false });
+        const nextRegistry = bootstrapSessions(snapshots, requestedSessionId);
+        setSessionRegistry(nextRegistry);
+        if (nextRegistry.selectedSessionId) {
+          router.replace(`/?sessionId=${nextRegistry.selectedSessionId}`, {
+            scroll: false
+          });
         }
       } catch (error) {
         if (!cancelled) {
@@ -225,14 +241,14 @@ export function SessionWorkbench() {
           return;
         }
 
-        setCurrentSession(session);
+        setSessionUiState((current) => setSessionSnapshot(current, session));
         setTraceRecords(trace);
         setRoutines(routinesResult.routines);
         setUserSettings(settings);
         setSettingsForm(toSettingsFormState(settings));
         setMaxTurns(String(session.maxTurns));
-        setSessions((current) =>
-          mergeSessionSummary(current, session, toSessionSummary)
+        setSessionRegistry((current) =>
+          hydrateSelectedSession(current, session)
         );
       } catch (error) {
         if (!cancelled) {
@@ -267,16 +283,14 @@ export function SessionWorkbench() {
         apiClient.getUserSettings(session.context.userId)
       ]);
 
-      setCurrentSession(session);
+      setSessionUiState((current) => setSessionSnapshot(current, session));
       setTraceRecords(trace);
       setRoutines(routinesResult.routines);
       setUserSettings(settings);
       setSettingsForm(toSettingsFormState(settings));
       setMaxTurns(String(session.maxTurns));
-      setSessions((current) =>
-        mergeSessionSummary(current, session, toSessionSummary)
-      );
-      setStreamEvents([]);
+      setSessionRegistry((current) => hydrateSelectedSession(current, session));
+      setRunViewState(resetRunView());
     } finally {
       setLoadingSettings(false);
     }
@@ -291,8 +305,10 @@ export function SessionWorkbench() {
     if (reusableSession) {
       setErrorText(null);
       focusConversationView();
-      setSelectedSessionId(reusableSession.sessionId);
-      setStreamEvents([]);
+      setSessionRegistry((current) =>
+        selectSession(current, reusableSession.sessionId)
+      );
+      setRunViewState(resetRunView());
       router.replace(`/?sessionId=${reusableSession.sessionId}`, {
         scroll: false
       });
@@ -303,15 +319,14 @@ export function SessionWorkbench() {
       setCreatingSession(true);
       setErrorText(null);
       const session = await apiClient.createSession(getCreateSessionPayload());
-      setSessions((current) =>
-        mergeSessionSummary(current, session, toSessionSummary)
+      setSessionRegistry((current) =>
+        upsertSession(selectSession(current, session.sessionId), session)
       );
       focusConversationView();
-      setSelectedSessionId(session.sessionId);
-      setCurrentSession(session);
+      setSessionUiState((current) => setSessionSnapshot(current, session));
       setTraceRecords([]);
       setRoutines([]);
-      setStreamEvents([]);
+      setRunViewState(resetRunView());
       router.replace(`/?sessionId=${session.sessionId}`, { scroll: false });
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : String(error));
@@ -322,8 +337,8 @@ export function SessionWorkbench() {
 
   function handleSelectSession(sessionId: string) {
     focusConversationView();
-    setSelectedSessionId(sessionId);
-    setStreamEvents([]);
+    setSessionRegistry((current) => selectSession(current, sessionId));
+    setRunViewState(resetRunView());
     router.replace(`/?sessionId=${sessionId}`, { scroll: false });
   }
 
@@ -343,20 +358,23 @@ export function SessionWorkbench() {
       const remaining = sessions.filter(
         (session) => session.sessionId !== sessionId
       );
-      setSessions(remaining);
+      setSessionRegistry((current) =>
+        deleteSessionFromRegistry(current, sessionId)
+      );
 
       if (selectedSessionId !== sessionId) {
         return;
       }
 
       const nextSessionId = remaining[0]?.sessionId ?? null;
-      setCurrentSession(null);
+      setSessionRegistry((current) => clearCurrentSession(current));
+      setSessionUiState((current) => setSessionSnapshot(current, null));
       setTraceRecords([]);
       setRoutines([]);
-      setStreamEvents([]);
+      setRunViewState(resetRunView());
 
       if (nextSessionId) {
-        setSelectedSessionId(nextSessionId);
+        setSessionRegistry((current) => selectSession(current, nextSessionId));
         router.replace(`/?sessionId=${nextSessionId}`, { scroll: false });
         return;
       }
@@ -364,9 +382,10 @@ export function SessionWorkbench() {
       const newSession = await apiClient.createSession(
         getCreateSessionPayload()
       );
-      setSessions([toSessionSummary(newSession)]);
-      setSelectedSessionId(newSession.sessionId);
-      setCurrentSession(newSession);
+      setSessionRegistry(
+        hydrateSelectedSession(createSessionRegistryState(), newSession)
+      );
+      setSessionUiState((current) => setSessionSnapshot(current, newSession));
       router.replace(`/?sessionId=${newSession.sessionId}`, { scroll: false });
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : String(error));
@@ -388,15 +407,15 @@ export function SessionWorkbench() {
 
     setMaxTurns(String(nextMaxTurns));
     if (!(options?.permissionReply ?? false)) {
-      setPendingUserMessage({
-        createdAt: new Date().toISOString(),
-        text: nextMessage
-      });
+      setRunViewState((current) =>
+        beginRun(current, {
+          createdAt: new Date().toISOString(),
+          text: nextMessage
+        })
+      );
     }
     setMessage("");
-    setStreamEvents([]);
-    setSubmitting(true);
-    setInterruptingSessionId(null);
+    setSessionUiState((current) => beginSessionSubmission(current));
     setActiveTab("prompt");
     setErrorText(null);
 
@@ -415,15 +434,10 @@ export function SessionWorkbench() {
           const isActiveSession = isActiveStreamSession();
 
           if (isActiveSession) {
-            setStreamEvents((current) => [...current, runEvent]);
-            if (runEvent.kind === "assistant_text") {
-              const eventKey = getTimelineEventKey(runEvent);
-              setRecentAssistantEventKeys((current) => {
-                const next = new Set(current);
-                next.add(eventKey);
-                return next;
-              });
-            }
+            setRunViewState((current) => appendStreamEvent(current, runEvent));
+            setSessionUiState((current) =>
+              applyStreamEventToSessionState(current, runEvent)
+            );
           }
 
           if (
@@ -433,11 +447,13 @@ export function SessionWorkbench() {
           ) {
             const nextSession = runEvent.session;
             if (nextSession) {
-              setSessions((current) =>
-                mergeSessionSummary(current, nextSession, toSessionSummary)
+              setSessionRegistry((current) =>
+                upsertSession(current, nextSession)
               );
               if (isActiveSession) {
-                setCurrentSession(nextSession);
+                setSessionUiState((current) =>
+                  setSessionSnapshot(current, nextSession)
+                );
               }
             }
           }
@@ -448,13 +464,11 @@ export function SessionWorkbench() {
         await refreshSelectedSession(sessionId);
       }
     } catch (error) {
+      setSessionUiState((current) => rollbackSessionUiState(current, sessionId));
       setErrorText(error instanceof Error ? error.message : String(error));
     } finally {
-      setSubmitting(false);
-      setPendingUserMessage(null);
-      setInterruptingSessionId((current) =>
-        current === sessionId ? null : current
-      );
+      setSessionUiState((current) => finishSessionSubmission(current, sessionId));
+      setRunViewState((current) => finishRun(current));
     }
   }
 
@@ -473,19 +487,15 @@ export function SessionWorkbench() {
     }
 
     const sessionId = currentSession.sessionId;
-    setInterruptingSessionId(sessionId);
+    setSessionUiState((current) => beginSessionInterrupt(current, sessionId));
     setErrorText(null);
 
     try {
       const result = await apiClient.interruptSessionExecution(sessionId);
-      setCurrentSession(result.session);
-      setSessions((current) =>
-        mergeSessionSummary(current, result.session, toSessionSummary)
-      );
+      setSessionUiState((current) => setSessionSnapshot(current, result.session));
+      setSessionRegistry((current) => upsertSession(current, result.session));
     } catch (error) {
-      setInterruptingSessionId((current) =>
-        current === sessionId ? null : current
-      );
+      setSessionUiState((current) => rollbackSessionUiState(current, sessionId));
       setErrorText(error instanceof Error ? error.message : String(error));
     }
   }
@@ -535,10 +545,10 @@ export function SessionWorkbench() {
             enabledCapabilityPacks: updated.enabledCapabilityPacks
           }
         );
-        setCurrentSession(syncedSession);
-        setSessions((current) =>
-          mergeSessionSummary(current, syncedSession, toSessionSummary)
+        setSessionUiState((current) =>
+          setSessionSnapshot(current, syncedSession)
         );
+        setSessionRegistry((current) => upsertSession(current, syncedSession));
       }
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : String(error));
@@ -624,12 +634,12 @@ export function SessionWorkbench() {
     }
 
     const exists = settingsForm.enabledCapabilityPacks.includes(packName);
-    const nextEnabled = exists
-      ? settingsForm.enabledCapabilityPacks.filter((item) => item !== packName)
-      : [...settingsForm.enabledCapabilityPacks, packName];
-
     const nextForm = patchSettingsForm(settingsForm, {
-      enabledCapabilityPacks: nextEnabled
+      enabledCapabilityPacks: exists
+        ? settingsForm.enabledCapabilityPacks.filter(
+            (item) => item !== packName
+          )
+        : [...settingsForm.enabledCapabilityPacks, packName]
     });
     setSettingsForm(nextForm);
     await handleSaveUserSettings(nextForm);
@@ -732,22 +742,16 @@ export function SessionWorkbench() {
   );
 
   function handleAssistantAnimationComplete(itemKey: string) {
-    setRecentAssistantEventKeys((current) => {
-      if (!current.has(itemKey)) {
-        return current;
-      }
-
-      const next = new Set(current);
-      next.delete(itemKey);
-      return next;
-    });
+    setRunViewState((current) =>
+      markAssistantAnimationComplete(current, itemKey)
+    );
   }
 
   return (
     <main className="min-h-screen bg-[var(--app-bg-canvas)] text-[var(--app-text-primary)]">
       <div className="mx-auto flex min-h-screen w-full max-w-[1760px] flex-col gap-4 px-4 py-4 lg:flex-row lg:items-start lg:gap-5 lg:px-6">
         <SessionWorkbenchSidebar
-          sessions={sessions}
+          sessions={renderedSessions}
           selectedSessionId={selectedSessionId}
           activeSidebarPanel={activeSidebarPanel}
           collapsed={isSessionRailCollapsed}

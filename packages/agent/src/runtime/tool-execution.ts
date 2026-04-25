@@ -9,7 +9,6 @@ import type { ToolExecutionContext } from "../tools/runtime-tool.js";
 import { buildToolCallBlock, buildToolResultBlock } from "./blocks.js";
 import { checkToolPermission } from "./permission-checker.js";
 import { emitTraceEvent } from "./run-events.js";
-import { compactToolResultForContext } from "./tool-output-compaction.js";
 
 export type ExecuteToolActionResult =
   | {
@@ -306,14 +305,13 @@ export async function executeToolAction(input: {
     (validation.value ?? input.toolInput) as Record<string, JsonValue>,
     executionContext
   );
-  const compactedContent = compactToolResultForContext(result.content);
 
   session = await input.sessionManager.appendBlock(
     session.sessionId,
     buildToolResultBlock({
       id: input.toolCallId,
       name: input.toolName,
-      content: compactedContent,
+      content: result.content,
       isError: result.state === "failed"
     })
   );

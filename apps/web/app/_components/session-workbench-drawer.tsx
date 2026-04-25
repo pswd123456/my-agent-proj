@@ -43,6 +43,28 @@ function formatCapabilityPackDescription(packName: string): string {
     : "日程创建、编辑、查询与冲突确认相关能力。";
 }
 
+function getVisiblePermissionTools(enabledCapabilityPacks: string[]): string[] {
+  const enabled = new Set(enabledCapabilityPacks);
+
+  return permissionToolOptions.filter((tool) => {
+    if (
+      [
+        "create_routine",
+        "edit_routine",
+        "delete_routine",
+        "search_routine_by_oclock",
+        "list_routine_by_week",
+        "list_routine_by_date",
+        "ask_for_confirmation"
+      ].includes(tool)
+    ) {
+      return enabled.has("schedule");
+    }
+
+    return enabled.has("workspace");
+  });
+}
+
 interface SessionWorkbenchDrawerProps {
   activeSidebarPanel: SidebarPanelId | null;
   currentSession: SessionSnapshot | null;
@@ -109,6 +131,10 @@ export function SessionWorkbenchDrawer({
   if (!activeSidebarPanel) {
     return null;
   }
+
+  const visiblePermissionTools = getVisiblePermissionTools(
+    settingsForm.enabledCapabilityPacks
+  );
 
   return (
     <div className="flex min-h-0 min-w-0 flex-col">
@@ -248,10 +274,37 @@ export function SessionWorkbenchDrawer({
                 </div>
               </div>
 
-              <div className="grid gap-2">
-                <div className={sectionHeadingClassName}>Tool Permission</div>
+              <div className="grid gap-3">
+                <div className={sectionHeadingClassName}>Capabilities</div>
                 <div className="grid gap-2">
-                  {permissionToolOptions.map((tool) => {
+                  {capabilityPackOptions.map((pack) => {
+                    const checked = settingsForm.enabledCapabilityPacks.includes(pack);
+                    return (
+                      <label
+                        key={pack}
+                        className="flex items-start gap-3 rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm text-[var(--app-text-secondary)]"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => onSettingsCapabilityPackToggle(pack)}
+                          className="mt-1 h-4 w-4 accent-[var(--app-border-accent)]"
+                        />
+                        <div>
+                          <div className="text-sm text-[var(--app-text-primary)]">
+                            {formatCapabilityPackLabel(pack)}
+                          </div>
+                          <div className="mt-1 text-xs leading-5 text-[var(--app-text-muted)]">
+                            {formatCapabilityPackDescription(pack)}
+                          </div>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+                <div className="grid gap-2">
+                  <div className={tertiaryHeadingClassName}>Tool Permission</div>
+                  {visiblePermissionTools.map((tool) => {
                     const decision = settingsForm.toolDenyList.includes(tool)
                       ? "deny"
                       : settingsForm.toolAllowList.includes(tool)
@@ -289,36 +342,6 @@ export function SessionWorkbenchDrawer({
                           ))}
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="grid gap-2">
-                <div className={sectionHeadingClassName}>Capability Packs</div>
-                <div className="grid gap-2">
-                  {capabilityPackOptions.map((pack) => {
-                    const checked = settingsForm.enabledCapabilityPacks.includes(pack);
-                    return (
-                      <label
-                        key={pack}
-                        className="flex items-start gap-3 rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm text-[var(--app-text-secondary)]"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => onSettingsCapabilityPackToggle(pack)}
-                          className="mt-1 h-4 w-4 accent-[var(--app-border-accent)]"
-                        />
-                        <div>
-                          <div className="text-sm text-[var(--app-text-primary)]">
-                            {formatCapabilityPackLabel(pack)}
-                          </div>
-                          <div className="mt-1 text-xs leading-5 text-[var(--app-text-muted)]">
-                            {formatCapabilityPackDescription(pack)}
-                          </div>
-                        </div>
-                      </label>
                     );
                   })}
                 </div>

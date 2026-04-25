@@ -1,6 +1,6 @@
-# 技术栈方案
+# 技术栈总览
 
-这份文档改为技术栈入口页，详细内容已拆分到 `docs/architecture/`。
+这份文档是技术栈入口页，只保留当前已落地的高层事实和跳转链接；更细的实现边界见 `docs/architecture/`。
 
 ## 快速结论
 
@@ -9,6 +9,14 @@
 - API：`Hono` + `Zod`
 - Agent：仓库内自定义 runtime loop + MiniMax Anthropic-compatible provider
 - 数据层：`PostgreSQL` + `Drizzle ORM` + `postgres` 驱动
+
+## 判断现状时看哪里
+
+- API 装配：`apps/api/src/index.ts`
+- API 契约：`apps/api/src/app.ts`
+- runtime/provider：`packages/agent/src/`
+- session 默认值：`packages/domain/src/session-settings.ts`
+- 数据表：`packages/db/src/schema.ts`
 
 ## 详细文档
 

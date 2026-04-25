@@ -1,169 +1,98 @@
-prompt -> agent loop -> tool call -> tool return -> agent loop
+# Stage 1: foundational runtime sketch
 
--> max turn -> final
+## 文档状态
 
--> decision -> final
+这份文档保留最早的 runtime 草稿，用来记录第一阶段真正想搭起来的最小骨架。它不是当前实现的事实源，当前现状请看：
 
-1. agent loop
+- `packages/agent/src/`
+- `apps/api/src/`
+- `packages/domain/src/session-settings.ts`
 
-   loop state:
+## 当时想解决的问题
 
-   running
+第一阶段的目标很简单：先把一个可执行、可恢复、可扩展的 agent loop 立起来，再谈更复杂的 provider、skills、permission 和 capability pack。
 
-   interrupted
+## 核心骨架
 
-   idle
+### 1. Agent loop
 
-   completed
+最小循环是：
 
-   waiting for input
+`prompt -> model -> tool call -> tool result -> next turn -> final`
 
-   waiting for tool result
+当时希望 runtime 至少能表达这些状态：
 
-   failed
-2. prompt builder
+- `running`
+- `interrupted`
+- `idle`
+- `completed`
+- `waiting_for_input`
+- `waiting_for_tool_result`
+- `failed`
 
-   system prompt
+### 2. Prompt builder
 
-   小心前缀问题，应该满足缓存的需要
+最早就明确要把 prompt 拆成稳定部分和动态部分：
 
-   应该存储不频繁改变的内容
+- `system prompt`
+- 稳定前缀
+- runtime context
+- `workingDirectory`
+- `messages`
+- `tool schema`
 
-   context
+核心意图是让不常变化的内容更适合缓存，而不是把所有信息每轮混成一坨。
 
-   working directory
-   messages
+### 3. Messages
 
-   tool schema
-3. messages
+最小消息模型当时就不是纯文本数组，而是 conversation block：
 
-   base type: conversation block ->
+- `user`
+- `assistant`
+- `tool_call`
+- `tool_result`
 
-   user, assistant, tool call, tool result
-4. session manager
+这个判断后来延续到了真正的多块消息和 trace 建模。
 
-   snapshot
+### 4. Session manager
 
-   all messages
+最早定义的 session 责任包括：
 
-   session state
+- `snapshot`
+- 全量 messages
+- session state
+- input token count
+- session recovery
 
-   input tokens count
+### 5. Tool registry
 
-   session recovery
+第一阶段希望工具面至少具备：
 
-   able to recover from snapshot
-5. tool registry
+- `list tool`
+- `get tool by name`
+- `register tool`
 
-   list tool
+### 6. Base tool
 
-   get tool by name
+每个工具最少应有：
 
-   tool register
-6. base tool
+- `name`
+- `description`
+- `execute`
+- `isReadOnly`
 
-   name
+### 7. Tool state
 
-   description
+最小工具执行状态：
 
-   execute
+- `pending`
+- `success`
+- `failed`
 
-   is read only
-7. tool state
+## 这份草稿后来沉淀成了什么
 
-   pending
+- loop、prompt、session、trace 的实现进入 `packages/agent/src/`
+- API 入口与恢复接口进入 `apps/api/src/app.ts`
+- 更完整的规格在 `stage2.md` 到 `stage5.md`
 
-   success
-
-   failed
-8. tools
-
-   read_file
-
-   list_directory
-
-   search_text
-
-stage 1:
-
-目标：最小agentloop
-
-验收标准：成功完成
-
-思考-工具调用-回答的最小闭环
-
-可以进行session的snapshot和recovery
-
-有最小的三个工具调用
-
-有prompt builder，满足缓存的需要
-
-模型使用minimax 2.7， anthropic compatible
-
----
-
-执行文档：
-
-1. 先固定边界
-
-   - `packages/agent` 负责最小 agent loop、prompt builder、session manager、tool registry 和工具抽象
-   - `apps/api` 只负责对外暴露会话创建、执行触发、snapshot / recovery 之类的应用层接口
-   - 当前设计不引入独立后台进程；若后续出现真实的长任务 / 异步 tool 场景，再单独补后台进程
-   - 所有 prompt、状态机、工具协议尽量做成可测试的纯逻辑，不直接混在 app 入口里
-
-2. 先实现数据模型，再实现流程
-
-   - 定义 `conversation block` 作为消息基础类型，统一承载 `user`、`assistant`、`tool call`、`tool result`
-   - 定义 `loop state`，至少包含 `running`、`interrupted`、`idle`、`completed`、`waiting for input`、`waiting for tool result`、`failed`
-   - 定义 `tool state`，至少包含 `pending`、`success`、`failed`
-   - 定义 session snapshot 结构，必须能保存 `all messages`、`session state`、`input tokens count`
-
-3. 实现 prompt builder
-
-   - system prompt 和动态上下文分层拼装，避免每次请求都把不变内容重写一遍
-   - 稳定内容优先放在前面，减少前缀抖动，保证缓存命中更稳定
-   - 动态部分只保留 `working directory`、messages、tool schema 等会变化的内容
-   - prompt builder 先满足“能跑通最小闭环”，再考虑更复杂的指令拆分
-
-4. 实现 tool registry 和最小工具集
-
-   - 先做 `base tool` 抽象，字段至少包含 `name`、`description`、`execute`、`is read only`
-   - tool registry 先支持 `list tool`、`get tool by name`、`tool register`
-   - stage 1 只落地三个工具：`read_file`、`list_directory`、`search_text`
-   - 三个工具都先按只读方式实现，确保 agent loop 的执行面尽量可控
-
-5. 实现 session manager
-
-   - 每次关键状态变化都能生成 snapshot
-   - snapshot 必须支持恢复到上一次可继续执行的状态
-   - 恢复时优先校验消息序列、当前 loop state 和 token 统计是否一致
-   - 先保证“崩溃后能接着跑”，再做更细的增量持久化
-
-6. 实现最小 agent loop
-
-   - 流程固定为 `prompt -> agent loop -> tool call -> tool return -> agent loop`
-   - 增加 `max turn -> final` 的硬退出条件，避免无限循环
-   - 增加 `decision -> final` 的直接结束路径，支持模型一次回答完
-   - 当模型要求调用工具时，先进入 `waiting for tool result`，工具返回后再回到 loop
-
-7. 接入模型与 smoke test
-
-   - 模型使用 `MiniMax-M2.7`
-   - 通过 `Anthropic` compatible 方式接入，保证后续可复用同一套调用方式
-   - 先用最小 smoke 验证模型连通性：发出 `pong` 请求并拿到稳定响应
-   - smoke 通过后，再把模型调用接到 loop runner 和 tool 调用分支
-
-8. 验收顺序
-
-   - 先验证单次对话能正常产出 final answer
-   - 再验证一次 tool call 往返能形成闭环
-   - 再验证 snapshot 和 recovery 能恢复到可继续执行的状态
-   - 最后验证三个工具都能被 registry 正确找到并执行
-
-9. 本阶段不做的事
-
-   - 不做复杂 UI
-   - 不做多模型编排
-   - 不做复杂记忆系统
-   - 不做多轮任务规划器
-   - 不把非核心的产品层能力提前塞进 runtime
+所以这份文档现在更适合被当作“设计起点”，而不是“实现说明”。

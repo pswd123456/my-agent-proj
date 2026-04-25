@@ -67,6 +67,7 @@ sequenceDiagram
   participant Runtime as AgentRuntime
   participant Skills as WorkspaceSkills
   participant Prompt as PromptBuilder
+  participant Permission as PermissionChecker
   participant Model as MiniMax API
   participant Tools as ToolRegistry
   participant Repo as RoutineRepository
@@ -88,7 +89,9 @@ sequenceDiagram
   Model-->>Runtime: text / thinking / tool_use
   Runtime->>Trace: 记录 response / thinking / assistant_text / tool_call
   alt 需要调用工具
-    Runtime->>Tools: 按顺序执行 tool
+    Runtime->>Permission: 先做 permission / sandbox 判断
+    Permission-->>Runtime: allow / ask / deny
+    Runtime->>Tools: 按顺序执行已放行的 tool
     Tools->>Repo: 读写 routines 或查询数据
     Repo-->>Tools: repository result
     Tools-->>Runtime: tool_result
@@ -107,6 +110,6 @@ sequenceDiagram
 
 - `apps/api` 是当前运行主入口，负责把各层装配起来
 - `packages/agent` 是执行核心，既包含 runtime loop，也包含 prompt、session、skills、tools 和 trace
+- tool 执行前还有独立的 permission checker；待批准请求和业务确认流是分开建模的
 - `PostgreSQL` 保存 session 与 routine 数据，`tmp/` 主要保存 trace 与 system logs
 - `settingsRepository` 保存用户级 session settings，包含工作目录、yolo、context window、max turns 和权限规则
-- 本地若存在 `apps/worker/` 残留构建产物，也不应视为当前运行架构的一部分

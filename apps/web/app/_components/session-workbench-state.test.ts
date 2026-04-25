@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { SessionSnapshot } from "@ai-app-template/sdk";
 
 import {
+  applyStreamEventToSession,
   canInterruptSessionExecution,
   getSessionDisplayState
 } from "./session-workbench-state";
@@ -149,5 +150,59 @@ describe("getSessionDisplayState", () => {
       label: "等待工具结果 · 2",
       isActiveExecution: true
     });
+  });
+
+  test("shows executing when a resumed tool run has no pending ids", () => {
+    const session = createSessionSnapshot();
+    session.context.status = "running";
+    session.sessionState.loopState = "waiting for tool result";
+    session.sessionState.pendingToolCallIds = [];
+
+    expect(
+      getSessionDisplayState({
+        loopState: session.sessionState.loopState,
+        status: session.context.status,
+        pendingToolCallIds: session.sessionState.pendingToolCallIds,
+        interruptRequested: session.sessionState.interruptRequested,
+        pendingPermission: Boolean(session.context.pendingPermissionRequest),
+        pendingConfirmation: Boolean(session.context.pendingConfirmationPayload)
+      })
+    ).toMatchObject({
+      label: "执行中",
+      isActiveExecution: true,
+      isWaitingForUser: false
+    });
+  });
+});
+
+describe("applyStreamEventToSession", () => {
+  test("advances the UI session immediately after permission approval", () => {
+    const session = createSessionSnapshot();
+    session.context.status = "waiting_for_permission";
+    session.context.pendingPermissionRequest = {
+      toolCallId: "call-1",
+      toolName: "read_file",
+      toolInput: { path: "../README.md" },
+      family: "workspace-file",
+      permissionProfile: "always-ask-user",
+      summaryText: "读取工作区外文件",
+      createdAt: "2026-04-24T00:00:00.000Z"
+    };
+    session.sessionState.loopState = "waiting for input";
+
+    const next = applyStreamEventToSession(session, {
+      kind: "permission_approved",
+      sessionId: session.sessionId,
+      createdAt: "2026-04-24T00:00:01.000Z",
+      turnCount: 1,
+      toolCallId: "call-1",
+      toolName: "read_file",
+      request: session.context.pendingPermissionRequest
+    });
+
+    expect(next.context.status).toBe("running");
+    expect(next.context.pendingPermissionRequest).toBeNull();
+    expect(next.sessionState.loopState).toBe("waiting for tool result");
+    expect(next.sessionState.pendingToolCallIds).toEqual(["call-1"]);
   });
 });

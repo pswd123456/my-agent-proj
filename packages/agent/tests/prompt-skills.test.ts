@@ -29,7 +29,7 @@ function createSessionSnapshot(): SessionSnapshot {
     },
     messages: [],
     sessionState: {
-      loopState: "idle",
+      loopState: "waiting for input",
       turnCount: 0,
       lastError: null,
       pendingToolCallIds: [],

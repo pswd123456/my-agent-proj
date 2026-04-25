@@ -26,11 +26,30 @@ interface PendingUserMessage {
 }
 
 function isVisibleTimelineEvent(event: RunStreamEvent): boolean {
+  if (event.kind === "assistant_text" && event.text.trim().length === 0) {
+    return false;
+  }
+
   return (
     event.kind !== "prompt" &&
     event.kind !== "response" &&
     event.kind !== "interrupt_requested" &&
     event.kind !== "interrupted"
+  );
+}
+
+function isPermissionTimelineEvent(
+  event: RunStreamEvent
+): event is Extract<
+  RunStreamEvent,
+  | { kind: "permission_request" }
+  | { kind: "permission_approved" }
+  | { kind: "permission_rejected" }
+> {
+  return (
+    event.kind === "permission_request" ||
+    event.kind === "permission_approved" ||
+    event.kind === "permission_rejected"
   );
 }
 
@@ -229,17 +248,38 @@ export function buildTimelineItems(input: {
   streamEvents: RunStreamEvent[];
   pendingUserMessage?: PendingUserMessage | null;
 }): TimelineItem[] {
-  const visibleEventMap = new Map<string, RunStreamEvent>();
+  const visibleEventsByKey = new Map<string, RunStreamEvent>();
+  const permissionEventKeysByToolCallId = new Map<string, string>();
 
   for (const event of [...input.historyEvents, ...input.streamEvents]) {
     if (!isVisibleTimelineEvent(event)) {
       continue;
     }
 
-    visibleEventMap.set(getTimelineEventKey(event), event);
+    if (isPermissionTimelineEvent(event)) {
+      const previousKey = permissionEventKeysByToolCallId.get(event.toolCallId);
+      if (previousKey) {
+        const previous = visibleEventsByKey.get(previousKey);
+        if (previous && compareEvents(previous, event) <= 0) {
+          visibleEventsByKey.delete(previousKey);
+          const nextKey = getTimelineEventKey(event);
+          permissionEventKeysByToolCallId.set(event.toolCallId, nextKey);
+          visibleEventsByKey.set(nextKey, event);
+        }
+
+        continue;
+      }
+
+      const nextKey = getTimelineEventKey(event);
+      permissionEventKeysByToolCallId.set(event.toolCallId, nextKey);
+      visibleEventsByKey.set(nextKey, event);
+      continue;
+    }
+
+    visibleEventsByKey.set(getTimelineEventKey(event), event);
   }
 
-  const visibleEvents = [...visibleEventMap.values()].sort(compareEvents);
+  const visibleEvents = [...visibleEventsByKey.values()].sort(compareEvents);
 
   if (visibleEvents.length === 0) {
     return buildMessageTimeline(input.messages, input.pendingUserMessage);

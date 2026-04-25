@@ -32,7 +32,6 @@ import {
   extractToolCalls,
   extractToolCallsFromTextBlocks,
   renderPendingConfirmationAnswer,
-  renderPendingPermissionAnswer,
   stripTextToolCallMarkup
 } from "./blocks.js";
 import { completeLocally } from "./complete-run.js";
@@ -115,8 +114,10 @@ export async function runSessionLoop(input: {
   let consumedPermissionReply = false;
   let carriedTurnCount = 0;
   let currentTurnCount = Math.max(0, session.sessionState.turnCount);
-  let currentStreamedAssistantTexts: Map<number, StreamedAssistantSnapshot> | null =
-    null;
+  let currentStreamedAssistantTexts: Map<
+    number,
+    StreamedAssistantSnapshot
+  > | null = null;
   let interruptRequestLogged = false;
 
   async function maybeCompleteInterrupted(): Promise<RunSessionResult | null> {
@@ -377,18 +378,20 @@ export async function runSessionLoop(input: {
         ...(input.toolChoice ? { tool_choice: input.toolChoice } : {})
       };
 
-      const streamedAssistantTexts = new Map<number, StreamedAssistantSnapshot>();
+      const streamedAssistantTexts = new Map<
+        number,
+        StreamedAssistantSnapshot
+      >();
       currentStreamedAssistantTexts = streamedAssistantTexts;
       const response = await streamAnthropicMessage({
         client: input.client,
         request,
         ...(input.abortSignal ? { signal: input.abortSignal } : {}),
         onTextDelta: async ({ blockIndex, text }) => {
-          const current =
-            streamedAssistantTexts.get(blockIndex) ?? {
-              assistantMessageId: randomUUID(),
-              text: ""
-            };
+          const current = streamedAssistantTexts.get(blockIndex) ?? {
+            assistantMessageId: randomUUID(),
+            text: ""
+          };
           current.text = text;
           streamedAssistantTexts.set(blockIndex, current);
           await emitTraceEvent({
@@ -461,8 +464,11 @@ export async function runSessionLoop(input: {
       const assistantTexts: string[] = [];
       const toolCalls = extractToolCalls(responseBlocks);
       const recoveredToolCalls =
-        toolCalls.length > 0 ? [] : extractToolCallsFromTextBlocks(responseBlocks);
-      const resolvedToolCalls = toolCalls.length > 0 ? toolCalls : recoveredToolCalls;
+        toolCalls.length > 0
+          ? []
+          : extractToolCallsFromTextBlocks(responseBlocks);
+      const resolvedToolCalls =
+        toolCalls.length > 0 ? toolCalls : recoveredToolCalls;
 
       for (const [blockIndex, block] of responseBlocks.entries()) {
         if (block.type !== "text") {
@@ -525,7 +531,7 @@ export async function runSessionLoop(input: {
         );
         session = await input.sessionManager.setPendingToolCallIds(
           session.sessionId,
-resolvedToolCalls.map((toolCall) => toolCall.id)
+          resolvedToolCalls.map((toolCall) => toolCall.id)
         );
         session = await input.sessionManager.setLastError(
           session.sessionId,
@@ -555,12 +561,13 @@ resolvedToolCalls.map((toolCall) => toolCall.id)
               session,
               turnCount,
               loopState: "waiting for input",
-              finalAnswer: renderPendingPermissionAnswer(executed.request),
+              finalAnswer: "",
               stopReason: stopReason ?? "tool_use",
               toolCallCount,
               toolResultCount,
               toolOutputs,
               eventSink: input.eventSink,
+              appendAssistantMessage: false,
               clearPendingToolCallIds: false
             });
           }

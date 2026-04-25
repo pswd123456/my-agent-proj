@@ -179,15 +179,32 @@ export function getDisplayStateToneClass(
 ): string {
   switch (tone) {
     case "active":
-      return "text-[var(--app-border-accent)]";
+      return "text-[color:color-mix(in_srgb,var(--app-border-accent)_78%,white_22%)]";
     case "success":
       return "text-[var(--app-status-success)]";
     case "warning":
-      return "text-[var(--app-status-warning)]";
+      return "text-[color:color-mix(in_srgb,var(--app-status-warning)_88%,white_12%)]";
     case "danger":
       return "text-[var(--app-status-danger)]";
     case "neutral":
       return "text-[var(--app-text-secondary)]";
+  }
+}
+
+export function getSidebarStateBadgeClass(
+  tone: SessionDisplayState["tone"]
+): string {
+  switch (tone) {
+    case "active":
+      return "border-[color:color-mix(in_srgb,var(--app-border-accent)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--app-border-accent)_16%,transparent)] text-[color:color-mix(in_srgb,var(--app-border-accent)_78%,white_22%)]";
+    case "success":
+      return "border-[color:color-mix(in_srgb,var(--app-status-success)_55%,transparent)] bg-[color:color-mix(in_srgb,var(--app-status-success)_14%,transparent)] text-[var(--app-status-success)]";
+    case "warning":
+      return "border-[color:color-mix(in_srgb,var(--app-status-warning)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--app-status-warning)_16%,transparent)] text-[color:color-mix(in_srgb,var(--app-status-warning)_88%,white_12%)]";
+    case "danger":
+      return "border-[color:color-mix(in_srgb,var(--app-status-danger)_55%,transparent)] bg-[color:color-mix(in_srgb,var(--app-status-danger)_14%,transparent)] text-[var(--app-status-danger)]";
+    case "neutral":
+      return "border-[var(--app-border-subtle)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_82%,transparent)] text-[var(--app-text-secondary)]";
   }
 }
 
@@ -454,6 +471,9 @@ export function SessionWorkbenchSidebar({
               const stateToneClass = getDisplayStateToneClass(
                 displayState.tone
               );
+              const stateBadgeClass = getSidebarStateBadgeClass(
+                displayState.tone
+              );
 
               if (collapsed) {
                 return (
@@ -496,11 +516,13 @@ export function SessionWorkbenchSidebar({
                       <div className="font-mono text-[0.72rem] text-[var(--app-text-muted)]">
                         {session.sessionId.slice(0, 8)}
                       </div>
-                      <div
-                        className={`mt-2 text-sm font-medium ${stateToneClass}`}
-                        title={displayState.detail}
-                      >
-                        {displayState.label}
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <span
+                          className={`inline-flex items-center rounded-[var(--app-radius-pill)] border px-2.5 py-1 text-[0.72rem] font-medium ${stateBadgeClass}`}
+                          title={displayState.detail}
+                        >
+                          {displayState.label}
+                        </span>
                       </div>
                     </button>
                     <button

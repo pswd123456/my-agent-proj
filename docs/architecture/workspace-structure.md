@@ -34,7 +34,7 @@
 - `api` 是当前主入口，负责 session 生命周期、执行触发、SSE 输出、trace / system log 查询、用户 settings 读取与归一化、interrupt、snapshot / recover，以及已落地的 routine 相关接口
 - `web` 是当前唯一产品层前端，主要承担工作台和调试可观测性；它消费 `packages/tokens`、`packages/ui-patterns` 和 `packages/ui`
 - agent session 的默认工作目录不再直接落在 repo root，而是 repo 根下的 `agent-workspace/`
-- `apps/worker/` 当前仅作为残留目录存在；它没有进入 workspace 启动链路，也不应被表述为已启用应用
+- `worker` 目录当前仅作为历史残留存在；它没有进入 workspace 启动链路，也不应被表述为已启用应用
 
 ### `packages/`
 
@@ -80,4 +80,4 @@
 - 工作区 skills 统一放在 session workingDirectory 下的 `.agent/skills/`
 - 文档中应显式区分“当前已实现”和“后续预留”，避免模板期说法长期漂移
 - 构建产物和运行中间文件不应作为架构事实来源；源代码与文档才是长期权威
-- 当前 workspace 包名前缀仍为 `@ai-app-template/*`，新增代码时应先遵守现有 import 边界，再决定是否统一重命名
+- 当前 workspace 包名前缀仍为 `@ai-app-template/*`；这是模板遗留命名，不代表仓库对外产品名

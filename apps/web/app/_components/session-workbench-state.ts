@@ -37,6 +37,7 @@ export interface ToolRow {
   toolCallId: string;
   toolName: string;
   createdAt: string;
+  turnCount: number | null;
   input: Record<string, unknown> | null;
   output: string | null;
   displayText: string | null;
@@ -104,6 +105,165 @@ export function mergeSessionSummary(
   );
 }
 
+export function applyStreamEventToSession(
+  session: SessionSnapshot,
+  event: RunStreamEvent
+): SessionSnapshot {
+  switch (event.kind) {
+    case "turn_start":
+      return {
+        ...session,
+        sessionState: {
+          ...session.sessionState,
+          ...event.session.sessionState,
+          loopState: "running",
+          interruptRequested: false
+        },
+        context: {
+          ...session.context,
+          status: "running"
+        }
+      };
+    case "tool_call": {
+      const nextPending = new Set(session.sessionState.pendingToolCallIds);
+      nextPending.add(event.toolCallId);
+      return {
+        ...session,
+        sessionState: {
+          ...session.sessionState,
+          loopState: "waiting for tool result",
+          pendingToolCallIds: [...nextPending]
+        },
+        context: {
+          ...session.context,
+          status: "running"
+        }
+      };
+    }
+    case "tool_result": {
+      const nextPending = session.sessionState.pendingToolCallIds.filter(
+        (id) => id !== event.toolCallId
+      );
+      return {
+        ...session,
+        sessionState: {
+          ...session.sessionState,
+          loopState:
+            nextPending.length > 0 ? "waiting for tool result" : "running",
+          pendingToolCallIds: nextPending
+        },
+        context: {
+          ...session.context,
+          status: "running"
+        }
+      };
+    }
+    case "permission_request":
+      return {
+        ...session,
+        sessionState: {
+          ...session.sessionState,
+          loopState: "waiting for input"
+        },
+        context: {
+          ...session.context,
+          status: "waiting_for_permission",
+          pendingPermissionRequest: event.request
+        }
+      };
+    case "permission_approved": {
+      const nextPending = new Set(session.sessionState.pendingToolCallIds);
+      nextPending.add(event.toolCallId);
+      return {
+        ...session,
+        sessionState: {
+          ...session.sessionState,
+          loopState: "waiting for tool result",
+          pendingToolCallIds: [...nextPending]
+        },
+        context: {
+          ...session.context,
+          status: "running",
+          pendingPermissionRequest: null
+        }
+      };
+    }
+    case "permission_rejected":
+    case "permission_blocked":
+      return {
+        ...session,
+        sessionState: {
+          ...session.sessionState,
+          loopState: "waiting for input"
+        },
+        context: {
+          ...session.context,
+          status: "waiting_for_user_input",
+          pendingPermissionRequest: null
+        }
+      };
+    case "interrupt_requested":
+      return {
+        ...session,
+        sessionState: {
+          ...session.sessionState,
+          interruptRequested: true
+        }
+      };
+    case "interrupted":
+      return {
+        ...session,
+        sessionState: {
+          ...session.sessionState,
+          loopState: "interrupted",
+          interruptRequested: false,
+          pendingToolCallIds: []
+        },
+        context: {
+          ...session.context,
+          status: "waiting_for_user_input",
+          pendingPermissionRequest: null
+        }
+      };
+    case "turn_end":
+      return {
+        ...session,
+        sessionState: {
+          ...session.sessionState,
+          loopState: event.loopState,
+          interruptRequested: false,
+          pendingToolCallIds:
+            event.loopState === "waiting for tool result"
+              ? session.sessionState.pendingToolCallIds
+              : []
+        },
+        context: {
+          ...session.context,
+          status:
+            event.loopState === "completed"
+              ? "completed"
+              : event.loopState === "failed"
+                ? "failed"
+                : event.loopState === "interrupted"
+                  ? "waiting_for_user_input"
+                  : event.loopState === "waiting for input"
+                    ? "waiting_for_user_input"
+                    : "running",
+          pendingPermissionRequest:
+            event.loopState === "waiting for input"
+              ? session.context.pendingPermissionRequest
+              : null
+        }
+      };
+    case "run_complete":
+      return event.session;
+    case "run_error":
+      return "session" in event ? (event.session ?? session) : session;
+    default:
+      return session;
+  }
+}
+
 export function isReusableNewSessionSummary(session: SessionSummary): boolean {
   return (
     session.status === "waiting_for_user_input" &&
@@ -126,6 +286,18 @@ export function findReusableNewSessionSummary(
 export function getSessionDisplayState(
   session: SessionDisplayStateInput
 ): SessionDisplayState {
+  if (session.loopState === "waiting for tool result") {
+    const pendingCount = session.pendingToolCallIds.length;
+    return {
+      label:
+        pendingCount > 0 ? `等待工具结果 · ${pendingCount}` : "执行中",
+      detail: "工具调用已获准，runtime 正在继续执行当前请求。",
+      tone: "active",
+      isWaitingForUser: false,
+      isActiveExecution: true
+    };
+  }
+
   if (session.interruptRequested) {
     return {
       label: "停止中",
@@ -159,18 +331,6 @@ export function getSessionDisplayState(
       tone: "warning",
       isWaitingForUser: true,
       isActiveExecution: false
-    };
-  }
-
-  if (session.loopState === "waiting for tool result") {
-    const pendingCount = session.pendingToolCallIds.length;
-    return {
-      label:
-        pendingCount > 0 ? `等待工具结果 · ${pendingCount}` : "等待工具结果",
-      detail: "模型已发起工具调用，runtime 正在等待工具返回。",
-      tone: "active",
-      isWaitingForUser: false,
-      isActiveExecution: true
     };
   }
 
@@ -225,8 +385,8 @@ export function getSessionDisplayState(
   }
 
   return {
-    label: "空闲",
-    detail: "会话尚未开始执行。",
+    label: "等待输入",
+    detail: "会话空闲，正在等待下一条用户输入。",
     tone: "neutral",
     isWaitingForUser: true,
     isActiveExecution: false
@@ -312,6 +472,7 @@ export function collectToolRows(events: RunStreamEvent[]): ToolRow[] {
         toolCallId: event.toolCallId,
         toolName: event.toolName,
         createdAt: event.createdAt,
+        turnCount: event.turnCount,
         input: event.input,
         output: null,
         displayText: null,
@@ -341,6 +502,7 @@ export function collectToolRows(events: RunStreamEvent[]): ToolRow[] {
         toolCallId: event.toolCallId,
         toolName: event.toolName,
         createdAt: event.createdAt,
+        turnCount: event.turnCount,
         input: null,
         output: null,
         displayText: null,
@@ -374,6 +536,7 @@ export function collectToolRows(events: RunStreamEvent[]): ToolRow[] {
         toolCallId: event.toolCallId,
         toolName: event.toolName,
         createdAt: event.createdAt,
+        turnCount: event.turnCount,
         input: null,
         output: null,
         displayText: null,
@@ -402,6 +565,7 @@ export function collectToolRows(events: RunStreamEvent[]): ToolRow[] {
         toolCallId: event.toolCallId,
         toolName: event.toolName,
         createdAt: event.createdAt,
+        turnCount: event.turnCount,
         input: null,
         output: null,
         displayText: null,
@@ -432,6 +596,7 @@ export function collectToolRows(events: RunStreamEvent[]): ToolRow[] {
       toolCallId: event.toolCallId,
       toolName: event.toolName,
       createdAt: event.createdAt,
+      turnCount: event.turnCount,
       input: null,
       output: event.output,
       displayText: event.displayText ?? null,

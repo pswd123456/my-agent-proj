@@ -3,7 +3,6 @@ import type { ScheduleSessionContext } from "@ai-app-template/domain";
 export type LoopState =
   | "running"
   | "interrupted"
-  | "idle"
   | "completed"
   | "waiting for input"
   | "waiting for tool result"

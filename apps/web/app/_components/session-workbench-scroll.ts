@@ -11,6 +11,11 @@ export type ConversationScrollIntent =
   | "follow-latest-item"
   | "none";
 
+export type ConversationResizeAutoFollowIntent =
+  | "follow-latest-item"
+  | "skip-once"
+  | "none";
+
 interface ConversationScrollIntentInput {
   previous: ConversationScrollSnapshot | null;
   next: ConversationScrollSnapshot;
@@ -24,6 +29,12 @@ interface ConversationAutoFollowStateInput {
   maxScrollTop: number;
   nearEndThresholdPx?: number;
   scrollUpThresholdPx?: number;
+}
+
+interface ConversationResizeAutoFollowIntentInput {
+  followLatest: boolean;
+  latestItemKey: string | null;
+  skipNextResizeAutoFollow: boolean;
 }
 
 function isTurnStartItem(item: TimelineItem): boolean {
@@ -89,4 +100,20 @@ export function updateConversationAutoFollowState(
   }
 
   return current;
+}
+
+export function getConversationResizeAutoFollowIntent(
+  input: ConversationResizeAutoFollowIntentInput
+): ConversationResizeAutoFollowIntent {
+  const { followLatest, latestItemKey, skipNextResizeAutoFollow } = input;
+
+  if (!followLatest || !latestItemKey) {
+    return "none";
+  }
+
+  if (skipNextResizeAutoFollow) {
+    return "skip-once";
+  }
+
+  return "follow-latest-item";
 }

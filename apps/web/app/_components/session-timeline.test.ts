@@ -2,7 +2,10 @@ import { describe, expect, test } from "bun:test";
 
 import type { RunStreamEvent, SessionSnapshot } from "@ai-app-template/sdk";
 
-import { buildTimelineItems, getTimelineEventRenderKey } from "./session-timeline";
+import {
+  buildTimelineItems,
+  getTimelineEventRenderKey
+} from "./session-timeline";
 
 const firstUser: Extract<
   SessionSnapshot["messages"][number],
@@ -35,19 +38,19 @@ const turnStart: Extract<RunStreamEvent, { kind: "turn_start" }> = {
   sessionId: "session-1",
   createdAt: "2026-04-21T18:46:03.364Z",
   turnCount: 1,
-    session: {
-      sessionId: "session-1",
-      workingDirectory: "/tmp/workspace",
-      model: "MiniMax-M2.7",
-      sessionState: {
-        loopState: "running",
-        turnCount: 1,
-        lastError: null,
-        pendingToolCallIds: [],
-        interruptRequested: false
-      }
+  session: {
+    sessionId: "session-1",
+    workingDirectory: "/tmp/workspace",
+    model: "MiniMax-M2.7",
+    sessionState: {
+      loopState: "running",
+      turnCount: 1,
+      lastError: null,
+      pendingToolCallIds: [],
+      interruptRequested: false
     }
-  };
+  }
+};
 
 const thinkingEvent: Extract<RunStreamEvent, { kind: "thinking" }> = {
   kind: "thinking",
@@ -91,6 +94,32 @@ const permissionRequestEvent: Extract<
     summaryText: "需要确认后才能删除。",
     createdAt: "2026-04-21T18:46:21.730Z"
   }
+};
+
+const permissionApprovedEvent: Extract<
+  RunStreamEvent,
+  { kind: "permission_approved" }
+> = {
+  kind: "permission_approved",
+  sessionId: "session-1",
+  createdAt: "2026-04-21T18:46:21.734Z",
+  turnCount: 1,
+  toolCallId: "call-current",
+  toolName: "delete_routine",
+  request: permissionRequestEvent.request
+};
+
+const permissionRejectedEvent: Extract<
+  RunStreamEvent,
+  { kind: "permission_rejected" }
+> = {
+  kind: "permission_rejected",
+  sessionId: "session-1",
+  createdAt: "2026-04-21T18:46:21.734Z",
+  turnCount: 1,
+  toolCallId: "call-current",
+  toolName: "delete_routine",
+  request: permissionRequestEvent.request
 };
 
 const interruptRequestedEvent: Extract<
@@ -255,6 +284,46 @@ describe("buildTimelineItems", () => {
     ]);
   });
 
+  test("collapses request plus approved into a single approved permission event", () => {
+    const items = buildTimelineItems({
+      messages: [firstUser],
+      historyEvents: [
+        turnStart,
+        thinkingEvent,
+        currentToolCall,
+        permissionRequestEvent,
+        permissionApprovedEvent
+      ],
+      streamEvents: []
+    });
+
+    expect(
+      items
+        .filter((item) => item.type === "event")
+        .map((item) => item.event.kind)
+    ).toEqual(["turn_start", "thinking", "tool_call", "permission_approved"]);
+  });
+
+  test("collapses request plus rejected into a single rejected permission event", () => {
+    const items = buildTimelineItems({
+      messages: [firstUser],
+      historyEvents: [
+        turnStart,
+        thinkingEvent,
+        currentToolCall,
+        permissionRequestEvent,
+        permissionRejectedEvent
+      ],
+      streamEvents: []
+    });
+
+    expect(
+      items
+        .filter((item) => item.type === "event")
+        .map((item) => item.event.kind)
+    ).toEqual(["turn_start", "thinking", "tool_call", "permission_rejected"]);
+  });
+
   test("does not render interrupt request events in the conversation timeline", () => {
     const items = buildTimelineItems({
       messages: [firstUser],
@@ -309,6 +378,37 @@ describe("buildTimelineItems", () => {
 
     expect(assistantEvents).toHaveLength(1);
     expect(assistantEvents[0]?.event.text).toBe("我来帮你安排。");
+  });
+
+  test("filters empty assistant text snapshots that only reserve timeline space", () => {
+    const emptyAssistantEvent: Extract<
+      RunStreamEvent,
+      { kind: "assistant_text" }
+    > = {
+      kind: "assistant_text",
+      sessionId: "session-1",
+      createdAt: "2026-04-24T08:35:24.150Z",
+      turnCount: 1,
+      assistantMessageId: "assistant-empty-1",
+      text: ""
+    };
+
+    const items = buildTimelineItems({
+      messages: [firstUser],
+      historyEvents: [
+        turnStart,
+        thinkingEvent,
+        emptyAssistantEvent,
+        currentToolCall
+      ],
+      streamEvents: []
+    });
+
+    expect(
+      items
+        .filter((item) => item.type === "event")
+        .map((item) => item.event.kind)
+    ).toEqual(["turn_start", "thinking", "tool_call"]);
   });
 
   test("keeps thinking above the final assistant answer even when the trace arrives later", () => {

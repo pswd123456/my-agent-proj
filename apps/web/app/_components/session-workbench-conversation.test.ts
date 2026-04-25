@@ -52,10 +52,11 @@ describe("permission card feedback", () => {
     expect(feedback?.tone).toBe("approved");
     expect(view?.tone).toBe("approved");
     expect(view?.showActions).toBe(false);
-    expect(view?.detailText).toBe("已同意");
+    expect(view?.title).toBe("已同意");
+    expect(view?.detailText).toBeUndefined();
   });
 
-  test("keeps approved feedback for a short post-success window after the request clears", () => {
+  test("keeps approved feedback available immediately after the request clears", () => {
     const feedback = createPermissionCardFeedback(
       pendingPermissionRequest,
       "本会话允许 tool:list_directory"
@@ -69,7 +70,29 @@ describe("permission card feedback", () => {
 
     expect(view?.key).toBe(getPermissionRequestKey(pendingPermissionRequest));
     expect(view?.tone).toBe("approved");
-    expect(view?.detailText).toBe("已同意");
+    expect(view?.title).toBe("已同意");
+    expect(view?.detailText).toBeUndefined();
+  });
+
+  test("hides approved feedback once the permission request key is cleared", () => {
+    const feedback = createPermissionCardFeedback(
+      pendingPermissionRequest,
+      "本会话允许 tool:list_directory"
+    );
+
+    const viewWhilePending = buildPermissionCardView({
+      pendingPermissionRequest,
+      feedback,
+      submitting: false
+    });
+    const viewAfterClear = buildPermissionCardView({
+      pendingPermissionRequest: null,
+      feedback,
+      submitting: false
+    });
+
+    expect(viewWhilePending?.tone).toBe("approved");
+    expect(viewAfterClear?.tone).toBe("approved");
   });
 
   test("shows rejected feedback when the user cancels", () => {
@@ -86,7 +109,8 @@ describe("permission card feedback", () => {
 
     expect(feedback?.tone).toBe("rejected");
     expect(view?.tone).toBe("rejected");
-    expect(view?.detailText).toBe("已取消");
+    expect(view?.title).toBe("已取消");
+    expect(view?.detailText).toBeUndefined();
   });
 });
 

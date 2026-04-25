@@ -23,6 +23,7 @@ import {
 import {
   buildConversationScrollSnapshot,
   getConversationScrollIntent,
+  getConversationResizeAutoFollowIntent,
   updateConversationAutoFollowState
 } from "./session-workbench-scroll";
 import { getTimelineEventKey, type TimelineItem } from "./session-timeline";
@@ -72,6 +73,34 @@ interface AssistantTextBubbleProps {
   onAnimationComplete?: (itemKey: string) => void;
 }
 
+function AssistantRobotIcon() {
+  return (
+    <span
+      aria-hidden
+      className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-[var(--app-border-subtle)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_82%,transparent)] text-[var(--app-text-secondary)]"
+    >
+      <svg
+        viewBox="0 0 24 24"
+        className="h-3.5 w-3.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M12 4v3" />
+        <path d="M9 4h6" />
+        <rect x="5" y="8" width="14" height="10" rx="3" />
+        <path d="M8 18v2" />
+        <path d="M16 18v2" />
+        <circle cx="9.5" cy="13" r="1" fill="currentColor" stroke="none" />
+        <circle cx="14.5" cy="13" r="1" fill="currentColor" stroke="none" />
+        <path d="M9 15.8h6" />
+      </svg>
+    </span>
+  );
+}
+
 type PermissionCardTone = "pending" | "approved" | "rejected";
 
 interface PermissionCardFeedback {
@@ -87,17 +116,17 @@ interface PermissionCardView {
   summaryText: string;
   tone: PermissionCardTone;
   title: string;
-  detailText: string;
+  detailText?: string;
   showActions: boolean;
 }
+
+const PERMISSION_FEEDBACK_HIDE_DELAY_MS = 200;
 
 interface ComposerActionView {
   buttonLabel: string;
   buttonType: "submit" | "interrupt";
   disabled: boolean;
 }
-
-const PERMISSION_FEEDBACK_HIDE_DELAY_MS = 200;
 
 function escapeTimelineItemKey(key: string): string {
   return key.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
@@ -192,14 +221,7 @@ export function buildPermissionCardView(input: {
       toolName: feedback.toolName,
       summaryText: feedback.summaryText,
       tone: feedback.tone,
-      title:
-        feedback.tone === "approved"
-          ? "Permission Approved"
-          : "Permission Rejected",
-      detailText:
-        feedback.tone === "approved"
-          ? "已同意"
-          : "已取消",
+      title: feedback.tone === "approved" ? "已同意" : "已取消",
       showActions: false
     };
   }
@@ -214,7 +236,6 @@ export function buildPermissionCardView(input: {
     summaryText: pendingPermissionRequest.summaryText,
     tone: "pending",
     title: "Permission Request",
-    detailText: "",
     showActions: true
   };
 }
@@ -269,6 +290,7 @@ function AssistantTextBubble({
     [content]
   );
   const totalLength = characters.length;
+  const hasVisibleContent = content.trim().length > 0;
   const [visibleLength, setVisibleLength] = useState(() =>
     animate ? 0 : totalLength
   );
@@ -332,25 +354,32 @@ function AssistantTextBubble({
     : content;
   const showCursor = streaming || isTyping;
 
+  if (!hasVisibleContent) {
+    return null;
+  }
+
   return (
-    <div
-      className={`${getBubbleClass("assistant")} ${
-        animate ? "[overflow-anchor:none]" : ""
-      }`}
-    >
-      {showPlainText ? (
-        <div className="min-w-0 whitespace-pre-wrap text-sm leading-7 text-inherit [overflow-wrap:anywhere]">
-          {visibleContent}
-          {showCursor ? (
-            <span
-              aria-hidden
-              className="ml-1 inline-block h-[1em] w-[0.55ch] translate-y-[0.12em] animate-pulse rounded-[2px] bg-[var(--app-accent)] align-baseline"
-            />
-          ) : null}
-        </div>
-      ) : (
-        <MessageMarkdown content={visibleContent} />
-      )}
+    <div className="flex items-start gap-3">
+      <AssistantRobotIcon />
+      <div
+        className={`${getBubbleClass("assistant")} min-w-0 flex-1 ${
+          animate ? "[overflow-anchor:none]" : ""
+        }`}
+      >
+        {showPlainText ? (
+          <div className="min-w-0 whitespace-pre-wrap text-sm leading-7 text-inherit [overflow-wrap:anywhere]">
+            {visibleContent}
+            {showCursor ? (
+              <span
+                aria-hidden
+                className="ml-1 inline-block h-[1em] w-[0.55ch] translate-y-[0.12em] animate-pulse rounded-[2px] bg-[var(--app-accent)] align-baseline"
+              />
+            ) : null}
+          </div>
+        ) : (
+          <MessageMarkdown content={visibleContent} />
+        )}
+      </div>
     </div>
   );
 }
@@ -552,10 +581,6 @@ function renderExecutionEvent(
         </div>
         <div className="mt-3 grid gap-2 text-sm leading-6 text-[var(--app-text-secondary)]">
           <div>{event.request.summaryText}</div>
-          <div className="font-mono text-[0.72rem] uppercase tracking-[0.14em] text-[var(--app-text-muted)]">
-            {getPermissionFamilyLabel(event.request.family)} /{" "}
-            {event.request.permissionProfile}
-          </div>
           {event.request.contextNote ? (
             <div className="text-[var(--app-text-muted)]">
               {event.request.contextNote}
@@ -770,7 +795,7 @@ function renderTimelineItem(
   recentAssistantEventKeys: Set<string>,
   onAssistantAnimationComplete: (itemKey: string) => void,
   turnUsageByTurnCount: Map<number, TurnUsageSummary>
-) {
+): React.ReactNode {
   if (item.type === "event") {
     return renderExecutionEvent(
       item.event,
@@ -786,6 +811,10 @@ function renderTimelineItem(
   }
 
   return renderConversationBlock(item.block);
+}
+
+function hasRenderableTimelineContent(node: React.ReactNode): boolean {
+  return node !== null && node !== undefined && node !== false;
 }
 
 export function SessionWorkbenchConversationPanel({
@@ -817,6 +846,8 @@ export function SessionWorkbenchConversationPanel({
   const autoFollowLatestRef = useRef(true);
   const isProgrammaticScrollRef = useRef(false);
   const previousViewportScrollTopRef = useRef(0);
+  const skipNextResizeAutoFollowRef = useRef(false);
+  const resizeAutoFollowResetFrameRef = useRef<number | null>(null);
   const permissionRequestKey = getPermissionRequestKey(
     pendingPermissionRequest
   );
@@ -848,6 +879,28 @@ export function SessionWorkbenchConversationPanel({
     interrupting,
     canSubmit: Boolean(currentSession && message.trim() && !submitting)
   });
+  const renderedTimelineItems = useMemo(
+    () =>
+      timelineItems
+        .map((item) => ({
+          item,
+          content: renderTimelineItem(
+            item,
+            streamEventKeys,
+            recentAssistantEventKeys,
+            onAssistantAnimationComplete,
+            turnUsageByTurnCount
+          )
+        }))
+        .filter((entry) => hasRenderableTimelineContent(entry.content)),
+    [
+      timelineItems,
+      streamEventKeys,
+      recentAssistantEventKeys,
+      onAssistantAnimationComplete,
+      turnUsageByTurnCount
+    ]
+  );
 
   const scrollTimelineItemIntoView = useEffectEvent(
     (itemKey: string | null, block: "start" | "end") => {
@@ -904,6 +957,25 @@ export function SessionWorkbenchConversationPanel({
     );
   });
 
+  const clearPendingResizeAutoFollowSkip = useEffectEvent(() => {
+    const frameId = resizeAutoFollowResetFrameRef.current;
+    if (frameId === null) {
+      return;
+    }
+
+    window.cancelAnimationFrame(frameId);
+    resizeAutoFollowResetFrameRef.current = null;
+  });
+
+  const armResizeAutoFollowSkip = useEffectEvent(() => {
+    skipNextResizeAutoFollowRef.current = true;
+    clearPendingResizeAutoFollowSkip();
+    resizeAutoFollowResetFrameRef.current = window.requestAnimationFrame(() => {
+      skipNextResizeAutoFollowRef.current = false;
+      resizeAutoFollowResetFrameRef.current = null;
+    });
+  });
+
   useEffect(() => {
     if (copyButtonLabel === "复制") {
       return undefined;
@@ -934,10 +1006,7 @@ export function SessionWorkbenchConversationPanel({
       return;
     }
 
-    if (
-      permissionRequestKey === permissionCardFeedback.requestKey &&
-      !submitting
-    ) {
+    if (permissionRequestKey === permissionCardFeedback.requestKey && !submitting) {
       setPermissionCardFeedback(null);
     }
   }, [permissionCardFeedback, permissionRequestKey, submitting]);
@@ -947,7 +1016,7 @@ export function SessionWorkbenchConversationPanel({
       return undefined;
     }
 
-    if (permissionRequestKey === permissionCardFeedback.requestKey) {
+    if (permissionRequestKey) {
       return undefined;
     }
 
@@ -972,7 +1041,11 @@ export function SessionWorkbenchConversationPanel({
     previousScrollSnapshotRef.current = buildConversationScrollSnapshot([]);
     previousViewportScrollTopRef.current = 0;
     autoFollowLatestRef.current = true;
+    skipNextResizeAutoFollowRef.current = false;
+    clearPendingResizeAutoFollowSkip();
   }, [currentSession?.sessionId]);
+
+  useEffect(() => clearPendingResizeAutoFollowSkip, [clearPendingResizeAutoFollowSkip]);
 
   useLayoutEffect(() => {
     const intent = getConversationScrollIntent({
@@ -982,13 +1055,20 @@ export function SessionWorkbenchConversationPanel({
     });
 
     if (intent === "align-latest-turn") {
+      armResizeAutoFollowSkip();
       scrollTimelineItemIntoView(scrollSnapshot.latestTurnAnchorKey, "start");
     } else if (intent === "follow-latest-item") {
+      armResizeAutoFollowSkip();
       keepLatestTurnInView();
     }
 
     previousScrollSnapshotRef.current = scrollSnapshot;
-  }, [keepLatestTurnInView, scrollSnapshot, scrollTimelineItemIntoView]);
+  }, [
+    armResizeAutoFollowSkip,
+    keepLatestTurnInView,
+    scrollSnapshot,
+    scrollTimelineItemIntoView
+  ]);
 
   useEffect(() => {
     const timelineContent = timelineContentRef.current;
@@ -997,12 +1077,32 @@ export function SessionWorkbenchConversationPanel({
     }
 
     const resizeObserver = new ResizeObserver(() => {
+      const resizeIntent = getConversationResizeAutoFollowIntent({
+        followLatest: autoFollowLatestRef.current,
+        latestItemKey: scrollSnapshot.latestItemKey,
+        skipNextResizeAutoFollow: skipNextResizeAutoFollowRef.current
+      });
+
+      if (resizeIntent === "skip-once") {
+        skipNextResizeAutoFollowRef.current = false;
+        clearPendingResizeAutoFollowSkip();
+        return;
+      }
+
+      if (resizeIntent === "none") {
+        return;
+      }
+
       keepLatestTurnInView();
     });
     resizeObserver.observe(timelineContent);
 
     return () => resizeObserver.disconnect();
-  }, [keepLatestTurnInView, scrollSnapshot.latestItemKey]);
+  }, [
+    clearPendingResizeAutoFollowSkip,
+    keepLatestTurnInView,
+    scrollSnapshot.latestItemKey
+  ]);
 
   async function handleCopySessionId() {
     const sessionId = currentSession?.sessionId;
@@ -1083,20 +1183,14 @@ export function SessionWorkbenchConversationPanel({
                 </div>
               ) : null}
 
-              {timelineItems.length ? (
-                timelineItems.map((item) => (
+              {renderedTimelineItems.length ? (
+                renderedTimelineItems.map(({ item, content }) => (
                   <div
                     key={item.key}
                     data-timeline-item-key={item.key}
                     className="min-w-0"
                   >
-                    {renderTimelineItem(
-                      item,
-                      streamEventKeys,
-                      recentAssistantEventKeys,
-                      onAssistantAnimationComplete,
-                      turnUsageByTurnCount
-                    )}
+                    {content}
                   </div>
                 ))
               ) : (
@@ -1205,8 +1299,8 @@ export function SessionWorkbenchConversationPanel({
                           }`}
                         >
                           {permissionCardView.tone === "approved"
-                            ? "approved"
-                            : "rejected"}
+                            ? "执行中"
+                            : "已取消"}
                         </div>
                       )}
                     </div>

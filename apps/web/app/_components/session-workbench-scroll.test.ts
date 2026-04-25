@@ -5,6 +5,7 @@ import type { RunStreamEvent } from "@ai-app-template/sdk";
 import {
   buildConversationScrollSnapshot,
   getConversationScrollIntent,
+  getConversationResizeAutoFollowIntent,
   updateConversationAutoFollowState
 } from "./session-workbench-scroll";
 import type { TimelineItem } from "./session-timeline";
@@ -143,5 +144,25 @@ describe("conversation scroll helpers", () => {
         maxScrollTop: 900
       })
     ).toBe(true);
+  });
+
+  test("skips the first resize follow right after layout scroll already handled a new item", () => {
+    expect(
+      getConversationResizeAutoFollowIntent({
+        followLatest: true,
+        latestItemKey: "event-assistant-2",
+        skipNextResizeAutoFollow: true
+      })
+    ).toBe("skip-once");
+  });
+
+  test("keeps resize-based follow for later streaming growth of the same item", () => {
+    expect(
+      getConversationResizeAutoFollowIntent({
+        followLatest: true,
+        latestItemKey: "event-assistant-2",
+        skipNextResizeAutoFollow: false
+      })
+    ).toBe("follow-latest-item");
   });
 });

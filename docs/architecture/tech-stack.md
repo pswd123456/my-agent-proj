@@ -7,7 +7,7 @@
 - API 是 `Hono` + `Zod`
 - agent runtime 是仓库内自定义的 `AgentRuntime.run` 执行循环
 - 数据层是 `PostgreSQL` + `Drizzle ORM` + `postgres` 驱动
-- 模型接入是 `Anthropic SDK` 对接 MiniMax Anthropic-compatible endpoint
+- 模型接入当前通过 `Anthropic SDK` 对接 Anthropic-compatible endpoint，默认配置指向 MiniMax
 
 ## 已落地实现
 
@@ -39,7 +39,7 @@
 - prompt 拼装在 `packages/agent/src/prompt.ts`
 - provider 适配在 `packages/agent/src/model.ts`
 - session 抽象和 PostgreSQL / file / memory 实现在 `packages/agent/src/session/`
-- runtime 已落地 permission checker、interrupt、tool compaction 和 system log 边界
+- runtime 已落地 permission checker、interrupt、history compact 和 system log 边界
 - workspace skill discovery 在 `packages/agent/src/skills/`
 - tool registry 与具体工具在 `packages/agent/src/tools/`
 - trace 以 JSONL 追加写入 `tmp/agent-sessions/sessions/`；system log 以结构化 JSONL 写入 `tmp/agent-sessions/logs/` 并按大小轮转
@@ -55,13 +55,12 @@
   - `session_messages`
   - `agent_settings`
 
-## 当前没有落地的模板项
+## 已安装但不属于当前主链路的项
 
-- `OpenAPI`：文档和类型权威源目前仍然是运行代码与 `packages/sdk`，不是生成式 OpenAPI
-- `LangGraph`：当前 runtime 主路径不是 LangGraph 编排，而是仓库内自定义 loop
-- `Better Auth`：当前仓库未看到已接入的鉴权主链路
-- `pg-boss` / 向量检索 / 多模型编排：目前都还不是运行主链路的一部分
-- agent runtime 当前以仓库内自定义 loop 为准，技术栈文档不再把历史或未启用方案写成现状
+- `OpenAPI`：当前不是 API 契约权威源
+- `LangGraph`：依赖存在，但 runtime 主路径不是 LangGraph 编排
+- `Better Auth`：当前未接入鉴权主链路
+- `pg-boss` / 向量检索 / 多模型编排：当前不在运行主链路里
 
 ## 选择原则
 

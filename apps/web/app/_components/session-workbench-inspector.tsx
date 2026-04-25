@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, type ReactNode } from "react";
 
 import type { RunStreamEvent } from "@ai-app-template/sdk";
 
@@ -13,12 +13,13 @@ import {
   getDebugPreClass,
   getInspectorCardClass,
   getPermissionDecisionLabel,
-  getSoftBlockClass,
   stringify
 } from "./session-workbench-shared";
 
 type PromptEvent = Extract<RunStreamEvent, { kind: "prompt" }>;
 type ThinkingEvent = Extract<RunStreamEvent, { kind: "thinking" }>;
+type ResponseEvent = Extract<RunStreamEvent, { kind: "response" }>;
+type RunErrorEvent = Extract<RunStreamEvent, { kind: "run_error" }>;
 
 interface SessionWorkbenchInspectorProps {
   activeTab: InspectorTabId;
@@ -31,38 +32,140 @@ interface SessionWorkbenchInspectorProps {
 }
 
 function EmptyInspectorState({ message }: { message: string }) {
+  return <div className="py-6 text-sm text-[var(--app-text-muted)]">{message}</div>;
+}
+
+function SectionTitle({ label, meta }: { label: string; meta?: string }) {
   return (
-    <div className={getSoftBlockClass("py-6 text-sm text-[var(--app-text-muted)]")}>
-      {message}
+    <div className="flex items-start justify-between gap-3">
+      <div className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
+        {label}
+      </div>
+      {meta ? <div className="text-[0.68rem] text-[var(--app-text-muted)]">{meta}</div> : null}
     </div>
   );
 }
 
-function InspectorDataBlock({
+function FlatBlock({
   label,
   value,
-  tone = "muted"
+  tone = "muted",
+  collapsed = false,
+  summary,
+  meta
 }: {
   label: string;
   value: string;
   tone?: "muted" | "surface";
+  collapsed?: boolean;
+  summary?: string;
+  meta?: string;
 }) {
+  const shellClassName =
+    "min-w-0 rounded-[var(--app-radius-md)] border border-[var(--app-border-subtle)] px-3 py-3";
+
+  if (collapsed) {
+    return (
+      <details className={shellClassName}>
+        <summary className="cursor-pointer list-none">
+          <SectionTitle label={label} meta={summary ?? meta ?? "展开查看"} />
+        </summary>
+        <pre className={getDebugPreClass(tone).replace("mt-2 ", "mt-3 ")}>{value}</pre>
+      </details>
+    );
+  }
+
   return (
-    <div className={getSoftBlockClass("px-3 py-3")}>
-      <p className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
-        {label}
-      </p>
+    <div className={shellClassName}>
+      <SectionTitle label={label} {...(meta ? { meta } : {})} />
       <pre className={getDebugPreClass(tone)}>{value}</pre>
     </div>
   );
 }
 
+function PlainCard({ children }: { children: ReactNode }) {
+  return <article className={getInspectorCardClass()}>{children}</article>;
+}
+
+function summarizeText(value: string | null | undefined, fallback: string): string {
+  if (!value) {
+    return fallback;
+  }
+
+  const compact = value.replace(/\s+/g, " ").trim();
+  if (!compact) {
+    return fallback;
+  }
+
+  return compact.length > 140 ? `${compact.slice(0, 140)}…` : compact;
+}
+
+function shouldCollapseLongText(value: string | null | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+
+  return value.length > 240 || value.includes("\n");
+}
+
+function getEventTurnCount(event: RunStreamEvent): number | null {
+  return "turnCount" in event ? event.turnCount : null;
+}
+
+function getEventNarrativeOrder(event: RunStreamEvent): number {
+  switch (event.kind) {
+    case "turn_start":
+      return 0;
+    case "prompt":
+      return 1;
+    case "thinking":
+      return 2;
+    case "tool_call":
+      return 3;
+    case "permission_request":
+      return 4;
+    case "permission_approved":
+    case "permission_rejected":
+    case "permission_blocked":
+      return 5;
+    case "tool_result":
+      return 6;
+    case "response":
+      return 7;
+    case "assistant_text":
+      return 8;
+    case "fallback":
+      return 9;
+    case "run_error":
+      return 10;
+    case "run_complete":
+      return 11;
+    case "turn_end":
+      return 12;
+    default:
+      return 99;
+  }
+}
+
+function sortEventsForNarrative(events: RunStreamEvent[]): RunStreamEvent[] {
+  return [...events].sort((left, right) => {
+    const leftTurn = getEventTurnCount(left);
+    const rightTurn = getEventTurnCount(right);
+
+    if (leftTurn !== null && rightTurn !== null && leftTurn !== rightTurn) {
+      return leftTurn - rightTurn;
+    }
+
+    if (left.createdAt !== right.createdAt) {
+      return left.createdAt.localeCompare(right.createdAt);
+    }
+
+    return getEventNarrativeOrder(left) - getEventNarrativeOrder(right);
+  });
+}
+
 function PromptMessagesPanel({ promptEvents }: { promptEvents: PromptEvent[] }) {
-  const [expandedTurns, setExpandedTurns] = useState<Set<number>>(() => new Set());
-  const sections = useMemo(
-    () => buildPromptMessageSections(promptEvents),
-    [promptEvents]
-  );
+  const sections = useMemo(() => buildPromptMessageSections(promptEvents), [promptEvents]);
 
   if (!sections.length) {
     return <EmptyInspectorState message="暂无 messages 事件。" />;
@@ -70,71 +173,45 @@ function PromptMessagesPanel({ promptEvents }: { promptEvents: PromptEvent[] }) 
 
   return (
     <div className="grid min-w-0 gap-3">
-      {sections.map((section) => {
-        const expanded = expandedTurns.has(section.turnCount);
-        return (
-          <article
-            key={`prompt-messages-${section.turnCount}`}
-            className={getInspectorCardClass()}
-          >
-            <button
-              type="button"
-              onClick={() => {
-                setExpandedTurns((current) => {
-                  const next = new Set(current);
-                  if (next.has(section.turnCount)) {
-                    next.delete(section.turnCount);
-                  } else {
-                    next.add(section.turnCount);
-                  }
-                  return next;
-                });
-              }}
-              className="flex w-full items-start justify-between gap-3 text-left"
-            >
-              <div className="min-w-0">
-                <div className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
-                  Turn {section.turnCount}
-                </div>
-                <div className="mt-2 text-sm text-[var(--app-text-secondary)]">
-                  {formatTimestamp(section.createdAt)}
-                </div>
-                <div className="mt-2 text-xs leading-6 text-[var(--app-text-muted)]">
-                  {section.summary}
-                </div>
-              </div>
-              <div className="shrink-0 rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-3 py-1 text-[0.68rem] uppercase tracking-[0.14em] text-[var(--app-text-muted)]">
-                {expanded ? "Hide" : "Show"}
-              </div>
-            </button>
-
-            {expanded ? (
-              <div className="mt-4 grid gap-3">
-                {section.mode === "full" ? (
-                  <InspectorDataBlock
-                    label="Full Context"
-                    tone="surface"
-                    value={section.fullText}
-                  />
-                ) : (
-                  <>
-                    <InspectorDataBlock
-                      label="Added Lines"
-                      tone="surface"
-                      value={section.addedText}
-                    />
-                    <InspectorDataBlock
-                      label="Removed Lines"
-                      tone="surface"
-                      value={section.removedText}
-                    />
-                  </>
-                )}
-              </div>
-            ) : null}
-          </article>
-        );
-      })}
+      {sections.map((section) => (
+        <PlainCard key={`prompt-messages-${section.turnCount}`}>
+          <SectionTitle
+            label={`Turn ${section.turnCount}`}
+            meta={`${formatTimestamp(section.createdAt)} · ${section.mode === "full" ? "full" : "diff"}`}
+          />
+          <div className="mt-3 text-sm leading-6 text-[var(--app-text-primary)]">
+            {section.summary}
+          </div>
+          <div className="mt-3 grid gap-3">
+            {section.mode === "full" ? (
+              <FlatBlock
+                label="Full Context"
+                tone="surface"
+                collapsed={shouldCollapseLongText(section.fullText)}
+                summary={summarizeText(section.fullText, "展开查看完整上下文")}
+                value={section.fullText}
+              />
+            ) : (
+              <>
+                <FlatBlock
+                  label="Added Lines"
+                  tone="surface"
+                  collapsed={shouldCollapseLongText(section.addedText)}
+                  summary={summarizeText(section.addedText, "展开查看新增内容")}
+                  value={section.addedText}
+                />
+                <FlatBlock
+                  label="Removed Lines"
+                  tone="surface"
+                  collapsed={shouldCollapseLongText(section.removedText)}
+                  summary={summarizeText(section.removedText, "展开查看移除内容")}
+                  value={section.removedText}
+                />
+              </>
+            )}
+          </div>
+        </PlainCard>
+      ))}
     </div>
   );
 }
@@ -146,24 +223,28 @@ function PromptTabPanel({ latestPromptEvent }: { latestPromptEvent: PromptEvent 
 
   return (
     <div className="grid min-w-0 gap-3">
-      <InspectorDataBlock value={stringify(latestPromptEvent.system)} label="System" />
-      <InspectorDataBlock
-        value={stringify(latestPromptEvent.prefixMessages ?? [])}
-        label="Prefix Messages"
-      />
-      <InspectorDataBlock value={stringify(latestPromptEvent.messages)} label="Messages" />
-      <InspectorDataBlock
-        value={stringify(latestPromptEvent.runtimeContextMessages ?? [])}
-        label="Runtime Context"
-      />
-      <InspectorDataBlock
-        value={stringify({
-          cacheKey: latestPromptEvent.cacheKey,
-          toolChoice: latestPromptEvent.toolChoice,
-          tools: latestPromptEvent.tools
-        })}
-        label="Metadata"
-      />
+      <PlainCard>
+        <SectionTitle label="Prompt Envelope" />
+        <div className="mt-3 grid gap-3">
+          <FlatBlock
+            label="System"
+            tone="surface"
+            value={stringify(latestPromptEvent.system)}
+          />
+          <FlatBlock
+            label="Metadata"
+            tone="surface"
+            value={stringify({
+              cacheKey: latestPromptEvent.cacheKey,
+              toolChoice: latestPromptEvent.toolChoice,
+              toolCount: latestPromptEvent.tools.length,
+              prefixMessageCount: latestPromptEvent.prefixMessages?.length ?? 0,
+              runtimeContextCount: latestPromptEvent.runtimeContextMessages?.length ?? 0,
+              conversationMessageCount: latestPromptEvent.messages.length
+            })}
+          />
+        </div>
+      </PlainCard>
     </div>
   );
 }
@@ -176,27 +257,15 @@ function ThinkingTabPanel({ thinkingEvents }: { thinkingEvents: ThinkingEvent[] 
   return (
     <div className="grid min-w-0 gap-3">
       {thinkingEvents.map((event, index) => (
-        <article
-          key={`${event.createdAt}-${index}`}
-          className={getInspectorCardClass()}
-        >
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <div className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
-                Thinking
-              </div>
-              <div className="mt-2 text-sm text-[var(--app-text-secondary)]">
-                {formatTimestamp(event.createdAt)}
-              </div>
-            </div>
-            <div className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
-              signed
-            </div>
+        <PlainCard key={`${event.createdAt}-${index}`}>
+          <SectionTitle
+            label={`Turn ${event.turnCount}`}
+            meta={`${formatTimestamp(event.createdAt)} · signature ${event.signature}`}
+          />
+          <div className="mt-3">
+            <FlatBlock label="Thinking" tone="surface" collapsed={false} value={event.text || "(empty)"} />
           </div>
-          <pre className={getDebugPreClass("surface").replace("mt-2 ", "mt-3 ")}>
-            {event.text || "(empty)"}
-          </pre>
-        </article>
+        </PlainCard>
       ))}
     </div>
   );
@@ -209,62 +278,81 @@ function ToolTabPanel({ toolRows }: { toolRows: ToolRow[] }) {
 
   return (
     <div className="grid min-w-0 gap-3">
-      {toolRows.map((row) => (
-        <article key={row.toolCallId} className={getInspectorCardClass()}>
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="break-all text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
-                {row.toolCallId}
+      {toolRows.map((row) => {
+        const statusLabel = row.output === null ? "pending" : row.isError ? "failed" : "ok";
+        const statusToneClass =
+          statusLabel === "failed"
+            ? "text-[var(--app-status-danger)]"
+            : statusLabel === "pending"
+              ? "text-[var(--app-status-warning)]"
+              : "text-[var(--app-status-success)]";
+        const headerMeta = [
+          row.turnCount !== null ? `Turn ${row.turnCount}` : null,
+          formatTimestamp(row.createdAt),
+          statusLabel
+        ]
+          .filter(Boolean)
+          .join(" · ");
+
+        return (
+          <PlainCard key={row.toolCallId}>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <SectionTitle label={row.toolName} meta={headerMeta} />
+                <div className="mt-2 break-all font-mono text-[0.72rem] text-[var(--app-text-muted)]">
+                  {row.toolCallId}
+                </div>
               </div>
-              <div className="mt-2 text-sm font-medium text-[var(--app-text-primary)]">
-                {row.toolName}
-              </div>
+              <div className={`text-xs uppercase tracking-[0.14em] ${statusToneClass}`}>{statusLabel}</div>
             </div>
-            <div
-              className={`text-xs ${
-                row.isError
-                  ? "text-[var(--app-status-danger)]"
-                  : "text-[var(--app-status-success)]"
-              }`}
-            >
-              {row.isError ? "failed" : "ok"}
-            </div>
-          </div>
-          <div className="mt-4 grid min-w-0 gap-3">
-            <InspectorDataBlock
-              label="Input"
-              tone="surface"
-              value={row.input ? stringify(row.input) : "null"}
-            />
-            <InspectorDataBlock
-              label="Raw Output"
-              tone="surface"
-              value={row.output ?? "pending"}
-            />
-            <InspectorDataBlock
-              label="Display Text"
-              tone="surface"
-              value={row.displayText ?? "pending"}
-            />
-            {(row.permissionDecision ||
-              row.permissionSummary ||
-              row.permissionReason) && (
-              <InspectorDataBlock
-                label="Permission"
+
+            <div className="mt-3 grid min-w-0 gap-3 xl:grid-cols-2">
+              <FlatBlock
+                label="Input"
                 tone="surface"
-                value={stringify({
-                  decision: getPermissionDecisionLabel(row.permissionDecision),
-                  family: row.permissionFamily,
-                  permissionProfile: row.permissionProfile,
-                  summary: row.permissionSummary,
-                  contextNote: row.permissionContextNote,
-                  reason: row.permissionReason
-                })}
+                collapsed={shouldCollapseLongText(row.input ? stringify(row.input) : "null")}
+                summary={summarizeText(row.input ? stringify(row.input) : "null", "展开查看输入")}
+                value={row.input ? stringify(row.input) : "null"}
               />
-            )}
-          </div>
-        </article>
-      ))}
+              {(row.permissionDecision ||
+                row.permissionSummary ||
+                row.permissionReason ||
+                row.permissionFamily ||
+                row.permissionProfile ||
+                row.permissionContextNote) && (
+                <FlatBlock
+                  label="Permission"
+                  tone="surface"
+                  value={stringify({
+                    decision: getPermissionDecisionLabel(row.permissionDecision),
+                    family: row.permissionFamily,
+                    permissionProfile: row.permissionProfile,
+                    summary: row.permissionSummary,
+                    contextNote: row.permissionContextNote,
+                    reason: row.permissionReason
+                  })}
+                />
+              )}
+              {row.displayText ? (
+                <FlatBlock
+                  label="Display Text"
+                  tone="surface"
+                  collapsed={shouldCollapseLongText(row.displayText)}
+                  summary={summarizeText(row.displayText, "展开查看展示文本")}
+                  value={row.displayText}
+                />
+              ) : null}
+              <FlatBlock
+                label="Raw Output"
+                tone="surface"
+                collapsed
+                summary={summarizeText(row.output, row.output === null ? "pending" : "展开查看原始输出")}
+                value={row.output ?? "pending"}
+              />
+            </div>
+          </PlainCard>
+        );
+      })}
     </div>
   );
 }
@@ -274,26 +362,93 @@ function TraceTabPanel({ inspectorEvents }: { inspectorEvents: RunStreamEvent[] 
     return <EmptyInspectorState message="暂无 trace 事件。" />;
   }
 
+  const latestRunError = [...inspectorEvents]
+    .reverse()
+    .find((event): event is RunErrorEvent => event.kind === "run_error");
+  const latestTurn = Math.max(...inspectorEvents.map((event) => getEventTurnCount(event) ?? 0));
+  const latestTurnEvents = sortEventsForNarrative(
+    inspectorEvents.filter((event) => getEventTurnCount(event) === latestTurn)
+  );
+  const responseEvents = inspectorEvents.filter(
+    (event): event is ResponseEvent => event.kind === "response"
+  );
+
   return (
-    <div className="grid min-w-0 gap-2">
-      {inspectorEvents.map((event) => (
-        <div
-          key={getTimelineEventRenderKey(event)}
-          className="min-w-0 rounded-[var(--app-radius-md)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_78%,transparent)] px-3 py-3"
-        >
-          <div className="flex items-center justify-between gap-3">
-            <div className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
-              {event.kind}
+    <div className="grid min-w-0 gap-3">
+      {latestRunError ? (() => {
+        const latestRunErrorTurnCount =
+          "turnCount" in latestRunError ? latestRunError.turnCount : null;
+        const latestRunErrorLoopState =
+          "loopState" in latestRunError ? latestRunError.loopState : latestRunError.status;
+        const latestRunErrorContextStatus =
+          "contextStatus" in latestRunError
+            ? latestRunError.contextStatus
+            : (latestRunError.session?.context.status ?? "unknown");
+        const latestRunErrorPendingToolCallIds =
+          "pendingToolCallIds" in latestRunError
+            ? latestRunError.pendingToolCallIds
+            : (latestRunError.session?.sessionState.pendingToolCallIds ?? []);
+
+        return (
+          <PlainCard>
+            <SectionTitle
+              label="Latest Run Error"
+              meta={`${formatTimestamp(latestRunError.createdAt)} · Turn ${latestRunErrorTurnCount ?? "--"}`}
+            />
+            <div className="mt-3 text-sm leading-6 text-[var(--app-text-primary)]">
+              {latestRunError.error}
             </div>
-            <div className="text-[0.72rem] text-[var(--app-text-muted)]">
-              {formatTimestamp(event.createdAt)}
+            <div className="mt-3 grid gap-3 xl:grid-cols-2">
+              <FlatBlock
+                label="Context"
+                tone="surface"
+                value={stringify({
+                  stopReason: latestRunError.stopReason,
+                  loopState: latestRunErrorLoopState,
+                  contextStatus: latestRunErrorContextStatus,
+                  pendingToolCallIds: latestRunErrorPendingToolCallIds
+                })}
+              />
+              {"session" in latestRunError && latestRunError.session ? (
+                <FlatBlock
+                  label="Session Snapshot"
+                  tone="surface"
+                  collapsed
+                  summary="展开查看失败时会话快照"
+                  value={stringify(latestRunError.session)}
+                />
+              ) : null}
             </div>
-          </div>
-          <pre className={getDebugPreClass("surface").replace("mt-2 ", "mt-3 ")}>
-            {stringify(event)}
-          </pre>
+          </PlainCard>
+        );
+      })() : null}
+
+      <PlainCard>
+        <SectionTitle
+          label="Latest Turn Narrative"
+          meta={`Turn ${latestTurn} · ${latestTurnEvents.length} events · ${responseEvents.length} responses in trace`}
+        />
+        <div className="mt-3 grid min-w-0 gap-2">
+          {latestTurnEvents.map((event) => (
+            <details
+              key={getTimelineEventRenderKey(event)}
+              className="min-w-0 rounded-[var(--app-radius-md)] border border-[var(--app-border-subtle)] px-3 py-3"
+            >
+              <summary className="cursor-pointer list-none">
+                <SectionTitle
+                  label={event.kind}
+                  meta={`${formatTimestamp(event.createdAt)} · ${
+                    getEventTurnCount(event) !== null ? `Turn ${getEventTurnCount(event)}` : "session"
+                  }`}
+                />
+              </summary>
+              <pre className={getDebugPreClass("surface").replace("mt-2 ", "mt-3 ")}>
+                {stringify(event)}
+              </pre>
+            </details>
+          ))}
         </div>
-      ))}
+      </PlainCard>
     </div>
   );
 }
@@ -315,9 +470,7 @@ function renderInspectorTabPanel(props: SessionWorkbenchInspectorProps) {
   }
 }
 
-export function SessionWorkbenchInspector(
-  props: SessionWorkbenchInspectorProps
-) {
+export function SessionWorkbenchInspector(props: SessionWorkbenchInspectorProps) {
   return (
     <div className="flex min-h-[24rem] min-w-0 flex-col">
       <div className="flex min-w-0 flex-wrap gap-2">

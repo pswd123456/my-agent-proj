@@ -1,13 +1,13 @@
 # my-agent-proj
 
-一个以 `TypeScript` + `Bun` 为主栈的 agent runtime 实验仓库，当前主线定位是“通用个人助手 runtime”，优先服务工作区理解、文件操作、执行可观测性和后续可扩展能力。当前仓库同时保留了一套已经落地的日程管理能力，作为现阶段的专项产品包。
+一个以 `TypeScript` + `Bun` 为主栈的 agent runtime 仓库。当前主线是“个人助手 workbench + 可观测 runtime”，默认支持工作区理解、文件操作、工具执行、权限等待、trace 与 settings 持久化
 
-当前包含：
+当前主要包含：
 
 - `apps/web`：Web workbench
-- `apps/api`：会话、执行、trace、system logs、settings，以及当前已挂载的 routine 相关 API
-- `packages/agent`：runtime、session、tools、trace
-- `packages/db`：PostgreSQL schema、Drizzle migrations 与持久化访问
+- `apps/api`：session 生命周期、执行入口、流式输出、trace、system logs、settings，以及当前已挂载的 routine API
+- `packages/agent`：runtime、prompt、provider 适配、session、skills、tools、trace
+- `packages/db`：PostgreSQL schema、Drizzle migrations 与 repositories
 
 当前默认是单开发者 + Codex 持续推进的工作流，整体遵循“重后端、轻前端”。
 
@@ -16,7 +16,7 @@
 - Monorepo：`Bun workspace` + `Turborepo`
 - Web：`Next.js`
 - API：`Hono`
-- Agent Runtime：仓库内自定义 `AgentRuntime.run` loop
+- Agent Runtime：仓库内自定义 runtime loop
 - 数据层：`PostgreSQL` + `Drizzle ORM` + `postgres` 驱动
 
 更完整说明见 [docs/tech-stack.md](./docs/tech-stack.md) 和 [docs/architecture/README.md](./docs/architecture/README.md)。
@@ -43,14 +43,14 @@ cp .env.example .env
 
 - `DATABASE_URL`：本地 PostgreSQL 连接串
 - `API_PORT`：API 端口，默认 `3001`
-- `WEB_PORT`：当前仍保留在 `.env.example` 中，Web 本地开发默认使用 `3000`
+- `WEB_PORT`：Web 端口，默认 `3000`
 
-如果要真正跑 agent 执行链路，还需要配置模型相关变量：
+如果要跑 agent 执行链路，还需要配置模型相关变量：
 
 - `API_KEY`、`MINIMAX_API_KEY` 或 `ANTHROPIC_API_KEY`
 - `ANTHROPIC_BASE_URL`
 - `ANTHROPIC_MODEL`
-- 可选：`ANTHROPIC_TOOL_CHOICE=auto|any|none|tool:<name>`
+- 可选：`ANTHROPIC_TOOL_CHOICE=auto|any|none|tool:<name>` 或 `TOOL_CHOICE`
 
 ### 3. 启动开发环境
 
@@ -75,7 +75,7 @@ cd apps/api && bun dev
 cd apps/web && bun dev
 ```
 
-说明：当前仓库默认没有独立 `worker` 进程，README 里的启动命令以 `web + api` 为准。
+说明：当前仓库虽然保留 `apps/worker/` 历史目录，但它不在 workspace 启动链路里；实际开发与调试以 `web + api` 为准。
 
 ## 常用命令
 
@@ -112,7 +112,17 @@ curl http://localhost:3001/health
 5. 必要时用 `POST /sessions/:sessionId/interrupt` 中断，或用 `POST /sessions/:sessionId/recover` 恢复快照
 6. 或直接查看 `tmp/agent-sessions/sessions/<sessionId>.trace.jsonl`
 
-这个仓库里，`thinking` 会写入 trace，但不会回灌到下一轮 `messages`。
+当前 runtime 会把 `thinking` 写入 trace，但不会回灌到下一轮 `messages`。
+
+## 当前事实源
+
+需要确认现状时，优先看下面这些文件而不是历史阶段文档：
+
+- API 路由与请求体：`apps/api/src/app.ts`
+- API 装配与默认 runtime：`apps/api/src/index.ts`
+- session 默认值与 settings 归一化：`packages/domain/src/session-settings.ts`
+- 工具装配与 capability pack：`packages/agent/src/tools/registry.ts`
+- PostgreSQL schema：`packages/db/src/schema.ts`
 
 ## 文档入口
 
@@ -120,5 +130,6 @@ curl http://localhost:3001/health
 - [文档索引](./docs/README.md)
 - [技术栈总览](./docs/tech-stack.md)
 - [架构文档目录](./docs/architecture/README.md)
+- [阶段文档目录](./docs/plan/README.md)
 - [设计系统总览](./docs/design-system/README.md)
 - [模板初始化说明](./docs/template/README.md)

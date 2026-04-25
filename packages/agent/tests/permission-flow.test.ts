@@ -6,6 +6,7 @@ import path from "node:path";
 import { createMemoryRoutineRepository } from "@ai-app-template/db";
 
 import { createAgentRuntime } from "../src/runtime.js";
+import type { RunStreamEvent } from "../src/events.js";
 import { createMemorySessionManager } from "../src/session/index.js";
 import { matchesPermissionRuleLists } from "../src/runtime/permission-rules.js";
 import { handlePendingPermissionReply } from "../src/runtime/permission.js";
@@ -17,6 +18,83 @@ async function createWorkspaceRoot(): Promise<string> {
 }
 
 describe("Stage 4 permission flow", () => {
+  test("pauses for permission without writing an assistant guidance block", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const sessionManager = createMemorySessionManager();
+    const routineRepository = createMemoryRoutineRepository();
+    const emittedEvents: RunStreamEvent[] = [];
+
+    try {
+      await writeFile(
+        path.join(workspaceRoot, "existing.txt"),
+        "before",
+        "utf8"
+      );
+
+      const runtime = createAgentRuntime({
+        client: {
+          messages: {
+            async create() {
+              return {
+                content: [
+                  {
+                    type: "tool_use" as const,
+                    id: "call-overwrite",
+                    name: "write_file",
+                    input: {
+                      path: "existing.txt",
+                      content: "after"
+                    }
+                  }
+                ],
+                stop_reason: "tool_use" as const
+              };
+            }
+          }
+        },
+        model: "MiniMax-M2.7",
+        sessionManager,
+        routineRepository,
+        toolRegistry: createWorkspaceToolRegistry({
+          workingDirectory: workspaceRoot
+        }),
+        maxTurns: 2
+      });
+
+      const session = await runtime.createSession({
+        workingDirectory: workspaceRoot,
+        model: "MiniMax-M2.7",
+        userId: "stage4-user"
+      });
+
+      const result = await runtime.run({
+        sessionId: session.sessionId,
+        message: "覆盖这个文件",
+        eventSink(event) {
+          emittedEvents.push(event);
+        }
+      });
+
+      expect(result.status).toBe("waiting for input");
+      expect(result.finalAnswer).toBe("");
+      expect(result.session.context.status).toBe("waiting_for_permission");
+      expect(result.session.context.pendingPermissionRequest?.toolName).toBe(
+        "write_file"
+      );
+      expect(
+        result.session.messages.some((block) => block.kind === "assistant")
+      ).toBe(false);
+      expect(
+        emittedEvents.some((event) => event.kind === "assistant_text")
+      ).toBe(false);
+      expect(
+        emittedEvents.some((event) => event.kind === "permission_request")
+      ).toBe(true);
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   test("matches shell allow patterns with multi-argument commands", () => {
     const result = matchesPermissionRuleLists(
       {
@@ -403,8 +481,12 @@ describe("Stage 4 permission flow", () => {
       if (approved?.kind !== "approved") {
         throw new Error("expected approved list_directory result");
       }
-      expect(approved.session.context.toolAllowList).toContain("list_directory");
-      expect(approved.session.context.toolAskList).not.toContain("list_directory");
+      expect(approved.session.context.toolAllowList).toContain(
+        "list_directory"
+      );
+      expect(approved.session.context.toolAskList).not.toContain(
+        "list_directory"
+      );
       expect(approved.toolOutputs[0]?.isError).toBe(false);
 
       const secondCall = await executeToolAction({

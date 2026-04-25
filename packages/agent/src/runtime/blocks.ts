@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
 
 import type { AnthropicContentBlock } from "../model.js";
-import type { ConversationBlock, JsonValue, SessionSnapshot } from "../types.js";
+import type {
+  ConversationBlock,
+  JsonValue,
+  SessionSnapshot
+} from "../types.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -220,9 +224,7 @@ export function extractThinkingBlocks(blocks: AnthropicContentBlock[]): Array<{
 }> {
   return blocks
     .filter(
-      (
-        block
-      ): block is Extract<AnthropicContentBlock, { type: "thinking" }> =>
+      (block): block is Extract<AnthropicContentBlock, { type: "thinking" }> =>
         block.type === "thinking"
     )
     .map((block) => ({
@@ -296,21 +298,6 @@ export function renderPendingConfirmationAnswer(
   }
 
   lines.push("回复“确认”即可执行这些调整，或者直接回复新的时间。");
-  return lines.join("\n");
-}
-
-export function renderPendingPermissionAnswer(
-  pendingPermissionRequest: NonNullable<
-    SessionSnapshot["context"]["pendingPermissionRequest"]
-  >
-): string {
-  const lines = [pendingPermissionRequest.summaryText];
-
-  if (pendingPermissionRequest.contextNote) {
-    lines.push(`- 说明：${pendingPermissionRequest.contextNote}`);
-  }
-
-  lines.push("回复“确认”即可继续执行，回复“取消”即可拒绝这次操作。");
   return lines.join("\n");
 }
 
