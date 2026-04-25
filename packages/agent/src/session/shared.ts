@@ -33,6 +33,7 @@ export function createSnapshot(input: {
   model: string;
   userId?: string;
   yoloMode?: boolean;
+  workspaceEscapeAllowed?: boolean;
   contextWindow?: number;
   maxTurns?: number;
   shellAllowPatterns?: string[];
@@ -46,6 +47,9 @@ export function createSnapshot(input: {
     ...(typeof input.userId === "string" ? { userId: input.userId } : {}),
     ...(typeof input.yoloMode === "boolean"
       ? { yoloMode: input.yoloMode }
+      : {}),
+    ...(typeof input.workspaceEscapeAllowed === "boolean"
+      ? { workspaceEscapeAllowed: input.workspaceEscapeAllowed }
       : {}),
     ...(Array.isArray(input.shellAllowPatterns)
       ? { shellAllowPatterns: input.shellAllowPatterns }
@@ -89,6 +93,8 @@ export function cloneSnapshot(snapshot: SessionSnapshot): SessionSnapshot {
     context: {
       ...cloned.context,
       yoloMode: cloned.context.yoloMode ?? false,
+      workspaceEscapeAllowed:
+        cloned.context.workspaceEscapeAllowed ?? false,
       shellAllowPatterns: permissionRules.shellAllowPatterns ?? [],
       shellDenyPatterns: permissionRules.shellDenyPatterns ?? [],
       toolAllowList: permissionRules.toolAllowList ?? [],
@@ -116,6 +122,7 @@ export function createScheduleSessionContext(
   input: {
     userId?: string;
     yoloMode?: boolean;
+    workspaceEscapeAllowed?: boolean;
     shellAllowPatterns?: string[];
     shellDenyPatterns?: string[];
     toolAllowList?: string[];
@@ -130,6 +137,7 @@ export function createScheduleSessionContext(
     status: "waiting_for_user_input",
     currentDateContext: resolveCurrentDateContext(),
     yoloMode: input.yoloMode ?? false,
+    workspaceEscapeAllowed: input.workspaceEscapeAllowed ?? false,
     shellAllowPatterns:
       input.shellAllowPatterns ?? permissionRules.shellAllowPatterns,
     shellDenyPatterns:
@@ -211,6 +219,8 @@ export function isSessionSnapshot(value: unknown): value is SessionSnapshot {
     typeof value.context.currentDateContext === "string" &&
     (typeof value.context.yoloMode === "boolean" ||
       typeof value.context.yoloMode === "undefined") &&
+    (typeof value.context.workspaceEscapeAllowed === "boolean" ||
+      typeof value.context.workspaceEscapeAllowed === "undefined") &&
     (typeof value.context.shellAllowPatterns === "undefined" ||
       Array.isArray(value.context.shellAllowPatterns)) &&
     (typeof value.context.shellDenyPatterns === "undefined" ||

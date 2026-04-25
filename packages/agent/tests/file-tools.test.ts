@@ -1,11 +1,19 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
 import { createEditFileTool } from "../src/tools/edit-file.js";
 import { createReadFileTool } from "../src/tools/read-file.js";
 import type { ToolExecutionContext } from "../src/tools/runtime-tool.js";
+import { preflightWorkspaceSandboxTargets } from "../src/tools/workspace.js";
 
 const cleanupPaths = new Set<string>();
 
@@ -26,6 +34,7 @@ function createContext(workingDirectory: string): ToolExecutionContext {
       status: "running",
       currentDateContext: "2026-04-24",
       yoloMode: false,
+      workspaceEscapeAllowed: false,
       shellAllowPatterns: [],
       shellDenyPatterns: [],
       toolAllowList: [],
@@ -33,16 +42,11 @@ function createContext(workingDirectory: string): ToolExecutionContext {
       toolDenyList: []
     },
     permissionRules: {
-      shell: {
-        allow: [],
-        ask: [],
-        deny: []
-      },
-      tools: {
-        allow: [],
-        ask: [],
-        deny: []
-      }
+      shellAllowPatterns: [],
+      shellDenyPatterns: [],
+      toolAllowList: [],
+      toolAskList: [],
+      toolDenyList: []
     }
   };
 }
@@ -192,5 +196,59 @@ describe("edit_file", () => {
     );
 
     expect(request?.summaryText).toContain("notes.txt");
+  });
+});
+
+describe("workspace sandbox preflight", () => {
+  test("classifies explicit parent and absolute paths as outside_workspace", async () => {
+    const workspace = await createWorkspace();
+    const outsideFile = path.join(os.tmpdir(), `outside-${Date.now()}.txt`);
+    cleanupPaths.add(outsideFile);
+    await writeFile(outsideFile, "outside");
+
+    const result = await preflightWorkspaceSandboxTargets({
+      workingDirectory: workspace,
+      targets: ["../outside.txt", outsideFile]
+    });
+
+    expect(result.outsideTargets).toHaveLength(2);
+    expect(
+      result.outsideTargets.map((target) => target.classification)
+    ).toEqual(["outside_workspace", "outside_workspace"]);
+  });
+
+  test("blocks symlink escapes that resolve outside the workspace", async () => {
+    const workspace = await createWorkspace();
+    const externalDirectory = await createWorkspace();
+    await writeFile(path.join(externalDirectory, "secret.txt"), "secret");
+    await symlink(externalDirectory, path.join(workspace, "linked-outside"));
+
+    const result = await preflightWorkspaceSandboxTargets({
+      workingDirectory: workspace,
+      targets: ["linked-outside/secret.txt"]
+    });
+
+    expect(result.symlinkEscapeTargets).toHaveLength(1);
+    expect(result.symlinkEscapeTargets[0]?.classification).toBe(
+      "symlink_escape"
+    );
+  });
+
+  test("checks the nearest existing parent realpath for missing targets", async () => {
+    const workspace = await createWorkspace();
+    const externalDirectory = await createWorkspace();
+    const linkedDirectory = path.join(workspace, "linked-parent");
+    await symlink(externalDirectory, linkedDirectory);
+    await mkdir(path.join(externalDirectory, "nested"), { recursive: true });
+
+    const result = await preflightWorkspaceSandboxTargets({
+      workingDirectory: workspace,
+      targets: ["linked-parent/nested/missing.txt"]
+    });
+
+    expect(result.symlinkEscapeTargets).toHaveLength(1);
+    expect(result.symlinkEscapeTargets[0]?.existingPath).toBe(
+      path.join(workspace, "linked-parent", "nested")
+    );
   });
 });

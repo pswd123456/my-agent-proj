@@ -141,7 +141,7 @@ export function toConversationBlock(row: SessionMessageRow): ConversationBlock {
   };
 }
 
-function toSessionContext(row: SessionRow): ScheduleSessionContext {
+export function toSessionContext(row: SessionRow): ScheduleSessionContext {
   const pendingPermissionRequest = parseJsonValue(row.pendingPermissionRequest);
   const pendingConfirmationPayload = parseJsonValue(
     row.pendingConfirmationPayload
@@ -152,6 +152,7 @@ function toSessionContext(row: SessionRow): ScheduleSessionContext {
     status: row.status as ScheduleSessionContext["status"],
     currentDateContext: row.currentDateContext,
     yoloMode: row.yoloMode ?? false,
+    workspaceEscapeAllowed: row.workspaceEscapeAllowed ?? false,
     shellAllowPatterns: toStringArray(row.shellAllowPatterns),
     shellDenyPatterns: toStringArray(row.shellDenyPatterns),
     toolAllowList: toStringArray(row.toolAllowList),
@@ -650,6 +651,7 @@ export class PostgresSessionManager implements SessionManager {
         status: snapshot.context.status,
         currentDateContext: snapshot.context.currentDateContext,
         yoloMode: snapshot.context.yoloMode,
+        workspaceEscapeAllowed: snapshot.context.workspaceEscapeAllowed,
         contextWindow: snapshot.contextWindow,
         maxTurns: snapshot.maxTurns,
         shellAllowPatterns: snapshot.context.shellAllowPatterns,
@@ -681,6 +683,7 @@ export class PostgresSessionManager implements SessionManager {
           status: snapshot.context.status,
           currentDateContext: snapshot.context.currentDateContext,
           yoloMode: snapshot.context.yoloMode,
+          workspaceEscapeAllowed: snapshot.context.workspaceEscapeAllowed,
           contextWindow: snapshot.contextWindow,
           maxTurns: snapshot.maxTurns,
           shellAllowPatterns: snapshot.context.shellAllowPatterns,

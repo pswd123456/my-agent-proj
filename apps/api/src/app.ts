@@ -2,6 +2,10 @@ import { Hono } from "hono";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
+import {
+  createRunTraceEvent,
+  type RunEventSink
+} from "@ai-app-template/agent";
 import type {
   AgentRuntime,
   JsonValue,
@@ -9,6 +13,7 @@ import type {
   SessionManager,
   SessionSnapshot,
   SystemLogManager,
+  TraceEvent,
   TraceManager
 } from "@ai-app-template/agent";
 import {
@@ -130,7 +135,13 @@ export interface ApiAppDependencies {
   systemLogManager: SystemLogManager;
   apiLogger?: Logger;
   buildWorkingDirectory(input?: string): string;
-  runtimeFactory?: (session: SessionSnapshot) => AgentRuntime;
+  runtimeFactory?: (
+    session: SessionSnapshot
+  ) => Promise<{
+    runtime: AgentRuntime;
+    dispose(): Promise<void>;
+    preRunTraceEvent?: TraceEvent;
+  }>;
   defaultModel?: string;
   defaultUserId?: string;
   runtimeUnavailableMessage?: string;
@@ -232,6 +243,28 @@ async function logApiEvent(input: {
     await logger.error(input.event, details);
   } else {
     await logger.info(input.event, details);
+  }
+}
+
+async function emitPreRunTraceEvent(input: {
+  traceManager: TraceManager;
+  eventSink?: RunEventSink;
+  sessionId: string;
+  event: TraceEvent | undefined;
+}) {
+  if (!input.event) {
+    return;
+  }
+
+  await input.traceManager.appendEvent(input.sessionId, input.event);
+  if (!input.eventSink) {
+    return;
+  }
+
+  try {
+    await input.eventSink(createRunTraceEvent(input.sessionId, input.event));
+  } catch {
+    // Ignore stream sink failures so execution can continue.
   }
 }
 
@@ -465,9 +498,14 @@ export function createApiApp(dependencies: ApiAppDependencies) {
       return c.json({ error: "Session not found." }, 404);
     }
 
-    const runtime = dependencies.runtimeFactory(currentSession);
+    const runtimeHandle = await dependencies.runtimeFactory(currentSession);
     try {
-      const result = await runtime.run({
+      await emitPreRunTraceEvent({
+        traceManager: dependencies.traceManager,
+        sessionId,
+        event: runtimeHandle.preRunTraceEvent
+      });
+      const result = await runtimeHandle.runtime.run({
         sessionId,
         message: body.message,
         ...(typeof body.maxTurns === "number"
@@ -487,6 +525,8 @@ export function createApiApp(dependencies: ApiAppDependencies) {
         return c.json({ error: error.message }, 409);
       }
       throw error;
+    } finally {
+      await runtimeHandle.dispose();
     }
   });
 
@@ -511,14 +551,22 @@ export function createApiApp(dependencies: ApiAppDependencies) {
       return c.json({ error: "Session not found." }, 404);
     }
 
-    const runtime = dependencies.runtimeFactory(currentSession);
+    const runtimeHandle = await dependencies.runtimeFactory(currentSession);
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
         controller.enqueue(new TextEncoder().encode(": stream-start\n\n"));
 
         void (async () => {
           try {
-            await runtime.run({
+            await emitPreRunTraceEvent({
+              traceManager: dependencies.traceManager,
+              sessionId,
+              event: runtimeHandle.preRunTraceEvent,
+              eventSink(event) {
+                controller.enqueue(encodeSseEvent(event));
+              }
+            });
+            await runtimeHandle.runtime.run({
               sessionId,
               message: body.message,
               ...(typeof body.maxTurns === "number"
@@ -552,6 +600,7 @@ export function createApiApp(dependencies: ApiAppDependencies) {
               );
             }
           } finally {
+            await runtimeHandle.dispose();
             controller.close();
           }
         })();

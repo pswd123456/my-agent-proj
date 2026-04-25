@@ -9,6 +9,7 @@ import {
   createFileTraceManager,
   createFileSystemLogManager,
   createLogger,
+  loadWorkspaceMcpTools,
   resolveToolChoice,
   resolveSessionStateDirectory,
   type SessionSnapshot
@@ -56,28 +57,50 @@ function buildWorkingDirectory(input?: string): string {
   return resolveApiWorkingDirectory(workspaceRoot, input);
 }
 
-function createRuntime(session: SessionSnapshot) {
+async function createRuntime(session: SessionSnapshot) {
   if (!miniMaxRuntime) {
     throw new Error("MiniMax runtime is not configured.");
   }
 
-  return createAgentRuntime({
-    client: miniMaxRuntime.client,
-    model: session.model,
-    sessionManager,
+  const toolRegistry = createDefaultToolRegistry({
+    workingDirectory: session.workingDirectory,
     routineRepository,
-    toolRegistry: createDefaultToolRegistry({
-      workingDirectory: session.workingDirectory,
-      routineRepository,
-      enabledCapabilityPacks: session.context.enabledCapabilityPacks
-    }),
-    traceManager,
-    systemLogManager,
-    runtimeLogger: createLogger({ manager: systemLogManager, component: "runtime" }),
-    promptBuilder,
-    maxTurns: 50,
-    ...(toolChoice ? { toolChoice } : {})
+    enabledCapabilityPacks: session.context.enabledCapabilityPacks
   });
+  const mcpLoadResult = await loadWorkspaceMcpTools(session.workingDirectory);
+  for (const tool of mcpLoadResult.tools) {
+    toolRegistry.register(tool);
+  }
+
+  return {
+    runtime: createAgentRuntime({
+      client: miniMaxRuntime.client,
+      model: session.model,
+      sessionManager,
+      routineRepository,
+      toolRegistry,
+      traceManager,
+      systemLogManager,
+      runtimeLogger: createLogger({
+        manager: systemLogManager,
+        component: "runtime"
+      }),
+      promptBuilder,
+      maxTurns: 50,
+      ...(toolChoice ? { toolChoice } : {})
+    }),
+    async dispose() {
+      await mcpLoadResult.dispose();
+    },
+    preRunTraceEvent: {
+      kind: "mcp_loaded" as const,
+      turnCount: Math.max(1, session.sessionState.turnCount + 1),
+      configPath: mcpLoadResult.configPath,
+      foundConfig: mcpLoadResult.foundConfig,
+      diagnostics: mcpLoadResult.diagnostics,
+      servers: mcpLoadResult.servers
+    }
+  };
 }
 
 export const app = createApiApp({

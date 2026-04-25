@@ -18,6 +18,8 @@ describe("sidebar state tone", () => {
     expect(activeBadge).not.toBe(warningBadge);
     expect(activeBadge).toContain("app-border-accent");
     expect(warningBadge).toContain("app-status-warning");
+    expect(activeBadge).not.toContain("border-[");
+    expect(activeBadge).not.toContain("bg-[");
   });
 });
 

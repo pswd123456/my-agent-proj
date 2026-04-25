@@ -34,6 +34,7 @@ function isVisibleTimelineEvent(event: RunStreamEvent): boolean {
     event.kind !== "prompt" &&
     event.kind !== "response" &&
     event.kind !== "skills_loaded" &&
+    event.kind !== "mcp_loaded" &&
     event.kind !== "interrupt_requested" &&
     event.kind !== "interrupted"
   );

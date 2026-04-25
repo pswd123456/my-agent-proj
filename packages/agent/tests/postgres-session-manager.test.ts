@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   serializeBlock,
+  toSessionContext,
   toConversationBlock,
   toIsoString,
   type SessionMessageRow
@@ -70,5 +71,43 @@ describe("toIsoString", () => {
         createdAt: "2026-04-25T00:00:00.000Z"
       })
     ).toBe(true);
+  });
+
+  test("restores workspace escape approval from postgres rows", () => {
+    const sessionContext = toSessionContext({
+      id: "session-1",
+      userId: "user-1",
+      status: "waiting_for_permission",
+      currentDateContext: "2026-04-26",
+      yoloMode: false,
+      workspaceEscapeAllowed: true,
+      contextWindow: 200000,
+      maxTurns: 50,
+      shellAllowPatterns: [],
+      shellDenyPatterns: [],
+      toolAllowList: [],
+      toolAskList: [],
+      toolDenyList: [],
+      enabledCapabilityPacks: ["workspace", "schedule"],
+      pendingPermissionRequest: null,
+      pendingConfirmationPayload: null,
+      pendingConflictSummary: null,
+      lastUserMessage: null,
+      workingDirectory: "/tmp/workspace",
+      model: "MiniMax-M2.7",
+      loopState: "waiting for tool result",
+      turnCount: 1,
+      lastError: null,
+      pendingToolCallIds: [],
+      interruptRequested: false,
+      inputTokensCount: 0,
+      promptCacheKey: "",
+      activeRunId: null,
+      activeRunStartedAt: null,
+      createdAt: "2026-04-26T00:00:00.000Z",
+      updatedAt: "2026-04-26T00:00:00.000Z"
+    });
+
+    expect(sessionContext.workspaceEscapeAllowed).toBe(true);
   });
 });

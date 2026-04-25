@@ -5,6 +5,10 @@ import type { PendingPermissionRequest } from "@ai-app-template/domain";
 
 import type { AnthropicMessage, AnthropicToolChoice } from "./model.js";
 import type {
+  WorkspaceMcpConfigDiagnostic,
+  WorkspaceMcpServerLoadSummary
+} from "./mcp/index.js";
+import type {
   SkillDescriptor,
   SkillDiscoveryDiagnostic
 } from "./skills/index.js";
@@ -53,6 +57,15 @@ export interface TraceSkillsLoadedEvent {
   turnCount: number;
   skills: SkillDescriptor[];
   diagnostics: SkillDiscoveryDiagnostic[];
+}
+
+export interface TraceMcpLoadedEvent {
+  kind: "mcp_loaded";
+  turnCount: number;
+  configPath: string;
+  foundConfig: boolean;
+  diagnostics: WorkspaceMcpConfigDiagnostic[];
+  servers: WorkspaceMcpServerLoadSummary[];
 }
 
 export interface TraceTextEvent {
@@ -164,6 +177,7 @@ export type TraceEvent =
   | TraceResponseEvent
   | TraceTurnStartEvent
   | TraceSkillsLoadedEvent
+  | TraceMcpLoadedEvent
   | TraceTextEvent
   | TraceThinkingEvent
   | TraceToolCallEvent

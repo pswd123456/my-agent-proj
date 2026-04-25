@@ -33,13 +33,28 @@ const fakeClient: AnthropicCompatibleClient = {
       assert.equal(input.model, "MiniMax-M2.7");
       assert.ok(
         input.system.includes(
-          "You are a personal assistant operating a CLI-first workspace runtime."
+          "You are a personal assistant."
         )
       );
       assert.ok(
         !/scheduling agent.*routine manager/i.test(input.system)
       );
-      assert.equal(input.tools.length, 3);
+      assert.deepEqual(
+        input.tools.map((tool) => tool.name),
+        [
+          "copy_path",
+          "create_directory",
+          "delete_path",
+          "edit_file",
+          "list_directory",
+          "make_http_request",
+          "move_path",
+          "read_file",
+          "run_shell_command",
+          "search_text",
+          "write_file"
+        ]
+      );
 
       if (calls.length === 1) {
         return {

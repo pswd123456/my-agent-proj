@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  getAssistantTextCursorVisible,
   getAssistantTextRenderMode,
   getNextTypewriterLength,
   getTypewriterVisibleLengthOnChange,
@@ -98,5 +99,23 @@ describe("message typewriter helpers", () => {
         visibleLength: 48
       })
     ).toBe("markdown");
+  });
+
+  test("hides the cursor once the typewriter has caught up", () => {
+    expect(
+      getAssistantTextCursorVisible({
+        animate: true,
+        totalLength: 48,
+        visibleLength: 32
+      })
+    ).toBe(true);
+
+    expect(
+      getAssistantTextCursorVisible({
+        animate: true,
+        totalLength: 48,
+        visibleLength: 48
+      })
+    ).toBe(false);
   });
 });

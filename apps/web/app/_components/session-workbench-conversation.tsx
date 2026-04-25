@@ -14,6 +14,7 @@ import type { RunStreamEvent, SessionSnapshot } from "@ai-app-template/sdk";
 
 import { MessageMarkdown } from "./message-markdown";
 import {
+  getAssistantTextCursorVisible,
   getAssistantTextRenderMode,
   getNextTypewriterLength,
   getTypewriterVisibleLengthOnChange,
@@ -158,11 +159,20 @@ export function getPermissionRequestKey(
   return `${request.toolCallId}:${request.createdAt}`;
 }
 
-function buildPermissionQuickReplies(
+export function buildPermissionQuickReplies(
   request: SessionSnapshot["context"]["pendingPermissionRequest"]
 ): Array<{ label: string; reply: string }> {
   if (!request) {
     return [];
+  }
+
+  if (request.allowWorkspaceEscape) {
+    return [
+      {
+        label: "本会话允许 workspace 外文件操作",
+        reply: "本会话允许 workspace 外文件操作"
+      }
+    ];
   }
 
   if (request.toolName === "run_shell_command") {
@@ -361,13 +371,16 @@ function TypewriterTextContent({
     totalLength,
     visibleLength
   });
-  const isTyping = animate && visibleLength < totalLength;
   const showPlainText =
     !renderMarkdownWhenSettled || renderMode === "plaintext";
   const visibleContent = showPlainText
     ? characters.slice(0, visibleLength).join("")
     : content;
-  const showCursor = streaming || isTyping;
+  const showCursor = getAssistantTextCursorVisible({
+    animate,
+    totalLength,
+    visibleLength
+  });
 
   if (!hasVisibleContent) {
     return null;

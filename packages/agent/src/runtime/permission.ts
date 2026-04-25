@@ -31,6 +31,8 @@ export type PendingPermissionReplyResult =
       result: RunSessionResult;
     };
 
+const WORKSPACE_ESCAPE_APPROVAL_REPLY = "本会话允许 workspace 外文件操作";
+
 export async function handlePendingPermissionReply(input: {
   sessionManager: SessionManager;
   routineRepository: RoutineRepository;
@@ -45,12 +47,22 @@ export async function handlePendingPermissionReply(input: {
   eventSink: RunEventSink | undefined;
 }): Promise<PendingPermissionReplyResult | null> {
   const normalized = normalizeConfirmationReply(input.message);
+  const isWorkspaceEscapeRequest =
+    input.pendingPermissionRequest.allowWorkspaceEscape === true;
+  const isExplicitWorkspaceEscapeReply =
+    isWorkspaceEscapeRequest &&
+    normalized === WORKSPACE_ESCAPE_APPROVAL_REPLY;
+  const isExplicitSessionApprovalReply =
+    !isWorkspaceEscapeRequest &&
+    (normalized.startsWith("本会话允许 shell:") ||
+      normalized.startsWith("本会话允许 tool:"));
+
   if (
     !input.permissionReply &&
     !isAffirmativeConfirmationReply(normalized) &&
     !isNegativeConfirmationReply(normalized) &&
-    !normalized.startsWith("本会话允许 shell:") &&
-    !normalized.startsWith("本会话允许 tool:")
+    !isExplicitWorkspaceEscapeReply &&
+    !isExplicitSessionApprovalReply
   ) {
     return null;
   }
@@ -142,31 +154,33 @@ export async function handlePendingPermissionReply(input: {
     };
   }
 
-  const approvalRules: PermissionRuleLists | null = normalized.startsWith(
-    "本会话允许 shell:"
-  )
-    ? {
-        shellAllowPatterns: [
-          normalized.slice("本会话允许 shell:".length).trim()
-        ],
-        shellDenyPatterns: [],
-        toolAllowList: [],
-        toolAskList: [],
-        toolDenyList: []
-      }
-    : normalized.startsWith("本会话允许 tool:")
-      ? {
-          shellAllowPatterns: [],
-          shellDenyPatterns: [],
-          toolAllowList: [normalized.slice("本会话允许 tool:".length).trim()],
-          toolAskList: [],
-          toolDenyList: []
-        }
-      : null;
+  const approvalRules: PermissionRuleLists | null =
+    isWorkspaceEscapeRequest
+      ? null
+      : normalized.startsWith("本会话允许 shell:")
+        ? {
+            shellAllowPatterns: [
+              normalized.slice("本会话允许 shell:".length).trim()
+            ],
+            shellDenyPatterns: [],
+            toolAllowList: [],
+            toolAskList: [],
+            toolDenyList: []
+          }
+        : normalized.startsWith("本会话允许 tool:")
+          ? {
+              shellAllowPatterns: [],
+              shellDenyPatterns: [],
+              toolAllowList: [normalized.slice("本会话允许 tool:".length).trim()],
+              toolAskList: [],
+              toolDenyList: []
+            }
+          : null;
 
   session = await input.sessionManager.updateContext(session.sessionId, {
     status: "running",
-    pendingPermissionRequest: null
+    pendingPermissionRequest: null,
+    ...(isWorkspaceEscapeRequest ? { workspaceEscapeAllowed: true } : {})
   });
   session = await input.sessionManager.setLoopState(
     session.sessionId,
@@ -230,12 +244,33 @@ export async function handlePendingPermissionReply(input: {
       JsonValue
     >,
     eventSink: input.eventSink,
-    skipPermissionCheck: true,
+    skipPermissionCheck: !isWorkspaceEscapeRequest,
     skipAppendToolCall: true,
     ...(input.pendingPermissionRequest.allowWorkspaceEscape
       ? { allowWorkspaceEscape: true }
       : {})
   });
+
+  if (executed.kind === "permission_request" && isWorkspaceEscapeRequest) {
+    return {
+      kind: "completed",
+      result: await completeLocally({
+        sessionManager: input.sessionManager,
+        traceManager: input.traceManager,
+        session: executed.session,
+        turnCount,
+        loopState: "waiting for input",
+        finalAnswer: "",
+        stopReason: "tool_use",
+        toolCallCount: 0,
+        toolResultCount: 0,
+        toolOutputs: [],
+        eventSink: input.eventSink,
+        appendAssistantMessage: false,
+        clearPendingToolCallIds: false
+      })
+    };
+  }
 
   if (executed.kind !== "completed") {
     throw new Error(

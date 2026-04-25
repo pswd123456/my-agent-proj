@@ -7,7 +7,11 @@ import {
   toRelativeWorkspacePath,
   walkFiles
 } from "./workspace.js";
-import { createToolResult, failureResult, successResult } from "./tool-result.js";
+import {
+  createToolResult,
+  failureResult,
+  successResult
+} from "./tool-result.js";
 
 const DEFAULT_MAX_RESULTS = 20;
 const MAX_RESULTS_LIMIT = 200;
@@ -33,6 +37,43 @@ type SearchResult = {
   truncated: boolean;
 };
 
+function parseLiteralTerms(query: string): string[] {
+  const terms: string[] = [];
+  let current = "";
+
+  for (let index = 0; index < query.length; index += 1) {
+    const character = query[index];
+    const nextCharacter = query[index + 1];
+
+    if (
+      character === "\\" &&
+      (nextCharacter === "|" || nextCharacter === "\\")
+    ) {
+      current += nextCharacter;
+      index += 1;
+      continue;
+    }
+
+    if (character === "|") {
+      const trimmed = current.trim();
+      if (trimmed) {
+        terms.push(trimmed);
+      }
+      current = "";
+      continue;
+    }
+
+    current += character;
+  }
+
+  const trimmed = current.trim();
+  if (trimmed) {
+    terms.push(trimmed);
+  }
+
+  return terms.length > 0 ? terms : [query];
+}
+
 function shouldIgnorePath(filePath: string): boolean {
   const segments = filePath.split(/[\\/]+/).filter(Boolean);
   return segments.some((segment) => IGNORED_PATH_SEGMENTS.has(segment));
@@ -51,6 +92,7 @@ function runRipgrep(input: {
   absoluteRoot: string;
   query: string;
   regex: boolean;
+  literalTerms: string[];
   maxResults: number;
   abortSignal?: AbortSignal;
 }): Promise<SearchResult | null> {
@@ -90,11 +132,18 @@ function runRipgrep(input: {
       "!coverage/**",
       "--glob",
       "!**/coverage/**",
-      input.query,
       input.absoluteRoot
     ];
     if (!input.regex) {
       args.unshift("--fixed-strings");
+      const patterns =
+        input.literalTerms.length > 0 ? input.literalTerms : [input.query];
+      for (const pattern of [...patterns].reverse()) {
+        args.unshift(pattern);
+        args.unshift("-e");
+      }
+    } else {
+      args.splice(args.length - 1, 0, input.query);
     }
     const child = spawn("rg", args, {
       cwd: input.workingDirectory,
@@ -209,6 +258,7 @@ async function searchWithNode(input: {
   absoluteRoot: string;
   query: string;
   regex: boolean;
+  literalTerms: string[];
   maxResults: number;
 }): Promise<SearchResult> {
   const rootStat = await fs.stat(input.absoluteRoot);
@@ -244,7 +294,11 @@ async function searchWithNode(input: {
       if (typeof line !== "string") {
         continue;
       }
-      if (pattern ? !pattern.test(line) : !line.includes(input.query)) {
+      if (
+        pattern
+          ? !pattern.test(line)
+          : !input.literalTerms.some((term) => line.includes(term))
+      ) {
         continue;
       }
 
@@ -281,7 +335,8 @@ export function createSearchTextTool(workingDirectory: string): RuntimeTool {
       properties: {
         query: {
           type: "string",
-          description: "Text fragment to look for."
+          description:
+            "Text fragment to look for. In literal mode, use | to match any of multiple keywords, and escape \\| for a literal pipe."
         },
         path: {
           type: "string",
@@ -289,7 +344,8 @@ export function createSearchTextTool(workingDirectory: string): RuntimeTool {
         },
         regex: {
           type: "boolean",
-          description: "Treat query as a regular expression instead of a literal string."
+          description:
+            "Treat query as a regular expression instead of a literal string."
         },
         maxResults: {
           type: "number",
@@ -300,7 +356,11 @@ export function createSearchTextTool(workingDirectory: string): RuntimeTool {
       additionalProperties: false
     },
     getSandboxTargets(input) {
-      return [typeof input.path === "string" && input.path.length > 0 ? input.path : "."];
+      return [
+        typeof input.path === "string" && input.path.length > 0
+          ? input.path
+          : "."
+      ];
     },
     validate(input) {
       const query = input.query;
@@ -343,6 +403,7 @@ export function createSearchTextTool(workingDirectory: string): RuntimeTool {
           ? input.path
           : ".";
       const regex = input.regex === true;
+      const literalTerms = regex ? [] : parseLiteralTerms(query);
       const maxResults = normalizeMaxResults(input.maxResults);
 
       try {
@@ -352,13 +413,14 @@ export function createSearchTextTool(workingDirectory: string): RuntimeTool {
           context.allowWorkspaceEscape
         );
         const ripgrepInput = {
-            workingDirectory,
-            absoluteRoot,
-            query,
-            regex,
-            maxResults,
-            ...(context.abortSignal ? { abortSignal: context.abortSignal } : {})
-          };
+          workingDirectory,
+          absoluteRoot,
+          query,
+          regex,
+          literalTerms,
+          maxResults,
+          ...(context.abortSignal ? { abortSignal: context.abortSignal } : {})
+        };
         const searchResult =
           (await runRipgrep(ripgrepInput)) ??
           (await searchWithNode({
@@ -366,6 +428,7 @@ export function createSearchTextTool(workingDirectory: string): RuntimeTool {
             absoluteRoot,
             query,
             regex,
+            literalTerms,
             maxResults
           }));
 

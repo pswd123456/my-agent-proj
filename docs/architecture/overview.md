@@ -21,6 +21,9 @@
 - session 默认 `maxTurns` 是 `50`，接口允许的上限是 `200`
 - 默认启用的 capability packs 是 `workspace` 和 `schedule`
 - session settings 的解析顺序是 `explicit override > user settings > repo default`
+- 工作区 runtime 上下文还会按次读取 `session.workingDirectory/.agent/`
+  - `.agent/skills/` 提供 skill metadata
+  - `.agent/.config.toml` 提供 MCP server 配置
 - 用户级 settings 已持久化到 `agent_settings`，当前包含：
   - `workingDirectory`
   - `yoloMode`
@@ -55,6 +58,7 @@
 - API 装配：`apps/api/src/index.ts`
 - session 默认值：`packages/domain/src/session-settings.ts`
 - tool surface：`packages/agent/src/tools/registry.ts`
+- 工作区 `.agent/` 配置：`docs/architecture/workspace-agent-config.md`
 - 数据表：`packages/db/src/schema.ts`
 
 ## 推荐阅读顺序
@@ -62,4 +66,5 @@
 - 想先建立全局认知：读 `docs/architecture/diagram.md`
 - 想判断主线与专项能力边界：读 `docs/architecture/capability-packs.md`
 - 想确认目录职责和模块归属：读 `docs/architecture/workspace-structure.md`
+- 想确认工作区 `.agent/skills/` 和 `.agent/.config.toml` 的边界：读 `docs/architecture/workspace-agent-config.md`
 - 想确认技术事实而不是计划：读 `docs/architecture/tech-stack.md`

@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { SessionSnapshot } from "@ai-app-template/sdk";
 
 import {
+  buildPermissionQuickReplies,
   buildComposerActionView,
   buildPermissionCardView,
   createPermissionCardFeedback,
@@ -24,6 +25,20 @@ const pendingPermissionRequest: NonNullable<
 };
 
 describe("permission card feedback", () => {
+  test("uses the workspace escape quick reply for sandbox approvals", () => {
+    expect(
+      buildPermissionQuickReplies({
+        ...pendingPermissionRequest,
+        allowWorkspaceEscape: true
+      })
+    ).toEqual([
+      {
+        label: "本会话允许 workspace 外文件操作",
+        reply: "本会话允许 workspace 外文件操作"
+      }
+    ]);
+  });
+
   test("keeps the request card visible before the user responds", () => {
     const view = buildPermissionCardView({
       pendingPermissionRequest,

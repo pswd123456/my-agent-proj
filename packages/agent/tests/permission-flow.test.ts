@@ -360,7 +360,7 @@ describe("Stage 4 permission flow", () => {
     }
   });
 
-  test("allows workspace-rooted reads outside cwd when the tool is already allowed and still asks before shell commands", async () => {
+  test("asks once before explicit workspace escapes and reuses that approval within the session", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     const sessionManager = createMemorySessionManager();
     const routineRepository = createMemoryRoutineRepository();
@@ -394,20 +394,62 @@ describe("Stage 4 permission flow", () => {
         },
         eventSink: undefined
       });
-      expect(permissionRequest.kind).toBe("completed");
-      if (permissionRequest.kind !== "completed") {
-        throw new Error("expected completed outside read");
+      expect(permissionRequest.kind).toBe("permission_request");
+      if (permissionRequest.kind !== "permission_request") {
+        throw new Error("expected workspace escape permission request");
       }
-      expect(permissionRequest.output.isError).toBe(false);
-      expect(permissionRequest.output.content).toContain("outside");
+      expect(permissionRequest.request.allowWorkspaceEscape).toBe(true);
+      expect(permissionRequest.request.summaryText).toContain(
+        "workspace 外路径"
+      );
+
+      const approved = await handlePendingPermissionReply({
+        sessionManager,
+        routineRepository,
+        toolRegistry,
+        traceManager: undefined,
+        session: permissionRequest.session,
+        message: "本会话允许 workspace 外文件操作",
+        pendingPermissionRequest:
+          permissionRequest.session.context.pendingPermissionRequest!,
+        eventSink: undefined
+      });
+
+      expect(approved?.kind).toBe("approved");
+      if (approved?.kind !== "approved") {
+        throw new Error("expected approved workspace escape reply");
+      }
+      expect(approved.session.context.workspaceEscapeAllowed).toBe(true);
+      expect(approved.session.context.toolAllowList).toHaveLength(0);
+      expect(approved.toolOutputs[0]?.content).toContain("outside");
+
+      const repeatedOutsideRead = await executeToolAction({
+        sessionManager,
+        routineRepository,
+        toolRegistry,
+        traceManager: undefined,
+        session: approved.session,
+        turnCount: 2,
+        toolCallId: "call-read-outside-again",
+        toolName: "read_file",
+        toolInput: {
+          path: path.relative(workspaceRoot, outsidePath)
+        },
+        eventSink: undefined
+      });
+      expect(repeatedOutsideRead.kind).toBe("completed");
+      if (repeatedOutsideRead.kind !== "completed") {
+        throw new Error("expected repeated outside read to complete");
+      }
+      expect(repeatedOutsideRead.output.content).toContain("outside");
 
       const shellRequest = await executeToolAction({
         sessionManager,
         routineRepository,
         toolRegistry,
         traceManager: undefined,
-        session: permissionRequest.session,
-        turnCount: 1,
+        session: repeatedOutsideRead.session,
+        turnCount: 3,
         toolCallId: "call-shell",
         toolName: "run_shell_command",
         toolInput: {
@@ -427,7 +469,7 @@ describe("Stage 4 permission flow", () => {
     }
   });
 
-  test("treats workspace escapes as ordinary tool approvals and persists session allow rules", async () => {
+  test("keeps workspace escape approval session-scoped and separate from tool allow lists", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     const sessionManager = createMemorySessionManager();
     const routineRepository = createMemoryRoutineRepository();
@@ -439,8 +481,7 @@ describe("Stage 4 permission flow", () => {
       const session = await sessionManager.createSession({
         workingDirectory: workspaceRoot,
         model: "MiniMax-M2.7",
-        userId: "stage4-user",
-        toolAskList: ["list_directory"]
+        userId: "stage4-user"
       });
 
       const firstRequest = await executeToolAction({
@@ -463,7 +504,7 @@ describe("Stage 4 permission flow", () => {
         throw new Error("expected list_directory permission request");
       }
       expect(firstRequest.request.toolName).toBe("list_directory");
-      expect(firstRequest.request.allowWorkspaceEscape).toBeUndefined();
+      expect(firstRequest.request.allowWorkspaceEscape).toBe(true);
 
       const approved = await handlePendingPermissionReply({
         sessionManager,
@@ -471,7 +512,7 @@ describe("Stage 4 permission flow", () => {
         toolRegistry,
         traceManager: undefined,
         session: firstRequest.session,
-        message: "本会话允许 tool:list_directory",
+        message: "确认",
         pendingPermissionRequest:
           firstRequest.session.context.pendingPermissionRequest!,
         eventSink: undefined
@@ -481,22 +522,26 @@ describe("Stage 4 permission flow", () => {
       if (approved?.kind !== "approved") {
         throw new Error("expected approved list_directory result");
       }
-      expect(approved.session.context.toolAllowList).toContain(
-        "list_directory"
-      );
-      expect(approved.session.context.toolAskList).not.toContain(
+      expect(approved.session.context.workspaceEscapeAllowed).toBe(true);
+      expect(approved.session.context.toolAllowList).not.toContain(
         "list_directory"
       );
       expect(approved.toolOutputs[0]?.isError).toBe(false);
 
-      const secondCall = await executeToolAction({
+      const newSession = await sessionManager.createSession({
+        workingDirectory: workspaceRoot,
+        model: "MiniMax-M2.7",
+        userId: "stage4-user"
+      });
+
+      const secondSessionRequest = await executeToolAction({
         sessionManager,
         routineRepository,
         toolRegistry,
         traceManager: undefined,
-        session: approved.session,
-        turnCount: 2,
-        toolCallId: "call-list-parent-again",
+        session: newSession,
+        turnCount: 1,
+        toolCallId: "call-list-parent-new-session",
         toolName: "list_directory",
         toolInput: {
           path: ".."
@@ -504,11 +549,11 @@ describe("Stage 4 permission flow", () => {
         eventSink: undefined
       });
 
-      expect(secondCall.kind).toBe("completed");
-      if (secondCall.kind !== "completed") {
-        throw new Error("expected second outside list_directory to complete");
+      expect(secondSessionRequest.kind).toBe("permission_request");
+      if (secondSessionRequest.kind !== "permission_request") {
+        throw new Error("expected new session to ask again");
       }
-      expect(secondCall.output.isError).toBe(false);
+      expect(secondSessionRequest.request.allowWorkspaceEscape).toBe(true);
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true });
     }
@@ -687,6 +732,10 @@ describe("Stage 4 permission flow", () => {
     const toolRegistry = createWorkspaceToolRegistry({
       workingDirectory: workspaceRoot
     });
+    const outsidePath = path.join(
+      path.dirname(workspaceRoot),
+      `${path.basename(workspaceRoot)}-outside-yolo.txt`
+    );
 
     try {
       await writeFile(
@@ -694,6 +743,7 @@ describe("Stage 4 permission flow", () => {
         "before",
         "utf8"
       );
+      await writeFile(outsidePath, "outside", "utf8");
       const session = await sessionManager.createSession({
         workingDirectory: workspaceRoot,
         model: "MiniMax-M2.7",
@@ -741,7 +791,28 @@ describe("Stage 4 permission flow", () => {
         eventSink: undefined
       });
       expect(shellRequest.kind).toBe("permission_request");
+
+      const outsideRequest = await executeToolAction({
+        sessionManager,
+        routineRepository,
+        toolRegistry,
+        traceManager: undefined,
+        session: executed.session,
+        turnCount: 3,
+        toolCallId: "call-yolo-outside",
+        toolName: "read_file",
+        toolInput: {
+          path: path.relative(workspaceRoot, outsidePath)
+        },
+        eventSink: undefined
+      });
+      expect(outsideRequest.kind).toBe("permission_request");
+      if (outsideRequest.kind !== "permission_request") {
+        throw new Error("expected workspace escape request in yolo mode");
+      }
+      expect(outsideRequest.request.allowWorkspaceEscape).toBe(true);
     } finally {
+      await rm(outsidePath, { force: true });
       await rm(workspaceRoot, { recursive: true, force: true });
     }
   });

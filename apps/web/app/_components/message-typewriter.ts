@@ -18,6 +18,12 @@ interface AssistantTextRenderModeInput {
   visibleLength: number;
 }
 
+interface AssistantTextCursorInput {
+  animate: boolean;
+  totalLength: number;
+  visibleLength: number;
+}
+
 export function splitTypewriterCharacters(content: string): string[] {
   return Array.from(content);
 }
@@ -63,6 +69,22 @@ export function getAssistantTextRenderMode(
     Math.min(visibleLength, totalLength)
   );
   return boundedVisibleLength < totalLength ? "plaintext" : "markdown";
+}
+
+export function getAssistantTextCursorVisible(
+  input: AssistantTextCursorInput
+): boolean {
+  const { animate, totalLength, visibleLength } = input;
+
+  if (!animate) {
+    return false;
+  }
+
+  const boundedVisibleLength = Math.max(
+    0,
+    Math.min(visibleLength, totalLength)
+  );
+  return boundedVisibleLength < totalLength;
 }
 
 export function getNextTypewriterLength(

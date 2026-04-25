@@ -14,6 +14,7 @@ export type SessionToolFamily =
   | "workspace-file"
   | "workspace-shell"
   | "workspace-network"
+  | "mcp"
   | "schedule";
 
 export type SessionPermissionProfile =
@@ -57,6 +58,7 @@ export interface ScheduleSessionContext {
   status: ScheduleSessionStatus;
   currentDateContext: string;
   yoloMode: boolean;
+  workspaceEscapeAllowed: boolean;
   shellAllowPatterns: string[];
   shellDenyPatterns: string[];
   toolAllowList: string[];

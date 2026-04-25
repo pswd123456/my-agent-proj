@@ -144,7 +144,7 @@ describe("PromptBuilder skill context", () => {
     const promptEnvelope = promptBuilder.build(session, new ToolRegistry());
 
     expect(promptEnvelope.system).toContain(
-      "You are a personal assistant operating a CLI-first workspace runtime."
+      "You are a personal assistant."
     );
     expect(promptEnvelope.system).not.toMatch(
       /scheduling agent.*routine manager/i

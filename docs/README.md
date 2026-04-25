@@ -8,8 +8,10 @@
 - [模板初始化](./template/README.md)
 - [技术栈总览](./tech-stack.md)
 - [架构文档目录](./architecture/README.md)
+- [MCP 模块落地](./architecture/mcp-module.md)
 - [阶段文档目录](./plan/README.md)
 - [调查文档目录](./investigation/README.md)
+- [Todo 文档目录](./todo/README.md)
 - [主线与能力包](./architecture/capability-packs.md)
 - [Context 管理](./architecture/context-management/README.md)
 - [设计系统总览](./design-system/README.md)
@@ -19,6 +21,7 @@
 - 做 UI、视觉统一、AI 生成页面相关工作时，先看根目录 `DESIGN.md`，再进入 `docs/design-system/`
 - 刚复制模板时，先看 `docs/template/`
 - 做技术栈、工程结构、架构边界相关工作时，从 `docs/architecture/` 开始
+- 做工作区 MCP 配置、挂载、权限或 trace 相关工作时，优先看 `docs/architecture/mcp-module.md`
 - 如果要判断“仓库主线是什么、哪些只是专项能力”，优先看 `docs/architecture/capability-packs.md`
 - 做 messages 管理、compact、tool result 上下文或 prompt 分层时，优先看 `docs/architecture/context-management/`
 - 做 UI、一致性、tokens、组件策略、页面模板相关工作时，从 `docs/design-system/` 开始

@@ -17,6 +17,121 @@ export class WorkspaceSandboxError extends Error {
   }
 }
 
+export type WorkspaceSandboxTargetClassification =
+  | "inside_workspace"
+  | "outside_workspace"
+  | "symlink_escape";
+
+export interface WorkspaceSandboxTargetPreflight {
+  requestedPath: string;
+  resolvedPath: string;
+  existingPath: string | null;
+  realPath: string | null;
+  classification: WorkspaceSandboxTargetClassification;
+}
+
+export interface WorkspaceSandboxPreflightResult {
+  targets: WorkspaceSandboxTargetPreflight[];
+  outsideTargets: WorkspaceSandboxTargetPreflight[];
+  symlinkEscapeTargets: WorkspaceSandboxTargetPreflight[];
+}
+
+function isPathInside(basePath: string, targetPath: string): boolean {
+  const relativePath = path.relative(basePath, targetPath);
+  return (
+    relativePath === "" ||
+    (!relativePath.startsWith("..") && !path.isAbsolute(relativePath))
+  );
+}
+
+async function pathExistsForSandbox(targetPath: string): Promise<boolean> {
+  try {
+    await fs.lstat(targetPath);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return false;
+    }
+    throw error;
+  }
+}
+
+async function findNearestExistingPath(targetPath: string): Promise<string> {
+  let currentPath = targetPath;
+
+  while (!(await pathExistsForSandbox(currentPath))) {
+    const parentPath = path.dirname(currentPath);
+    if (parentPath === currentPath) {
+      return currentPath;
+    }
+    currentPath = parentPath;
+  }
+
+  return currentPath;
+}
+
+async function safeRealpath(targetPath: string): Promise<string | null> {
+  try {
+    return await fs.realpath(targetPath);
+  } catch (error) {
+    if (
+      (error as NodeJS.ErrnoException).code === "ENOENT" ||
+      (error as NodeJS.ErrnoException).code === "EINVAL"
+    ) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+export async function preflightWorkspaceSandboxTargets(input: {
+  workingDirectory: string;
+  targets: string[];
+}): Promise<WorkspaceSandboxPreflightResult> {
+  const workspaceRoot = path.resolve(input.workingDirectory);
+  const workspaceRootRealPath =
+    (await safeRealpath(workspaceRoot)) ?? workspaceRoot;
+  const requestedTargets = input.targets.length > 0 ? input.targets : ["."];
+  const targets: WorkspaceSandboxTargetPreflight[] = [];
+
+  for (const rawTarget of requestedTargets) {
+    const requestedPath = rawTarget.length > 0 ? rawTarget : ".";
+    const resolvedPath = path.resolve(workspaceRoot, requestedPath);
+    const lexicalInsideWorkspace = isPathInside(workspaceRoot, resolvedPath);
+    const existingPath = await findNearestExistingPath(resolvedPath);
+    const realPath = await safeRealpath(existingPath);
+
+    let classification: WorkspaceSandboxTargetClassification =
+      "inside_workspace";
+    if (!lexicalInsideWorkspace) {
+      classification = "outside_workspace";
+    } else if (
+      realPath &&
+      !isPathInside(workspaceRootRealPath, realPath)
+    ) {
+      classification = "symlink_escape";
+    }
+
+    targets.push({
+      requestedPath,
+      resolvedPath,
+      existingPath,
+      realPath,
+      classification
+    });
+  }
+
+  return {
+    targets,
+    outsideTargets: targets.filter(
+      (target) => target.classification === "outside_workspace"
+    ),
+    symlinkEscapeTargets: targets.filter(
+      (target) => target.classification === "symlink_escape"
+    )
+  };
+}
+
 export function normalizeWorkspacePath(
   workingDirectory: string,
   targetPath: string,
@@ -27,9 +142,7 @@ export function normalizeWorkspacePath(
   if (allowEscape) {
     return resolvedPath;
   }
-  const relativePath = path.relative(baseDirectory, resolvedPath);
-
-  if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+  if (!isPathInside(baseDirectory, resolvedPath)) {
     throw new WorkspaceSandboxError();
   }
 

@@ -94,6 +94,9 @@ export const agentSessions = pgTable(
     status: text("status").notNull(),
     currentDateContext: text("current_date_context").notNull(),
     yoloMode: boolean("yolo_mode").notNull().default(false),
+    workspaceEscapeAllowed: boolean("workspace_escape_allowed")
+      .notNull()
+      .default(false),
     contextWindow: integer("context_window").notNull().default(200000),
     maxTurns: integer("max_turns").notNull().default(50),
     shellAllowPatterns: jsonb("shell_allow_patterns")

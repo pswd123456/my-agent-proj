@@ -32,6 +32,9 @@ function createToolExecutionContext(input: {
   abortSignal?: AbortSignal;
   allowWorkspaceEscape?: boolean;
 }): ToolExecutionContext {
+  const workspaceEscapeAllowed =
+    input.allowWorkspaceEscape ?? input.session.context.workspaceEscapeAllowed;
+
   return {
     sessionId: input.session.sessionId,
     userId: input.session.context.userId,
@@ -39,9 +42,7 @@ function createToolExecutionContext(input: {
     ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
     routineRepository: input.routineRepository,
     sessionManager: input.sessionManager,
-    allowWorkspaceEscape:
-      input.allowWorkspaceEscape ??
-      input.tool?.sandboxProfile === "workspace-rooted",
+    allowWorkspaceEscape: workspaceEscapeAllowed ?? false,
     permissionRules: {
       shellAllowPatterns: input.session.context.shellAllowPatterns ?? [],
       shellDenyPatterns: input.session.context.shellDenyPatterns ?? [],
@@ -53,6 +54,8 @@ function createToolExecutionContext(input: {
       status: input.session.context.status,
       currentDateContext: input.session.context.currentDateContext,
       yoloMode: input.session.context.yoloMode,
+      workspaceEscapeAllowed:
+        input.session.context.workspaceEscapeAllowed ?? false,
       shellAllowPatterns: input.session.context.shellAllowPatterns ?? [],
       shellDenyPatterns: input.session.context.shellDenyPatterns ?? [],
       toolAllowList: input.session.context.toolAllowList ?? [],

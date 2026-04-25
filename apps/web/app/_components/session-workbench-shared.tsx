@@ -208,15 +208,15 @@ export function getSidebarStateBadgeClass(
 ): string {
   switch (tone) {
     case "active":
-      return "border-[color:color-mix(in_srgb,var(--app-border-accent)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--app-border-accent)_16%,transparent)] text-[color:color-mix(in_srgb,var(--app-border-accent)_78%,white_22%)]";
+      return "text-[color:color-mix(in_srgb,var(--app-border-accent)_78%,white_22%)]";
     case "success":
-      return "border-[color:color-mix(in_srgb,var(--app-status-success)_55%,transparent)] bg-[color:color-mix(in_srgb,var(--app-status-success)_14%,transparent)] text-[var(--app-status-success)]";
+      return "text-[var(--app-status-success)]";
     case "warning":
-      return "border-[color:color-mix(in_srgb,var(--app-status-warning)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--app-status-warning)_16%,transparent)] text-[color:color-mix(in_srgb,var(--app-status-warning)_88%,white_12%)]";
+      return "text-[color:color-mix(in_srgb,var(--app-status-warning)_88%,white_12%)]";
     case "danger":
-      return "border-[color:color-mix(in_srgb,var(--app-status-danger)_55%,transparent)] bg-[color:color-mix(in_srgb,var(--app-status-danger)_14%,transparent)] text-[var(--app-status-danger)]";
+      return "text-[var(--app-status-danger)]";
     case "neutral":
-      return "border-[var(--app-border-subtle)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_82%,transparent)] text-[var(--app-text-secondary)]";
+      return "text-[var(--app-text-secondary)]";
   }
 }
 
@@ -228,6 +228,8 @@ export function getPermissionFamilyLabel(family: string): string {
       return "workspace shell";
     case "workspace-network":
       return "workspace network";
+    case "mcp":
+      return "mcp";
     case "schedule":
       return "schedule";
     default:
@@ -530,7 +532,7 @@ export function SessionWorkbenchSidebar({
                       </div>
                       <div className="mt-2 flex flex-wrap items-center gap-2">
                         <span
-                          className={`inline-flex items-center rounded-[var(--app-radius-pill)] border px-2.5 py-1 text-[0.72rem] font-medium ${stateBadgeClass}`}
+                          className={`inline-flex items-center px-0 py-0 text-[0.72rem] font-medium ${stateBadgeClass}`}
                           title={displayState.detail}
                         >
                           {displayState.label}

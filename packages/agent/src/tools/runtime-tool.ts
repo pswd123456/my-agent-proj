@@ -12,6 +12,7 @@ export type RuntimeToolFamily =
   | "workspace-file"
   | "workspace-shell"
   | "workspace-network"
+  | "mcp"
   | "schedule";
 
 export type RuntimeToolPermissionProfile =
@@ -35,6 +36,7 @@ export interface ToolExecutionContext {
     status: string;
     currentDateContext: string;
     yoloMode: boolean;
+    workspaceEscapeAllowed: boolean;
     shellAllowPatterns: string[];
     shellDenyPatterns: string[];
     toolAllowList: string[];

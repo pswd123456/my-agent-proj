@@ -98,7 +98,10 @@ describe("search_text", () => {
     await mkdir(path.join(workspace, "node_modules"));
     await writeFile(path.join(workspace, "src", "a.txt"), "needle one\n");
     await writeFile(path.join(workspace, "src", "b.txt"), "needle two\n");
-    await writeFile(path.join(workspace, "node_modules", "hidden.txt"), "needle hidden\n");
+    await writeFile(
+      path.join(workspace, "node_modules", "hidden.txt"),
+      "needle hidden\n"
+    );
 
     const result = await createSearchTextTool(workspace).execute(
       {
@@ -118,7 +121,10 @@ describe("search_text", () => {
 
   test("supports regular expression queries when requested", async () => {
     const workspace = await createWorkspace();
-    await writeFile(path.join(workspace, "notes.txt"), "needle-123\nneedle-abc\n");
+    await writeFile(
+      path.join(workspace, "notes.txt"),
+      "needle-123\nneedle-abc\n"
+    );
 
     const result = await createSearchTextTool(workspace).execute(
       {
@@ -137,6 +143,66 @@ describe("search_text", () => {
           path: "notes.txt",
           line: 1,
           snippet: "needle-123"
+        }
+      ]
+    });
+  });
+
+  test("supports pipe-separated literal keywords as OR conditions", async () => {
+    const workspace = await createWorkspace();
+    await writeFile(
+      path.join(workspace, "notes.txt"),
+      "alpha value\nbeta value\ngamma value\n"
+    );
+
+    const result = await createSearchTextTool(workspace).execute(
+      {
+        query: "alpha | gamma",
+        maxResults: 5
+      },
+      createContext(workspace)
+    );
+
+    expect(result.state).toBe("success");
+    expect(result.result.data).toMatchObject({
+      regex: false,
+      matches: [
+        {
+          path: "notes.txt",
+          line: 1,
+          snippet: "alpha value"
+        },
+        {
+          path: "notes.txt",
+          line: 3,
+          snippet: "gamma value"
+        }
+      ]
+    });
+  });
+
+  test("supports escaped pipes in literal queries", async () => {
+    const workspace = await createWorkspace();
+    await writeFile(
+      path.join(workspace, "notes.txt"),
+      "alpha|beta\nalpha beta\n"
+    );
+
+    const result = await createSearchTextTool(workspace).execute(
+      {
+        query: "alpha\\|beta",
+        maxResults: 5
+      },
+      createContext(workspace)
+    );
+
+    expect(result.state).toBe("success");
+    expect(result.result.data).toMatchObject({
+      matches: [
+        {
+          path: "notes.txt",
+          line: 1,
+          snippet: "alpha|beta"
         }
       ]
     });

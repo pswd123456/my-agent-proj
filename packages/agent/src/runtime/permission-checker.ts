@@ -5,6 +5,7 @@ import type {
   RuntimeTool,
   ToolExecutionContext
 } from "../tools/runtime-tool.js";
+import { preflightWorkspaceSandboxTargets } from "../tools/workspace.js";
 import { matchesPermissionRuleLists } from "./permission-rules.js";
 import type { JsonValue } from "../types.js";
 
@@ -36,6 +37,9 @@ function buildFallbackPermissionSummary(tool: RuntimeTool): string {
   if (tool.family === "workspace-network") {
     return `需要你的确认后才能发起网络请求：${tool.name}`;
   }
+  if (tool.family === "mcp") {
+    return `需要你的确认后才能调用 MCP 工具：${tool.name}`;
+  }
   return `需要你的确认后才能执行高风险工具：${tool.name}`;
 }
 
@@ -57,6 +61,20 @@ function buildSandboxBlockedResult(
     ),
     displayText: `[${toolName}] blocked\n- ${reason}`
   };
+}
+
+function formatWorkspaceEscapeContextNote(
+  targets: string[]
+): string | undefined {
+  const uniqueTargets = [...new Set(targets.map((target) => target.trim()))]
+    .filter(Boolean)
+    .slice(0, 5);
+
+  if (uniqueTargets.length === 0) {
+    return undefined;
+  }
+
+  return `本次触发审批的路径：${uniqueTargets.join(", ")}`;
 }
 
 function createPendingPermissionRequest(input: {
@@ -116,6 +134,43 @@ export async function checkToolPermission(input: {
   toolInput: Record<string, JsonValue>;
   executionContext: ToolExecutionContext;
 }): Promise<PermissionCheckResult> {
+  if (input.tool.sandboxProfile === "workspace-rooted") {
+    const sandboxTargets = input.tool.getSandboxTargets?.(input.toolInput) ?? [];
+    const sandboxPreflight = await preflightWorkspaceSandboxTargets({
+      workingDirectory: input.executionContext.workingDirectory,
+      targets: sandboxTargets
+    });
+
+    if (sandboxPreflight.symlinkEscapeTargets.length > 0) {
+      return buildSandboxBlockedResult(
+        input.tool.name,
+        "Path resolves outside the working directory through a symlink or realpath escape."
+      );
+    }
+
+    if (
+      sandboxPreflight.outsideTargets.length > 0 &&
+      !input.executionContext.sessionContext.workspaceEscapeAllowed &&
+      !input.executionContext.allowWorkspaceEscape
+    ) {
+      const contextNote = formatWorkspaceEscapeContextNote(
+        sandboxPreflight.outsideTargets.map((target) => target.requestedPath)
+      );
+      return {
+        decision: "ask_user",
+        request: createPendingPermissionRequest({
+          toolCallId: input.toolCallId,
+          tool: input.tool,
+          toolInput: input.toolInput,
+          summaryText:
+            "需要你的确认后才能访问 workspace 外路径。本次同意后，当前 session 的后续文件操作将不再重复询问。",
+          ...(contextNote ? { contextNote } : {}),
+          allowWorkspaceEscape: true
+        })
+      };
+    }
+  }
+
   const shellCommand =
     input.tool.name === "run_shell_command" &&
     typeof input.toolInput.command === "string"
