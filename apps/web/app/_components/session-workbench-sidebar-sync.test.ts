@@ -25,6 +25,7 @@ function createSessionSnapshot(): SessionSnapshot {
       enabledCapabilityPacks: [],
       pendingPermissionRequest: null,
       pendingConfirmationPayload: null,
+      pendingUserQuestionPayload: null,
       pendingConflictSummary: null,
       lastUserMessage: null
     },
@@ -68,7 +69,11 @@ describe("sidebar session summary sync", () => {
       updatedAt: "2026-04-24T00:00:00.000Z"
     };
 
-    const merged = mergeSessionSummary([toSessionSummary(stale)], fresh, toSessionSummary);
+    const merged = mergeSessionSummary(
+      [toSessionSummary(stale)],
+      fresh,
+      toSessionSummary
+    );
 
     expect(merged).toHaveLength(1);
     expect(merged[0]?.status).toBe("running");

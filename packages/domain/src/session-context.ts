@@ -6,6 +6,7 @@ export type ScheduleSessionStatus =
   | "running"
   | "waiting_for_permission"
   | "waiting_for_conflict_confirmation"
+  | "waiting_for_user_question"
   | "waiting_for_user_input"
   | "completed"
   | "failed";
@@ -42,10 +43,24 @@ export interface PendingConfirmationPayload {
   createdAt: string;
 }
 
+export interface PendingUserQuestionOption {
+  label: string;
+  reply: string;
+  description?: string;
+}
+
+export interface PendingUserQuestionPayload {
+  questionText: string;
+  options: PendingUserQuestionOption[];
+  contextNote?: string;
+  createdAt: string;
+}
+
 export interface PendingPermissionRequest {
   toolCallId: string;
   toolName: string;
   toolInput: Record<string, DomainJsonValue>;
+  responseGroupId?: string;
   family: SessionToolFamily;
   permissionProfile: SessionPermissionProfile;
   summaryText: string;
@@ -70,11 +85,21 @@ export interface SessionTodoState {
   lastUpdatedAt: string | null;
 }
 
+export interface SessionFullCompactionState {
+  summaryMarkdown: string;
+  compactedAt: string;
+  promptVersion: string;
+  sourceBlockCount: number;
+  retainedTailCount: number;
+}
+
 export interface ScheduleSessionContext {
   userId: string;
   status: ScheduleSessionStatus;
   currentDateContext: string;
   yoloMode: boolean;
+  planModeEnabled: boolean;
+  taskBriefPath: string | null;
   workspaceEscapeAllowed: boolean;
   shellAllowPatterns: string[];
   shellDenyPatterns: string[];
@@ -84,7 +109,9 @@ export interface ScheduleSessionContext {
   enabledCapabilityPacks: CapabilityPackName[];
   pendingPermissionRequest: PendingPermissionRequest | null;
   pendingConfirmationPayload: PendingConfirmationPayload | null;
+  pendingUserQuestionPayload: PendingUserQuestionPayload | null;
   todoState?: SessionTodoState | null;
+  fullCompactionState?: SessionFullCompactionState | null;
   pendingConflictSummary: string | null;
   lastUserMessage: string | null;
 }

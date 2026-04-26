@@ -36,6 +36,34 @@
       "when": 1777153797324,
       "tag": "0004_heavy_sway",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1777420800000,
+      "tag": "0005_plan_mode_task_brief",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1777507200000,
+      "tag": "0006_agent_settings_model",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1777593600000,
+      "tag": "0007_plan_mode_user_question",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1777766400000,
+      "tag": "0008_full_compaction_state",
+      "breakpoints": true
     }
   ]
 }

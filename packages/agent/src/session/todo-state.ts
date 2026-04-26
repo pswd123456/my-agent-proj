@@ -370,7 +370,11 @@ export function formatTodoStateSummary(
 
   const lines = [
     "Session todo state:",
-    `Active item: ${activeItem ? truncateForSummary(activeItem.content) : "none"}`,
+    `Active item: ${
+      activeItem
+        ? `${activeItem.id} - ${truncateForSummary(activeItem.content)}`
+        : "none"
+    }`,
     "Open items:"
   ];
 
@@ -381,7 +385,7 @@ export function formatTodoStateSummary(
 
   for (const [index, item] of openItems.entries()) {
     lines.push(
-      `${index + 1}. ${truncateForSummary(item.content)} [${item.status}]`
+      `${index + 1}. ${item.id} - ${truncateForSummary(item.content)} [${item.status}]`
     );
   }
 

@@ -7,7 +7,7 @@
 - API 是 `Hono` + `Zod`
 - agent runtime 是仓库内自定义的 `AgentRuntime.run` 执行循环
 - 数据层是 `PostgreSQL` + `Drizzle ORM` + `postgres` 驱动
-- 模型接入当前通过 `Anthropic SDK` 对接 Anthropic-compatible endpoint，默认配置指向 MiniMax
+- 模型接入当前通过 `Anthropic SDK` 对接 Anthropic-compatible endpoint，并由统一模型服务在 MiniMax 与 DeepSeek 之间做选择
 
 ## 已落地实现
 
@@ -38,11 +38,19 @@
 - 核心 loop 在 `packages/agent/src/runtime.ts`
 - prompt 拼装在 `packages/agent/src/prompt.ts`
 - provider 适配在 `packages/agent/src/model.ts`
+- 统一模型服务在 `packages/agent/src/models/`
 - session 抽象和 PostgreSQL / file / memory 实现在 `packages/agent/src/session/`
 - runtime 已落地 permission checker、interrupt、history compact 和 system log 边界
 - workspace skill discovery 在 `packages/agent/src/skills/`
 - tool registry 与具体工具在 `packages/agent/src/tools/`
 - trace 以 JSONL 追加写入 `tmp/agent-sessions/sessions/`；system log 以结构化 JSONL 写入 `tmp/agent-sessions/logs/` 并按大小轮转
+
+### 模型兼容性
+
+- 当前模型目录包含 `MiniMax-M2.7` 与 `deepseek-v4-pro`
+- `deepseek-v4-pro` 走 DeepSeek 官方 Anthropic-compatible endpoint 时支持 `thinking`
+- 对 DeepSeek 的 `thinking + tool_use` 多轮续传，上一轮 assistant message 中的 signed `thinking` block 必须原样回放；去掉后 provider 会返回 `400`
+- 本地验证中，DeepSeek 在 `thinking` 模式下若显式传 `tool_choice: { type: "tool", name: ... }` 可能返回 `deepseek-reasoner does not support this tool_choice`；当前优先使用 `tool_choice: auto`
 
 ### 数据层
 

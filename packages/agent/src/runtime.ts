@@ -3,12 +3,14 @@ import { randomUUID } from "node:crypto";
 import type { Logger, SystemLogManager } from "./system-log.js";
 
 import type { RoutineRepository } from "@ai-app-template/db";
+import { DEFAULT_SESSION_MODEL } from "@ai-app-template/domain";
 
 import type {
   AnthropicCompatibleClient,
   AnthropicMessage,
   AnthropicToolChoice
 } from "./model.js";
+import type { ModelService } from "./models/index.js";
 import {
   createPromptBuilder,
   toAnthropicMessages,
@@ -28,8 +30,9 @@ import { runSessionLoop } from "./runtime/run-loop.js";
 export interface AgentRuntimeOptions {
   systemLogManager?: SystemLogManager;
   runtimeLogger?: Logger;
-  client: AnthropicCompatibleClient;
-  model: string;
+  client?: AnthropicCompatibleClient;
+  model?: string;
+  modelService?: ModelService;
   sessionManager: SessionManager;
   routineRepository: RoutineRepository;
   toolRegistry: ToolRegistry;
@@ -58,12 +61,49 @@ export class AgentRuntime {
     this.runtimeLogger = options.runtimeLogger;
   }
 
+  private resolveDefaultModel(): string {
+    return (
+      this.options.modelService?.getDefaultModel() ??
+      this.options.model ??
+      DEFAULT_SESSION_MODEL
+    );
+  }
+
+  private resolveClient(model: string): AnthropicCompatibleClient {
+    if (this.options.modelService) {
+      return this.options.modelService.getClient(model);
+    }
+
+    if (!this.options.client) {
+      throw new Error("Model client is not configured.");
+    }
+
+    return this.options.client;
+  }
+
+  private sanitizeMessagesForModel(
+    model: string,
+    messages: AnthropicMessage[]
+  ): AnthropicMessage[] {
+    if (this.options.modelService?.supportsThinking(model) ?? true) {
+      return messages;
+    }
+
+    return messages
+      .map((message) => ({
+        ...message,
+        content: message.content.filter((block) => block.type !== "thinking")
+      }))
+      .filter((message) => message.content.length > 0);
+  }
+
   async createSession(
     input: {
       workingDirectory?: string;
       model?: string;
       userId?: string;
       yoloMode?: boolean;
+      planModeEnabled?: boolean;
       contextWindow?: number;
       maxTurns?: number;
       shellAllowPatterns?: string[];
@@ -79,6 +119,7 @@ export class AgentRuntime {
       model?: string;
       userId?: string;
       yoloMode?: boolean;
+      planModeEnabled?: boolean;
       contextWindow?: number;
       maxTurns?: number;
       shellAllowPatterns?: string[];
@@ -88,7 +129,7 @@ export class AgentRuntime {
       toolDenyList?: string[];
       enabledCapabilityPacks?: string[];
     } = {
-      model: input.model ?? this.options.model
+      model: input.model ?? this.resolveDefaultModel()
     };
 
     if (typeof input.workingDirectory === "string") {
@@ -99,6 +140,9 @@ export class AgentRuntime {
     }
     if (typeof input.yoloMode === "boolean") {
       createInput.yoloMode = input.yoloMode;
+    }
+    if (typeof input.planModeEnabled === "boolean") {
+      createInput.planModeEnabled = input.planModeEnabled;
     }
     if (typeof input.contextWindow === "number") {
       createInput.contextWindow = input.contextWindow;
@@ -189,7 +233,9 @@ export class AgentRuntime {
       }, 150);
 
       const runLoopInput = {
-        client: this.options.client,
+        client: this.resolveClient(session.model),
+        prepareMessages: (messages: AnthropicMessage[]) =>
+          this.sanitizeMessagesForModel(session.model, messages),
         sessionManager: this.options.sessionManager,
         routineRepository: this.options.routineRepository,
         toolRegistry: this.options.toolRegistry,

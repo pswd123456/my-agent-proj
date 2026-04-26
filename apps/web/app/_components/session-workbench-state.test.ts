@@ -27,6 +27,7 @@ function createSessionSnapshot(): SessionSnapshot {
       toolDenyList: [],
       pendingPermissionRequest: null,
       pendingConfirmationPayload: null,
+      pendingUserQuestionPayload: null,
       pendingConflictSummary: null,
       lastUserMessage: null
     },
@@ -101,7 +102,10 @@ describe("getSessionDisplayState", () => {
         pendingToolCallIds: session.sessionState.pendingToolCallIds,
         interruptRequested: session.sessionState.interruptRequested,
         pendingPermission: Boolean(session.context.pendingPermissionRequest),
-        pendingConfirmation: Boolean(session.context.pendingConfirmationPayload)
+        pendingConfirmation: Boolean(
+          session.context.pendingConfirmationPayload
+        ),
+        pendingUserQuestion: Boolean(session.context.pendingUserQuestionPayload)
       })
     ).toMatchObject({
       label: "等待权限确认",
@@ -126,9 +130,36 @@ describe("getSessionDisplayState", () => {
         pendingToolCallIds: session.sessionState.pendingToolCallIds,
         interruptRequested: session.sessionState.interruptRequested,
         pendingPermission: Boolean(session.context.pendingPermissionRequest),
-        pendingConfirmation: Boolean(session.context.pendingConfirmationPayload)
+        pendingConfirmation: Boolean(
+          session.context.pendingConfirmationPayload
+        ),
+        pendingUserQuestion: Boolean(session.context.pendingUserQuestionPayload)
       }).label
     ).toBe("等待冲突确认");
+  });
+
+  test("describes pending clarification separately from plain input", () => {
+    const session = createSessionSnapshot();
+    session.context.status = "waiting_for_user_question";
+    session.context.pendingUserQuestionPayload = {
+      questionText: "先做 CLI 还是 Web？",
+      options: [],
+      createdAt: "2026-04-24T00:00:00.000Z"
+    };
+
+    expect(
+      getSessionDisplayState({
+        loopState: session.sessionState.loopState,
+        status: session.context.status,
+        pendingToolCallIds: session.sessionState.pendingToolCallIds,
+        interruptRequested: session.sessionState.interruptRequested,
+        pendingPermission: Boolean(session.context.pendingPermissionRequest),
+        pendingConfirmation: Boolean(
+          session.context.pendingConfirmationPayload
+        ),
+        pendingUserQuestion: Boolean(session.context.pendingUserQuestionPayload)
+      }).label
+    ).toBe("等待澄清");
   });
 
   test("keeps tool-result waits active even before context status refreshes", () => {
@@ -144,7 +175,10 @@ describe("getSessionDisplayState", () => {
         pendingToolCallIds: session.sessionState.pendingToolCallIds,
         interruptRequested: session.sessionState.interruptRequested,
         pendingPermission: Boolean(session.context.pendingPermissionRequest),
-        pendingConfirmation: Boolean(session.context.pendingConfirmationPayload)
+        pendingConfirmation: Boolean(
+          session.context.pendingConfirmationPayload
+        ),
+        pendingUserQuestion: Boolean(session.context.pendingUserQuestionPayload)
       })
     ).toMatchObject({
       label: "等待工具结果 · 2",
@@ -165,7 +199,10 @@ describe("getSessionDisplayState", () => {
         pendingToolCallIds: session.sessionState.pendingToolCallIds,
         interruptRequested: session.sessionState.interruptRequested,
         pendingPermission: Boolean(session.context.pendingPermissionRequest),
-        pendingConfirmation: Boolean(session.context.pendingConfirmationPayload)
+        pendingConfirmation: Boolean(
+          session.context.pendingConfirmationPayload
+        ),
+        pendingUserQuestion: Boolean(session.context.pendingUserQuestionPayload)
       })
     ).toMatchObject({
       label: "执行中",
@@ -206,7 +243,7 @@ describe("applyStreamEventToSession", () => {
     expect(next.sessionState.pendingToolCallIds).toEqual(["call-1"]);
   });
 
-  test("hydrates todo state from todo tool results before run completion", () => {
+  test("hydrates todo state from get_todo_list results before run completion", () => {
     const session = createSessionSnapshot();
     session.context.status = "running";
     session.sessionState.loopState = "waiting for tool result";
@@ -218,12 +255,12 @@ describe("applyStreamEventToSession", () => {
       createdAt: "2026-04-26T00:00:01.000Z",
       turnCount: 1,
       toolCallId: "tool-call-1",
-      toolName: "update_todo_items",
+      toolName: "get_todo_list",
       isError: false,
       output: JSON.stringify({
         ok: true,
-        code: "TODO_ITEMS_UPDATED",
-        message: "Updated the session todo list.",
+        code: "TODO_LIST_READ",
+        message: "Read the current session todo list.",
         data: {
           items: [
             {
@@ -255,5 +292,34 @@ describe("applyStreamEventToSession", () => {
     });
     expect(next.sessionState.pendingToolCallIds).toEqual([]);
     expect(next.sessionState.loopState).toBe("running");
+  });
+
+  test("applies structured user question events immediately", () => {
+    const session = createSessionSnapshot();
+    session.context.status = "running";
+    session.sessionState.loopState = "running";
+
+    const next = applyStreamEventToSession(session, {
+      kind: "user_question_request",
+      sessionId: session.sessionId,
+      createdAt: "2026-04-26T00:00:01.000Z",
+      turnCount: 1,
+      question: {
+        questionText: "先做 CLI 还是 Web？",
+        options: [
+          {
+            label: "先做 CLI",
+            reply: "先做 CLI"
+          }
+        ],
+        createdAt: "2026-04-26T00:00:01.000Z"
+      }
+    });
+
+    expect(next.context.status).toBe("waiting_for_user_question");
+    expect(next.context.pendingUserQuestionPayload?.questionText).toBe(
+      "先做 CLI 还是 Web？"
+    );
+    expect(next.sessionState.loopState).toBe("waiting for input");
   });
 });

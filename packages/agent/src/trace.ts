@@ -1,13 +1,17 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-import type { PendingPermissionRequest } from "@ai-app-template/domain";
+import type {
+  PendingPermissionRequest,
+  PendingUserQuestionPayload
+} from "@ai-app-template/domain";
 
 import type { AnthropicMessage, AnthropicToolChoice } from "./model.js";
 import type {
   WorkspaceMcpConfigDiagnostic,
   WorkspaceMcpServerLoadSummary
 } from "./mcp/index.js";
+import type { PromptCompositionStats } from "./prompt.js";
 import type {
   SkillDescriptor,
   SkillDiscoveryDiagnostic
@@ -29,6 +33,7 @@ export interface TracePromptEvent {
   }>;
   toolChoice: AnthropicToolChoice | null;
   cacheKey: string;
+  compositionStats?: PromptCompositionStats;
 }
 
 export interface TraceResponseEvent {
@@ -138,6 +143,12 @@ export interface TracePermissionBlockedEvent {
   reason: string;
 }
 
+export interface TraceUserQuestionRequestEvent {
+  kind: "user_question_request";
+  turnCount: number;
+  question: PendingUserQuestionPayload;
+}
+
 export interface TraceInterruptRequestedEvent {
   kind: "interrupt_requested";
   turnCount: number;
@@ -154,6 +165,28 @@ export interface TraceFallbackEvent {
   turnCount: number;
   reason: string;
   summary: string;
+}
+
+export interface TraceHistoryCompactionEvent {
+  kind: "history_compaction";
+  turnCount: number;
+  thresholdTokens: number;
+  estimatedInputTokensBefore: number;
+  estimatedInputTokensAfter: number;
+  sourceBlockCount: number;
+  retainedTailCount: number;
+}
+
+export interface TraceFullCompactionEvent {
+  kind: "full_compaction";
+  turnCount: number;
+  thresholdTokens: number;
+  estimatedInputTokensBefore: number;
+  estimatedInputTokensAfter: number;
+  sourceBlockCount: number;
+  retainedTailCount: number;
+  promptVersion: string;
+  summaryMarkdown: string;
 }
 
 export interface TraceTurnEndEvent {
@@ -187,9 +220,12 @@ export type TraceEvent =
   | TracePermissionApprovedEvent
   | TracePermissionRejectedEvent
   | TracePermissionBlockedEvent
+  | TraceUserQuestionRequestEvent
   | TraceInterruptRequestedEvent
   | TraceInterruptedEvent
   | TraceFallbackEvent
+  | TraceHistoryCompactionEvent
+  | TraceFullCompactionEvent
   | TraceTurnEndEvent
   | TraceRunErrorEvent;
 

@@ -50,6 +50,10 @@ cp .env.example .env
 - `MINIMAX_API_KEY` 或 `ANTHROPIC_API_KEY`
 - `ANTHROPIC_BASE_URL`
 - `ANTHROPIC_MODEL`
+- `ANTHROPIC_MAX_TOKENS` 或 `MAX_TOKENS`（默认 `16384`）
+- `DEEPSEEK_API_KEY`（启用 `deepseek-v4-pro` 时必填）
+- 可选：`DEEPSEEK_BASE_URL`
+- 可选：`DEFAULT_AGENT_MODEL` 或 `AGENT_MODEL`
 - 可选：`ANTHROPIC_TOOL_CHOICE=auto|any|none|tool:<name>` 或 `TOOL_CHOICE`
 
 ### 3. 启动开发环境
@@ -74,8 +78,6 @@ cd apps/api && bun dev
 ```bash
 cd apps/web && bun dev
 ```
-
-说明：当前仓库虽然保留 `apps/worker/` 历史目录，但它不在 workspace 启动链路里；实际开发与调试以 `web + api` 为准。
 
 ## 常用命令
 
@@ -112,7 +114,7 @@ curl http://localhost:3001/health
 5. 必要时用 `POST /sessions/:sessionId/interrupt` 中断，或用 `POST /sessions/:sessionId/recover` 恢复快照
 6. 或直接查看 `tmp/agent-sessions/sessions/<sessionId>.trace.jsonl`
 
-当前 runtime 会把 `thinking` 写入 trace，但不会回灌到下一轮 `messages`。
+当前 runtime 会把 `thinking` 写入 trace；对于 provider 要求续传的原生 `thinking + tool_use` 轮次，也会按协议要求回灌到下一轮 `messages`。
 
 ## 当前事实源
 

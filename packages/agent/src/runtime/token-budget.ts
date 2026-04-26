@@ -13,6 +13,10 @@ function getTokenEncoder(): Tiktoken {
   return encoder;
 }
 
+export function estimateTextTokens(text: string): number {
+  return getTokenEncoder().encode(text).length;
+}
+
 export function estimatePromptTokens(
   promptEnvelope: PromptEnvelope,
   toolChoice: AnthropicToolChoice | undefined
@@ -28,5 +32,5 @@ export function estimatePromptTokens(
     ...(toolChoice ? { toolChoice } : {})
   });
 
-  return getTokenEncoder().encode(payload).length;
+  return estimateTextTokens(payload);
 }

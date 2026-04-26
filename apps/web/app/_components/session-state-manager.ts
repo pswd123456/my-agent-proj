@@ -51,7 +51,8 @@ export function beginSessionSubmission(state: SessionUiState): SessionUiState {
       context: {
         ...state.session.context,
         status: "running",
-        pendingPermissionRequest: null
+        pendingPermissionRequest: null,
+        pendingUserQuestionPayload: null
       },
       sessionState: {
         ...state.session.sessionState,
@@ -261,6 +262,24 @@ export function applyStreamEventToSessionState(
           }
         }
       };
+    case "user_question_request":
+      return {
+        ...nextBaseState,
+        submitting: false,
+        session: {
+          ...current,
+          sessionState: {
+            ...current.sessionState,
+            loopState: "waiting for input",
+            pendingToolCallIds: []
+          },
+          context: {
+            ...current.context,
+            status: "waiting_for_user_question",
+            pendingUserQuestionPayload: event.question
+          }
+        }
+      };
     case "interrupt_requested":
       return {
         ...nextBaseState,
@@ -317,7 +336,9 @@ export function applyStreamEventToSessionState(
                   : event.loopState === "interrupted"
                     ? "waiting_for_user_input"
                     : event.loopState === "waiting for input"
-                      ? "waiting_for_user_input"
+                      ? current.context.pendingUserQuestionPayload
+                        ? "waiting_for_user_question"
+                        : "waiting_for_user_input"
                       : "running",
             pendingPermissionRequest:
               event.loopState === "waiting for input"

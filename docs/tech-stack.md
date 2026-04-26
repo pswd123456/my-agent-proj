@@ -7,7 +7,7 @@
 - 主栈：`TypeScript` + `Bun workspace` + `Turborepo`
 - Web：`Next.js 16` + `React 19` + `Tailwind CSS 4`
 - API：`Hono` + `Zod`
-- Agent：仓库内自定义 runtime loop + MiniMax Anthropic-compatible provider
+- Agent：仓库内自定义 runtime loop + Anthropic-compatible 模型服务（MiniMax / DeepSeek）
 - 数据层：`PostgreSQL` + `Drizzle ORM` + `postgres` 驱动
 
 ## 判断现状时看哪里

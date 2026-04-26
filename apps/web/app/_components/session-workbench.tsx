@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 import {
   createApiClient,
+  type ModelCatalogEntry,
   type RoutineRecord,
   type RunStreamEvent,
   type SessionSettingsRecord,
@@ -105,6 +106,7 @@ export function SessionWorkbench() {
   const [resettingRoutines, setResettingRoutines] = useState(false);
   const [userSettings, setUserSettings] =
     useState<SessionSettingsRecord | null>(null);
+  const [modelCatalog, setModelCatalog] = useState<ModelCatalogEntry[]>([]);
   const [settingsForm, setSettingsForm] = useState<SettingsFormState>(
     toSettingsFormState(null)
   );
@@ -177,6 +179,7 @@ export function SessionWorkbench() {
       setErrorText(null);
 
       try {
+        const modelsResultPromise = apiClient.listModels().catch(() => null);
         let snapshots = await apiClient.listSessions();
         if (!snapshots.length) {
           const created = await apiClient.createSession(
@@ -185,10 +188,15 @@ export function SessionWorkbench() {
           snapshots = [created];
         }
 
+        const modelsResult = await modelsResultPromise;
+
         if (cancelled) {
           return;
         }
 
+        if (modelsResult) {
+          setModelCatalog(modelsResult.models);
+        }
         const nextRegistry = bootstrapSessions(snapshots, requestedSessionId);
         setSessionRegistry(nextRegistry);
         if (nextRegistry.selectedSessionId) {
@@ -526,6 +534,7 @@ export function SessionWorkbench() {
     try {
       const updated = await apiClient.updateUserSettings(targetUserId, {
         workingDirectory: normalizedForm.workingDirectory,
+        model: normalizedForm.model,
         yoloMode: normalizedForm.yoloMode,
         contextWindow: normalizeContextWindow(normalizedForm.contextWindow),
         maxTurns: normalizeMaxTurns(normalizedForm.maxTurns),
@@ -546,6 +555,7 @@ export function SessionWorkbench() {
         const syncedSession = await apiClient.updateSessionSettings(
           currentSession.sessionId,
           {
+            model: updated.model,
             yoloMode: updated.yoloMode,
             shellAllowPatterns: updated.shellAllowPatterns,
             shellDenyPatterns: updated.shellDenyPatterns,
@@ -636,6 +646,26 @@ export function SessionWorkbench() {
     });
     setSettingsForm(nextForm);
     await handleSaveUserSettings(nextForm);
+  }
+
+  async function handleSessionPlanModeChange(checked: boolean) {
+    if (!currentSession || submitting) {
+      return;
+    }
+
+    setErrorText(null);
+    try {
+      const updated = await apiClient.updateSessionSettings(
+        currentSession.sessionId,
+        {
+          planModeEnabled: checked
+        }
+      );
+      setSessionUiState((current) => setSessionSnapshot(current, updated));
+      setSessionRegistry((current) => upsertSession(current, updated));
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : String(error));
+    }
   }
 
   async function handleSettingsDebugConversationViewChange(checked: boolean) {
@@ -743,6 +773,8 @@ export function SessionWorkbench() {
     : [];
   const pendingPermissionRequest =
     currentSession?.context.pendingPermissionRequest ?? null;
+  const pendingUserQuestionPayload =
+    currentSession?.context.pendingUserQuestionPayload ?? null;
   const timelineItems = buildTimelineItems({
     messages: currentSession?.messages ?? [],
     historyEvents,
@@ -820,6 +852,7 @@ export function SessionWorkbench() {
               settingsMeta={settingsMeta}
               settingsStatusText={settingsStatusText}
               settingsForm={settingsForm}
+              modelCatalog={modelCatalog}
               loadingSettings={loadingSettings}
               savingSettings={savingSettings}
               pendingPermissionToolName={pendingPermissionToolName}
@@ -860,6 +893,7 @@ export function SessionWorkbench() {
               turnUsageByTurnCount={turnUsageByTurnCount}
               debugConversationView={settingsForm.debugConversationView}
               pendingPermissionRequest={pendingPermissionRequest}
+              pendingUserQuestionPayload={pendingUserQuestionPayload}
               message={message}
               submitting={submitting}
               canInterrupt={canInterrupt}
@@ -869,8 +903,14 @@ export function SessionWorkbench() {
               onMessageChange={setMessage}
               onSubmit={(event) => void handleSubmit(event)}
               onInterrupt={() => void handleInterruptSession()}
+              onSessionPlanModeChange={(checked) =>
+                void handleSessionPlanModeChange(checked)
+              }
               onPermissionQuickReply={(reply) =>
                 void handlePermissionQuickReply(reply)
+              }
+              onUserQuestionQuickReply={(reply) =>
+                void submitSessionMessage(reply)
               }
               onAssistantAnimationComplete={handleAssistantAnimationComplete}
               headerActions={sidebarToggleButton}

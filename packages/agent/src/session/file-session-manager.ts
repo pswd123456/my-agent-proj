@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { DEFAULT_SESSION_MODEL } from "@ai-app-template/domain";
 
 import type {
   CreateSessionInput,
@@ -83,6 +84,7 @@ export class FileSessionManager implements SessionManager {
       model: string;
       userId?: string;
       yoloMode?: boolean;
+      planModeEnabled?: boolean;
       contextWindow?: number;
       maxTurns?: number;
       shellAllowPatterns?: string[];
@@ -94,7 +96,7 @@ export class FileSessionManager implements SessionManager {
     } = {
       sessionId,
       workingDirectory: resolveWorkingDirectory(input.workingDirectory),
-      model: input.model ?? "MiniMax-M2.7"
+      model: input.model ?? DEFAULT_SESSION_MODEL
     };
 
     if (typeof input.userId === "string" && input.userId.length > 0) {
@@ -102,6 +104,9 @@ export class FileSessionManager implements SessionManager {
     }
     if (typeof input.yoloMode === "boolean") {
       createSnapshotInput.yoloMode = input.yoloMode;
+    }
+    if (typeof input.planModeEnabled === "boolean") {
+      createSnapshotInput.planModeEnabled = input.planModeEnabled;
     }
     if (typeof input.contextWindow === "number") {
       createSnapshotInput.contextWindow = input.contextWindow;
@@ -298,6 +303,13 @@ export class FileSessionManager implements SessionManager {
         ...snapshot.sessionState,
         lastError
       }
+    }));
+  }
+
+  async setModel(sessionId: string, model: string): Promise<SessionSnapshot> {
+    return this.updateSession(sessionId, (snapshot) => ({
+      ...snapshot,
+      model
     }));
   }
 

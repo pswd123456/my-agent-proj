@@ -37,8 +37,25 @@ export interface SessionSummary {
   interruptRequested: boolean;
   pendingPermission: boolean;
   pendingConfirmation: boolean;
+  pendingUserQuestion: boolean;
   status: SessionSnapshot["context"]["status"];
   lastUserMessage: string | null;
+}
+
+export interface ModelCatalogEntry {
+  id: string;
+  label: string;
+  provider: string;
+  description: string;
+  configured: boolean;
+  baseURL: string;
+  supportsThinking: boolean;
+  unavailableReason: string | null;
+}
+
+export interface ListModelsResult {
+  defaultModel: string | null;
+  models: ModelCatalogEntry[];
 }
 
 export interface InterruptSessionResult {
@@ -49,15 +66,19 @@ export interface InterruptSessionResult {
 
 export interface CreateSessionPayload {
   workingDirectory?: string;
+  model?: string;
   userId?: string;
   yoloMode?: boolean;
+  planModeEnabled?: boolean;
   contextWindow?: number;
   maxTurns?: number;
   enabledCapabilityPacks?: string[];
 }
 
 export interface UpdateSessionSettingsPayload {
+  model?: string;
   yoloMode?: boolean;
+  planModeEnabled?: boolean;
   shellAllowPatterns?: string[];
   shellDenyPatterns?: string[];
   toolAllowList?: string[];
@@ -68,6 +89,7 @@ export interface UpdateSessionSettingsPayload {
 
 export interface UpdateUserSettingsPayload {
   workingDirectory?: string;
+  model?: string;
   yoloMode?: boolean;
   contextWindow?: number;
   maxTurns?: number;
@@ -191,6 +213,7 @@ function toSessionSummary(session: SessionSnapshot): SessionSummary {
     interruptRequested: session.sessionState.interruptRequested,
     pendingPermission: Boolean(session.context.pendingPermissionRequest),
     pendingConfirmation: Boolean(session.context.pendingConfirmationPayload),
+    pendingUserQuestion: Boolean(session.context.pendingUserQuestionPayload),
     status: session.context.status,
     lastUserMessage: session.context.lastUserMessage
   };
@@ -275,6 +298,18 @@ export class ApiClient {
   async listSessionSummaries(): Promise<SessionSummary[]> {
     const sessions = await this.listSessions();
     return sessions.map(toSessionSummary);
+  }
+
+  async listModels(): Promise<ListModelsResult> {
+    const response = await this.fetchImpl(
+      appendCacheBust(buildUrl(this.baseUrl, "/models")),
+      {
+        cache: "no-store"
+      }
+    );
+    return (await ensureOk(response).then((result) =>
+      result.json()
+    )) as ListModelsResult;
   }
 
   async createSession(

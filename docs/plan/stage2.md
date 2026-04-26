@@ -1,9 +1,13 @@
 # Stage 2: reasoning-aware loop + multi-tool turn + trace
 
+## 文档状态
+
+这份文档保留 Stage 2 的 reasoning / trace 演进草稿，不是当前实现的唯一事实源。现在的 runtime 仍保留 signed `assistant thinking` 的回放能力，具体行为以 `docs/architecture/context-management/` 和 `packages/agent/src/` 为准。
+
 ## 目标
 - 支持模型在一次响应里同时返回 `text` 和 `tool_use`。
 - 支持一次响应里多个 `tool_use`，并按返回顺序逐个执行。
-- `thinking` / reasoning 只进 trace，不进入下一轮 `messages`。
+- `thinking` / reasoning 记录在 trace 中；对于需要续传的 signed `assistant thinking`，runtime 会保留并在后续轮次按协议回放，而不是当成普通 assistant prose。
 - `maxTurns` 不再硬报错，改为基于当前步骤生成 fallback answer。
 
 ## 核心方案
@@ -39,7 +43,7 @@
 ## 验收
 - 单次 response 可同时含 `text` 和 `tool_use`，且下一轮 prompt 能正确回放。
 - 单次 response 可含多个 `tool_use`，工具按顺序全部执行。
-- `thinking` 出现在 trace 中，但不进入 `messages`。
+- `thinking` 会出现在 trace 中，必要时也会以 `assistant thinking` block 的形式进入会话历史。
 - `maxTurns` 耗尽时，返回 fallback answer 而不是抛错。
 - API 能直接读取同 session 的 trace 文件。
 

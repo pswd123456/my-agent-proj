@@ -24,6 +24,7 @@ type SessionDisplayStateInput = Pick<
   | "interruptRequested"
   | "pendingPermission"
   | "pendingConfirmation"
+  | "pendingUserQuestion"
 >;
 
 export interface SessionDisplayState {
@@ -204,6 +205,20 @@ export function applyStreamEventToSession(
           pendingPermissionRequest: null
         }
       };
+    case "user_question_request":
+      return {
+        ...session,
+        sessionState: {
+          ...session.sessionState,
+          loopState: "waiting for input",
+          pendingToolCallIds: []
+        },
+        context: {
+          ...session.context,
+          status: "waiting_for_user_question",
+          pendingUserQuestionPayload: event.question
+        }
+      };
     case "interrupt_requested":
       return {
         ...session,
@@ -249,7 +264,9 @@ export function applyStreamEventToSession(
                 : event.loopState === "interrupted"
                   ? "waiting_for_user_input"
                   : event.loopState === "waiting for input"
-                    ? "waiting_for_user_input"
+                    ? session.context.pendingUserQuestionPayload
+                      ? "waiting_for_user_question"
+                      : "waiting_for_user_input"
                     : "running",
           pendingPermissionRequest:
             event.loopState === "waiting for input"
@@ -275,6 +292,7 @@ export function isReusableNewSessionSummary(session: SessionSummary): boolean {
     !session.interruptRequested &&
     !session.pendingPermission &&
     !session.pendingConfirmation &&
+    !session.pendingUserQuestion &&
     session.lastUserMessage === null
   );
 }
@@ -329,6 +347,19 @@ export function getSessionDisplayState(
     return {
       label: "等待冲突确认",
       detail: "检测到日程冲突，需要确认后继续执行。",
+      tone: "warning",
+      isWaitingForUser: true,
+      isActiveExecution: false
+    };
+  }
+
+  if (
+    session.pendingUserQuestion ||
+    session.status === "waiting_for_user_question"
+  ) {
+    return {
+      label: "等待澄清",
+      detail: "规划已暂停，正在等待用户补充关键信息。",
       tone: "warning",
       isWaitingForUser: true,
       isActiveExecution: false
@@ -418,7 +449,8 @@ export function canInterruptSessionExecution(input: {
     pendingToolCallIds: session.sessionState.pendingToolCallIds,
     interruptRequested: session.sessionState.interruptRequested,
     pendingPermission: Boolean(session.context.pendingPermissionRequest),
-    pendingConfirmation: Boolean(session.context.pendingConfirmationPayload)
+    pendingConfirmation: Boolean(session.context.pendingConfirmationPayload),
+    pendingUserQuestion: Boolean(session.context.pendingUserQuestionPayload)
   });
 
   if (!displayState.isActiveExecution) {
@@ -637,6 +669,7 @@ export function toSettingsFormState(
 ): SettingsFormState {
   return {
     workingDirectory: settings?.workingDirectory ?? "",
+    model: settings?.model ?? "",
     yoloMode: settings?.yoloMode ?? false,
     contextWindow: String(settings?.contextWindow ?? DEFAULT_CONTEXT_WINDOW),
     maxTurns: String(settings?.maxTurns ?? DEFAULT_MAX_TURNS),
@@ -665,6 +698,7 @@ export function normalizeSettingsFormState(
 ): SettingsFormState {
   return {
     workingDirectory: form.workingDirectory.trim(),
+    model: form.model.trim(),
     yoloMode: form.yoloMode,
     contextWindow: String(normalizeContextWindow(form.contextWindow)),
     maxTurns: String(normalizeMaxTurns(form.maxTurns)),

@@ -44,6 +44,7 @@ export interface SessionManager {
     sessionId: string,
     lastError: string | null
   ): Promise<SessionSnapshot>;
+  setModel(sessionId: string, model: string): Promise<SessionSnapshot>;
   updateContext(
     sessionId: string,
     patch: Partial<ScheduleSessionContext>

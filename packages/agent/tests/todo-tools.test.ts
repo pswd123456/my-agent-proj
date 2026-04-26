@@ -1,8 +1,13 @@
 import { describe, expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 
 import { createMemorySessionManager } from "../src/session/index.js";
+import { resolveLegacyTaskBriefPath } from "../src/session/task-brief.js";
 import {
+  createGetTaskBriefTool,
   createGetTodoListTool,
+  createReplaceTaskBriefTool,
   createReplaceTodoListTool,
   createUpdateTodoItemsTool
 } from "../src/tools/index.js";
@@ -27,6 +32,8 @@ async function createSessionContext(
       status: session.context.status,
       currentDateContext: session.context.currentDateContext,
       yoloMode: session.context.yoloMode,
+      planModeEnabled: session.context.planModeEnabled,
+      taskBriefPath: session.context.taskBriefPath,
       workspaceEscapeAllowed: session.context.workspaceEscapeAllowed,
       shellAllowPatterns: session.context.shellAllowPatterns,
       shellDenyPatterns: session.context.shellDenyPatterns,
@@ -66,6 +73,11 @@ describe("todo tools", () => {
     );
 
     expect(replaceResult.state).toBe("success");
+    expect(replaceResult.content).not.toContain("Inspect runtime boundaries");
+    expect(replaceResult.content).not.toContain("Implement todo tools");
+    expect(replaceResult.content).toContain('"ack": "todo_list_replaced"');
+    expect(replaceResult.content).toContain('"itemIds"');
+    expect(replaceResult.content).toContain('"hash"');
 
     const persisted = await sessionManager.getSession(session.sessionId);
     expect(persisted?.context.todoState?.items).toHaveLength(2);
@@ -125,6 +137,12 @@ describe("todo tools", () => {
     );
 
     expect(updateResult.state).toBe("success");
+    expect(updateResult.content).not.toContain("Inspect runtime boundaries");
+    expect(updateResult.content).not.toContain("Implement todo tools");
+    expect(updateResult.content).not.toContain("Add prompt coverage");
+    expect(updateResult.content).toContain('"ack": "todo_items_updated"');
+    expect(updateResult.content).toContain('"itemIds"');
+    expect(updateResult.content).toContain('"hash"');
 
     const secondSnapshot = await sessionManager.getSession(session.sessionId);
     const secondTodo = secondSnapshot?.context.todoState;
@@ -152,5 +170,188 @@ describe("todo tools", () => {
 
     const clearedSnapshot = await sessionManager.getSession(session.sessionId);
     expect(clearedSnapshot?.context.todoState).toBeNull();
+  });
+
+  test("update_todo_items schema explains that ids are todo item ids rather than visible numbering", () => {
+    const tool = createUpdateTodoItemsTool();
+    expect(tool.description).toContain("not the visible list numbering");
+
+    const operations = tool.inputSchema.properties?.operations;
+    if (
+      !operations ||
+      typeof operations !== "object" ||
+      !("items" in operations)
+    ) {
+      throw new Error("Expected operations schema metadata");
+    }
+
+    const variants = (
+      operations.items as {
+        oneOf?: Array<{ properties?: Record<string, unknown> }>;
+      }
+    ).oneOf;
+    if (!variants) {
+      throw new Error("Expected oneOf variants for operations");
+    }
+
+    for (const type of ["set_status", "set_content", "remove", "set_active"]) {
+      const variant = variants.find(
+        (candidate) =>
+          candidate.properties?.type &&
+          typeof candidate.properties.type === "object" &&
+          "enum" in candidate.properties.type &&
+          Array.isArray(candidate.properties.type.enum) &&
+          candidate.properties.type.enum.includes(type)
+      );
+      expect(variant?.properties?.id).toBeDefined();
+      expect(
+        typeof variant?.properties?.id === "object" &&
+          variant.properties.id !== null &&
+          "description" in variant.properties.id &&
+          typeof variant.properties.id.description === "string" &&
+          variant.properties.id.description
+            .toLowerCase()
+            .includes("visible list numbering")
+      ).toBe(true);
+    }
+  });
+
+  test("replace_task_brief writes the bound markdown file and get_task_brief reads it back", async () => {
+    const sessionManager = createMemorySessionManager();
+    const session = await sessionManager.createSession({
+      workingDirectory: "/tmp/workspace",
+      userId: "todo-user",
+      planModeEnabled: true
+    });
+
+    const initialRead = await createGetTaskBriefTool().execute(
+      {},
+      await createSessionContext(sessionManager, session.sessionId)
+    );
+    expect(initialRead.state).toBe("success");
+    expect(initialRead.result.code).toBe("TASK_BRIEF_READ");
+    expect(initialRead.content).toContain('"exists": false');
+
+    const content = [
+      "# Task Brief",
+      "",
+      "## Goal",
+      "Jump joy web game",
+      "",
+      "## Acceptance Criteria",
+      "- no file writes"
+    ].join("\n");
+    const replaceResult = await createReplaceTaskBriefTool().execute(
+      { plan_name: "jump_joy_web_game", content },
+      await createSessionContext(sessionManager, session.sessionId)
+    );
+    expect(replaceResult.state).toBe("success");
+    expect(replaceResult.content).not.toContain("Jump joy web game");
+    expect(replaceResult.content).not.toContain("Acceptance Criteria");
+    expect(replaceResult.content).toContain('"ack": "task_brief_replaced"');
+    expect(replaceResult.content).toContain('"path":');
+    expect(replaceResult.content).toContain('"hash"');
+
+    const persisted = await sessionManager.getSession(session.sessionId);
+    const taskBriefPath = persisted?.context.taskBriefPath;
+    expect(taskBriefPath).toBe(
+      path.join(
+        "/tmp/workspace",
+        ".agent",
+        "plans",
+        session.sessionId,
+        "jump_joy_web_game.md"
+      )
+    );
+    if (!taskBriefPath) {
+      throw new Error("Expected a bound task brief path.");
+    }
+    expect(await readFile(taskBriefPath, "utf8")).toBe(content);
+
+    const readResult = await createGetTaskBriefTool().execute(
+      {},
+      await createSessionContext(sessionManager, session.sessionId)
+    );
+    expect(readResult.state).toBe("success");
+    expect(readResult.content).toContain('"exists": true');
+    expect(readResult.content).toContain("Jump joy web game");
+  });
+
+  test("replace_task_brief requires plan_name before the first write", async () => {
+    const sessionManager = createMemorySessionManager();
+    const session = await sessionManager.createSession({
+      workingDirectory: "/tmp/workspace",
+      userId: "todo-user",
+      planModeEnabled: true
+    });
+
+    const replaceResult = await createReplaceTaskBriefTool().execute(
+      {
+        content: "# Task Brief\n\n## Goal\nJump joy web game\n"
+      },
+      await createSessionContext(sessionManager, session.sessionId)
+    );
+
+    expect(replaceResult.state).toBe("failed");
+    expect(replaceResult.content).toContain("Provide plan_name");
+  });
+
+  test("replace_task_brief upgrades a legacy flat binding when plan_name is provided", async () => {
+    const sessionManager = createMemorySessionManager();
+    const session = await sessionManager.createSession({
+      workingDirectory: "/tmp/workspace",
+      userId: "todo-user",
+      planModeEnabled: true
+    });
+    await sessionManager.updateContext(session.sessionId, {
+      taskBriefPath: resolveLegacyTaskBriefPath(
+        "/tmp/workspace",
+        session.sessionId
+      )
+    });
+
+    const content = "# Task Brief\n\n## Goal\nUpgrade legacy plan path\n";
+    const replaceResult = await createReplaceTaskBriefTool().execute(
+      { plan_name: "upgrade_legacy_plan", content },
+      await createSessionContext(sessionManager, session.sessionId)
+    );
+
+    expect(replaceResult.state).toBe("success");
+
+    const persisted = await sessionManager.getSession(session.sessionId);
+    expect(persisted?.context.taskBriefPath).toBe(
+      path.join(
+        "/tmp/workspace",
+        ".agent",
+        "plans",
+        session.sessionId,
+        "upgrade_legacy_plan.md"
+      )
+    );
+  });
+
+  test("replace_task_brief asks for plan_name when a legacy binding has no file yet", async () => {
+    const sessionManager = createMemorySessionManager();
+    const session = await sessionManager.createSession({
+      workingDirectory: "/tmp/workspace",
+      userId: "todo-user",
+      planModeEnabled: true
+    });
+    await sessionManager.updateContext(session.sessionId, {
+      taskBriefPath: resolveLegacyTaskBriefPath(
+        "/tmp/workspace",
+        session.sessionId
+      )
+    });
+
+    const replaceResult = await createReplaceTaskBriefTool().execute(
+      {
+        content: "# Task Brief\n\n## Goal\nUpgrade legacy plan path\n"
+      },
+      await createSessionContext(sessionManager, session.sessionId)
+    );
+
+    expect(replaceResult.state).toBe("failed");
+    expect(replaceResult.content).toContain("Provide plan_name");
   });
 });

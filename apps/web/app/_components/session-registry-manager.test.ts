@@ -31,7 +31,8 @@ function createSessionSnapshot(
       currentDateContext: "2026-04-24",
       yoloMode: false,
       pendingPermissionRequest: null,
-      pendingConfirmationPayload: null
+      pendingConfirmationPayload: null,
+      pendingUserQuestionPayload: null
     },
     sessionState: {
       loopState: "waiting for input",

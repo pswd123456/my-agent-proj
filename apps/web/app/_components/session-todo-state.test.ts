@@ -11,19 +11,19 @@ describe("session-todo-state", () => {
     expect(isTodoToolName("read_file")).toBe(false);
   });
 
-  test("extracts todo state from structured tool output", () => {
+  test("extracts todo state from get_todo_list structured tool output", () => {
     const todoState = getTodoStateFromToolResultEvent({
       kind: "tool_result",
       sessionId: "session-1",
       createdAt: "2026-04-26T00:00:00.000Z",
       turnCount: 1,
       toolCallId: "tool-call-1",
-      toolName: "replace_todo_list",
+      toolName: "get_todo_list",
       isError: false,
       output: JSON.stringify({
         ok: true,
-        code: "TODO_LIST_REPLACED",
-        message: "Replaced the session todo list.",
+        code: "TODO_LIST_READ",
+        message: "Read the current session todo list.",
         data: {
           items: [
             {
@@ -53,6 +53,31 @@ describe("session-todo-state", () => {
       activeItemId: "item-1",
       lastUpdatedAt: "2026-04-26T00:00:00.000Z"
     });
+  });
+
+  test("ignores compact metadata from todo write tools", () => {
+    const todoState = getTodoStateFromToolResultEvent({
+      kind: "tool_result",
+      sessionId: "session-1",
+      createdAt: "2026-04-26T00:00:00.000Z",
+      turnCount: 1,
+      toolCallId: "tool-call-1",
+      toolName: "replace_todo_list",
+      isError: false,
+      output: JSON.stringify({
+        ok: true,
+        code: "TODO_LIST_REPLACED",
+        message: "Replaced the session todo list.",
+        data: {
+          ack: "todo_list_replaced",
+          itemIds: ["item-1"],
+          activeItemId: "item-1",
+          hash: "abc123def456"
+        }
+      })
+    });
+
+    expect(todoState).toBeUndefined();
   });
 
   test("clears the local todo view when todo tools return no data", () => {

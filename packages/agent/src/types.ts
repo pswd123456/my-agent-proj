@@ -29,12 +29,14 @@ export interface UserConversationBlock extends BaseConversationBlock {
 export interface AssistantConversationBlock extends BaseConversationBlock {
   kind: "assistant";
   content: string;
+  responseGroupId?: string;
 }
 
 export interface AssistantThinkingConversationBlock extends BaseConversationBlock {
   kind: "assistant thinking";
   content: string;
   signature: string;
+  responseGroupId?: string;
 }
 
 export interface ToolCallConversationBlock extends BaseConversationBlock {
@@ -43,6 +45,7 @@ export interface ToolCallConversationBlock extends BaseConversationBlock {
   toolName: string;
   input: Record<string, JsonValue>;
   state: ToolState;
+  responseGroupId?: string;
 }
 
 export interface ToolResultConversationBlock extends BaseConversationBlock {
@@ -52,6 +55,7 @@ export interface ToolResultConversationBlock extends BaseConversationBlock {
   output: string;
   isError: boolean;
   state: ToolState;
+  responseGroupId?: string;
 }
 
 export type ConversationBlock =
@@ -67,6 +71,7 @@ export interface SessionState {
   lastError: string | null;
   pendingToolCallIds: string[];
   interruptRequested: boolean;
+  historyCompactionsSinceFullCompaction: number;
 }
 
 export interface SessionSnapshot {
@@ -88,6 +93,7 @@ export interface CreateSessionInput {
   model?: string;
   userId?: string;
   yoloMode?: boolean;
+  planModeEnabled?: boolean;
   contextWindow?: number;
   maxTurns?: number;
   shellAllowPatterns?: string[];

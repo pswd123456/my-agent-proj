@@ -3,13 +3,14 @@ import { serve } from "@hono/node-server";
 import {
   createAgentRuntime,
   createDefaultToolRegistry,
+  createModelService,
   createPostgresSessionManager,
-  createMiniMaxRuntime,
   createPromptBuilder,
   createFileTraceManager,
   createFileSystemLogManager,
   createLogger,
   loadWorkspaceMcpTools,
+  resolveMaxTokens,
   resolveToolChoice,
   resolveSessionStateDirectory,
   type SessionSnapshot
@@ -36,7 +37,9 @@ const traceManager = createFileTraceManager(stateDirectory);
 const systemLogManager = createFileSystemLogManager(stateDirectory, process.env);
 const apiLogger = createLogger({ manager: systemLogManager, component: "api" });
 const promptBuilder = createPromptBuilder();
-const miniMaxRuntime = createMiniMaxRuntime(process.env);
+const modelService = createModelService(process.env);
+const defaultModel = modelService.getDefaultModel();
+const maxTokens = resolveMaxTokens(process.env);
 const toolChoice = resolveToolChoice(process.env);
 const databaseUrl = resolveDatabaseUrl(process.env);
 
@@ -58,8 +61,8 @@ function buildWorkingDirectory(input?: string): string {
 }
 
 async function createRuntime(session: SessionSnapshot) {
-  if (!miniMaxRuntime) {
-    throw new Error("MiniMax runtime is not configured.");
+  if (!modelService.getDefaultModel()) {
+    throw new Error("No configured model provider is available.");
   }
 
   const toolRegistry = createDefaultToolRegistry({
@@ -74,8 +77,7 @@ async function createRuntime(session: SessionSnapshot) {
 
   return {
     runtime: createAgentRuntime({
-      client: miniMaxRuntime.client,
-      model: session.model,
+      modelService,
       sessionManager,
       routineRepository,
       toolRegistry,
@@ -87,6 +89,7 @@ async function createRuntime(session: SessionSnapshot) {
       }),
       promptBuilder,
       maxTurns: 50,
+      maxTokens,
       ...(toolChoice ? { toolChoice } : {})
     }),
     async dispose() {
@@ -111,10 +114,11 @@ export const app = createApiApp({
   systemLogManager,
   apiLogger,
   buildWorkingDirectory,
-  ...(miniMaxRuntime ? { runtimeFactory: createRuntime } : {}),
-  ...(miniMaxRuntime ? { defaultModel: miniMaxRuntime.model } : {}),
+  modelService,
+  ...(defaultModel ? { runtimeFactory: createRuntime } : {}),
+  ...(defaultModel ? { defaultModel } : {}),
   runtimeUnavailableMessage:
-    "MiniMax runtime is not configured. Set MINIMAX_API_KEY and ANTHROPIC_BASE_URL."
+    "No model provider is configured. Set MINIMAX_API_KEY or DEEPSEEK_API_KEY."
 });
 
 const port = Number(process.env.API_PORT ?? process.env.PORT ?? 3001);

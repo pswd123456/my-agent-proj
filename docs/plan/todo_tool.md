@@ -2,7 +2,7 @@
 
 更新时间：2026-04-26
 状态：已落地
-范围：`packages/agent` runtime planning helper / session state / prompt injection / tool contract
+范围：`packages/agent` runtime planning helper / session state / prompt 消费边界 / tool contract
 
 ## 目标
 
@@ -16,7 +16,7 @@ todo tool 的第一版应被定义为 `session-scoped planning primitive`：
 
 - 它服务于 runtime 的多步执行，不是一个独立产品 capability
 - 它通过一组内置工具维护当前 session 的 todo state
-- 它把“当前正在做什么、还剩什么没做”以精简摘要注入 `runtimeContextMessages`
+- 它把 todo 真相源保留在 session state，并通过 planning tool result 显式暴露给模型
 - 它不依赖“每五轮提醒一次”这类固定频率的 prompt hack
 
 ## 背景
@@ -63,19 +63,19 @@ todo tool 的第一版应被定义为 `session-scoped planning primitive`：
 允许进入 `system` 的最多只有一条稳定高层约束，例如：
 
 ```text
-When a structured todo list is available in the runtime context, use it to stay aligned with the current task and keep item status updated as you make progress.
+When a structured todo list is available, use it to stay aligned with the current task and keep item status updated as you make progress.
 ```
 
-但 todo 的具体内容、当前进行中项、剩余未完成项，都应进入 `runtimeContextMessages`。
+但 todo 的具体内容、当前进行中项、剩余未完成项，不应再和 tool result 回放重复注入到 `runtimeContextMessages`。
 
 ### 3. 不做固定频率 reminder
 
 第一版不采用“每五轮自动追加 reminder”。
 
-改为状态驱动注入：
+改为状态驱动消费：
 
-- 当 session 中存在未完成 todo 时，每轮都注入精简摘要
-- 当 todo 为空或所有 item 已完成时，不注入 todo 摘要
+- 当 session 中存在未完成 todo 时，模型通过最近的 todo tool result 或显式 `get_todo_list` 重新对齐
+- 当 todo 为空或所有 item 已完成时，不额外注入 todo 摘要
 - 当 turn budget 接近耗尽时，允许和现有 `dynamicPromptMessages` 一起出现，但二者是并列机制，不互相替代
 
 原因：
@@ -102,8 +102,8 @@ When a structured todo list is available in the runtime context, use it to stay 
 
 - 提供 session 级结构化 todo state
 - 提供创建 / 更新 / 查询 todo 的内置工具
-- 在 prompt 的 `runtimeContextMessages` 中注入精简 todo 摘要
-- 在 trace 中记录本轮注入的 todo 摘要
+- 通过 todo tool result 和显式 `get_todo_list` 让模型消费当前 todo
+- 保持 prompt 不再额外重复注入 todo 摘要
 - 在 session 持久化与恢复后继续可用
 
 ### v1 不做什么
@@ -180,7 +180,7 @@ export interface SessionTodoState {
 
 显式 `activeItemId` 可以：
 
-- 让 prompt 注入更短
+- 让模型消费 todo 时更短
 - 让 UI 和 trace 更容易显示
 - 避免出现两个 item 同时被标成 `in_progress`
 
@@ -222,6 +222,8 @@ export interface SessionTodoState {
 - 自动生成 item id / createdAt / updatedAt
 - 若传入 `activeIndex`，对应 item 设为 `in_progress`
 - 其他 item 默认为 `pending`
+- 默认成功返回紧凑 metadata：`ack / itemIds / activeItemId / hash`
+- 如果后续需要完整 todo 内容，应显式调用 `get_todo_list`
 
 约束：
 
@@ -257,6 +259,8 @@ export interface SessionTodoState {
 - 按顺序执行 operation
 - 自动维护 `updatedAt`
 - 若有 item 被设为 `in_progress`，其他 item 的 `in_progress` 自动清空
+- 默认成功返回紧凑 metadata：`ack / itemIds / activeItemId / hash`
+- 如果后续需要完整 todo 内容，应显式调用 `get_todo_list`
 
 ### 3. `get_todo_list`
 
@@ -269,6 +273,7 @@ export interface SessionTodoState {
 
 - 结构化返回 `items`、`activeItemId`、`lastUpdatedAt`
 - 同时返回适合直接展示给用户的简短文本摘要
+- 当 `replace_todo_list` / `update_todo_items` 只返回紧凑 ack metadata 时，`get_todo_list` 是重新拉取完整 todo state 的标准入口
 
 ### 为什么需要 `get_todo_list`
 
@@ -280,53 +285,23 @@ export interface SessionTodoState {
 
 显式读取工具比“赌模型记住了上次更新结果”更稳。
 
-## Prompt 注入
+## Prompt 消费
 
-### 注入位置
+### 当前边界
 
-todo 摘要应进入 `runtimeContextMessages`，而不是：
+todo 真相源应保留在 session state，模型当前主要通过 todo tool result 和 `get_todo_list` 显式消费，而不是再额外拼一份 `runtimeContextMessages` 摘要。
+
+仍然不适合承载 todo 明细的地方：
 
 - `system`
 - `prefixMessages`
-- 普通 `messages`
+- 额外的 `runtimeContextMessages` 重复摘要
 
 原因：
 
-- 它是本轮执行态
-- 它会随着任务推进不断变化
-- 不应影响稳定 cache key
-
-### 注入格式
-
-建议增加一段新的 runtime context 文本：
-
-```text
-Session todo state:
-Active item: inspect current prompt/runtime/session boundaries
-Open items:
-1. inspect current prompt/runtime/session boundaries [in_progress]
-2. define todo session data model [pending]
-3. specify todo tools and prompt injection rules [pending]
-4. write acceptance criteria and test plan [pending]
-```
-
-如果没有 todo：
-
-```text
-Session todo state:
-none
-```
-
-### 摘要规则
-
-为了控制 token，第一版固定：
-
-- 最多展示 1 个 active item
-- 最多展示 6 个未完成 item
-- `done` item 默认不注入
-- 单项文本过长时截断
-
-这能满足“帮模型不跑偏”的目标，同时避免把 todo 变成另一份冗长计划。
+- todo 会随着任务推进不断变化
+- 同一份内容已经会通过 todo 工具结果进入 `messages`
+- 额外摘要会和 tool result 回放形成双份上下文
 
 ## Runtime 行为约束
 
@@ -340,7 +315,7 @@ none
 这类规则可以体现在：
 
 - `system` 中的一条稳定高层指令
-- 或 `runtimeContextMessages` 的 todo 摘要附近补一行短说明
+- 或 todo 工具结果 / `get_todo_list` 的读取链路中显式消费
 
 但不应写成长篇流程说明。
 
@@ -348,9 +323,9 @@ none
 
 第一版至少要保证：
 
-- `prompt` trace 中能看见本轮实际注入的 todo 摘要
 - tool trace 中能看见 todo 工具输入输出
 - session snapshot 恢复后，todo 状态可复现
+- `prompt` trace 中不会再看到额外重复的 todo runtime 摘要
 
 可选增强：
 
@@ -400,9 +375,9 @@ none
 
 ### `packages/agent/src/prompt.ts`
 
-- 在 runtime context builder 中注入 todo 摘要
-- 保持 todo 摘要不进入 `cacheKey`
-- 避免和现有 turn-budget 动态消息互相覆盖
+- 只保留稳定的 todo 使用高层约束
+- 不再在 runtime context builder 中注入 todo 摘要
+- 避免和现有 turn-budget 动态消息或 tool result 回放形成重复上下文
 
 ### `packages/agent/src/session/`
 
@@ -415,13 +390,13 @@ none
 2. 补 `get_todo_list`，先把读取链路跑通
 3. 再补 `replace_todo_list`
 4. 再补 `update_todo_items`
-5. 最后接入 prompt 注入与 trace 验证
+5. 最后补 prompt / trace 验证，确认没有额外重复注入
 
 这样做的原因是：
 
 - 先有真相源，再有写操作
 - 先有显式读取，再让模型依赖 todo
-- 最后再把 todo 摘要挂进 prompt，更容易做 smoke 验证
+- 最后再验证 prompt 边界，更容易看清重复注入有没有被清掉
 
 ## 验收标准
 
@@ -430,7 +405,7 @@ none
 1. agent 可以在一个多步任务中创建 todo，并把第一项设为 `in_progress`
 2. agent 在完成某步后，能够只更新对应 item，而不是整表重建
 3. 当 session 恢复执行时，`get_todo_list` 仍能读到之前状态
-4. prompt trace 中能看到注入的 todo 摘要
+4. prompt trace 中不会再看到额外重复的 todo runtime 摘要
 5. history compact 后，agent 仍能依赖 session todo state 对齐任务
 6. 当用户改变目标时，agent 可以整体替换 todo，并以最新目标为准
 
@@ -438,7 +413,7 @@ none
 
 至少补以下测试：
 
-- `prompt` 测试：有 todo / 无 todo 时的 `runtimeContextMessages`
+- `prompt` 测试：有 todo / 无 todo 时都不应重复注入 `runtimeContextMessages`
 - `session` 测试：snapshot create / clone / validate
 - `postgres session manager` 测试：todo state 序列化与恢复
 - `runtime` 测试：多步任务中创建、更新、读取 todo

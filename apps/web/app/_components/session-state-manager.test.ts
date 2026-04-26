@@ -38,6 +38,7 @@ function createSessionSnapshot(): SessionSnapshot {
         createdAt: "2026-04-24T00:00:00.000Z"
       },
       pendingConfirmationPayload: null,
+      pendingUserQuestionPayload: null,
       pendingConflictSummary: null,
       lastUserMessage: null
     },
@@ -57,12 +58,17 @@ function createSessionSnapshot(): SessionSnapshot {
 
 describe("session-state-manager", () => {
   test("marks session as running immediately when submission begins", () => {
-    const state = beginSessionSubmission(
-      createSessionUiState(createSessionSnapshot())
-    );
+    const snapshot = createSessionSnapshot();
+    snapshot.context.pendingUserQuestionPayload = {
+      questionText: "先做 CLI 还是 Web？",
+      options: [],
+      createdAt: "2026-04-24T00:00:00.000Z"
+    };
+    const state = beginSessionSubmission(createSessionUiState(snapshot));
 
     expect(state.submitting).toBe(true);
     expect(state.session?.context.status).toBe("running");
+    expect(state.session?.context.pendingUserQuestionPayload).toBeNull();
     expect(state.session?.sessionState.loopState).toBe("running");
   });
 
@@ -100,7 +106,7 @@ describe("session-state-manager", () => {
     expect(rolledBack.session).toEqual(original);
   });
 
-  test("updates todo state from streamed todo tool results", () => {
+  test("updates todo state from streamed get_todo_list results", () => {
     const session = createSessionSnapshot();
     session.context.status = "running";
     session.context.pendingPermissionRequest = null;
@@ -113,12 +119,12 @@ describe("session-state-manager", () => {
       createdAt: "2026-04-26T00:00:01.000Z",
       turnCount: 1,
       toolCallId: "tool-call-1",
-      toolName: "replace_todo_list",
+      toolName: "get_todo_list",
       isError: false,
       output: JSON.stringify({
         ok: true,
-        code: "TODO_LIST_REPLACED",
-        message: "Replaced the session todo list.",
+        code: "TODO_LIST_READ",
+        message: "Read the current session todo list.",
         data: {
           items: [
             {
@@ -164,6 +170,32 @@ describe("session-state-manager", () => {
     });
     expect(next.session?.sessionState.pendingToolCallIds).toEqual([]);
     expect(next.session?.sessionState.loopState).toBe("running");
+  });
+
+  test("switches into waiting clarification as soon as the question event arrives", () => {
+    const session = createSessionSnapshot();
+    session.context.pendingPermissionRequest = null;
+    session.context.status = "running";
+    session.sessionState.loopState = "running";
+
+    const next = applyStreamEventToSessionState(createSessionUiState(session), {
+      kind: "user_question_request",
+      sessionId: session.sessionId,
+      createdAt: "2026-04-26T00:00:01.000Z",
+      turnCount: 1,
+      question: {
+        questionText: "先做 CLI 还是 Web？",
+        options: [],
+        createdAt: "2026-04-26T00:00:01.000Z"
+      }
+    });
+
+    expect(next.submitting).toBe(false);
+    expect(next.session?.context.status).toBe("waiting_for_user_question");
+    expect(next.session?.context.pendingUserQuestionPayload?.questionText).toBe(
+      "先做 CLI 还是 Web？"
+    );
+    expect(next.session?.sessionState.loopState).toBe("waiting for input");
   });
 
   test("restores the previous interrupt flag when interrupt fails", () => {

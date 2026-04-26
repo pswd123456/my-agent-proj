@@ -6,8 +6,10 @@ import {
   buildPermissionQuickReplies,
   buildComposerActionView,
   buildPermissionCardView,
+  buildUserQuestionCardView,
   createPermissionCardFeedback,
-  getPermissionRequestKey
+  getPermissionRequestKey,
+  getUserQuestionKey
 } from "./session-workbench-conversation";
 
 const pendingPermissionRequest: NonNullable<
@@ -22,6 +24,26 @@ const pendingPermissionRequest: NonNullable<
   permissionProfile: "always-ask-user",
   summaryText: "需要你的确认后才能执行高风险工具：list_directory",
   createdAt: "2026-04-23T15:47:00.000Z"
+};
+
+const pendingUserQuestionPayload: NonNullable<
+  SessionSnapshot["context"]["pendingUserQuestionPayload"]
+> = {
+  questionText: "这次计划要覆盖 CLI 还是 Web workbench？",
+  options: [
+    {
+      label: "先做 CLI",
+      reply: "先做 CLI",
+      description: "先把 runtime 和 tool 行为跑通"
+    },
+    {
+      label: "CLI + Web",
+      reply: "CLI + Web",
+      description: "同时补完整前端交互"
+    }
+  ],
+  contextNote: "这会影响当前 plan mode 的交付边界。",
+  createdAt: "2026-04-26T09:00:00.000Z"
 };
 
 describe("permission card feedback", () => {
@@ -164,5 +186,21 @@ describe("composer action view", () => {
     expect(view.buttonType).toBe("submit");
     expect(view.disabled).toBe(false);
     expect(view.buttonLabel).toBe("发送");
+  });
+});
+
+describe("user question card", () => {
+  test("builds a clarification card from the pending payload", () => {
+    const view = buildUserQuestionCardView(pendingUserQuestionPayload);
+
+    expect(view?.key).toBe(getUserQuestionKey(pendingUserQuestionPayload));
+    expect(view?.questionText).toBe("这次计划要覆盖 CLI 还是 Web workbench？");
+    expect(view?.options).toHaveLength(2);
+    expect(view?.contextNote).toBe("这会影响当前 plan mode 的交付边界。");
+  });
+
+  test("returns null when there is no pending clarification", () => {
+    expect(buildUserQuestionCardView(null)).toBeNull();
+    expect(getUserQuestionKey(null)).toBeNull();
   });
 });

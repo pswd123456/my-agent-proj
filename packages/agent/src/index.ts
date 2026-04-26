@@ -1,6 +1,21 @@
 export * from "./events.js";
 export * from "./mcp/index.js";
 export * from "./model.js";
+export {
+  AnthropicCompatibleModelService,
+  DEFAULT_DEEPSEEK_BASE_URL,
+  DEFAULT_DEEPSEEK_MODEL,
+  ModelUnavailableError,
+  SUPPORTED_MODEL_IDS,
+  UnsupportedModelError,
+  createModelService
+} from "./models/index.js";
+export type {
+  ModelCatalogEntry,
+  ModelProviderId,
+  ModelService,
+  SupportedModelId
+} from "./models/index.js";
 export * from "./prompt.js";
 export * from "./runtime.js";
 export * from "./session.js";

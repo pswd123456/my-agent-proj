@@ -1,8 +1,7 @@
 import { z } from "zod";
 
-import type { DomainJsonValue } from "@ai-app-template/domain";
-
 import { replaceTodoList, TODO_ITEM_LIMIT } from "../session/todo-state.js";
+import { createTodoWriteAck } from "./planning-tool-result.js";
 import type { RuntimeTool } from "./runtime-tool.js";
 import {
   createToolResult,
@@ -23,38 +22,15 @@ const schema = z.object({
   activeIndex: z.number().int().min(0).optional()
 });
 
-function toTodoData(
-  value: NonNullable<
-    import("@ai-app-template/domain").ScheduleSessionContext["todoState"]
-  >
-): DomainJsonValue {
-  return {
-    items: value.items.map((item) => ({
-      id: item.id,
-      content: item.content,
-      status: item.status,
-      createdAt: item.createdAt,
-      updatedAt: item.updatedAt
-    })),
-    activeItemId: value.activeItemId,
-    lastUpdatedAt: value.lastUpdatedAt
-  };
-}
-
 function formatDisplayText(
-  value: NonNullable<
-    import("@ai-app-template/domain").ScheduleSessionContext["todoState"]
-  >
+  data: ReturnType<typeof createTodoWriteAck>
 ): string {
-  const activeItem =
-    value.activeItemId === null
-      ? null
-      : (value.items.find((item) => item.id === value.activeItemId) ?? null);
-
   return [
     "[replace_todo_list] success",
-    `- items: ${value.items.length}`,
-    `- active: ${activeItem ? activeItem.content : "none"}`
+    `- active_id: ${
+      typeof data.activeItemId === "string" ? data.activeItemId : "none"
+    }`,
+    `- hash: ${typeof data.hash === "string" ? data.hash : "unknown"}`
   ].join("\n");
 }
 
@@ -120,15 +96,19 @@ export function createReplaceTodoListTool(): RuntimeTool {
         await context.sessionManager.updateContext(context.sessionId, {
           todoState
         });
+        const data = createTodoWriteAck({
+          ack: "todo_list_replaced",
+          todoState
+        });
 
         return successResult(
           createToolResult({
             ok: true,
             code: "TODO_LIST_REPLACED",
             message: "Replaced the session todo list.",
-            data: toTodoData(todoState)
+            data
           }),
-          formatDisplayText(todoState)
+          formatDisplayText(data)
         );
       } catch (error) {
         return failureResult(

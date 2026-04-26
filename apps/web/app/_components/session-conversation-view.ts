@@ -454,10 +454,12 @@ function compactFinalFlowSegment(
     return items;
   }
 
-  const hasLaterExecution = items
-    .slice(finalAssistantIndex + 1)
-    .some((item) => !isRunCompleteItem(item));
-  if (hasLaterExecution) {
+  const trailingItems = items.slice(finalAssistantIndex + 1);
+  if (
+    trailingItems.length === 0 ||
+    !trailingItems.some(isRunCompleteItem) ||
+    trailingItems.some((item) => !isRunCompleteItem(item))
+  ) {
     return items;
   }
 

@@ -549,7 +549,7 @@ export function createSearchTextTool(workingDirectory: string): RuntimeTool {
   return {
     name: "search_text",
     description:
-      "Search for a text fragment within workspace files, a subdirectory, or a single file.",
+      "Search for a text fragment within workspace files, a subdirectory, or a single file. Use this first to locate relevant content before a narrow read_file call.",
     family: "workspace-file",
     isReadOnly: true,
     hasExternalSideEffect: false,

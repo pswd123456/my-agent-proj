@@ -1,9 +1,12 @@
-import { promises as fs } from "node:fs";
+import { createReadStream, promises as fs } from "node:fs";
+import readline from "node:readline";
 
-import type { RuntimeTool } from "./runtime-tool.js";
+import type { JsonValue } from "../types.js";
+import type { RuntimeTool, ToolExecutionContext } from "./runtime-tool.js";
 import {
   assessRepeatedWorkspaceActivity,
   normalizeWorkspacePath,
+  normalizeReadFileActivityIdentity,
   toRelativeWorkspacePath
 } from "./workspace.js";
 import {
@@ -11,10 +14,14 @@ import {
   failureResult,
   successResult
 } from "./tool-result.js";
+import { estimateTextTokens } from "../runtime/token-budget.js";
 
 const MAX_SAFE_READ_FILE_BYTES = 2_000_000;
 const MAX_SAFE_OUTPUT_CHARACTERS = 200_000;
+const MAX_SAFE_OUTPUT_TOKENS = 25_000;
 const BINARY_SAMPLE_BYTES = 4_096;
+const UNCHANGED_READ_STUB =
+  "File unchanged since last read. Reuse the previous content already in context.";
 
 function normalizePositiveInteger(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) && value > 0
@@ -22,18 +29,75 @@ function normalizePositiveInteger(value: unknown): number | null {
     : null;
 }
 
-function readLineRange(
-  content: string,
-  startLine: number | null,
-  endLine: number | null,
-  maxCharacters: number | null
-): {
+function normalizeNonNegativeInteger(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? Math.floor(value)
+    : null;
+}
+
+interface ReadWindowRequest {
+  offset: number;
+  limit: number | null;
+  startLine: number;
+  endLine: number | null;
+}
+
+interface ReadWindowResult {
   content: string;
   startLine: number;
   endLine: number;
   totalLines: number;
   truncated: boolean;
-} {
+}
+
+interface StoredReadFileMetadata extends ReadWindowResult {
+  path: string;
+  offset: number;
+  limit: number | null;
+  sizeBytes: number;
+  modifiedAt: string;
+  modifiedAtMs: number;
+  deduplicated?: boolean;
+}
+
+function normalizeReadWindowRequest(
+  input: Record<string, JsonValue>
+): ReadWindowRequest {
+  const legacyStartLine = normalizePositiveInteger(input.startLine);
+  const legacyEndLine = normalizePositiveInteger(input.endLine);
+  const offset = normalizeNonNegativeInteger(input.offset);
+  const limit = normalizePositiveInteger(input.limit);
+
+  if (offset !== null || limit !== null) {
+    const normalizedOffset = offset ?? 0;
+    const normalizedLimit = limit;
+    return {
+      offset: normalizedOffset,
+      limit: normalizedLimit,
+      startLine: normalizedOffset + 1,
+      endLine:
+        normalizedLimit === null
+          ? null
+          : normalizedOffset + normalizedLimit
+    };
+  }
+
+  const startLine = legacyStartLine ?? 1;
+  return {
+    offset: startLine - 1,
+    limit:
+      legacyEndLine === null ? null : legacyEndLine - startLine + 1,
+    startLine,
+    endLine: legacyEndLine
+  };
+}
+
+function readLineRange(
+  content: string,
+  startLine: number | null,
+  endLine: number | null,
+  maxCharacters: number | null
+): ReadWindowResult {
   const lines =
     content.length === 0
       ? []
@@ -63,6 +127,172 @@ function readLineRange(
   };
 }
 
+async function readLineRangeFromStream(input: {
+  filePath: string;
+  startLine: number;
+  endLine: number;
+  maxCharacters: number;
+}): Promise<ReadWindowResult> {
+  const stream = createReadStream(input.filePath, { encoding: "utf8" });
+  const lineReader = readline.createInterface({
+    input: stream,
+    crlfDelay: Infinity
+  });
+
+  let totalLines = 0;
+  let content = "";
+  let truncated = false;
+
+  try {
+    for await (const line of lineReader) {
+      totalLines += 1;
+      if (totalLines < input.startLine || totalLines > input.endLine) {
+        continue;
+      }
+
+      if (truncated) {
+        continue;
+      }
+
+      const nextSegment = content.length === 0 ? line : `\n${line}`;
+      const remaining = input.maxCharacters - content.length;
+      if (nextSegment.length <= remaining) {
+        content += nextSegment;
+        continue;
+      }
+
+      content += nextSegment.slice(0, Math.max(0, remaining));
+      truncated = true;
+    }
+  } finally {
+    lineReader.close();
+    stream.destroy();
+  }
+
+  return {
+    content,
+    startLine: input.startLine,
+    endLine: Math.min(input.endLine, totalLines),
+    totalLines,
+    truncated
+  };
+}
+
+function readFileVersion(stat: Awaited<ReturnType<typeof fs.stat>>): {
+  sizeBytes: number;
+  modifiedAt: string;
+  modifiedAtMs: number;
+} {
+  const sizeBytes =
+    typeof stat.size === "bigint" ? Number(stat.size) : stat.size;
+  const modifiedAtMs =
+    typeof stat.mtimeMs === "bigint" ? Number(stat.mtimeMs) : stat.mtimeMs;
+
+  return {
+    sizeBytes,
+    modifiedAt: stat.mtime.toISOString(),
+    modifiedAtMs
+  };
+}
+
+function isStoredReadFileMetadata(
+  value: unknown
+): value is StoredReadFileMetadata {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.path === "string" &&
+    typeof candidate.offset === "number" &&
+    (candidate.limit === null || typeof candidate.limit === "number") &&
+    typeof candidate.startLine === "number" &&
+    typeof candidate.endLine === "number" &&
+    typeof candidate.totalLines === "number" &&
+    typeof candidate.truncated === "boolean" &&
+    typeof candidate.sizeBytes === "number" &&
+    typeof candidate.modifiedAt === "string" &&
+    typeof candidate.modifiedAtMs === "number"
+  );
+}
+
+function parseStoredReadFileMetadata(
+  output: string
+): StoredReadFileMetadata | null {
+  try {
+    const parsed = JSON.parse(output) as {
+      ok?: unknown;
+      data?: unknown;
+    };
+    if (parsed.ok !== true || !isStoredReadFileMetadata(parsed.data)) {
+      return null;
+    }
+    return parsed.data;
+  } catch {
+    return null;
+  }
+}
+
+function findPreviousReadMetadata(input: {
+  sessionMessages: ToolExecutionContext["sessionMessages"];
+  workingDirectory: string;
+  currentInput: Record<string, JsonValue>;
+}): StoredReadFileMetadata | null {
+  const callBlocks = new Map<
+    string,
+    ToolExecutionContext["sessionMessages"][number]
+  >();
+  for (const block of input.sessionMessages) {
+    if (block.kind === "tool call" && block.toolName === "read_file") {
+      callBlocks.set(block.toolCallId, block);
+    }
+  }
+
+  const currentIdentity = normalizeReadFileActivityIdentity({
+    toolInput: input.currentInput,
+    workingDirectory: input.workingDirectory
+  });
+
+  for (let index = input.sessionMessages.length - 1; index >= 0; index -= 1) {
+    const block = input.sessionMessages[index];
+    if (
+      !block ||
+      block.kind !== "tool result" ||
+      block.toolName !== "read_file" ||
+      block.isError
+    ) {
+      continue;
+    }
+
+    const matchingCall = callBlocks.get(block.toolCallId);
+    if (!matchingCall || matchingCall.kind !== "tool call") {
+      continue;
+    }
+
+    const blockIdentity = normalizeReadFileActivityIdentity({
+      toolInput: matchingCall.input,
+      workingDirectory: input.workingDirectory
+    });
+    if (
+      blockIdentity.path !== currentIdentity.path ||
+      blockIdentity.offset !== currentIdentity.offset ||
+      blockIdentity.limit !== currentIdentity.limit
+    ) {
+      continue;
+    }
+
+    const metadata = parseStoredReadFileMetadata(block.output);
+    if (!metadata || metadata.deduplicated || metadata.truncated) {
+      continue;
+    }
+
+    return metadata;
+  }
+
+  return null;
+}
+
 function isProbablyBinary(sample: Buffer): boolean {
   if (sample.length === 0) {
     return false;
@@ -87,7 +317,8 @@ function isProbablyBinary(sample: Buffer): boolean {
 export function createReadFileTool(workingDirectory: string): RuntimeTool {
   return {
     name: "read_file",
-    description: "Read a text file from the workspace.",
+    description:
+      "Read a text file from the workspace. If you do not yet know the relevant section, use search_text first. For large or uncertain files, you MUST page with offset and limit instead of requesting the whole file at once.",
     family: "workspace-file",
     isReadOnly: true,
     hasExternalSideEffect: false,
@@ -104,13 +335,25 @@ export function createReadFileTool(workingDirectory: string): RuntimeTool {
           type: "number",
           description: "Optional character limit for the returned content."
         },
+        offset: {
+          type: "number",
+          description:
+            "Optional 0-based line offset. For large or uncertain files, MUST be paired with limit instead of full-file reads."
+        },
+        limit: {
+          type: "number",
+          description:
+            "Optional line count to read starting from offset. Use this with offset to page through large or uncertain files."
+        },
         startLine: {
           type: "number",
-          description: "Optional 1-based first line to read."
+          description:
+            "Optional 1-based first line to read. Use either startLine/endLine or offset/limit."
         },
         endLine: {
           type: "number",
-          description: "Optional 1-based last line to read, inclusive."
+          description:
+            "Optional 1-based last line to read, inclusive. Use either startLine/endLine or offset/limit."
         }
       },
       required: ["path"],
@@ -135,6 +378,8 @@ export function createReadFileTool(workingDirectory: string): RuntimeTool {
 
       const startLine = normalizePositiveInteger(input.startLine);
       const endLine = normalizePositiveInteger(input.endLine);
+      const offset = normalizeNonNegativeInteger(input.offset);
+      const limit = normalizePositiveInteger(input.limit);
       if (input.startLine !== undefined && startLine === null) {
         issues.push({
           field: "startLine",
@@ -147,11 +392,33 @@ export function createReadFileTool(workingDirectory: string): RuntimeTool {
           issue: "endLine must be a positive number."
         });
       }
+      if (input.offset !== undefined && offset === null) {
+        issues.push({
+          field: "offset",
+          issue: "offset must be a non-negative number."
+        });
+      }
+      if (input.limit !== undefined && limit === null) {
+        issues.push({
+          field: "limit",
+          issue: "limit must be a positive number."
+        });
+      }
       const maxCharacters = normalizePositiveInteger(input.maxCharacters);
       if (input.maxCharacters !== undefined && maxCharacters === null) {
         issues.push({
           field: "maxCharacters",
           issue: "maxCharacters must be a positive number."
+        });
+      }
+      if (
+        (input.offset !== undefined || input.limit !== undefined) &&
+        (input.startLine !== undefined || input.endLine !== undefined)
+      ) {
+        issues.push({
+          field: "offset",
+          issue:
+            "Use either offset/limit or startLine/endLine, but not both."
         });
       }
       if (startLine !== null && endLine !== null && endLine < startLine) {
@@ -202,8 +469,7 @@ export function createReadFileTool(workingDirectory: string): RuntimeTool {
       }
 
       const maxCharacters = normalizePositiveInteger(input.maxCharacters);
-      const startLine = normalizePositiveInteger(input.startLine);
-      const endLine = normalizePositiveInteger(input.endLine);
+      const readWindow = normalizeReadWindowRequest(input);
 
       try {
         const repeatedActivity = assessRepeatedWorkspaceActivity({
@@ -233,6 +499,7 @@ export function createReadFileTool(workingDirectory: string): RuntimeTool {
           context.allowWorkspaceEscape
         );
         const stat = await fs.stat(absolutePath);
+        const fileVersion = readFileVersion(stat);
 
         if (!stat.isFile()) {
           return failureResult(
@@ -245,19 +512,63 @@ export function createReadFileTool(workingDirectory: string): RuntimeTool {
           );
         }
 
-        if (stat.size > MAX_SAFE_READ_FILE_BYTES) {
+        const previousReadMetadata = findPreviousReadMetadata({
+          sessionMessages: context.sessionMessages,
+          workingDirectory,
+          currentInput: input
+        });
+        const warnings = repeatedActivity.shouldWarn
+          ? [
+              `Repeated reads of the same target were detected (${repeatedActivity.repeatCount} recent attempts).`
+            ]
+          : [];
+
+        if (
+          previousReadMetadata &&
+          previousReadMetadata.sizeBytes === fileVersion.sizeBytes &&
+          previousReadMetadata.modifiedAtMs === fileVersion.modifiedAtMs
+        ) {
+          return successResult(
+            createToolResult({
+              ok: true,
+              code: "FILE_READ_UNCHANGED_STUB",
+              message: "File unchanged since last read.",
+              data: {
+                path: previousReadMetadata.path,
+                offset: previousReadMetadata.offset,
+                limit: previousReadMetadata.limit,
+                startLine: previousReadMetadata.startLine,
+                endLine: previousReadMetadata.endLine,
+                totalLines: previousReadMetadata.totalLines,
+                truncated: false,
+                deduplicated: true,
+                sizeBytes: previousReadMetadata.sizeBytes,
+                modifiedAt: previousReadMetadata.modifiedAt,
+                modifiedAtMs: previousReadMetadata.modifiedAtMs,
+                content: UNCHANGED_READ_STUB,
+                ...(warnings.length > 0 ? { warnings } : {})
+              }
+            }),
+            `[read_file] success\n- ${previousReadMetadata.path}\n- unchanged stub returned${warnings.length > 0 ? "\n- warnings emitted" : ""}`
+          );
+        }
+
+        if (
+          stat.size > MAX_SAFE_READ_FILE_BYTES &&
+          readWindow.limit === null
+        ) {
           return failureResult(
             createToolResult({
               ok: false,
               code: "READ_FILE_TOO_LARGE",
               message:
-                "File is larger than the safe read limit. Narrow the target before reading.",
+                "File is larger than the safe full-read limit. Use search_text to locate the relevant content first, then retry read_file with offset and limit or a finite line range.",
               data: {
                 sizeBytes: stat.size,
                 maxBytes: MAX_SAFE_READ_FILE_BYTES
               }
             }),
-            `[read_file] failed\n- file exceeds safe read limit (${stat.size} bytes)`
+            `[read_file] failed\n- file exceeds safe full-read limit (${stat.size} bytes); use search_text first, then retry with offset and limit`
           );
         }
 
@@ -282,8 +593,6 @@ export function createReadFileTool(workingDirectory: string): RuntimeTool {
           );
         }
 
-        const text = await fs.readFile(absolutePath, "utf8");
-        const fullRange = readLineRange(text, startLine, endLine, null);
         if (
           maxCharacters !== null &&
           maxCharacters > MAX_SAFE_OUTPUT_CHARACTERS
@@ -293,42 +602,92 @@ export function createReadFileTool(workingDirectory: string): RuntimeTool {
               ok: false,
               code: "READ_OUTPUT_LIMIT_EXCEEDED",
               message:
-                "Requested output exceeds the safe limit. Narrow the line range or reduce maxCharacters.",
+                "Requested output exceeds the safe limit. Use search_text to locate the relevant content first, then narrow the line range, reduce maxCharacters, or retry read_file with offset and limit.",
               data: {
                 maxOutputCharacters: MAX_SAFE_OUTPUT_CHARACTERS
               }
             }),
-            `[read_file] failed\n- requested output exceeds ${MAX_SAFE_OUTPUT_CHARACTERS} characters`
+            `[read_file] failed\n- requested output exceeds ${MAX_SAFE_OUTPUT_CHARACTERS} characters; use search_text first, then retry with offset and limit`
           );
         }
+        const outputCharacterLimit =
+          maxCharacters ?? MAX_SAFE_OUTPUT_CHARACTERS;
+
+        let lineRange: ReadWindowResult;
+        if (stat.size > MAX_SAFE_READ_FILE_BYTES) {
+          lineRange = await readLineRangeFromStream({
+            filePath: absolutePath,
+            startLine: readWindow.startLine,
+            endLine: readWindow.endLine ?? Number.MAX_SAFE_INTEGER,
+            maxCharacters: outputCharacterLimit
+          });
+        } else {
+          const text = await fs.readFile(absolutePath, "utf8");
+          const fullRange = readLineRange(
+            text,
+            readWindow.startLine,
+            readWindow.endLine,
+            null
+          );
+          if (
+            maxCharacters === null &&
+            fullRange.content.length > MAX_SAFE_OUTPUT_CHARACTERS
+          ) {
+            return failureResult(
+              createToolResult({
+                ok: false,
+                code: "READ_OUTPUT_LIMIT_EXCEEDED",
+                message:
+                  "Requested output exceeds the safe limit. Use search_text to locate the relevant content first, then narrow the line range or retry read_file with offset and limit.",
+                data: {
+                  maxOutputCharacters: MAX_SAFE_OUTPUT_CHARACTERS
+                }
+              }),
+              `[read_file] failed\n- requested output exceeds ${MAX_SAFE_OUTPUT_CHARACTERS} characters; use search_text first, then retry with offset and limit`
+            );
+          }
+          lineRange = readLineRange(
+            text,
+            readWindow.startLine,
+            readWindow.endLine,
+            outputCharacterLimit
+          );
+        }
+
         if (
           maxCharacters === null &&
-          fullRange.content.length > MAX_SAFE_OUTPUT_CHARACTERS
+          lineRange.truncated
         ) {
           return failureResult(
             createToolResult({
               ok: false,
               code: "READ_OUTPUT_LIMIT_EXCEEDED",
               message:
-                "Requested output exceeds the safe limit. Narrow the line range or reduce maxCharacters.",
+                "Requested output exceeds the safe limit. Use search_text to locate the relevant content first, then narrow the line range or retry read_file with offset and limit.",
               data: {
                 maxOutputCharacters: MAX_SAFE_OUTPUT_CHARACTERS
               }
             }),
-            `[read_file] failed\n- requested output exceeds ${MAX_SAFE_OUTPUT_CHARACTERS} characters`
+            `[read_file] failed\n- requested output exceeds ${MAX_SAFE_OUTPUT_CHARACTERS} characters; use search_text first, then retry with offset and limit`
           );
         }
-        const lineRange = readLineRange(
-          text,
-          startLine,
-          endLine,
-          maxCharacters ?? MAX_SAFE_OUTPUT_CHARACTERS
-        );
-        const warnings = repeatedActivity.shouldWarn
-          ? [
-              `Repeated reads of the same target were detected (${repeatedActivity.repeatCount} recent attempts).`
-            ]
-          : [];
+
+        const estimatedOutputTokens = estimateTextTokens(lineRange.content);
+        if (estimatedOutputTokens > MAX_SAFE_OUTPUT_TOKENS) {
+          return failureResult(
+            createToolResult({
+              ok: false,
+              code: "READ_OUTPUT_TOKEN_LIMIT_EXCEEDED",
+              message:
+                "Requested output exceeds the safe token limit. Use search_text to locate the relevant content first, then narrow the line range or retry read_file with offset and limit.",
+              data: {
+                estimatedTokens: estimatedOutputTokens,
+                maxOutputTokens: MAX_SAFE_OUTPUT_TOKENS
+              }
+            }),
+            `[read_file] failed\n- requested output exceeds ${MAX_SAFE_OUTPUT_TOKENS} tokens; use search_text first, then retry with offset and limit`
+          );
+        }
 
         return successResult(
           createToolResult({
@@ -337,10 +696,16 @@ export function createReadFileTool(workingDirectory: string): RuntimeTool {
             message: "File read successfully.",
             data: {
               path: toRelativeWorkspacePath(workingDirectory, absolutePath),
+              offset: readWindow.offset,
+              limit: readWindow.limit,
               truncated: lineRange.truncated,
               startLine: lineRange.startLine,
               endLine: lineRange.endLine,
               totalLines: lineRange.totalLines,
+              deduplicated: false,
+              sizeBytes: fileVersion.sizeBytes,
+              modifiedAt: fileVersion.modifiedAt,
+              modifiedAtMs: fileVersion.modifiedAtMs,
               content: lineRange.content,
               ...(warnings.length > 0 ? { warnings } : {})
             }

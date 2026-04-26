@@ -6,6 +6,8 @@ import path from "node:path";
 import { SESSION_MAX_TURNS_LIMIT } from "@ai-app-template/domain";
 import type { SessionSnapshot } from "@ai-app-template/agent";
 import {
+  DEFAULT_DEEPSEEK_MODEL,
+  DEFAULT_MINIMAX_MODEL,
   FileSystemLogManager,
   createLogger,
   createMemorySessionManager
@@ -51,7 +53,55 @@ async function createTestApp() {
       buildWorkingDirectory(input) {
         return resolveApiWorkingDirectory(workspaceRoot, input);
       },
-      defaultModel: "MiniMax-M2.7"
+      defaultModel: DEFAULT_MINIMAX_MODEL,
+      modelService: {
+        listModels() {
+          return [
+            {
+              id: DEFAULT_MINIMAX_MODEL,
+              label: "MiniMax 2.7",
+              provider: "minimax",
+              description: "MiniMax provider",
+              configured: true,
+              baseURL: "https://api.minimaxi.com/anthropic",
+              supportsThinking: true,
+              unavailableReason: null
+            },
+            {
+              id: DEFAULT_DEEPSEEK_MODEL,
+              label: "DeepSeek V4 Pro",
+              provider: "deepseek",
+              description: "DeepSeek provider",
+              configured: true,
+              baseURL: "https://api.deepseek.com/anthropic",
+              supportsThinking: true,
+              unavailableReason: null
+            }
+          ];
+        },
+        getDefaultModel() {
+          return DEFAULT_MINIMAX_MODEL;
+        },
+        isModelSupported(model) {
+          return (
+            model === DEFAULT_MINIMAX_MODEL || model === DEFAULT_DEEPSEEK_MODEL
+          );
+        },
+        isModelAvailable(model) {
+          return (
+            model === DEFAULT_MINIMAX_MODEL || model === DEFAULT_DEEPSEEK_MODEL
+          );
+        },
+        assertModelAvailable(model) {
+          if (
+            model !== DEFAULT_MINIMAX_MODEL && model !== DEFAULT_DEEPSEEK_MODEL
+          ) {
+            throw new Error(`Unsupported model: ${model}`);
+          }
+
+          return model;
+        }
+      }
     }),
     sessionManager,
     systemLogManager
@@ -85,6 +135,7 @@ describe("createApiApp settings bootstrap", () => {
     expect(session.workingDirectory).toBe(
       resolveApiWorkingDirectory(workspaceRoot)
     );
+    expect(session.model).toBe(DEFAULT_MINIMAX_MODEL);
     expect(session.context.yoloMode).toBe(false);
     expect(session.contextWindow).toBe(200_000);
     expect(session.maxTurns).toBe(50);
@@ -100,6 +151,7 @@ describe("createApiApp settings bootstrap", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           workingDirectory: "apps/web",
+          model: DEFAULT_DEEPSEEK_MODEL,
           yoloMode: true,
           contextWindow: 123_456,
           maxTurns: 77,
@@ -121,6 +173,7 @@ describe("createApiApp settings bootstrap", () => {
     expect(session.workingDirectory).toBe(
       resolveApiWorkingDirectory(workspaceRoot, "apps/web")
     );
+    expect(session.model).toBe(DEFAULT_DEEPSEEK_MODEL);
     expect(session.context.yoloMode).toBe(true);
     expect(session.contextWindow).toBe(123_456);
     expect(session.maxTurns).toBe(77);
@@ -156,6 +209,62 @@ describe("createApiApp settings bootstrap", () => {
     expect(payload.session.context.toolAllowList).toEqual(["read_file"]);
     expect(payload.session.context.toolAskList).toEqual(["write_file"]);
     expect(payload.session.context.toolDenyList).toEqual(["delete_path"]);
+  });
+
+  test("updates the current session model through session settings", async () => {
+    const { app } = await createTestApp();
+
+    const session = await createSession(app, {
+      userId: "stage5-model-user"
+    });
+
+    const response = await app.request(
+      `/sessions/${session.sessionId}/settings`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: DEFAULT_DEEPSEEK_MODEL
+        })
+      }
+    );
+
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as {
+      session: SessionSnapshot;
+    };
+
+    expect(payload.session.model).toBe(DEFAULT_DEEPSEEK_MODEL);
+  });
+
+  test("defers task brief path binding until plan mode has task context", async () => {
+    const { app } = await createTestApp();
+
+    const session = await createSession(app, {
+      userId: "stage5-planmode-user",
+      planModeEnabled: true
+    });
+
+    expect(session.context.planModeEnabled).toBe(true);
+    expect(session.context.taskBriefPath).toBeNull();
+
+    const response = await app.request(
+      `/sessions/${session.sessionId}/settings`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          planModeEnabled: false
+        })
+      }
+    );
+
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as {
+      session: SessionSnapshot;
+    };
+    expect(payload.session.context.planModeEnabled).toBe(false);
+    expect(payload.session.context.taskBriefPath).toBeNull();
   });
 
   test("clamps persisted max turns to the shared session limit", async () => {

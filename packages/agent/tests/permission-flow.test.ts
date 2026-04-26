@@ -11,7 +11,10 @@ import { createMemorySessionManager } from "../src/session/index.js";
 import { matchesPermissionRuleLists } from "../src/runtime/permission-rules.js";
 import { handlePendingPermissionReply } from "../src/runtime/permission.js";
 import { executeToolAction } from "../src/runtime/tool-execution.js";
-import { createWorkspaceToolRegistry } from "../src/tools/registry.js";
+import {
+  createPlanningToolRegistry,
+  createWorkspaceToolRegistry
+} from "../src/tools/registry.js";
 
 async function createWorkspaceRoot(): Promise<string> {
   return mkdtemp(path.join(tmpdir(), "agent-stage4-"));
@@ -170,6 +173,174 @@ describe("Stage 4 permission flow", () => {
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true });
     }
+  });
+
+  test("blocks ordinary workspace file mutations while plan mode is enabled", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const sessionManager = createMemorySessionManager();
+    const routineRepository = createMemoryRoutineRepository();
+
+    try {
+      const session = await sessionManager.createSession({
+        workingDirectory: workspaceRoot,
+        model: "MiniMax-M2.7",
+        userId: "stage4-user",
+        planModeEnabled: true
+      });
+      const executed = await executeToolAction({
+        sessionManager,
+        routineRepository,
+        toolRegistry: createWorkspaceToolRegistry({
+          workingDirectory: workspaceRoot
+        }),
+        traceManager: undefined,
+        session,
+        turnCount: 1,
+        toolCallId: "call-planmode-write",
+        toolName: "write_file",
+        toolInput: {
+          path: "todo.txt",
+          content: "blocked"
+        },
+        eventSink: undefined
+      });
+
+      expect(executed.kind).toBe("completed");
+      if (executed.kind !== "completed") {
+        throw new Error("expected completed result");
+      }
+      expect(executed.output.isError).toBe(true);
+      expect(executed.output.displayText).toContain(
+        "Plan mode blocks workspace file mutations"
+      );
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects ask_user_question outside plan mode", async () => {
+    const sessionManager = createMemorySessionManager();
+    const routineRepository = createMemoryRoutineRepository();
+
+    const session = await sessionManager.createSession({
+      workingDirectory: await createWorkspaceRoot(),
+      model: "MiniMax-M2.7",
+      userId: "stage4-user",
+      planModeEnabled: false
+    });
+
+    const executed = await executeToolAction({
+      sessionManager,
+      routineRepository,
+      toolRegistry: createPlanningToolRegistry(),
+      traceManager: undefined,
+      session,
+      turnCount: 1,
+      toolCallId: "call-question-outside-plan",
+      toolName: "ask_user_question",
+      toolInput: {
+        question_text: "要先做 CLI 还是 Web？"
+      },
+      eventSink: undefined
+    });
+
+    expect(executed.kind).toBe("completed");
+    if (executed.kind !== "completed") {
+      throw new Error("expected completed result");
+    }
+    expect(executed.output.isError).toBe(true);
+    expect(executed.output.displayText).toContain("plan mode required");
+  });
+
+  test("pauses for a structured user question in plan mode and resumes on the next reply", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const sessionManager = createMemorySessionManager();
+    const routineRepository = createMemoryRoutineRepository();
+    const emittedEvents: RunStreamEvent[] = [];
+    let modelCallCount = 0;
+
+    const runtime = createAgentRuntime({
+      client: {
+        messages: {
+          async create() {
+            modelCallCount += 1;
+            if (modelCallCount === 1) {
+              return {
+                content: [
+                  {
+                    type: "tool_use" as const,
+                    id: "call-question",
+                    name: "ask_user_question",
+                    input: {
+                      question_text: "这次计划要覆盖 CLI 还是 Web？",
+                      options: [
+                        {
+                          label: "先做 CLI",
+                          reply: "先做 CLI",
+                          description: "先把 runtime 跑通"
+                        }
+                      ],
+                      context_note: "这会影响交付边界。"
+                    }
+                  }
+                ],
+                stop_reason: "tool_use" as const
+              };
+            }
+
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: "收到，我先按 CLI 范围继续规划。"
+                }
+              ],
+              stop_reason: "end_turn" as const
+            };
+          }
+        }
+      },
+      model: "MiniMax-M2.7",
+      sessionManager,
+      routineRepository,
+      toolRegistry: createPlanningToolRegistry(),
+      maxTurns: 2
+    });
+
+    const session = await runtime.createSession({
+      workingDirectory: workspaceRoot,
+      model: "MiniMax-M2.7",
+      userId: "stage4-user",
+      planModeEnabled: true
+    });
+
+    const firstRun = await runtime.run({
+      sessionId: session.sessionId,
+      message: "先给我做个落地计划",
+      eventSink(event) {
+        emittedEvents.push(event);
+      }
+    });
+
+    expect(firstRun.status).toBe("waiting for input");
+    expect(firstRun.session.context.status).toBe("waiting_for_user_question");
+    expect(firstRun.session.context.pendingUserQuestionPayload).toMatchObject({
+      questionText: "这次计划要覆盖 CLI 还是 Web？"
+    });
+    expect(firstRun.finalAnswer).toContain("这次计划要覆盖 CLI 还是 Web？");
+    expect(
+      emittedEvents.some((event) => event.kind === "user_question_request")
+    ).toBe(true);
+
+    const secondRun = await runtime.run({
+      sessionId: session.sessionId,
+      message: "先做 CLI"
+    });
+
+    expect(secondRun.status).toBe("completed");
+    expect(secondRun.finalAnswer).toBe("收到，我先按 CLI 范围继续规划。");
+    expect(secondRun.session.context.pendingUserQuestionPayload).toBeNull();
+    expect(secondRun.session.context.status).toBe("completed");
   });
 
   test("pauses for permission before overwriting an existing file and resumes after approval", async () => {

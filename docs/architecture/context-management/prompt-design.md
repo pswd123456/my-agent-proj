@@ -8,6 +8,7 @@
 - `prefixMessages`
 - `messages`
 - `runtimeContextMessages`
+- `dynamicPromptMessages`
 - `tools`
 - `cacheKey`
 
@@ -31,6 +32,7 @@ runtimeContextMessages
 - 工具面是动态 mounted 的事实
 - 工具输入错误后的修正策略
 - 行动前输出短意图的要求
+- 像 `search_text -> 局部 read_file`、`read_file offset/limit` 这种稳定工具使用硬约束（需要用 `MUST` 明确约束时也放这里）
 - 权限和 YOLO mode 的高层行为边界
 - skills 只能使用 runtime context 中列出的事实
 
@@ -65,6 +67,7 @@ prefix message 带 `cache_control: { type: "ephemeral" }`，并参与当前 `cac
 
 - 用户意图回放
 - assistant 文本回放
+- assistant thinking 回放（仅限 provider 需要续传的 signed reasoning）
 - tool call / tool result 配对
 - 多轮恢复
 
@@ -82,12 +85,15 @@ prefix message 带 `cache_control: { type: "ephemeral" }`，并参与当前 `cac
    - YOLO mode
    - pending permission request
    - pending confirmation payload
+   - pending user question payload
 
 2. workspace skills
    - 从 `session.workingDirectory/.agent/skills/` 发现的 skill metadata
    - 当前只暴露模型需要选择技能的元信息
 
 这层不参与 `cacheKey`。如果新增信息会随执行变化，优先放这里。
+
+另外还有一组 `dynamicPromptMessages`，当前只用于 turn budget 逼近时的短促提示，例如“尽量收束工作、避免继续探索”。实现上它们会并入本轮 runtime context 的文本层，跟随上下文一起注入，但同样不进入 `cacheKey`，也不应该被提升到稳定前缀。
 
 ## tools
 
@@ -109,6 +115,7 @@ sha256(system + prefixMessage + tools)
 
 - `messages`
 - `runtimeContextMessages`
+- `dynamicPromptMessages`
 - 当前 turn 的 pending payload
 - skills diagnostics
 

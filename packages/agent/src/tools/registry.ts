@@ -5,6 +5,7 @@ import type { CapabilityPackName } from "@ai-app-template/domain";
 
 import { createApplyPatchTool } from "./apply-patch.js";
 import { createAskForConfirmationTool } from "./ask-for-confirmation.js";
+import { createAskUserQuestionTool } from "./ask-user-question.js";
 import { createCopyPathTool } from "./copy-path.js";
 import { createCreateDirectoryTool } from "./create-directory.js";
 import { createCreateRoutineTool } from "./create-routine.js";
@@ -13,6 +14,7 @@ import { createDeleteRoutineTool } from "./delete-routine.js";
 import { createEditFileTool } from "./edit-file.js";
 import { createEditRoutineTool } from "./edit-routine.js";
 import { createGetTodoListTool } from "./get-todo-list.js";
+import { createGetTaskBriefTool } from "./get-task-brief.js";
 import { createFindFilesTool } from "./find-files.js";
 import {
   createGitDiffCachedTool,
@@ -26,6 +28,7 @@ import { createMakeHttpRequestTool } from "./make-http-request.js";
 import { createMovePathTool } from "./move-path.js";
 import { createReadFileTool } from "./read-file.js";
 import { createReplaceTodoListTool } from "./replace-todo-list.js";
+import { createReplaceTaskBriefTool } from "./replace-task-brief.js";
 import { createRunShellCommandTool } from "./run-shell-command.js";
 import { createSearchRoutineByOclockTool } from "./search-routine-by-oclock.js";
 import { createSearchTextTool } from "./search-text.js";
@@ -110,7 +113,10 @@ function registerTools(
 
 export function createPlanningToolRegistry(): ToolRegistry {
   return registerTools(new ToolRegistry(), [
+    createAskUserQuestionTool(),
+    createGetTaskBriefTool(),
     createGetTodoListTool(),
+    createReplaceTaskBriefTool(),
     createReplaceTodoListTool(),
     createUpdateTodoItemsTool()
   ]);

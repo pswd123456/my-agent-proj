@@ -37,6 +37,8 @@ export interface ToolExecutionContext {
     status: string;
     currentDateContext: string;
     yoloMode: boolean;
+    planModeEnabled: boolean;
+    taskBriefPath: string | null;
     workspaceEscapeAllowed: boolean;
     shellAllowPatterns: string[];
     shellDenyPatterns: string[];

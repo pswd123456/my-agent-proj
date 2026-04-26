@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   DEFAULT_CONTEXT_WINDOW,
+  DEFAULT_SESSION_MODEL,
   DEFAULT_SESSION_MAX_TURNS,
   DEFAULT_SESSION_WORKING_DIRECTORY,
   PERMISSION_TOOL_OPTIONS
@@ -20,6 +21,7 @@ describe("MemorySettingsRepository", () => {
 
     expect(settings.userId).toBe("user-a");
     expect(settings.workingDirectory).toBe(DEFAULT_SESSION_WORKING_DIRECTORY);
+    expect(settings.model).toBe(DEFAULT_SESSION_MODEL);
     expect(settings.yoloMode).toBe(false);
     expect(settings.contextWindow).toBe(DEFAULT_CONTEXT_WINDOW);
     expect(settings.maxTurns).toBe(DEFAULT_SESSION_MAX_TURNS);
@@ -32,6 +34,7 @@ describe("MemorySettingsRepository", () => {
 
     await repository.update("user-a", {
       workingDirectory: "/tmp/custom-workspace",
+      model: "deepseek-v4-pro",
       yoloMode: true,
       contextWindow: 123_456,
       maxTurns: 88,
@@ -42,12 +45,14 @@ describe("MemorySettingsRepository", () => {
     const userB = await repository.getOrCreate("user-b");
 
     expect(userA.workingDirectory).toBe("/tmp/custom-workspace");
+    expect(userA.model).toBe("deepseek-v4-pro");
     expect(userA.yoloMode).toBe(true);
     expect(userA.contextWindow).toBe(123_456);
     expect(userA.maxTurns).toBe(88);
     expect(userA.debugConversationView).toBe(true);
 
     expect(userB.workingDirectory).toBe(DEFAULT_SESSION_WORKING_DIRECTORY);
+    expect(userB.model).toBe(DEFAULT_SESSION_MODEL);
     expect(userB.yoloMode).toBe(false);
     expect(userB.contextWindow).toBe(DEFAULT_CONTEXT_WINDOW);
     expect(userB.maxTurns).toBe(DEFAULT_SESSION_MAX_TURNS);
@@ -72,6 +77,7 @@ describe("MemorySettingsRepository", () => {
     const settings = mapSettingsRow({
       userId: "user-a",
       workingDirectory: DEFAULT_SESSION_WORKING_DIRECTORY,
+      model: DEFAULT_SESSION_MODEL,
       yoloMode: true,
       contextWindow: DEFAULT_CONTEXT_WINDOW,
       maxTurns: DEFAULT_SESSION_MAX_TURNS,
@@ -91,6 +97,7 @@ describe("MemorySettingsRepository", () => {
     expect(settings.toolAllowList).toEqual(["read_file", "write_file"]);
     expect(settings.toolAskList).toEqual(["search_text"]);
     expect(settings.toolDenyList).toEqual(["delete_path"]);
+    expect(settings.model).toBe(DEFAULT_SESSION_MODEL);
     expect(settings.debugConversationView).toBe(true);
   });
 });

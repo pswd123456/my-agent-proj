@@ -101,7 +101,10 @@ export async function handlePendingPermissionReply(input: {
         id: input.pendingPermissionRequest.toolCallId,
         name: input.pendingPermissionRequest.toolName,
         content: denialContent,
-        isError: true
+        isError: true,
+        ...(input.pendingPermissionRequest.responseGroupId
+          ? { responseGroupId: input.pendingPermissionRequest.responseGroupId }
+          : {})
       })
     );
     session = await input.sessionManager.setLastError(
@@ -243,6 +246,9 @@ export async function handlePendingPermissionReply(input: {
       string,
       JsonValue
     >,
+    ...(input.pendingPermissionRequest.responseGroupId
+      ? { responseGroupId: input.pendingPermissionRequest.responseGroupId }
+      : {}),
     eventSink: input.eventSink,
     skipPermissionCheck: !isWorkspaceEscapeRequest,
     skipAppendToolCall: true,
@@ -278,10 +284,14 @@ export async function handlePendingPermissionReply(input: {
     );
   }
 
-  session = await input.sessionManager.setPendingToolCallIds(
-    session.sessionId,
-    []
-  );
+  const shouldClearPendingToolCallIds =
+    session.sessionState.pendingToolCallIds.length <= 1;
+  if (shouldClearPendingToolCallIds) {
+    session = await input.sessionManager.setPendingToolCallIds(
+      session.sessionId,
+      []
+    );
+  }
   session = await input.sessionManager.setLoopState(session.sessionId, "running");
   return {
     kind: "approved",

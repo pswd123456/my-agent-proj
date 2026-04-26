@@ -891,7 +891,7 @@ describe("buildConversationViewItems compact mode", () => {
     ).toBe(false);
   });
 
-  test("folds the preceding execution flow as soon as the final answer starts streaming", () => {
+  test("does not fold while the assistant output is still streaming without terminal events", () => {
     const streamingAssistantEvent: Extract<
       RunStreamEvent,
       { kind: "assistant_text" }
@@ -918,9 +918,13 @@ describe("buildConversationViewItems compact mode", () => {
 
     expect(view.map((item) => item.type)).toEqual([
       "timeline",
-      "compact-collapsed-flow",
+      "timeline",
+      "compact-tool",
       "timeline"
     ]);
+    expect(
+      view.some((item) => item.type === "compact-collapsed-flow")
+    ).toBeFalse();
   });
 
   test("does not fold when the first assistant text arrives before any tool execution", () => {
@@ -968,6 +972,13 @@ describe("buildConversationViewItems compact mode", () => {
       assistantMessageId: "assistant-final",
       text: "已经处理好了。"
     };
+    const completedRunEvent: Extract<RunStreamEvent, { kind: "run_complete" }> =
+      {
+        ...interruptedRunCompleteEvent,
+        createdAt: "2026-04-21T18:46:21.810Z",
+        status: "completed",
+        stopReason: "end_turn"
+      };
 
     const view = buildConversationViewItems({
       timelineItems: [
@@ -977,7 +988,7 @@ describe("buildConversationViewItems compact mode", () => {
         eventItem(currentToolCall),
         eventItem(currentToolResult),
         eventItem(finalAssistantEvent),
-        eventItem(turnEnd)
+        eventItem(completedRunEvent)
       ],
       mode: "compact"
     });
@@ -985,6 +996,7 @@ describe("buildConversationViewItems compact mode", () => {
     expect(view.map((item) => item.type)).toEqual([
       "timeline",
       "compact-collapsed-flow",
+      "timeline",
       "timeline"
     ]);
     if (view[1]?.type === "compact-collapsed-flow") {
@@ -1053,6 +1065,24 @@ describe("buildConversationViewItems compact mode", () => {
       assistantMessageId: "assistant-final-2",
       text: "第二轮也处理好了。"
     };
+    const firstCompletedRunEvent: Extract<
+      RunStreamEvent,
+      { kind: "run_complete" }
+    > = {
+      ...interruptedRunCompleteEvent,
+      createdAt: "2026-04-21T18:46:21.810Z",
+      status: "completed",
+      stopReason: "end_turn"
+    };
+    const secondCompletedRunEvent: Extract<
+      RunStreamEvent,
+      { kind: "run_complete" }
+    > = {
+      ...interruptedRunCompleteEvent,
+      createdAt: "2026-04-21T18:47:21.810Z",
+      status: "completed",
+      stopReason: "end_turn"
+    };
 
     const view = buildConversationViewItems({
       timelineItems: [
@@ -1062,12 +1092,14 @@ describe("buildConversationViewItems compact mode", () => {
         eventItem(currentToolCall),
         eventItem(currentToolResult),
         eventItem(firstFinalAssistantEvent),
+        eventItem(firstCompletedRunEvent),
         messageItem(secondUser),
         eventItem(secondTurnStart),
         eventItem(secondThinkingEvent),
         eventItem(secondToolCall),
         eventItem(secondToolResult),
-        eventItem(secondFinalAssistantEvent)
+        eventItem(secondFinalAssistantEvent),
+        eventItem(secondCompletedRunEvent)
       ],
       mode: "compact"
     });
@@ -1077,7 +1109,9 @@ describe("buildConversationViewItems compact mode", () => {
       "compact-collapsed-flow",
       "timeline",
       "timeline",
+      "timeline",
       "compact-collapsed-flow",
+      "timeline",
       "timeline"
     ]);
 
@@ -1148,6 +1182,24 @@ describe("buildConversationViewItems compact mode", () => {
       assistantMessageId: "assistant-final-2",
       text: "第二轮也处理好了。"
     };
+    const firstCompletedRunEvent: Extract<
+      RunStreamEvent,
+      { kind: "run_complete" }
+    > = {
+      ...interruptedRunCompleteEvent,
+      createdAt: "2026-04-21T18:46:21.810Z",
+      status: "completed",
+      stopReason: "end_turn"
+    };
+    const secondCompletedRunEvent: Extract<
+      RunStreamEvent,
+      { kind: "run_complete" }
+    > = {
+      ...interruptedRunCompleteEvent,
+      createdAt: "2026-04-21T18:47:21.810Z",
+      status: "completed",
+      stopReason: "end_turn"
+    };
 
     const view = buildConversationViewItems({
       timelineItems: [
@@ -1157,12 +1209,14 @@ describe("buildConversationViewItems compact mode", () => {
         eventItem(currentToolCall),
         eventItem(currentToolResult),
         messageItem(firstAssistantBlock),
+        eventItem(firstCompletedRunEvent),
         messageItem(secondUser),
         eventItem(secondTurnStart),
         eventItem(secondThinkingEvent),
         eventItem(secondToolCall),
         eventItem(secondToolResult),
-        eventItem(secondFinalAssistantEvent)
+        eventItem(secondFinalAssistantEvent),
+        eventItem(secondCompletedRunEvent)
       ],
       mode: "compact"
     });
@@ -1172,7 +1226,9 @@ describe("buildConversationViewItems compact mode", () => {
       "compact-collapsed-flow",
       "timeline",
       "timeline",
+      "timeline",
       "compact-collapsed-flow",
+      "timeline",
       "timeline"
     ]);
 
@@ -1202,6 +1258,13 @@ describe("buildConversationViewItems compact mode", () => {
       assistantMessageId: "assistant-final",
       text: "已经处理好了。"
     };
+    const completedRunEvent: Extract<RunStreamEvent, { kind: "run_complete" }> =
+      {
+        ...interruptedRunCompleteEvent,
+        createdAt: "2026-04-21T18:46:21.810Z",
+        status: "completed",
+        stopReason: "end_turn"
+      };
 
     const view = buildConversationViewItems({
       timelineItems: [
@@ -1211,7 +1274,7 @@ describe("buildConversationViewItems compact mode", () => {
         eventItem(currentToolCall),
         eventItem(currentToolResult),
         eventItem(finalAssistantEvent),
-        eventItem(turnEnd)
+        eventItem(completedRunEvent)
       ],
       mode: "compact"
     });

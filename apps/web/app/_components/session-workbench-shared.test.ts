@@ -4,7 +4,10 @@ import {
   buildPromptMessageSections,
   extractDynamicPromptMessages,
   getDisplayStateToneClass,
+  getEffectiveTurnInputTokens,
+  getPeakTurnContextTokens,
   getSidebarStateBadgeClass,
+  formatContextWindowUsage,
   stringifyPromptDebugValue
 } from "./session-workbench-shared";
 
@@ -104,5 +107,45 @@ describe("prompt debug formatting", () => {
 
     expect(sections).toHaveLength(1);
     expect(sections[0]?.fullText).toContain("B");
+  });
+});
+
+describe("context window formatting", () => {
+  test("formats a single-turn input usage ratio", () => {
+    expect(formatContextWindowUsage(39_554, 200_000)).toBe(
+      "39,554 / ctx 200,000 (19.8%)"
+    );
+  });
+
+  test("shows an empty single-turn usage when no response has been observed", () => {
+    expect(formatContextWindowUsage(null, 200_000)).toBe("-- / ctx 200,000");
+  });
+});
+
+describe("turn context tokens", () => {
+  test("adds cached tokens into effective turn context", () => {
+    expect(
+      getEffectiveTurnInputTokens({
+        inputTokens: 5_152,
+        cacheReadInputTokens: 65_408,
+        cacheCreationInputTokens: 0
+      })
+    ).toBe(70_560);
+  });
+
+  test("returns the highest single-turn effective context usage", () => {
+    expect(
+      getPeakTurnContextTokens(
+        new Map([
+          [1, { inputTokens: 2_855, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 }],
+          [2, { inputTokens: 39_554, cacheReadInputTokens: 2_613, cacheCreationInputTokens: 0 }],
+          [3, { inputTokens: 12_570, cacheReadInputTokens: 65_408, cacheCreationInputTokens: 0 }]
+        ])
+      )
+    ).toBe(77_978);
+  });
+
+  test("returns null when the session has no turn usage yet", () => {
+    expect(getPeakTurnContextTokens(new Map())).toBeNull();
   });
 });

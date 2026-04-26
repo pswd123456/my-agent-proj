@@ -2,7 +2,7 @@
 
 ## 定位
 
-这组文档记录 agent runtime 如何管理模型上下文，包括消息历史、压缩、tool result、runtime context 与 prompt 设计。
+这组文档记录 agent runtime 如何管理模型上下文，包括消息历史、assistant thinking、压缩、tool result、runtime context、dynamic prompt 与 prompt 设计。
 
 它描述的是当前主链路和后续演进约束，不替代源码事实源。判断实现现状时仍以这些文件为准：
 
@@ -20,8 +20,9 @@
 
 - `system`：稳定身份、行为边界和通用 runtime 约束
 - `prefixMessages`：相对稳定的 session 前缀，例如工作目录、日期锚点、能力包和 mounted tools
-- `messages`：用户、assistant、tool call、tool result 的会话历史回放
-- `runtimeContextMessages`：每次执行才注入的易变上下文，例如当前时间、timezone、session status、pending permission、pending confirmation、workspace skills
+- `messages`：用户、assistant、assistant thinking、tool call、tool result 的会话历史回放
+- `runtimeContextMessages`：每次执行才注入的易变上下文，例如当前时间、timezone、session status、pending permission、pending confirmation、pending user question、workspace skills
+- `dynamicPromptMessages`：当前仅用于 turn budget 逼近时的短促提示，不进入 cache key
 
 设计新上下文时，先判断它属于哪一层。不要为了模型可见性把所有内容都塞进 `system`，也不要把易变执行态写入稳定前缀。
 
@@ -41,6 +42,8 @@
 ### 3. compact 处理上下文大小，不处理任务终止
 
 `compact` 的职责是降低 prompt 输入规模。它不是防无限循环、不是任务终止条件，也不是权限或业务确认机制。
+
+用于判断是否接近或超过 `contextWindow` 的指标，语义上应视为“本次请求对上下文窗口的占用”，不是计费口径，也不是通用产品观测指标。
 
 任务终止应由这些边界控制：
 
@@ -69,6 +72,8 @@
 - `prefixMessages`
 - `messages`
 - `runtimeContextMessages`
+- `dynamicPromptMessages`
+- `compositionStats`（每 turn 的 prompt 字符组成统计，包含 `tool_result` / `thinking` / `runtimeContext` chars 与 top-N largest tool results）
 - `tools`
 - `toolChoice`
 - `cacheKey`
@@ -82,7 +87,8 @@
 | messages 回放 | `ConversationBlock[]` 转 Anthropic-compatible messages | [Messages 管理](./messages.md) |
 | history compact | 超过 `contextWindow * 0.6` 后压缩较早历史，保留最近 tail | [Compact 机制](./compaction.md) |
 | tool result | 默认完整写入 session，不做统一 runtime 截断 | [Tool Result 上下文](./tool-results.md) |
-| prompt 分层 | `system + prefix + messages + runtime context + tools` | [Prompt 设计](./prompt-design.md) |
+| prompt 分层 | `system + prefix + messages + runtime context + dynamic prompt + tools` | [Prompt 设计](./prompt-design.md) |
+| planning 态 | session 级 `plan mode` + task brief artifact + 文件写拦截 | [Plan Mode](./plan-mode.md) |
 
 ## 新增上下文的决策顺序
 

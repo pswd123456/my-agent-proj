@@ -22,12 +22,14 @@ export function buildUserBlockContent(message: string): ConversationBlock {
 
 export function buildAssistantBlockContent(
   message: string,
-  id: string = randomUUID()
+  id: string = randomUUID(),
+  responseGroupId?: string
 ): ConversationBlock {
   return {
     id,
     kind: "assistant",
     content: message,
+    ...(responseGroupId ? { responseGroupId } : {}),
     createdAt: new Date().toISOString()
   };
 }
@@ -35,12 +37,16 @@ export function buildAssistantBlockContent(
 export function buildAssistantThinkingBlockContent(input: {
   text: string;
   signature: string;
+  responseGroupId?: string;
 }): ConversationBlock {
   return {
     id: randomUUID(),
     kind: "assistant thinking",
     content: input.text,
     signature: input.signature,
+    ...(input.responseGroupId
+      ? { responseGroupId: input.responseGroupId }
+      : {}),
     createdAt: new Date().toISOString()
   };
 }
@@ -49,6 +55,7 @@ export function buildToolCallBlock(input: {
   id: string;
   name: string;
   toolInput: Record<string, unknown>;
+  responseGroupId?: string;
 }): ConversationBlock {
   return {
     id: randomUUID(),
@@ -57,6 +64,7 @@ export function buildToolCallBlock(input: {
     toolName: input.name,
     input: input.toolInput as Record<string, JsonValue>,
     state: "pending",
+    ...(input.responseGroupId ? { responseGroupId: input.responseGroupId } : {}),
     createdAt: new Date().toISOString()
   };
 }
@@ -66,6 +74,7 @@ export function buildToolResultBlock(input: {
   name: string;
   content: string;
   isError: boolean;
+  responseGroupId?: string;
 }): ConversationBlock {
   return {
     id: randomUUID(),
@@ -75,6 +84,7 @@ export function buildToolResultBlock(input: {
     output: input.content,
     isError: input.isError,
     state: input.isError ? "failed" : "success",
+    ...(input.responseGroupId ? { responseGroupId: input.responseGroupId } : {}),
     createdAt: new Date().toISOString()
   };
 }
@@ -315,6 +325,30 @@ export function renderPendingConfirmationAnswer(
   }
 
   lines.push("回复“确认”即可执行这些调整，或者直接回复新的时间。");
+  return lines.join("\n");
+}
+
+export function renderPendingUserQuestionAnswer(
+  pendingUserQuestion: NonNullable<
+    SessionSnapshot["context"]["pendingUserQuestionPayload"]
+  >
+): string {
+  const lines = [pendingUserQuestion.questionText];
+
+  if (pendingUserQuestion.options.length > 0) {
+    lines.push(
+      ...pendingUserQuestion.options.map((option, index) => {
+        const detail = option.description ? `：${option.description}` : "";
+        return `- 选项 ${index + 1}：${option.label}${detail}`;
+      })
+    );
+  }
+
+  if (pendingUserQuestion.contextNote) {
+    lines.push(`- 说明：${pendingUserQuestion.contextNote}`);
+  }
+
+  lines.push("你也可以直接回复你的答案。");
   return lines.join("\n");
 }
 

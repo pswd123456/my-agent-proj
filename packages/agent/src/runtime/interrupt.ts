@@ -3,7 +3,7 @@ import type { SessionManager } from "../session.js";
 import type { TraceManager } from "../trace.js";
 import type { RunSessionResult, SessionSnapshot } from "../types.js";
 import { buildAssistantBlockContent } from "./blocks.js";
-import { emitRunEvent, emitTraceEvent } from "./run-events.js";
+import { appendTrace, emitRunEvent, emitTraceEvent } from "./run-events.js";
 
 export async function completeInterruptedRun(input: {
   sessionManager: SessionManager;
@@ -21,13 +21,25 @@ export async function completeInterruptedRun(input: {
   const finalAnswer = input.partialAssistantText?.trim() || null;
 
   if (finalAnswer) {
+    const assistantMessageId = input.partialAssistantMessageId ?? undefined;
     session = await input.sessionManager.appendBlock(
       session.sessionId,
       buildAssistantBlockContent(
         finalAnswer,
-        input.partialAssistantMessageId ?? undefined
+        assistantMessageId
       )
     );
+    const tracedAssistantMessageId =
+      assistantMessageId ??
+      session.messages.at(-1)?.id ??
+      "interrupted-assistant";
+    await appendTrace(input.traceManager, session.sessionId, {
+      kind: "assistant_text",
+      turnCount: input.turnCount,
+      assistantMessageId: tracedAssistantMessageId,
+      text: finalAnswer,
+      snapshot: finalAnswer
+    });
   }
 
   session = await input.sessionManager.updateContext(session.sessionId, {

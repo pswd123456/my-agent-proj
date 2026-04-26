@@ -13,6 +13,7 @@ import path from "node:path";
 import { createEditFileTool } from "../src/tools/edit-file.js";
 import { createReadFileTool } from "../src/tools/read-file.js";
 import { createWriteFileTool } from "../src/tools/write-file.js";
+import { estimateTextTokens } from "../src/runtime/token-budget.js";
 import type { ToolExecutionContext } from "../src/tools/runtime-tool.js";
 import { preflightWorkspaceSandboxTargets } from "../src/tools/workspace.js";
 import type { ConversationBlock } from "../src/types.js";
@@ -37,6 +38,24 @@ function createToolCallBlock(input: {
     toolName: input.toolName,
     input: input.toolInput,
     state: "pending",
+    createdAt: new Date().toISOString()
+  };
+}
+
+function createToolResultBlock(input: {
+  toolName: string;
+  toolCallId: string;
+  output: string;
+  isError?: boolean;
+}): ConversationBlock {
+  return {
+    id: `${input.toolCallId}-result`,
+    kind: "tool result",
+    toolCallId: input.toolCallId,
+    toolName: input.toolName,
+    output: input.output,
+    isError: input.isError ?? false,
+    state: input.isError ? "failed" : "success",
     createdAt: new Date().toISOString()
   };
 }
@@ -128,10 +147,40 @@ describe("read_file", () => {
     expect(result.state).toBe("success");
     expect(result.result.data).toMatchObject({
       path: "notes.txt",
+      offset: 1,
+      limit: 2,
       truncated: false,
       startLine: 2,
       endLine: 3,
       content: "two\nthree"
+    });
+  });
+
+  test("supports offset and limit line paging", async () => {
+    const workspace = await createWorkspace();
+    await writeFile(
+      path.join(workspace, "notes.txt"),
+      "one\ntwo\nthree\nfour\nfive\n"
+    );
+
+    const result = await createReadFileTool(workspace).execute(
+      {
+        path: "notes.txt",
+        offset: 2,
+        limit: 2
+      },
+      createContext(workspace)
+    );
+
+    expect(result.state).toBe("success");
+    expect(result.result.data).toMatchObject({
+      path: "notes.txt",
+      offset: 2,
+      limit: 2,
+      truncated: false,
+      startLine: 3,
+      endLine: 4,
+      content: "three\nfour"
     });
   });
 
@@ -144,6 +193,24 @@ describe("read_file", () => {
         path: "notes.txt",
         startLine: 3,
         endLine: 2
+      },
+      createContext(workspace)
+    );
+
+    expect(result.state).toBe("failed");
+    expect(result.result.code).toBe("INVALID_TOOL_INPUT");
+  });
+
+  test("rejects mixed legacy and offset-limit range inputs", async () => {
+    const workspace = await createWorkspace();
+    await writeFile(path.join(workspace, "notes.txt"), "one\ntwo\n");
+
+    const result = await createReadFileTool(workspace).execute(
+      {
+        path: "notes.txt",
+        startLine: 1,
+        offset: 0,
+        limit: 1
       },
       createContext(workspace)
     );
@@ -202,6 +269,71 @@ describe("read_file", () => {
 
     expect(result.state).toBe("failed");
     expect(result.result.code).toBe("READ_OUTPUT_LIMIT_EXCEEDED");
+    expect(result.result.message).toContain("Use search_text to locate the relevant content first");
+    expect(result.displayText).toContain("use search_text first, then retry with offset and limit");
+  });
+
+  test("stops when a single read would exceed the safe token limit", async () => {
+    const workspace = await createWorkspace();
+    const content = "a\n".repeat(30_000);
+    expect(estimateTextTokens(content)).toBeGreaterThan(25_000);
+
+    await writeFile(path.join(workspace, "token-heavy.txt"), content);
+
+    const result = await createReadFileTool(workspace).execute(
+      {
+        path: "token-heavy.txt"
+      },
+      createContext(workspace)
+    );
+
+    expect(result.state).toBe("failed");
+    expect(result.result.code).toBe("READ_OUTPUT_TOKEN_LIMIT_EXCEEDED");
+    expect(result.result.data).toMatchObject({
+      maxOutputTokens: 25_000
+    });
+    expect(result.result.message).toContain("Use search_text to locate the relevant content first");
+    expect(result.displayText).toContain("use search_text first, then retry with offset and limit");
+  });
+
+  test("requires a finite window for oversized files and allows paged reads", async () => {
+    const workspace = await createWorkspace();
+    const lines = Array.from(
+      { length: 32_000 },
+      (_, index) => `${String(index + 1).padStart(5, "0")}:${"x".repeat(70)}`
+    );
+    await writeFile(path.join(workspace, "huge.txt"), `${lines.join("\n")}\n`);
+
+    const fullResult = await createReadFileTool(workspace).execute(
+      {
+        path: "huge.txt"
+      },
+      createContext(workspace)
+    );
+
+    expect(fullResult.state).toBe("failed");
+    expect(fullResult.result.code).toBe("READ_FILE_TOO_LARGE");
+    expect(fullResult.result.message).toContain("Use search_text to locate the relevant content first");
+    expect(fullResult.displayText).toContain("use search_text first, then retry with offset and limit");
+
+    const pagedResult = await createReadFileTool(workspace).execute(
+      {
+        path: "huge.txt",
+        offset: 10,
+        limit: 3
+      },
+      createContext(workspace)
+    );
+
+    expect(pagedResult.state).toBe("success");
+    expect(pagedResult.result.data).toMatchObject({
+      path: "huge.txt",
+      offset: 10,
+      limit: 3,
+      startLine: 11,
+      endLine: 13,
+      content: [lines[10], lines[11], lines[12]].join("\n")
+    });
   });
 
   test("emits a warning for repeated reads and blocks tight read loops", async () => {
@@ -265,6 +397,102 @@ describe("read_file", () => {
 
     expect(blockedResult.state).toBe("failed");
     expect(blockedResult.result.code).toBe("REPEATED_WORKSPACE_ACCESS_BLOCKED");
+  });
+
+  test("returns an unchanged stub when the same range was already read", async () => {
+    const workspace = await createWorkspace();
+    await writeFile(path.join(workspace, "notes.txt"), "one\ntwo\nthree\n");
+
+    const previousResult = await createReadFileTool(workspace).execute(
+      {
+        path: "notes.txt",
+        offset: 1,
+        limit: 2
+      },
+      createContext(workspace)
+    );
+
+    expect(previousResult.state).toBe("success");
+
+    const result = await createReadFileTool(workspace).execute(
+      {
+        path: "notes.txt",
+        offset: 1,
+        limit: 2
+      },
+      createContext(workspace, {
+        sessionMessages: [
+          createToolCallBlock({
+            toolName: "read_file",
+            toolCallId: "call-1",
+            toolInput: { path: "notes.txt", offset: 1, limit: 2 }
+          }),
+          createToolResultBlock({
+            toolName: "read_file",
+            toolCallId: "call-1",
+            output: previousResult.content
+          })
+        ]
+      })
+    );
+
+    expect(result.state).toBe("success");
+    expect(result.result.code).toBe("FILE_READ_UNCHANGED_STUB");
+    expect(result.result.data).toMatchObject({
+      path: "notes.txt",
+      offset: 1,
+      limit: 2,
+      deduplicated: true,
+      content: expect.stringContaining("File unchanged since last read")
+    });
+  });
+
+  test("re-reads content when the file changed after the previous read", async () => {
+    const workspace = await createWorkspace();
+    const targetPath = path.join(workspace, "notes.txt");
+    await writeFile(targetPath, "one\ntwo\nthree\n");
+
+    const previousResult = await createReadFileTool(workspace).execute(
+      {
+        path: "notes.txt",
+        offset: 0,
+        limit: 2
+      },
+      createContext(workspace)
+    );
+
+    expect(previousResult.state).toBe("success");
+
+    await writeFile(targetPath, "one\nTWO\nthree\n");
+
+    const result = await createReadFileTool(workspace).execute(
+      {
+        path: "notes.txt",
+        offset: 0,
+        limit: 2
+      },
+      createContext(workspace, {
+        sessionMessages: [
+          createToolCallBlock({
+            toolName: "read_file",
+            toolCallId: "call-1",
+            toolInput: { path: "notes.txt", offset: 0, limit: 2 }
+          }),
+          createToolResultBlock({
+            toolName: "read_file",
+            toolCallId: "call-1",
+            output: previousResult.content
+          })
+        ]
+      })
+    );
+
+    expect(result.state).toBe("success");
+    expect(result.result.code).toBe("FILE_READ_OK");
+    expect(result.result.data).toMatchObject({
+      deduplicated: false,
+      content: "one\nTWO"
+    });
   });
 });
 

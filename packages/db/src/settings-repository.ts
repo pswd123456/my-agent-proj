@@ -5,6 +5,7 @@ import type {
   SessionSettingsRecord
 } from "@ai-app-template/domain";
 import {
+  DEFAULT_SESSION_MODEL,
   normalizeCapabilityPacks,
   normalizePermissionRuleLists,
   resolveSessionSettingsDefaults,
@@ -75,6 +76,10 @@ export function mapSettingsRow(row: SettingsRow): SessionSettingsRecord {
   return {
     userId: row.userId,
     workingDirectory: row.workingDirectory,
+    model:
+      typeof row.model === "string" && row.model.trim().length > 0
+        ? row.model
+        : DEFAULT_SESSION_MODEL,
     yoloMode: row.yoloMode,
     contextWindow: sanitizeContextWindow(row.contextWindow),
     maxTurns: sanitizeSessionMaxTurns(row.maxTurns),
@@ -115,6 +120,9 @@ function buildPatchedSettings(
             patch.workingDirectory.trim() || current.workingDirectory
         }
       : {}),
+    ...(typeof patch.model === "string"
+      ? { model: patch.model.trim() || current.model }
+      : {}),
     ...(typeof patch.yoloMode === "boolean"
       ? { yoloMode: patch.yoloMode }
       : {}),
@@ -154,6 +162,7 @@ export class PostgresSettingsRepository implements SettingsRepository {
       .values({
         userId: defaults.userId,
         workingDirectory: defaults.workingDirectory,
+        model: defaults.model,
         yoloMode: defaults.yoloMode,
         contextWindow: defaults.contextWindow,
         maxTurns: defaults.maxTurns,
@@ -190,6 +199,7 @@ export class PostgresSettingsRepository implements SettingsRepository {
       .values({
         userId: next.userId,
         workingDirectory: next.workingDirectory,
+        model: next.model,
         yoloMode: next.yoloMode,
         contextWindow: next.contextWindow,
         maxTurns: next.maxTurns,
@@ -207,6 +217,7 @@ export class PostgresSettingsRepository implements SettingsRepository {
         target: agentSettings.userId,
         set: {
           workingDirectory: next.workingDirectory,
+          model: next.model,
           yoloMode: next.yoloMode,
           contextWindow: next.contextWindow,
           maxTurns: next.maxTurns,

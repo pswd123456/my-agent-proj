@@ -7,6 +7,7 @@ import type {
 
 export const DEFAULT_MINIMAX_MODEL = "MiniMax-M2.7";
 export const DEFAULT_MINIMAX_BASE_URL = "https://api.minimaxi.com/anthropic";
+export const DEFAULT_MAX_TOKENS = 16384;
 
 export interface AnthropicContentTextBlock {
   type: "text";
@@ -213,6 +214,22 @@ export function resolveToolChoice(
   }
 
   return undefined;
+}
+
+export function resolveMaxTokens(
+  env: NodeJS.ProcessEnv = process.env
+): number {
+  const raw = env.ANTHROPIC_MAX_TOKENS ?? env.MAX_TOKENS;
+  if (!raw) {
+    return DEFAULT_MAX_TOKENS;
+  }
+
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_MAX_TOKENS;
+  }
+
+  return parsed;
 }
 
 export function resolveMiniMaxRuntimeConfig(

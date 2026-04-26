@@ -35,6 +35,7 @@ function isVisibleTimelineEvent(event: RunStreamEvent): boolean {
     event.kind !== "response" &&
     event.kind !== "skills_loaded" &&
     event.kind !== "mcp_loaded" &&
+    event.kind !== "user_question_request" &&
     event.kind !== "interrupt_requested" &&
     event.kind !== "interrupted"
   );
@@ -73,20 +74,22 @@ function getEventSortOrder(event: RunStreamEvent): number {
       return 6;
     case "permission_blocked":
       return 7;
-    case "interrupt_requested":
+    case "user_question_request":
       return 8;
-    case "interrupted":
+    case "interrupt_requested":
       return 9;
-    case "tool_result":
+    case "interrupted":
       return 10;
-    case "fallback":
+    case "tool_result":
       return 11;
-    case "run_error":
+    case "fallback":
       return 12;
-    case "run_complete":
+    case "run_error":
       return 13;
-    case "turn_end":
+    case "run_complete":
       return 14;
+    case "turn_end":
+      return 15;
     default:
       return 13;
   }
@@ -107,17 +110,19 @@ function getNarrativePhaseOrder(event: RunStreamEvent): number {
     case "permission_blocked":
     case "tool_result":
       return 3;
+    case "user_question_request":
+      return 4;
     case "interrupt_requested":
     case "interrupted":
-      return 4;
-    case "fallback":
       return 5;
-    case "run_error":
+    case "fallback":
       return 6;
-    case "run_complete":
+    case "run_error":
       return 7;
-    case "turn_end":
+    case "run_complete":
       return 8;
+    case "turn_end":
+      return 9;
     default:
       return 8;
   }

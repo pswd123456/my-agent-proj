@@ -3,8 +3,11 @@ import { fileURLToPath } from "node:url";
 import type {
   PendingConfirmationPayload,
   PendingPermissionRequest,
+  SessionFullCompactionState,
+  PendingUserQuestionPayload,
   SessionTodoState
 } from "@ai-app-template/domain";
+import { DEFAULT_SESSION_MODEL } from "@ai-app-template/domain";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { sql } from "drizzle-orm";
 import {
@@ -95,6 +98,8 @@ export const agentSessions = pgTable(
     status: text("status").notNull(),
     currentDateContext: text("current_date_context").notNull(),
     yoloMode: boolean("yolo_mode").notNull().default(false),
+    planModeEnabled: boolean("plan_mode_enabled").notNull().default(false),
+    taskBriefPath: text("task_brief_path"),
     workspaceEscapeAllowed: boolean("workspace_escape_allowed")
       .notNull()
       .default(false),
@@ -130,7 +135,13 @@ export const agentSessions = pgTable(
     pendingConfirmationPayload: jsonb(
       "pending_confirmation_payload"
     ).$type<PendingConfirmationPayload | null>(),
+    pendingUserQuestionPayload: jsonb(
+      "pending_user_question_payload"
+    ).$type<PendingUserQuestionPayload | null>(),
     todoState: jsonb("todo_state").$type<SessionTodoState | null>(),
+    fullCompactionState: jsonb(
+      "full_compaction_state"
+    ).$type<SessionFullCompactionState | null>(),
     pendingConflictSummary: text("pending_conflict_summary"),
     lastUserMessage: text("last_user_message"),
     workingDirectory: text("working_directory").notNull(),
@@ -143,6 +154,11 @@ export const agentSessions = pgTable(
       .notNull()
       .default(defaultJsonbArray),
     interruptRequested: boolean("interrupt_requested").notNull().default(false),
+    historyCompactionsSinceFullCompaction: integer(
+      "history_compactions_since_full_compaction"
+    )
+      .notNull()
+      .default(0),
     inputTokensCount: integer("input_tokens_count").notNull().default(0),
     promptCacheKey: text("prompt_cache_key").notNull().default(""),
     activeRunId: text("active_run_id"),
@@ -173,6 +189,7 @@ export const agentSettings = pgTable("agent_settings", {
   workingDirectory: text("working_directory")
     .notNull()
     .default("agent-workspace"),
+  model: text("model").notNull().default(DEFAULT_SESSION_MODEL),
   yoloMode: boolean("yolo_mode").notNull().default(false),
   contextWindow: integer("context_window").notNull().default(200000),
   maxTurns: integer("max_turns").notNull().default(50),

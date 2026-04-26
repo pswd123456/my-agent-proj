@@ -81,6 +81,7 @@ function createPendingPermissionRequest(input: {
   toolCallId: string;
   tool: RuntimeTool;
   toolInput: Record<string, JsonValue>;
+  responseGroupId?: string;
   summaryText: string;
   contextNote?: string;
   allowWorkspaceEscape?: boolean;
@@ -89,6 +90,7 @@ function createPendingPermissionRequest(input: {
     toolCallId: input.toolCallId,
     toolName: input.tool.name,
     toolInput: input.toolInput,
+    ...(input.responseGroupId ? { responseGroupId: input.responseGroupId } : {}),
     family: input.tool.family,
     permissionProfile: input.tool.permissionProfile,
     summaryText: input.summaryText,
@@ -104,6 +106,7 @@ async function buildPermissionAskResult(input: {
   toolCallId: string;
   tool: RuntimeTool;
   toolInput: Record<string, JsonValue>;
+  responseGroupId?: string;
   executionContext: ToolExecutionContext;
 }): Promise<PermissionAskUserResult> {
   const permissionRequest =
@@ -118,6 +121,7 @@ async function buildPermissionAskResult(input: {
       toolCallId: input.toolCallId,
       tool: input.tool,
       toolInput: input.toolInput,
+      ...(input.responseGroupId ? { responseGroupId: input.responseGroupId } : {}),
       summaryText:
         permissionRequest?.summaryText ??
         buildFallbackPermissionSummary(input.tool),
@@ -132,8 +136,20 @@ export async function checkToolPermission(input: {
   toolCallId: string;
   tool: RuntimeTool;
   toolInput: Record<string, JsonValue>;
+  responseGroupId?: string;
   executionContext: ToolExecutionContext;
 }): Promise<PermissionCheckResult> {
+  if (
+    input.executionContext.sessionContext.planModeEnabled &&
+    input.tool.family === "workspace-file" &&
+    input.tool.isReadOnly === false
+  ) {
+    return buildSandboxBlockedResult(
+      input.tool.name,
+      "Plan mode blocks workspace file mutations. Use replace_task_brief for task brief writes, or exit plan mode first."
+    );
+  }
+
   if (input.tool.sandboxProfile === "workspace-rooted") {
     const sandboxTargets = input.tool.getSandboxTargets?.(input.toolInput) ?? [];
     const sandboxPreflight = await preflightWorkspaceSandboxTargets({
@@ -158,12 +174,13 @@ export async function checkToolPermission(input: {
       );
       return {
         decision: "ask_user",
-        request: createPendingPermissionRequest({
-          toolCallId: input.toolCallId,
-          tool: input.tool,
-          toolInput: input.toolInput,
-          summaryText:
-            "需要你的确认后才能访问 workspace 外路径。本次同意后，当前 session 的后续文件操作将不再重复询问。",
+    request: createPendingPermissionRequest({
+      toolCallId: input.toolCallId,
+      tool: input.tool,
+      toolInput: input.toolInput,
+      ...(input.responseGroupId ? { responseGroupId: input.responseGroupId } : {}),
+      summaryText:
+        "需要你的确认后才能访问 workspace 外路径。本次同意后，当前 session 的后续文件操作将不再重复询问。",
           ...(contextNote ? { contextNote } : {}),
           allowWorkspaceEscape: true
         })

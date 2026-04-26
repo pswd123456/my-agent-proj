@@ -33,6 +33,7 @@
 
 - P1：`write_file` / `edit_file` 已切到 atomic write helper，`edit_file` 会在明显 stale 场景带 warning 返回
 - P2：`read_file` 增加 binary / device / safe output guard；`read_file` / `search_text` 增加重复调用 warning / block
+- P2：`read_file` 增加 `offset` / `limit` 行分页，大文件默认引导分页读取；同文件同范围未变化时返回 unchanged stub，避免把相同全文重复塞进 session
 - P3：`search_text` 增加 `fileGlob` / `caseSensitive` / `offset` / `contextLines` / `outputMode`
 
 ## 本次决策

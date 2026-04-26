@@ -3,12 +3,14 @@ import { randomUUID } from "node:crypto";
 import type { RoutineRepository } from "@ai-app-template/db";
 
 import {
+  createRunTraceEvent,
   createRunCompleteEvent,
   createRunErrorEvent,
   type RunEventSink
 } from "../events.js";
 import type {
   AnthropicCompatibleClient,
+  AnthropicMessage,
   AnthropicMessageRequest,
   AnthropicToolChoice
 } from "../model.js";
@@ -16,6 +18,7 @@ import { streamAnthropicMessage } from "../model.js";
 import {
   formatPromptDateTimeContext,
   resolvePromptTimeZone,
+  summarizePromptEnvelopeComposition,
   type PromptBuilder
 } from "../prompt.js";
 import type { SessionManager } from "../session.js";
@@ -28,19 +31,22 @@ import {
   buildAssistantBlockContent,
   buildAssistantThinkingBlockContent,
   buildFallbackAnswer,
+  buildToolCallBlock,
   buildUserBlockContent,
   extractToolCalls,
   extractToolCallsFromTextBlocks,
   renderPendingConfirmationAnswer,
+  renderPendingUserQuestionAnswer,
   stripTextToolCallMarkup
 } from "./blocks.js";
 import { completeLocally } from "./complete-run.js";
 import { handlePendingConfirmationReply } from "./confirmation.js";
 import { completeInterruptedRun } from "./interrupt.js";
 import { handlePendingPermissionReply } from "./permission.js";
-import { emitRunEvent, emitTraceEvent } from "./run-events.js";
-import { estimatePromptTokens } from "./token-budget.js";
+import { appendTrace, emitRunEvent, emitTraceEvent } from "./run-events.js";
+import { preparePromptWithCompaction } from "./compaction.js";
 import { executeToolAction } from "./tool-execution.js";
+import { handlePendingUserQuestionReply } from "./user-question.js";
 
 interface StreamedAssistantSnapshot {
   assistantMessageId: string;
@@ -51,6 +57,58 @@ interface StreamedThinkingSnapshot {
   thinkingMessageId: string;
   text: string;
   signature: string;
+}
+
+function getUnresolvedPendingToolCalls(session: SessionSnapshot): Array<{
+  id: string;
+  name: string;
+  input: Record<string, JsonValue>;
+  responseGroupId?: string;
+}> {
+  const pendingIds = session.sessionState.pendingToolCallIds ?? [];
+  if (pendingIds.length === 0) {
+    return [];
+  }
+
+  const completedIds = new Set(
+    session.messages
+      .filter(
+        (
+          block
+        ): block is Extract<
+          SessionSnapshot["messages"][number],
+          { kind: "tool result" }
+        > => block.kind === "tool result"
+      )
+      .map((block) => block.toolCallId)
+  );
+  const pendingToolCalls = new Map(
+    session.messages
+      .filter(
+        (
+          block
+        ): block is Extract<
+          SessionSnapshot["messages"][number],
+          { kind: "tool call" }
+        > => block.kind === "tool call"
+      )
+      .map((block) => [block.toolCallId, block] as const)
+  );
+
+  return pendingIds
+    .filter((toolCallId) => !completedIds.has(toolCallId))
+    .map((toolCallId) => pendingToolCalls.get(toolCallId))
+    .filter((toolCall): toolCall is NonNullable<typeof toolCall> =>
+      Boolean(toolCall)
+    )
+    .map((toolCall) => ({
+      id: toolCall.toolCallId,
+      name: toolCall.toolName,
+      input: toolCall.input as Record<string, JsonValue>,
+      ...(toolCall.responseGroupId
+        ? { responseGroupId: toolCall.responseGroupId }
+        : {})
+    }));
 }
 
 function getInterruptedAssistantSnapshot(
@@ -82,6 +140,7 @@ function getInterruptedAssistantSnapshot(
 
 export async function runSessionLoop(input: {
   client: AnthropicCompatibleClient;
+  prepareMessages?: (messages: AnthropicMessage[]) => AnthropicMessage[];
   sessionManager: SessionManager;
   routineRepository: RoutineRepository;
   toolRegistry: ToolRegistry;
@@ -105,6 +164,9 @@ export async function runSessionLoop(input: {
   };
   const pendingConfirmationAtStart = session.context.pendingConfirmationPayload
     ? structuredClone(session.context.pendingConfirmationPayload)
+    : null;
+  const pendingUserQuestionAtStart = session.context.pendingUserQuestionPayload
+    ? structuredClone(session.context.pendingUserQuestionPayload)
     : null;
   const pendingPermissionAtStart = session.context.pendingPermissionRequest
     ? structuredClone(session.context.pendingPermissionRequest)
@@ -187,6 +249,17 @@ export async function runSessionLoop(input: {
       }
     }
 
+    if (
+      pendingUserQuestionAtStart &&
+      input.message &&
+      !consumedPermissionReply
+    ) {
+      session = await handlePendingUserQuestionReply({
+        sessionManager: input.sessionManager,
+        session
+      });
+    }
+
     if (input.message && !consumedPermissionReply) {
       session = await input.sessionManager.appendBlock(
         session.sessionId,
@@ -230,6 +303,73 @@ export async function runSessionLoop(input: {
       }
     }
 
+    if (
+      consumedPermissionReply &&
+      session.sessionState.pendingToolCallIds.length > 0
+    ) {
+      const pendingToolCalls = getUnresolvedPendingToolCalls(session);
+
+      for (const toolCall of pendingToolCalls) {
+        const executed = await executeToolAction({
+          sessionManager: input.sessionManager,
+          routineRepository: input.routineRepository,
+          toolRegistry: input.toolRegistry,
+          traceManager: input.traceManager,
+          session,
+          turnCount: Math.max(1, carriedTurnCount),
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+          toolInput: toolCall.input,
+          ...(toolCall.responseGroupId
+            ? { responseGroupId: toolCall.responseGroupId }
+            : {}),
+          eventSink: input.eventSink,
+          skipAppendToolCall: true,
+          ...(input.abortSignal ? { abortSignal: input.abortSignal } : {})
+        });
+        session = executed.session;
+        toolCallCount += 1;
+        if (executed.kind === "permission_request") {
+          return completeLocally({
+            sessionManager: input.sessionManager,
+            traceManager: input.traceManager,
+            session,
+            turnCount: Math.max(1, carriedTurnCount),
+            loopState: "waiting for input",
+            finalAnswer: "",
+            stopReason: "tool_use",
+            toolCallCount,
+            toolResultCount,
+            toolOutputs,
+            eventSink: input.eventSink,
+            appendAssistantMessage: false,
+            clearPendingToolCallIds: false
+          });
+        }
+
+        toolResultCount += 1;
+        toolOutputs.push(executed.output);
+
+        {
+          const interrupted = await maybeCompleteInterrupted();
+          if (interrupted) {
+            return interrupted;
+          }
+        }
+      }
+
+      session =
+        (await input.sessionManager.getSession(session.sessionId)) ?? session;
+      session = await input.sessionManager.setPendingToolCallIds(
+        session.sessionId,
+        []
+      );
+      session = await input.sessionManager.setLoopState(
+        session.sessionId,
+        "running"
+      );
+    }
+
     for (let turn = carriedTurnCount; turn < input.maxTurns; turn += 1) {
       const turnCount = turn + 1;
       currentTurnCount = turnCount;
@@ -247,16 +387,28 @@ export async function runSessionLoop(input: {
         }
       }
 
-      const promptEnvelope = input.promptBuilder.build(
+      const preparedPrompt = await preparePromptWithCompaction({
+        client: input.client,
+        sessionManager: input.sessionManager,
+        promptBuilder: input.promptBuilder,
+        toolRegistry: input.toolRegistry,
+        traceManager: input.traceManager,
+        eventSink: input.eventSink,
         session,
-        input.toolRegistry,
-        {
+        turnCount,
+        toolChoice: input.toolChoice,
+        runtimeContext: {
           ...runtimeContext,
           currentTurnCount: turnCount,
           maxTurns: input.maxTurns
         },
-        discoveredSkills.skills
-      );
+        skills: discoveredSkills.skills,
+        ...(typeof input.maxTokens === "number"
+          ? { maxTokens: input.maxTokens }
+          : {})
+      });
+      session = preparedPrompt.session;
+      const promptEnvelope = preparedPrompt.promptEnvelope;
       session = await input.sessionManager.setPromptCacheKey(
         session.sessionId,
         promptEnvelope.cacheKey
@@ -302,18 +454,16 @@ export async function runSessionLoop(input: {
           dynamicPromptMessages: promptEnvelope.dynamicPromptMessages,
           tools: promptEnvelope.tools,
           toolChoice: input.toolChoice ?? null,
-          cacheKey: promptEnvelope.cacheKey
+          cacheKey: promptEnvelope.cacheKey,
+          compositionStats: summarizePromptEnvelopeComposition(promptEnvelope)
         }
       });
 
-      const estimatedInputTokens = estimatePromptTokens(
-        promptEnvelope,
-        input.toolChoice
-      );
+      const estimatedInputTokens = preparedPrompt.estimatedInputTokens;
       if (estimatedInputTokens > session.contextWindow) {
         const errorMessage = [
           `Estimated prompt input ${estimatedInputTokens} tokens exceeds the configured context window ${session.contextWindow}.`,
-          "Compaction is not available in Stage 5."
+          "Compaction could not reduce the prompt below the configured context window."
         ].join(" ");
         session = await input.sessionManager.updateContext(session.sessionId, {
           status: "failed"
@@ -377,7 +527,11 @@ export async function runSessionLoop(input: {
       const request: AnthropicMessageRequest = {
         model: session.model,
         system: promptEnvelope.system,
-        messages: [
+        messages: input.prepareMessages?.([
+          ...promptEnvelope.prefixMessages,
+          ...promptEnvelope.messages,
+          ...promptEnvelope.runtimeContextMessages
+        ]) ?? [
           ...promptEnvelope.prefixMessages,
           ...promptEnvelope.messages,
           ...promptEnvelope.runtimeContextMessages
@@ -409,17 +563,18 @@ export async function runSessionLoop(input: {
           };
           current.text = text;
           streamedAssistantTexts.set(blockIndex, current);
-          await emitTraceEvent({
-            traceManager: input.traceManager,
-            eventSink: input.eventSink,
-            sessionId: session.sessionId,
-            event: {
-              kind: "assistant_text",
-              turnCount,
-              assistantMessageId: current.assistantMessageId,
-              text
-            }
-          });
+          if (input.eventSink) {
+            await emitRunEvent(
+              input.eventSink,
+              createRunTraceEvent(session.sessionId, {
+                kind: "assistant_text",
+                turnCount,
+                assistantMessageId: current.assistantMessageId,
+                text,
+                snapshot: text
+              })
+            );
+          }
         },
         onThinkingDelta: async ({ blockIndex, delta, text, signature }) => {
           const current = streamedThinkingSnapshots.get(blockIndex) ?? {
@@ -430,20 +585,20 @@ export async function runSessionLoop(input: {
           current.text = text;
           current.signature = signature;
           streamedThinkingSnapshots.set(blockIndex, current);
-          await emitTraceEvent({
-            traceManager: input.traceManager,
-            eventSink: input.eventSink,
-            sessionId: session.sessionId,
-            event: {
-              kind: "thinking",
-              turnCount,
-              thinkingMessageId: current.thinkingMessageId,
-              text,
-              signature,
-              ...(delta ? { delta } : {}),
-              snapshot: text
-            }
-          });
+          if (input.eventSink) {
+            await emitRunEvent(
+              input.eventSink,
+              createRunTraceEvent(session.sessionId, {
+                kind: "thinking",
+                turnCount,
+                thinkingMessageId: current.thinkingMessageId,
+                text,
+                signature,
+                ...(delta ? { delta } : {}),
+                snapshot: text
+              })
+            );
+          }
         }
       });
 
@@ -501,27 +656,29 @@ export async function runSessionLoop(input: {
         const streamedSnapshot = streamedThinkingSnapshots.get(
           thinkingBlock.blockIndex
         );
-        if (
-          streamedSnapshot &&
-          streamedSnapshot.text === thinkingBlock.text &&
-          streamedSnapshot.signature === thinkingBlock.signature
-        ) {
+        const thinkingEvent = {
+          kind: "thinking" as const,
+          turnCount,
+          ...(streamedSnapshot
+            ? { thinkingMessageId: streamedSnapshot.thinkingMessageId }
+            : {}),
+          text: thinkingBlock.text,
+          signature: thinkingBlock.signature,
+          snapshot: thinkingBlock.text
+        };
+        if (streamedSnapshot) {
+          await appendTrace(
+            input.traceManager,
+            session.sessionId,
+            thinkingEvent
+          );
           continue;
         }
         await emitTraceEvent({
           traceManager: input.traceManager,
           eventSink: input.eventSink,
           sessionId: session.sessionId,
-          event: {
-            kind: "thinking",
-            turnCount,
-            ...(streamedSnapshot
-              ? { thinkingMessageId: streamedSnapshot.thinkingMessageId }
-              : {}),
-            text: thinkingBlock.text,
-            signature: thinkingBlock.signature,
-            snapshot: thinkingBlock.text
-          }
+          event: thinkingEvent
         });
       }
 
@@ -533,15 +690,34 @@ export async function runSessionLoop(input: {
           : extractToolCallsFromTextBlocks(responseBlocks);
       const resolvedToolCalls =
         toolCalls.length > 0 ? toolCalls : recoveredToolCalls;
+      const hasSignedThinking = thinkingBlocks.some(
+        (thinkingBlock) => thinkingBlock.signature.trim().length > 0
+      );
+      const hasVisibleAssistantText = responseBlocks.some(
+        (block) =>
+          block.type === "text" &&
+          stripTextToolCallMarkup(block.text).length > 0
+      );
+      const shouldPersistThinkingWithAssistantText =
+        hasSignedThinking &&
+        hasVisibleAssistantText &&
+        recoveredToolCalls.length === 0;
+      const responseGroupId =
+        toolCalls.length > 0 || shouldPersistThinkingWithAssistantText
+          ? randomUUID()
+          : undefined;
 
-      if (toolCalls.length > 0) {
+      if (hasSignedThinking && responseGroupId) {
         for (const thinkingBlock of thinkingBlocks) {
           if (thinkingBlock.signature.trim().length === 0) {
             continue;
           }
           session = await input.sessionManager.appendBlock(
             session.sessionId,
-            buildAssistantThinkingBlockContent(thinkingBlock)
+            buildAssistantThinkingBlockContent({
+              ...thinkingBlock,
+              ...(responseGroupId ? { responseGroupId } : {})
+            })
           );
         }
       }
@@ -562,19 +738,31 @@ export async function runSessionLoop(input: {
           randomUUID();
         session = await input.sessionManager.appendBlock(
           session.sessionId,
-          buildAssistantBlockContent(visibleText, assistantMessageId)
+          buildAssistantBlockContent(
+            visibleText,
+            assistantMessageId,
+            responseGroupId
+          )
         );
-        if (!streamedAssistantTexts.has(blockIndex)) {
+        const assistantEvent = {
+          kind: "assistant_text" as const,
+          turnCount,
+          assistantMessageId,
+          text: visibleText,
+          snapshot: visibleText
+        };
+        if (streamedAssistantTexts.has(blockIndex)) {
+          await appendTrace(
+            input.traceManager,
+            session.sessionId,
+            assistantEvent
+          );
+        } else {
           await emitTraceEvent({
             traceManager: input.traceManager,
             eventSink: input.eventSink,
             sessionId: session.sessionId,
-            event: {
-              kind: "assistant_text",
-              turnCount,
-              assistantMessageId,
-              text: visibleText
-            }
+            event: assistantEvent
           });
         }
       }
@@ -615,6 +803,30 @@ export async function runSessionLoop(input: {
         );
 
         for (const toolCall of resolvedToolCalls) {
+          session = await input.sessionManager.appendBlock(
+            session.sessionId,
+            buildToolCallBlock({
+              id: toolCall.id,
+              name: toolCall.name,
+              toolInput: toolCall.input as Record<string, JsonValue>,
+              ...(responseGroupId ? { responseGroupId } : {})
+            })
+          );
+          await emitTraceEvent({
+            traceManager: input.traceManager,
+            eventSink: input.eventSink,
+            sessionId: session.sessionId,
+            event: {
+              kind: "tool_call",
+              turnCount,
+              toolCallId: toolCall.id,
+              toolName: toolCall.name,
+              input: toolCall.input as Record<string, JsonValue>
+            }
+          });
+        }
+
+        for (const toolCall of resolvedToolCalls) {
           const executed = await executeToolAction({
             sessionManager: input.sessionManager,
             routineRepository: input.routineRepository,
@@ -625,7 +837,9 @@ export async function runSessionLoop(input: {
             toolCallId: toolCall.id,
             toolName: toolCall.name,
             toolInput: toolCall.input as Record<string, JsonValue>,
+            ...(responseGroupId ? { responseGroupId } : {}),
             eventSink: input.eventSink,
+            skipAppendToolCall: true,
             ...(input.abortSignal ? { abortSignal: input.abortSignal } : {})
           });
           session = executed.session;
@@ -678,6 +892,37 @@ export async function runSessionLoop(input: {
             loopState: "waiting for input",
             finalAnswer: renderPendingConfirmationAnswer(
               session.context.pendingConfirmationPayload
+            ),
+            stopReason: stopReason ?? "tool_use",
+            toolCallCount,
+            toolResultCount,
+            toolOutputs,
+            eventSink: input.eventSink
+          });
+        }
+
+        if (
+          session.context.status === "waiting_for_user_question" &&
+          session.context.pendingUserQuestionPayload
+        ) {
+          await emitTraceEvent({
+            traceManager: input.traceManager,
+            eventSink: input.eventSink,
+            sessionId: session.sessionId,
+            event: {
+              kind: "user_question_request",
+              turnCount,
+              question: session.context.pendingUserQuestionPayload
+            }
+          });
+          return completeLocally({
+            sessionManager: input.sessionManager,
+            traceManager: input.traceManager,
+            session,
+            turnCount,
+            loopState: "waiting for input",
+            finalAnswer: renderPendingUserQuestionAnswer(
+              session.context.pendingUserQuestionPayload
             ),
             stopReason: stopReason ?? "tool_use",
             toolCallCount,

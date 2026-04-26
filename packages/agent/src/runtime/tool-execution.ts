@@ -55,6 +55,8 @@ function createToolExecutionContext(input: {
       status: input.session.context.status,
       currentDateContext: input.session.context.currentDateContext,
       yoloMode: input.session.context.yoloMode,
+      planModeEnabled: input.session.context.planModeEnabled ?? false,
+      taskBriefPath: input.session.context.taskBriefPath ?? null,
       workspaceEscapeAllowed:
         input.session.context.workspaceEscapeAllowed ?? false,
       shellAllowPatterns: input.session.context.shellAllowPatterns ?? [],
@@ -77,6 +79,7 @@ export async function executeToolAction(input: {
   toolCallId: string;
   toolName: string;
   toolInput: Record<string, JsonValue>;
+  responseGroupId?: string;
   eventSink: RunEventSink | undefined;
   skipPermissionCheck?: boolean;
   skipAppendToolCall?: boolean;
@@ -90,7 +93,10 @@ export async function executeToolAction(input: {
       buildToolCallBlock({
         id: input.toolCallId,
         name: input.toolName,
-        toolInput: input.toolInput
+        toolInput: input.toolInput,
+        ...(input.responseGroupId
+          ? { responseGroupId: input.responseGroupId }
+          : {})
       })
     );
     await emitTraceEvent({
@@ -116,7 +122,10 @@ export async function executeToolAction(input: {
         id: input.toolCallId,
         name: input.toolName,
         content: errorText,
-        isError: true
+        isError: true,
+        ...(input.responseGroupId
+          ? { responseGroupId: input.responseGroupId }
+          : {})
       })
     );
     session = await input.sessionManager.setLastError(
@@ -168,7 +177,10 @@ export async function executeToolAction(input: {
         id: input.toolCallId,
         name: input.toolName,
         content: validationText,
-        isError: true
+        isError: true,
+        ...(input.responseGroupId
+          ? { responseGroupId: input.responseGroupId }
+          : {})
       })
     );
     session = await input.sessionManager.setLastError(
@@ -214,13 +226,16 @@ export async function executeToolAction(input: {
   });
   const permissionCheck = input.skipPermissionCheck
     ? { decision: "allow" as const }
-    : await checkToolPermission({
+      : await checkToolPermission({
         toolCallId: input.toolCallId,
         tool,
         toolInput: (validation.value ?? input.toolInput) as Record<
           string,
           JsonValue
         >,
+        ...(input.responseGroupId
+          ? { responseGroupId: input.responseGroupId }
+          : {}),
         executionContext
       });
 
@@ -231,7 +246,10 @@ export async function executeToolAction(input: {
         id: input.toolCallId,
         name: input.toolName,
         content: permissionCheck.content,
-        isError: true
+        isError: true,
+        ...(input.responseGroupId
+          ? { responseGroupId: input.responseGroupId }
+          : {})
       })
     );
     session = await input.sessionManager.setLastError(
@@ -278,13 +296,20 @@ export async function executeToolAction(input: {
   }
 
   if (permissionCheck.decision === "ask_user") {
+    const pendingToolCallIds =
+      session.sessionState.pendingToolCallIds.length > 0
+        ? [...session.sessionState.pendingToolCallIds]
+        : [input.toolCallId];
+    if (!pendingToolCallIds.includes(input.toolCallId)) {
+      pendingToolCallIds.push(input.toolCallId);
+    }
     session = await input.sessionManager.updateContext(session.sessionId, {
       status: "waiting_for_permission",
       pendingPermissionRequest: permissionCheck.request
     });
     session = await input.sessionManager.setPendingToolCallIds(
       session.sessionId,
-      [input.toolCallId]
+      pendingToolCallIds
     );
     session = await input.sessionManager.setLastError(session.sessionId, null);
     await emitTraceEvent({
@@ -317,7 +342,10 @@ export async function executeToolAction(input: {
       id: input.toolCallId,
       name: input.toolName,
       content: result.content,
-      isError: result.state === "failed"
+      isError: result.state === "failed",
+      ...(input.responseGroupId
+        ? { responseGroupId: input.responseGroupId }
+        : {})
     })
   );
   session = await input.sessionManager.setLastError(

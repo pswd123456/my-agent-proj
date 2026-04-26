@@ -48,6 +48,12 @@ export interface RepeatedWorkspaceActivityAssessment {
   shouldBlock: boolean;
 }
 
+export interface NormalizedReadFileActivityIdentity {
+  path: string;
+  offset: number;
+  limit: number | null;
+}
+
 function isPathInside(basePath: string, targetPath: string): boolean {
   const relativePath = path.relative(basePath, targetPath);
   return (
@@ -249,6 +255,44 @@ function normalizeRepeatPath(
   );
 }
 
+function normalizePositiveInteger(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.floor(value)
+    : null;
+}
+
+function normalizeNonNegativeInteger(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? Math.floor(value)
+    : null;
+}
+
+export function normalizeReadFileActivityIdentity(input: {
+  toolInput: Record<string, JsonValue>;
+  workingDirectory: string;
+}): NormalizedReadFileActivityIdentity {
+  const startLine = normalizePositiveInteger(input.toolInput.startLine);
+  const endLine = normalizePositiveInteger(input.toolInput.endLine);
+  const offset = normalizeNonNegativeInteger(input.toolInput.offset);
+  const limit = normalizePositiveInteger(input.toolInput.limit);
+
+  if (offset !== null || limit !== null) {
+    return {
+      path: normalizeRepeatPath(input.workingDirectory, input.toolInput.path),
+      offset: offset ?? 0,
+      limit
+    };
+  }
+
+  const normalizedStartLine = startLine ?? 1;
+  return {
+    path: normalizeRepeatPath(input.workingDirectory, input.toolInput.path),
+    offset: normalizedStartLine - 1,
+    limit:
+      endLine === null ? null : endLine - normalizedStartLine + 1
+  };
+}
+
 function buildRepeatedActivityFingerprint(input: {
   toolName: "read_file" | "search_text";
   toolInput: Record<string, JsonValue>;
@@ -257,15 +301,10 @@ function buildRepeatedActivityFingerprint(input: {
   if (input.toolName === "read_file") {
     return JSON.stringify({
       toolName: input.toolName,
-      path: normalizeRepeatPath(input.workingDirectory, input.toolInput.path),
-      startLine:
-        typeof input.toolInput.startLine === "number"
-          ? Math.floor(input.toolInput.startLine)
-          : null,
-      endLine:
-        typeof input.toolInput.endLine === "number"
-          ? Math.floor(input.toolInput.endLine)
-          : null
+      ...normalizeReadFileActivityIdentity({
+        toolInput: input.toolInput,
+        workingDirectory: input.workingDirectory
+      })
     });
   }
 

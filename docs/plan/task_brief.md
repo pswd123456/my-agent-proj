@@ -1,71 +1,249 @@
 # Task Brief
 
 更新时间：2026-04-26
-状态：设计中，未落地
-范围：`planmode` / 未来 `full compaction` / `packages/agent` planning state
+状态：`plan mode` v1 已落地；runtime `full compaction` 已落地，但仍与 `task brief` 解耦
+范围：当前 `task brief` artifact、prompt 消费方式、工具面边界，以及后续可演进方向
 
-## 背景
+## 这份文档现在描述什么
 
-当前 runtime 已经具备两类和长任务相关的显式状态：
+这份文档不再把 `task brief` 视为一份纯未来设计稿，而是同时说明两层内容：
 
-1. `session.messages`
-   - 保存完整会话事实流
-   - 但历史过长时会进入 `history compact`
+1. 当前仓库已经落地的 `task brief` 行为
+2. 后续如果要把它继续扩展到 `full compaction`，边界应该放在哪里
 
-2. `session.context.todoState`
-   - 保存步骤列表和 active item
-   - 适合短任务推进
-   - 不足以表达目标、验收标准、已验证事实和恢复锚点
+判断当前运行事实时，优先以这些实现为准：
 
-这导致一个典型缺口：
+- `packages/agent/src/session/task-brief.ts`
+- `packages/agent/src/prompt.ts`
+- `packages/agent/src/tools/get-task-brief.ts`
+- `packages/agent/src/tools/replace-task-brief.ts`
+- `packages/agent/src/runtime/permission-checker.ts`
+- `docs/architecture/context-management/plan-mode.md`
 
-- 长任务进入中后段后，`todoState` 只知道“接下来做哪一步”
-- runtime 却没有一份短而稳定的任务骨架，来表达“任务到底要完成什么、哪些结论已经确认、为什么当前计划是这样”
+## 当前定位
 
-这份文档的目标不是引入一个泛化的长期 `working memory`，而是定义一份更收敛的 `task brief`。
+当前实现里，`task brief` 是一份 session 级 planning artifact，用来给 agent 提供一份短的任务骨架。
 
-## 本次定位
+它是：
 
-`task brief` 是：
+- `plan mode` 的配套 artifact
+- `todoState` 之外的一份任务骨架
+- 当前通过 planning tool surface 显式维护的 session 级 artifact
 
-- `planmode` 的显式 planning state
-- 未来 `full compaction` 的输入模板之一
-- 当前 `todoState` 上面的一层“任务骨架”
+它不是：
 
-`task brief` 不是：
+- 通用长期 memory
+- 默认对所有 session 强制维护的大状态
+- 当前已经结构化持久化到 `session.context.taskBrief` 的对象
+- 已经接入 `full compaction` 的 continuation state
 
-- 通用长期记忆系统
-- 自动学习层
-- 普通多轮聊天默认常驻的大状态
-- 替代 `session.messages` 的恢复事实源
+一句话说，当前的 `task brief` 更接近“工作区里的 planning markdown artifact”，而不是“结构化 working memory”。
 
-一句话说，它更像“任务摘要骨架”，而不是“另一套 memory”。
+## 当前已落地实现
 
-## 为什么不直接做成通用 working memory
+### 1. 主事实源是工作区 markdown 文件
 
-如果把它做成任何长任务都会维护的一份通用 memory，会有几个问题：
+当前 `task brief` 的主事实源不是结构化 session state，而是工作区里的 markdown 文件：
+
+```text
+<session.workingDirectory>/
+  .agent/
+    plans/
+      <sessionId>/
+        <planName>.md
+```
+
+当前 session context 里只保存两个相关字段：
+
+- `planModeEnabled: boolean`
+- `taskBriefPath: string | null`
+
+也就是说，数据库和 session snapshot 持久化的是“是否处于 plan mode”和“brief 绑定路径”，不是一份结构化 `taskBrief` 对象。
+
+### 2. 开启 plan mode 时会绑定 brief 路径
+
+当 session 创建时或通过 session settings 打开 `plan mode` 时，runtime 会为当前 session 绑定默认 brief 路径。
+
+当前行为是：
+
+- 如果 session 还没有 `taskBriefPath`，则首次调用 `replace_task_brief` 时需要显式提供 `plan_name`，然后绑定 `.agent/plans/<sessionId>/<planName>.md`
+- `planName` 由模型在生成计划时填写，例如 `jump_joy_web_game.md`
+- 绑定路径本身会进入 session state
+- 开启 `plan mode` 的瞬间不会自动写入 brief 文件正文
+
+对旧 session 遗留的 legacy flat path 还保留一条兼容分支：
+
+- `.agent/plans/<sessionId>.md` 仍被视为有效旧绑定
+- 如果 legacy 文件缺失，则下一次 `replace_task_brief` 必须补 `plan_name`，runtime 会升级到新的命名路径
+- 如果 legacy 文件已存在，不带 `plan_name` 仍可覆盖旧文件，但新的命名路径仍然是推荐形态
+
+因此，`taskBriefPath` 的存在不等于 brief 文件一定已经创建。
+
+### 3. prompt 不再重复注入 brief 正文
+
+当前 prompt builder 不再把 `taskBriefPath` 指向文件的正文直接注入 `runtimeContextMessages`。
+
+当前保留在 `runtimeContextMessages` 的只有控制信息：
+
+- `Plan mode: enabled|disabled`
+- `Task brief path`
+- `Task brief binding`
+- `Task brief next write`
+
+这里有两个很重要的现状：
+
+1. `task brief` 正文不进入 stable prefix，也不再重复进入 `runtimeContextMessages`
+2. brief 正文当前主要通过 `replace_task_brief` / `get_task_brief` 的 tool result 回放被模型消费
+3. brief 内容变化不会进入 `cacheKey`
+
+因此，当前的 brief 更像“通过 planning 工具显式读写的 artifact”，而不是“每轮自动回灌的运行时上下文”。
+
+### 4. 退出 plan mode 后，brief 不会再被自动重复注入
+
+当前实现里，关闭 `plan mode` 时：
+
+- 普通 workspace 文件写工具恢复原有权限逻辑
+- `taskBriefPath` 仍然保留
+- runtime 不会自动删除或重置 brief 文件
+
+这意味着退出 `plan mode` 后，当前也不存在一条“把 brief 转成别的结构化执行态”的额外消费链路。
+
+实际行为是：
+
+- session 继续保留 `taskBriefPath`
+- prompt 仍会保留 `Plan mode: disabled` 与 brief 绑定控制信息
+- 但不会再把当前 brief 正文自动拼回 `runtimeContextMessages`
+
+所以，当前并没有“退出后自动继续消费 brief 正文”的机制；后续如果需要这条能力，应单独设计，而不是继续往 runtime context 里塞同一份内容。
+
+### 5. 当前工具面是 `get` / `replace`，不是结构化 update
+
+当前 planning tool surface 已落地的是：
+
+- `get_task_brief`
+- `replace_task_brief`
+
+其中：
+
+- `get_task_brief` 只读，返回 `path / exists / content / truncated`
+- `replace_task_brief` 是当前唯一允许写 brief 的入口
+- `replace_task_brief` 成功后会返回路径和当前写入内容；当前模型主要通过这类 tool result 回放拿到最新 brief 正文
+- 如果需要在后续轮次重新读取完整 markdown 内容，应显式调用 `get_task_brief`
+- 第一次写 brief 时，`replace_task_brief` 必须带 `plan_name`
+- `replace_task_brief` 只允许写当前 session 绑定的 brief 路径
+- 写 brief 只能通过 `replace_task_brief`，不要用 shell 重定向或普通 workspace file 工具写入
+- 必要时会自动创建 `.agent/plans/<sessionId>/`
+- 如果 session 仍在 legacy flat 绑定且文件缺失，`replace_task_brief` 会要求先提供 `plan_name`，再把绑定升级到命名路径
+
+当前并没有落地结构化 `update_task_brief` 聚合工具，也没有 section 级工具。
+
+### 6. 当前 plan mode 只拦普通 workspace 文件写工具
+
+当 `planModeEnabled = true` 时：
+
+- prompt 暴露给模型的工具列表会隐藏普通 `workspace-file` 写工具
+- 普通 `workspace-file` 写工具会在权限检查前被直接 block
+- `planning` family 工具仍然可用
+- `task brief` 写入只能通过 `replace_task_brief`，不能用 shell 重定向绕过
+
+当前被 `plan mode` 拦截的是“普通工作区文件改动”，不是所有 mutating tool 的总开关。
+
+这条边界的意义是：
+
+- 让“维护 task brief artifact”和“修改普通工作区文件”分开
+- planning 阶段可以继续读文件、看 git、维护 todo 和 brief
+- 但不能直接改业务文件
+- 即使旧消息或异常 tool call 仍然带上普通写工具，权限层也会继续 block，作为 prompt 侧隐藏之外的兜底保护
+
+## 与 todoState 的当前分工
+
+当前仓库里，`todoState` 和 `task brief` 是两层不同的 planning 信息：
+
+### `todoState`
+
+负责：
+
+- 当前任务拆分
+- active item
+- 步骤状态流转
+
+更适合回答：
+
+- 现在做哪一步
+- 哪一步完成了
+- 哪一步被取消了
+
+### `task brief`
+
+负责：
+
+- 目标
+- 约束
+- 验收标准
+- 已验证事实
+- 决策
+- checkpoint 锚点
+
+更适合回答：
+
+- 这次任务到底要交付什么
+- 哪些前提已经确认
+- 为什么当前计划成立
+- 中断后应该从什么认知状态继续
+
+当前这两者没有做结构化双写同步，brief 正文仍以 markdown 文件为事实源。
+
+## 为什么当前不做成通用 working memory
+
+如果把 `task brief` 扩展成任何长任务都默认维护的一份通用 memory，会有几个明显问题：
 
 1. 状态过重
-   - 普通任务不需要额外维护一套丰富的显式状态
-   - 容易把 planning 负担扩散到所有执行场景
+   - 普通任务不需要额外维护一套丰富 planning state
+   - 会把 planning 负担扩散到所有 session
 
 2. 与 `todoState` 重叠
-   - 一部分步骤类信息会和 `todoState` 重复
-   - 模型会在“更新 todo”还是“更新 memory”之间摇摆
+   - 很多“当前步骤”类信息会重复
+   - 模型会在 todo 和 memory 之间摇摆
 
-3. 与 compaction 边界不清
-   - 当前仓库已经明确：`history compact` 是默认机制
-   - 新状态如果常驻注入上下文，会让 compact 设计再次膨胀
+3. 与现有 compact 边界冲突
+   - 仓库当前默认机制仍是 `history compact`
+   - 如果再引入常驻大状态，context 设计会重新膨胀
 
-因此这里不做“通用 working memory”，只做 `planmode` 和 `full compaction` 都能消费的一份窄状态。
+因此当前更合适的定位仍然是：一份窄的 planning artifact，而不是另一套泛化 memory。
 
-## 设计结论
+## 当前不做的事
 
-### 1. 底层形态：结构化 session state
+截至现在，`task brief` 相关能力明确还没有做这些事：
 
-第一版把 `task brief` 挂到 `session.context`，与 `todoState` 同级。
+- 结构化 `session.context.taskBrief`
+- `update_task_brief` 聚合工具
+- section 级碎工具，例如 `append_task_brief_fact`
+- 退出 `plan mode` 时把 brief 自动转入新的执行态结构
+- `full compaction` 对 brief 的直接消费
+- 自动从完整历史抽取 brief
+- 普通执行态每轮强制维护 brief
 
-建议字段：
+## 后续可演进方向
+
+当前实现已经够支撑 `plan mode` v1，但如果后续继续演进，比较自然的方向是下面两条。
+
+### 方向 1：继续保持文件型 artifact，只增强写入 surface
+
+这条路线最保守：
+
+- 继续以 markdown 文件作为主事实源
+- 仍然通过 planning family 工具维护
+- 在需要时增加更强约束的 brief 写工具
+
+适用场景：
+
+- 继续强调“用户可直接打开和编辑”
+- 优先维持当前工具显式读取/写入方式
+- 不急着引入新的结构化持久化复杂度
+
+### 方向 2：为 full compaction 补一层结构化骨架
+
+如果未来 `full compaction` 真的要消费 `task brief`，更合理的做法也不是直接把当前 markdown 文件当作完整状态机，而是增加一层窄的结构化骨架，例如：
 
 ```ts
 type SessionTaskBrief = {
@@ -87,224 +265,36 @@ type SessionTaskBrief = {
 };
 ```
 
-设计原则：
+但这一步只有在下面两个前提同时成立时才值得做：
 
-- 保持短、小、可压缩
-- 只保留任务骨架，不保留大量过程文本
-- 不复制完整 tool 输出
-- 不承担最终恢复事实源职责
+- `full compaction` 已经明确需要稳定模板输入
+- markdown-only 方案已经不能满足恢复质量
 
-### 2. 使用边界：只在两类场景强使用
+也就是说，结构化 `task brief` 是可能的后续阶段，不是当前实现事实。
 
-`task brief` 第一版只面向两类场景：
+## 和 full compaction 的关系
 
-#### A. `planmode`
+当前可以先明确一条边界：
 
-当 session 进入 `planmode` 时：
+- `task brief` 未来可以成为 `full compaction` 的输入之一
+- 但当前仓库还没有落这条链路
 
-- 模型需要显式形成任务骨架
-- `task brief` 应成为 planmode 的一部分，而不是额外外挂
-- `todoState` 负责步骤推进，`task brief` 负责目标、验收、关键事实和阶段性决策
+后续如果做这部分，应该单独回答这些问题：
 
-#### B. `full compaction`
+- compact 何时触发
+- brief 如何参与 compact 模板
+- compact 后 continuation brief 是否需要持久化
+- compact 前后的 trace 和 session 恢复如何对齐
 
-当未来引入 `full compaction` 时：
+在这些问题没有落地前，不要把当前 brief artifact 描述成已经承担 `full compaction` 状态职责。
 
-- `task brief` 作为高价值输入模板的一部分
-- 用来帮助生成 compact 后的 continuation brief
-- 不直接替代 compact summary，但应为 summary 提供稳定骨架
+## 当前验收口径
 
-### 3. 平时不常驻要求强维护
+如果只按现在已落地实现来描述，`task brief` 的验收口径应该是：
 
-普通执行态不强制模型维护 `task brief`。
-
-也就是说：
-
-- 不因为“任务稍微复杂”就默认开启
-- 不把它变成每轮都必须调用的 memo tool
-- 不让它污染所有 session 的默认负担
-
-## 与 todo 的分工
-
-### `todoState`
-
-负责：
-
-- 当前任务分解
-- active step
-- 步骤状态流转
-
-典型问题：
-
-- 现在做哪一步
-- 哪一步完成了
-- 哪一步被取消了
-
-### `task brief`
-
-负责：
-
-- 任务目标
-- 验收标准
-- 已确认事实
-- 关键决策
-- 下一次 checkpoint 的锚点
-
-典型问题：
-
-- 这次任务到底要交付什么
-- 哪些前提已经被验证
-- 为什么当前计划是合理的
-- 中断后应该从什么认知状态继续
-
-## 与 prompt / context 的关系
-
-`task brief` 如果落地，不应进入 stable prefix。
-
-应沿用当前 runtime context 分层思路：
-
-- `system`：稳定规则
-- `prefixMessages`：相对稳定的 session 前缀
-- `messages`：会话历史
-- `runtimeContextMessages`：本轮执行态
-
-因此 `task brief` 的注入位置应与 `todoState` 同类，进入 `runtimeContextMessages`。
-
-约束：
-
-- 不进入 cache key
-- 不写成大段自由文本
-- 展示时优先短摘要
-
-## Tool 设计方向
-
-第一版不建议拆很多碎 tool。
-
-建议先保留一个聚合型 tool：
-
-```ts
-update_task_brief
-```
-
-支持的操作可以包括：
-
-- `set_goal`
-- `set_acceptance_criteria`
-- `set_constraints`
-- `add_key_fact`
-- `add_decision`
-- `set_next_checkpoint`
-- `clear_task_brief`
-
-原因：
-
-- 便于模型学习和使用
-- 便于后续和 `planmode` 绑定
-- 避免在 planning registry 里堆太多小工具
-
-如果后续发现模型稳定性不足，再考虑拆分为 `replace_task_brief` / `append_task_brief_fact` 之类的更强约束 surface。
-
-## planmode 集成方式
-
-这份文档只定义 `task brief` 的角色，不把完整 `planmode` 设计在这里一次写完。
-
-但本次先明确边界：
-
-1. `planmode` 不是独立 runtime
-   - 仍挂在现有 session / prompt / tool loop 上
-
-2. `task brief` 不是 planmode 的全部
-   - 它只是 planmode 的显式 planning state
-
-3. `planmode` 后续还需要单独补全这些设计
-   - 进入 / 退出条件
-   - mutating tool gating
-   - prompt 约束
-   - UI 展示
-   - plan 产物如何转入执行态
-
-## full compaction 集成方式
-
-这份文档同样不直接定义完整 `full compaction`。
-
-这里只先确定 `task brief` 在其中的角色：
-
-1. `full compaction` 不应只做机械摘要
-   - 应保留任务主线、当前 frontier 和恢复锚点
-
-2. `task brief` 可以提供 compact 模板的稳定字段
-   - goal
-   - acceptance criteria
-   - constraints
-   - key facts
-   - decisions
-   - next checkpoint
-
-3. 后续仍需单独补全文档
-   - full compaction 触发条件
-   - 是否写回 session
-   - compact 前后 trace 如何记录
-   - compact 后如何恢复继续执行
-
-## 第一版建议落地顺序
-
-### Step 1. 定义状态与 schema
-
-新增：
-
-- `session.context.taskBrief`
-- 对应 normalize / validate / persistence
-
-### Step 2. 加入 planning tool surface
-
-新增：
-
-- `update_task_brief`
-
-并把它放进 planning registry，而不是 workspace registry。
-
-### Step 3. 只在 planmode 场景接入 prompt 约束
-
-第一版不要对所有 session 都强制要求使用。
-
-### Step 4. full compaction 设计单独成文
-
-在 full compaction 文档里显式引用 `task brief`，把它作为 compact 模板输入之一，而不是在这里顺手定义 compact 算法。
-
-## 非目标
-
-这份设计第一版不做：
-
-- 通用长期 working memory
-- 自动抽取所有历史为 task brief
-- 普通模式下强制每轮维护
-- 取代 `todoState`
-- 取代 `session.messages`
-- 直接落完整 `planmode`
-- 直接落完整 `full compaction`
-
-## 需要后续继续补全的设计
-
-当前文档只完成了一个中间层定义。后续仍然需要至少两份配套设计：
-
-1. `planmode` 设计
-   - 如何进入
-   - 如何退出
-   - 哪些工具受限
-   - `task brief` 与 `todoState` 的强制关系
-
-2. `full compaction` 设计
-   - 触发阈值
-   - compact 模板
-   - `task brief` 如何参与
-   - compact 后 continuation brief 如何生成和持久化
-
-## 验收标准
-
-这份规格后续如果开始实现，应满足：
-
-1. `task brief` 被明确定位为 `planmode` 和 `full compaction` 共用任务骨架
-2. 不把它写成通用长期 memory
-3. 与 `todoState` 分工清楚
-4. 注入位置保持在 `runtimeContextMessages`，不污染 cache key
-5. 后续 `planmode` / `full compaction` 仍各自需要单独实现设计
+1. `task brief` 是 session 级 planning artifact，不是通用 memory
+2. 当前主事实源是工作区 markdown 文件，不是结构化 `session.context.taskBrief`
+3. brief 正文不会再重复进入 `runtimeContextMessages`，也不进入 cache key
+4. 开启 `plan mode` 时不会自动绑定 brief 路径；第一次写 brief 时必须显式给出 `plan_name`
+5. 关闭 `plan mode` 后仍会保留 brief 绑定控制信息，但不会继续自动注入 brief 正文
+6. 当前写 brief 只能通过 `replace_task_brief`，不是普通 workspace 文件写工具

@@ -3,9 +3,12 @@ import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 
 import {
+  DEFAULT_SESSION_MODEL,
   normalizeCapabilityPacks,
   type PendingConfirmationPayload,
   type PendingPermissionRequest,
+  type PendingUserQuestionPayload,
+  type SessionFullCompactionState,
   type SessionTodoState,
   type ScheduleSessionContext
 } from "@ai-app-template/domain";
@@ -27,6 +30,7 @@ import {
   isSessionSnapshot,
   resolveWorkingDirectory
 } from "./shared.js";
+import { resolveTaskBriefPathForSession } from "./task-brief.js";
 import { normalizeTodoState } from "./todo-state.js";
 
 type SessionRow = typeof agentSessions.$inferSelect;
@@ -51,6 +55,29 @@ function parseJsonValue(value: unknown): unknown {
 function toJsonRecord(value: unknown): Record<string, JsonValue> {
   const parsed = parseJsonValue(value);
   return isRecord(parsed) ? (parsed as Record<string, JsonValue>) : {};
+}
+
+function readResponseGroupId(
+  metadata: Record<string, JsonValue>
+): string | undefined {
+  return typeof metadata.responseGroupId === "string"
+    ? metadata.responseGroupId
+    : undefined;
+}
+
+function readToolInput(
+  metadata: Record<string, JsonValue>
+): Record<string, JsonValue> {
+  if (isRecord(metadata.toolInput)) {
+    return metadata.toolInput as Record<string, JsonValue>;
+  }
+
+  const {
+    responseGroupId: _responseGroupId,
+    signature: _signature,
+    ...legacy
+  } = metadata;
+  return legacy as Record<string, JsonValue>;
 }
 
 function toStringArray(value: unknown): string[] {
@@ -95,41 +122,51 @@ export function toConversationBlock(row: SessionMessageRow): ConversationBlock {
   }
 
   if (row.role === "assistant") {
+    const metadata = toJsonRecord(row.inputJson);
+    const responseGroupId = readResponseGroupId(metadata);
     return {
       id: row.id,
       kind: "assistant",
       content: row.content ?? "",
+      ...(responseGroupId ? { responseGroupId } : {}),
       createdAt
     };
   }
 
   if (row.role === "assistant_thinking") {
     const metadata = toJsonRecord(row.inputJson);
+    const responseGroupId = readResponseGroupId(metadata);
     return {
       id: row.id,
       kind: "assistant thinking",
       content: row.content ?? "",
       signature:
         typeof metadata.signature === "string" ? metadata.signature : "",
+      ...(responseGroupId ? { responseGroupId } : {}),
       createdAt
     };
   }
 
   if (row.role === "tool_call") {
+    const metadata = toJsonRecord(row.inputJson);
+    const responseGroupId = readResponseGroupId(metadata);
     return {
       id: row.id,
       kind: "tool call",
       toolCallId: row.toolCallId ?? "",
       toolName: row.toolName ?? "",
-      input: toJsonRecord(row.inputJson),
+      input: readToolInput(metadata),
       state:
         row.state === "success" || row.state === "failed"
           ? row.state
           : "pending",
+      ...(responseGroupId ? { responseGroupId } : {}),
       createdAt
     } as ConversationBlock;
   }
 
+  const metadata = toJsonRecord(row.inputJson);
+  const responseGroupId = readResponseGroupId(metadata);
   return {
     id: row.id,
     kind: "tool result",
@@ -139,6 +176,7 @@ export function toConversationBlock(row: SessionMessageRow): ConversationBlock {
     isError: Boolean(row.isError),
     state:
       row.state === "pending" || row.state === "success" ? row.state : "failed",
+    ...(responseGroupId ? { responseGroupId } : {}),
     createdAt
   };
 }
@@ -148,15 +186,26 @@ export function toSessionContext(row: SessionRow): ScheduleSessionContext {
   const pendingConfirmationPayload = parseJsonValue(
     row.pendingConfirmationPayload
   );
+  const pendingUserQuestionPayload = parseJsonValue(
+    row.pendingUserQuestionPayload
+  );
   const todoState = normalizeTodoState(
     parseJsonValue(row.todoState) as SessionTodoState | null | undefined
   );
+  const fullCompactionState = parseJsonValue(row.fullCompactionState);
 
   return {
     userId: row.userId,
     status: row.status as ScheduleSessionContext["status"],
     currentDateContext: row.currentDateContext,
     yoloMode: row.yoloMode ?? false,
+    planModeEnabled: row.planModeEnabled ?? false,
+    taskBriefPath: resolveTaskBriefPathForSession({
+      workingDirectory: row.workingDirectory,
+      sessionId: row.id,
+      planModeEnabled: row.planModeEnabled ?? false,
+      taskBriefPath: row.taskBriefPath
+    }),
     workspaceEscapeAllowed: row.workspaceEscapeAllowed ?? false,
     shellAllowPatterns: toStringArray(row.shellAllowPatterns),
     shellDenyPatterns: toStringArray(row.shellDenyPatterns),
@@ -172,7 +221,13 @@ export function toSessionContext(row: SessionRow): ScheduleSessionContext {
     pendingConfirmationPayload: isRecord(pendingConfirmationPayload)
       ? (pendingConfirmationPayload as unknown as PendingConfirmationPayload)
       : null,
+    pendingUserQuestionPayload: isRecord(pendingUserQuestionPayload)
+      ? (pendingUserQuestionPayload as unknown as PendingUserQuestionPayload)
+      : null,
     todoState,
+    fullCompactionState: isRecord(fullCompactionState)
+      ? (fullCompactionState as unknown as SessionFullCompactionState)
+      : null,
     pendingConflictSummary: row.pendingConflictSummary,
     lastUserMessage: row.lastUserMessage
   };
@@ -211,7 +266,9 @@ export function serializeBlock(block: ConversationBlock): {
       toolCallId: null,
       state: null,
       isError: null,
-      inputJson: null,
+      inputJson: block.responseGroupId
+        ? { responseGroupId: block.responseGroupId }
+        : null,
       outputText: null,
       createdAt: block.createdAt
     };
@@ -225,7 +282,12 @@ export function serializeBlock(block: ConversationBlock): {
       toolCallId: null,
       state: null,
       isError: null,
-      inputJson: { signature: block.signature },
+      inputJson: {
+        signature: block.signature,
+        ...(block.responseGroupId
+          ? { responseGroupId: block.responseGroupId }
+          : {})
+      },
       outputText: null,
       createdAt: block.createdAt
     };
@@ -239,7 +301,12 @@ export function serializeBlock(block: ConversationBlock): {
       toolCallId: block.toolCallId,
       state: block.state,
       isError: null,
-      inputJson: block.input,
+      inputJson: {
+        toolInput: block.input,
+        ...(block.responseGroupId
+          ? { responseGroupId: block.responseGroupId }
+          : {})
+      },
       outputText: null,
       createdAt: block.createdAt
     };
@@ -252,7 +319,9 @@ export function serializeBlock(block: ConversationBlock): {
     toolCallId: block.toolCallId,
     state: block.state,
     isError: block.isError,
-    inputJson: null,
+    inputJson: block.responseGroupId
+      ? { responseGroupId: block.responseGroupId }
+      : null,
     outputText: block.output,
     createdAt: block.createdAt
   };
@@ -270,6 +339,7 @@ export class PostgresSessionManager implements SessionManager {
       model: string;
       userId?: string;
       yoloMode?: boolean;
+      planModeEnabled?: boolean;
       contextWindow?: number;
       maxTurns?: number;
       shellAllowPatterns?: string[];
@@ -281,7 +351,7 @@ export class PostgresSessionManager implements SessionManager {
     } = {
       sessionId: randomUUID(),
       workingDirectory: resolveWorkingDirectory(input.workingDirectory),
-      model: input.model ?? "MiniMax-M2.7"
+      model: input.model ?? DEFAULT_SESSION_MODEL
     };
 
     if (typeof input.userId === "string" && input.userId.length > 0) {
@@ -289,6 +359,9 @@ export class PostgresSessionManager implements SessionManager {
     }
     if (typeof input.yoloMode === "boolean") {
       createSnapshotInput.yoloMode = input.yoloMode;
+    }
+    if (typeof input.planModeEnabled === "boolean") {
+      createSnapshotInput.planModeEnabled = input.planModeEnabled;
     }
     if (typeof input.contextWindow === "number") {
       createSnapshotInput.contextWindow = input.contextWindow;
@@ -352,7 +425,9 @@ export class PostgresSessionManager implements SessionManager {
         turnCount: row.turnCount,
         lastError: row.lastError,
         pendingToolCallIds: toStringArray(row.pendingToolCallIds),
-        interruptRequested: row.interruptRequested
+        interruptRequested: row.interruptRequested,
+        historyCompactionsSinceFullCompaction:
+          row.historyCompactionsSinceFullCompaction ?? 0
       },
       inputTokensCount: row.inputTokensCount,
       promptCacheKey: row.promptCacheKey,
@@ -562,6 +637,13 @@ export class PostgresSessionManager implements SessionManager {
     }));
   }
 
+  async setModel(sessionId: string, model: string): Promise<SessionSnapshot> {
+    return this.updateSession(sessionId, (snapshot) => ({
+      ...snapshot,
+      model
+    }));
+  }
+
   async updateContext(
     sessionId: string,
     patch: Partial<ScheduleSessionContext>
@@ -657,6 +739,8 @@ export class PostgresSessionManager implements SessionManager {
         status: snapshot.context.status,
         currentDateContext: snapshot.context.currentDateContext,
         yoloMode: snapshot.context.yoloMode,
+        planModeEnabled: snapshot.context.planModeEnabled,
+        taskBriefPath: snapshot.context.taskBriefPath,
         workspaceEscapeAllowed: snapshot.context.workspaceEscapeAllowed,
         contextWindow: snapshot.contextWindow,
         maxTurns: snapshot.maxTurns,
@@ -668,7 +752,9 @@ export class PostgresSessionManager implements SessionManager {
         enabledCapabilityPacks: snapshot.context.enabledCapabilityPacks,
         pendingPermissionRequest: snapshot.context.pendingPermissionRequest,
         pendingConfirmationPayload: snapshot.context.pendingConfirmationPayload,
+        pendingUserQuestionPayload: snapshot.context.pendingUserQuestionPayload,
         todoState: snapshot.context.todoState ?? null,
+        fullCompactionState: snapshot.context.fullCompactionState ?? null,
         pendingConflictSummary: snapshot.context.pendingConflictSummary,
         lastUserMessage: snapshot.context.lastUserMessage,
         workingDirectory: snapshot.workingDirectory,
@@ -678,6 +764,8 @@ export class PostgresSessionManager implements SessionManager {
         lastError: snapshot.sessionState.lastError,
         pendingToolCallIds: snapshot.sessionState.pendingToolCallIds,
         interruptRequested: snapshot.sessionState.interruptRequested,
+        historyCompactionsSinceFullCompaction:
+          snapshot.sessionState.historyCompactionsSinceFullCompaction,
         inputTokensCount: snapshot.inputTokensCount,
         promptCacheKey: snapshot.promptCacheKey,
         createdAt: snapshot.updatedAt,
@@ -690,6 +778,8 @@ export class PostgresSessionManager implements SessionManager {
           status: snapshot.context.status,
           currentDateContext: snapshot.context.currentDateContext,
           yoloMode: snapshot.context.yoloMode,
+          planModeEnabled: snapshot.context.planModeEnabled,
+          taskBriefPath: snapshot.context.taskBriefPath,
           workspaceEscapeAllowed: snapshot.context.workspaceEscapeAllowed,
           contextWindow: snapshot.contextWindow,
           maxTurns: snapshot.maxTurns,
@@ -702,7 +792,10 @@ export class PostgresSessionManager implements SessionManager {
           pendingPermissionRequest: snapshot.context.pendingPermissionRequest,
           pendingConfirmationPayload:
             snapshot.context.pendingConfirmationPayload,
+          pendingUserQuestionPayload:
+            snapshot.context.pendingUserQuestionPayload,
           todoState: snapshot.context.todoState ?? null,
+          fullCompactionState: snapshot.context.fullCompactionState ?? null,
           pendingConflictSummary: snapshot.context.pendingConflictSummary,
           lastUserMessage: snapshot.context.lastUserMessage,
           workingDirectory: snapshot.workingDirectory,
@@ -712,6 +805,8 @@ export class PostgresSessionManager implements SessionManager {
           lastError: snapshot.sessionState.lastError,
           pendingToolCallIds: snapshot.sessionState.pendingToolCallIds,
           interruptRequested: snapshot.sessionState.interruptRequested,
+          historyCompactionsSinceFullCompaction:
+            snapshot.sessionState.historyCompactionsSinceFullCompaction,
           inputTokensCount: snapshot.inputTokensCount,
           promptCacheKey: snapshot.promptCacheKey,
           updatedAt: snapshot.updatedAt

@@ -6,6 +6,7 @@ import type {
   LoopState,
   SessionSnapshot
 } from "../types.js";
+import { DEFAULT_SESSION_MODEL } from "@ai-app-template/domain";
 
 import type { SessionManager } from "./contracts.js";
 import {
@@ -31,6 +32,7 @@ export class MemorySessionManager implements SessionManager {
       model: string;
       userId?: string;
       yoloMode?: boolean;
+      planModeEnabled?: boolean;
       contextWindow?: number;
       maxTurns?: number;
       shellAllowPatterns?: string[];
@@ -42,7 +44,7 @@ export class MemorySessionManager implements SessionManager {
     } = {
       sessionId: randomUUID(),
       workingDirectory: resolveWorkingDirectory(input.workingDirectory),
-      model: input.model ?? "MiniMax-M2.7"
+      model: input.model ?? DEFAULT_SESSION_MODEL
     };
 
     if (typeof input.userId === "string" && input.userId.length > 0) {
@@ -50,6 +52,9 @@ export class MemorySessionManager implements SessionManager {
     }
     if (typeof input.yoloMode === "boolean") {
       createSnapshotInput.yoloMode = input.yoloMode;
+    }
+    if (typeof input.planModeEnabled === "boolean") {
+      createSnapshotInput.planModeEnabled = input.planModeEnabled;
     }
     if (typeof input.contextWindow === "number") {
       createSnapshotInput.contextWindow = input.contextWindow;
@@ -218,6 +223,13 @@ export class MemorySessionManager implements SessionManager {
         ...snapshot.sessionState,
         lastError
       }
+    }));
+  }
+
+  async setModel(sessionId: string, model: string): Promise<SessionSnapshot> {
+    return this.updateSession(sessionId, (snapshot) => ({
+      ...snapshot,
+      model
     }));
   }
 

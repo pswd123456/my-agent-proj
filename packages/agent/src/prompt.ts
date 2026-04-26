@@ -12,10 +12,13 @@ import type {
   UserConversationBlock
 } from "./types.js";
 import type { SkillDescriptor } from "./skills/index.js";
+import type { RuntimeTool } from "./tools/runtime-tool.js";
 import type { ToolRegistry } from "./tools/registry.js";
 import { normalizeCapabilityPacks } from "@ai-app-template/domain";
-import { estimatePromptTokens } from "./runtime/token-budget.js";
-import { formatTodoStateSummary } from "./session/todo-state.js";
+import {
+  describeTaskBriefBinding,
+  type TaskBriefBindingInfo
+} from "./session/task-brief.js";
 
 export interface PromptEnvelope {
   system: string;
@@ -25,6 +28,33 @@ export interface PromptEnvelope {
   dynamicPromptMessages: string[];
   tools: AnthropicToolDefinition[];
   cacheKey: string;
+}
+
+export interface PromptCompositionLargestToolResult {
+  toolUseId: string;
+  toolName: string;
+  chars: number;
+  isError: boolean;
+  preview: string;
+}
+
+export interface PromptCompositionStats {
+  totalChars: number;
+  systemChars: number;
+  prefixChars: number;
+  conversationChars: number;
+  runtimeContextChars: number;
+  dynamicPromptChars: number;
+  toolDefinitionChars: number;
+  conversationBreakdown: {
+    textChars: number;
+    thinkingChars: number;
+    toolUseInputChars: number;
+    toolResultChars: number;
+    toolResultCount: number;
+    thinkingBlockCount: number;
+  };
+  largestToolResults: PromptCompositionLargestToolResult[];
 }
 
 export interface PromptBuilderOptions {
@@ -49,10 +79,21 @@ const DEFAULT_SYSTEM_PROMPT = [
   "Before taking an action, you MUST briefly state your immediate intent in one short sentence so the user can follow what you are about to do.",
   "Keep pre-action intent text concrete and short; do not restate the whole task or write long plans unless the user asks for them.",
   "When the session contains a pending confirmation payload and the user answers yes/no or revises the time, treat it as a response to that pending confirmation.",
+  "When plan mode is enabled and ask_user_question is available, use it for requirement clarification instead of asking a plain-text question and guessing the missing detail yourself.",
   "Some file writes, deletes, moves, shell commands, and network requests may trigger a permission pause before execution.",
   "Actively utilize the skills listed in the runtime context when they are relevant to the user's request and can improve efficiency or reliability.",
   "Only rely on skills explicitly listed in the current runtime context. Do not invent or assume unavailable skills.",
-  "When a structured todo list is available in the runtime context, use it to stay aligned with the current task and keep item status updated as you make progress.",
+  "When a structured todo list is available, use it to stay aligned with the current task and keep item status updated as you make progress.",
+  "When plan mode is enabled, write or update the task brief only with replace_task_brief; do not use shell redirection or ordinary workspace file mutation tools for task brief writes.",
+  "When plan mode is enabled, follow the task brief binding and next-write rule exposed in the runtime context instead of inferring from the path alone.",
+  "For repository or document inspection, follow this retrieval protocol unless the user explicitly asks for a full-file read: (1) use search_text or find_files to narrow the target, (2) read only a narrow window with read_file, (3) expand with the next adjacent window only if needed.",
+  "Do not begin context gathering with broad read_file, git_status, or directory-wide exploration when search_text or find_files can narrow the target faster.",
+  "When both search_text and read_file are available, you MUST use search_text first before read_file unless you already have an exact file path and exact line range from the current turn.",
+  "When reading a file with unknown size, or when you only need part of it, you MUST use read_file with offset and limit or startLine/endLine instead of requesting the whole file at once.",
+  "After search_text identifies a likely target, you MUST read a narrow window around the relevant section instead of reading the whole file.",
+  "If the first read_file window is not enough, continue with the next adjacent window instead of rereading from the beginning or jumping to a full-file read.",
+  "Only read an entire file when the tool results already show it is small enough and the whole file is genuinely required for the task.",
+  "If read_file reports that a file is unchanged since the last read, reuse the earlier content already in context instead of rereading it.",
   "Keep the final text concise and rely on stable tool results for detail."
 ].join("\n");
 
@@ -60,12 +101,47 @@ const EPHEMERAL_CACHE_CONTROL = {
   type: "ephemeral"
 } as const;
 
-const HISTORY_COMPACTION_TRIGGER_RATIO = 0.6;
-const HISTORY_COMPACTION_TAIL_MESSAGES = 18;
+export const HISTORY_COMPACTION_TRIGGER_RATIO = 0.95;
+export const HISTORY_COMPACTION_TAIL_MESSAGES = 18;
 const COMPACTED_TEXT_LIMIT = 1_200;
+const LARGEST_TOOL_RESULTS_LIMIT = 5;
+const TOOL_RESULT_PREVIEW_LIMIT = 160;
 
 function toolSummary(tools: AnthropicToolDefinition[]): string {
   return tools.map((tool) => tool.name).join(", ");
+}
+
+function shouldExposeToolInPrompt(
+  session: SessionSnapshot,
+  tool: RuntimeTool
+): boolean {
+  if (tool.name === "ask_user_question" && !session.context.planModeEnabled) {
+    return false;
+  }
+
+  if (
+    session.context.planModeEnabled &&
+    tool.family === "workspace-file" &&
+    tool.isReadOnly === false
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+function listPromptTools(
+  session: SessionSnapshot,
+  toolRegistry: ToolRegistry
+): AnthropicToolDefinition[] {
+  return toolRegistry
+    .list()
+    .filter((tool) => shouldExposeToolInPrompt(session, tool))
+    .map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      input_schema: tool.inputSchema
+    }));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -125,7 +201,7 @@ function summarizeCompactedBlock(block: ConversationBlock): string {
   return `tool result: ${block.toolName} ${block.isError ? "failed" : "succeeded"}; ${truncateText(block.output, 520)}`;
 }
 
-function compactHistoryBlocks(
+export function compactHistoryBlocks(
   blocks: ConversationBlock[]
 ): ConversationBlock[] {
   if (blocks.length <= HISTORY_COMPACTION_TAIL_MESSAGES) {
@@ -163,13 +239,59 @@ function createDomainInstructions(tools: AnthropicToolDefinition[]): string[] {
   return [];
 }
 
-function createRuntimeContextMessage(
+function createTaskBriefWriteRule(binding: TaskBriefBindingInfo): string {
+  switch (binding.state) {
+    case "unbound":
+      return "include plan_name on the first replace_task_brief call.";
+    case "bound_legacy":
+      return "include plan_name on the next replace_task_brief call to upgrade this legacy binding.";
+    case "bound_named":
+      return binding.planFileName
+        ? `omit plan_name unless you are reusing ${binding.planFileName}.`
+        : "omit plan_name unless you are reusing the current named binding.";
+    case "invalid":
+      return "the current bound path is invalid for this session; do not assume plan_name alone can recover it.";
+  }
+}
+
+function createFullCompactionContextMessage(
+  session: SessionSnapshot
+): AnthropicMessage | null {
+  const fullCompactionState = session.context.fullCompactionState;
+  if (!fullCompactionState) {
+    return null;
+  }
+
+  return {
+    role: "user",
+    content: [
+      {
+        type: "text",
+        text: [
+          "Continuation summary from the latest full compaction:",
+          `Compacted at: ${fullCompactionState.compactedAt}`,
+          `Prompt version: ${fullCompactionState.promptVersion}`,
+          `Source blocks: ${fullCompactionState.sourceBlockCount}`,
+          `Retained tail blocks: ${fullCompactionState.retainedTailCount}`,
+          "",
+          fullCompactionState.summaryMarkdown
+        ].join("\n")
+      }
+    ]
+  };
+}
+
+function createRuntimeContextMessages(
   session: SessionSnapshot,
   runtimeContext: PromptRuntimeContext
-): { message: AnthropicMessage; dynamicPromptMessages: string[] } {
+): { messages: AnthropicMessage[]; dynamicPromptMessages: string[] } {
   const pendingConfirmation = session.context.pendingConfirmationPayload;
   const pendingText = pendingConfirmation
     ? JSON.stringify(pendingConfirmation, null, 2)
+    : "none";
+  const pendingUserQuestion = session.context.pendingUserQuestionPayload;
+  const userQuestionText = pendingUserQuestion
+    ? JSON.stringify(pendingUserQuestion, null, 2)
     : "none";
   const pendingPermissionRequest = session.context.pendingPermissionRequest;
   const permissionText = pendingPermissionRequest
@@ -193,6 +315,11 @@ function createRuntimeContextMessage(
         "Turn budget is nearly exhausted. Consolidate work, avoid exploratory detours, and prefer a final answer or a crisp blocking question."
       ]
     : [];
+  const taskBriefBinding = describeTaskBriefBinding({
+    workingDirectory: session.workingDirectory,
+    sessionId: session.sessionId,
+    taskBriefPath: session.context.taskBriefPath
+  });
   const runtimeLines = [
     "Runtime context for this run:",
     `Current local datetime: ${runtimeContext.currentDateTimeContext}`,
@@ -200,16 +327,20 @@ function createRuntimeContextMessage(
     `Working directory: ${session.workingDirectory}`,
     `Session status: ${session.context.status}`,
     `YOLO mode: ${session.context.yoloMode ? "enabled" : "disabled"}`,
+    `Plan mode: ${session.context.planModeEnabled ? "enabled" : "disabled"}`,
+    `Task brief path: ${session.context.taskBriefPath ?? "none"}`,
+    `Task brief binding: ${taskBriefBinding.state}`,
+    `Task brief next write: ${createTaskBriefWriteRule(taskBriefBinding)}`,
     `Pending permission request: ${permissionText}`,
     `Pending confirmation payload: ${pendingText}`,
-    formatTodoStateSummary(session.context.todoState)
+    `Pending user question payload: ${userQuestionText}`
   ];
   if (dynamicPromptMessages.length > 0) {
     runtimeLines.push(...dynamicPromptMessages);
   }
 
-  return {
-    message: {
+  const messages: AnthropicMessage[] = [
+    {
       role: "user",
       content: [
         {
@@ -217,7 +348,15 @@ function createRuntimeContextMessage(
           text: runtimeLines.join("\n")
         }
       ]
-    },
+    }
+  ];
+  const fullCompactionMessage = createFullCompactionContextMessage(session);
+  if (fullCompactionMessage) {
+    messages.push(fullCompactionMessage);
+  }
+
+  return {
+    messages,
     dynamicPromptMessages
   };
 }
@@ -258,6 +397,173 @@ function createTextContent(text: string): AnthropicMessage["content"][number] {
   };
 }
 
+function stringifyPromptValue(value: unknown): string {
+  const serialized = JSON.stringify(value);
+  return typeof serialized === "string" ? serialized : String(value);
+}
+
+function getContentBlockChars(
+  block: AnthropicMessage["content"][number]
+): number {
+  if (block.type === "text") {
+    return block.text.length;
+  }
+
+  if (block.type === "thinking") {
+    return block.thinking.length;
+  }
+
+  if (block.type === "tool_use") {
+    return stringifyPromptValue(block.input).length;
+  }
+
+  return block.content.length;
+}
+
+function getMessageChars(message: AnthropicMessage): number {
+  return message.content.reduce(
+    (total, block) => total + getContentBlockChars(block),
+    0
+  );
+}
+
+function createToolResultPreview(text: string): string {
+  const compact = text.replace(/\s+/g, " ").trim();
+  if (compact.length === 0) {
+    return "(empty)";
+  }
+
+  if (compact.length <= TOOL_RESULT_PREVIEW_LIMIT) {
+    return compact;
+  }
+
+  return `${compact.slice(0, TOOL_RESULT_PREVIEW_LIMIT)}...[truncated ${compact.length - TOOL_RESULT_PREVIEW_LIMIT} chars]`;
+}
+
+function getToolDefinitionChars(tool: AnthropicToolDefinition): number {
+  return (
+    tool.name.length +
+    tool.description.length +
+    stringifyPromptValue(tool.input_schema).length
+  );
+}
+
+function findToolNameForCall(
+  messages: AnthropicMessage[],
+  toolUseId: string
+): string | null {
+  for (const message of messages) {
+    for (const block of message.content) {
+      if (block.type === "tool_use" && block.id === toolUseId) {
+        return block.name;
+      }
+    }
+  }
+
+  return null;
+}
+
+function summarizeConversationMessages(
+  messages: AnthropicMessage[]
+): Pick<
+  PromptCompositionStats,
+  "conversationChars" | "conversationBreakdown" | "largestToolResults"
+> {
+  let textChars = 0;
+  let thinkingChars = 0;
+  let toolUseInputChars = 0;
+  let toolResultChars = 0;
+  let toolResultCount = 0;
+  let thinkingBlockCount = 0;
+  const toolResults: PromptCompositionLargestToolResult[] = [];
+
+  for (const message of messages) {
+    for (const block of message.content) {
+      if (block.type === "text") {
+        textChars += block.text.length;
+        continue;
+      }
+
+      if (block.type === "thinking") {
+        thinkingChars += block.thinking.length;
+        thinkingBlockCount += 1;
+        continue;
+      }
+
+      if (block.type === "tool_use") {
+        toolUseInputChars += stringifyPromptValue(block.input).length;
+        continue;
+      }
+
+      toolResultChars += block.content.length;
+      toolResultCount += 1;
+      toolResults.push({
+        toolUseId: block.tool_use_id,
+        toolName:
+          findToolNameForCall(messages, block.tool_use_id) ?? "(unknown tool)",
+        chars: block.content.length,
+        isError: block.is_error ?? false,
+        preview: createToolResultPreview(block.content)
+      });
+    }
+  }
+
+  return {
+    conversationChars:
+      textChars + thinkingChars + toolUseInputChars + toolResultChars,
+    conversationBreakdown: {
+      textChars,
+      thinkingChars,
+      toolUseInputChars,
+      toolResultChars,
+      toolResultCount,
+      thinkingBlockCount
+    },
+    largestToolResults: toolResults
+      .sort((left, right) => right.chars - left.chars)
+      .slice(0, LARGEST_TOOL_RESULTS_LIMIT)
+  };
+}
+
+export function summarizePromptEnvelopeComposition(
+  promptEnvelope: PromptEnvelope
+): PromptCompositionStats {
+  const prefixChars = promptEnvelope.prefixMessages.reduce(
+    (total, message) => total + getMessageChars(message),
+    0
+  );
+  const runtimeContextChars = promptEnvelope.runtimeContextMessages.reduce(
+    (total, message) => total + getMessageChars(message),
+    0
+  );
+  const dynamicPromptChars = promptEnvelope.dynamicPromptMessages.reduce(
+    (total, message) => total + message.length,
+    0
+  );
+  const toolDefinitionChars = promptEnvelope.tools.reduce(
+    (total, tool) => total + getToolDefinitionChars(tool),
+    0
+  );
+  const conversation = summarizeConversationMessages(promptEnvelope.messages);
+
+  return {
+    totalChars:
+      promptEnvelope.system.length +
+      prefixChars +
+      conversation.conversationChars +
+      runtimeContextChars +
+      toolDefinitionChars,
+    systemChars: promptEnvelope.system.length,
+    prefixChars,
+    conversationChars: conversation.conversationChars,
+    runtimeContextChars,
+    dynamicPromptChars,
+    toolDefinitionChars,
+    conversationBreakdown: conversation.conversationBreakdown,
+    largestToolResults: conversation.largestToolResults
+  };
+}
+
 export function toAnthropicMessages(
   blocks: ConversationBlock[]
 ): AnthropicMessage[] {
@@ -285,7 +591,76 @@ export function toAnthropicMessages(
     currentContent = [...currentContent, content];
   };
 
-  for (const block of blocks) {
+  const getResponseGroupId = (block: ConversationBlock): string | undefined =>
+    "responseGroupId" in block && typeof block.responseGroupId === "string"
+      ? block.responseGroupId
+      : undefined;
+
+  for (let index = 0; index < blocks.length; index += 1) {
+    const block = blocks[index];
+    if (!block) {
+      continue;
+    }
+
+    const responseGroupId = getResponseGroupId(block);
+    if (responseGroupId) {
+      const groupedBlocks: ConversationBlock[] = [block];
+      while (
+        index + 1 < blocks.length &&
+        getResponseGroupId(blocks[index + 1] as ConversationBlock) ===
+          responseGroupId
+      ) {
+        index += 1;
+        const nextBlock = blocks[index];
+        if (nextBlock) {
+          groupedBlocks.push(nextBlock);
+        }
+      }
+
+      flush();
+      const assistantContent: AnthropicMessage["content"] = [];
+      const toolResults: AnthropicMessage["content"] = [];
+      for (const groupedBlock of groupedBlocks) {
+        if (groupedBlock.kind === "assistant") {
+          assistantContent.push(createTextContent(groupedBlock.content));
+          continue;
+        }
+        if (groupedBlock.kind === "assistant thinking") {
+          assistantContent.push({
+            type: "thinking",
+            thinking: groupedBlock.content,
+            signature: groupedBlock.signature
+          });
+          continue;
+        }
+        if (groupedBlock.kind === "tool call") {
+          assistantContent.push({
+            type: "tool_use",
+            id: groupedBlock.toolCallId,
+            name: groupedBlock.toolName,
+            input: groupedBlock.input
+          });
+          continue;
+        }
+        if (groupedBlock.kind === "tool result") {
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: groupedBlock.toolCallId,
+            content: groupedBlock.output,
+            is_error: groupedBlock.isError
+          });
+        }
+      }
+
+      if (assistantContent.length > 0) {
+        messages.push(createAnthropicMessage("assistant", assistantContent));
+      }
+      if (toolResults.length > 0) {
+        messages.push(createAnthropicMessage("user", toolResults));
+      }
+      continue;
+    }
+
     if (block.kind === "user") {
       flush();
       messages.push(
@@ -341,10 +716,7 @@ export function toAnthropicMessages(
 }
 
 export class PromptBuilder {
-  constructor(
-    private readonly systemPrompt = DEFAULT_SYSTEM_PROMPT,
-    private readonly toolChoice?: AnthropicToolChoice
-  ) {}
+  constructor(private readonly systemPrompt = DEFAULT_SYSTEM_PROMPT) {}
 
   build(
     session: SessionSnapshot,
@@ -355,31 +727,15 @@ export class PromptBuilder {
     },
     skills: SkillDescriptor[] = []
   ): PromptEnvelope {
-    const tools = toolRegistry.toAnthropicTools();
+    const tools = listPromptTools(session, toolRegistry);
     const system = [this.systemPrompt, ...createDomainInstructions(tools)]
       .filter((section) => section.length > 0)
       .join("\n");
     const prefixMessage = createPrefixMessage(session, tools);
     const baseMessages = toAnthropicMessages(session.messages);
-    const { message: runtimeContextMessage, dynamicPromptMessages } =
-      createRuntimeContextMessage(session, runtimeContext);
+    const { messages: runtimeContextMessages, dynamicPromptMessages } =
+      createRuntimeContextMessages(session, runtimeContext);
     const skillsContextMessage = createSkillsContextMessage(skills);
-    const shouldCompactHistory =
-      estimatePromptTokens(
-        {
-          system,
-          prefixMessages: [prefixMessage],
-          messages: baseMessages,
-          runtimeContextMessages: [runtimeContextMessage, skillsContextMessage],
-          dynamicPromptMessages,
-          tools,
-          cacheKey: ""
-        },
-        this.toolChoice
-      ) > Math.floor(session.contextWindow * HISTORY_COMPACTION_TRIGGER_RATIO);
-    const messages = shouldCompactHistory
-      ? toAnthropicMessages(compactHistoryBlocks(session.messages))
-      : baseMessages;
     const cacheKey = createHash("sha256")
       .update(system)
       .update("\n")
@@ -391,8 +747,8 @@ export class PromptBuilder {
     return {
       system,
       prefixMessages: [prefixMessage],
-      messages,
-      runtimeContextMessages: [runtimeContextMessage, skillsContextMessage],
+      messages: baseMessages,
+      runtimeContextMessages: [...runtimeContextMessages, skillsContextMessage],
       dynamicPromptMessages,
       tools,
       cacheKey
@@ -403,7 +759,8 @@ export class PromptBuilder {
 export function createPromptBuilder(
   options: PromptBuilderOptions = {}
 ): PromptBuilder {
-  return new PromptBuilder(options.systemPrompt, options.toolChoice);
+  void options.toolChoice;
+  return new PromptBuilder(options.systemPrompt);
 }
 
 function pad(value: number): string {

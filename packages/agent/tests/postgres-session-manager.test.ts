@@ -91,6 +91,7 @@ describe("toIsoString", () => {
       enabledCapabilityPacks: ["workspace", "schedule"],
       pendingPermissionRequest: null,
       pendingConfirmationPayload: null,
+      pendingUserQuestionPayload: null,
       todoState: {
         items: [
           {
@@ -104,6 +105,13 @@ describe("toIsoString", () => {
         activeItemId: "todo-1",
         lastUpdatedAt: "2026-04-26T00:00:00.000Z"
       },
+      fullCompactionState: {
+        summaryMarkdown: "## Goal\nContinue the task.",
+        compactedAt: "2026-04-26T00:00:00.000Z",
+        promptVersion: "full-compaction-v1",
+        sourceBlockCount: 12,
+        retainedTailCount: 6
+      },
       pendingConflictSummary: null,
       lastUserMessage: null,
       workingDirectory: "/tmp/workspace",
@@ -113,6 +121,7 @@ describe("toIsoString", () => {
       lastError: null,
       pendingToolCallIds: [],
       interruptRequested: false,
+      historyCompactionsSinceFullCompaction: 1,
       inputTokensCount: 0,
       promptCacheKey: "",
       activeRunId: null,
@@ -123,5 +132,8 @@ describe("toIsoString", () => {
 
     expect(sessionContext.workspaceEscapeAllowed).toBe(true);
     expect(sessionContext.todoState?.activeItemId).toBe("todo-1");
+    expect(sessionContext.fullCompactionState?.promptVersion).toBe(
+      "full-compaction-v1"
+    );
   });
 });

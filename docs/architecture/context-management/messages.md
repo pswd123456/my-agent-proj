@@ -15,6 +15,7 @@ messages 管理要解决两个问题：
 
 - `user`：用户输入
 - `assistant`：assistant 文本
+- `assistant thinking`：provider 返回的 reasoning / thinking，带签名时可回放
 - `tool call`：模型发起的工具请求
 - `tool result`：工具执行后的反馈
 
@@ -26,6 +27,7 @@ messages 管理要解决两个问题：
 
 - `user` block 独立转换成 user message
 - 连续 `assistant` block 合并到 assistant message
+- `assistant thinking` block 作为独立 content block 保留，必要时随 provider 协议回放
 - `tool call` block 转为 assistant message content 中的 `tool_use`
 - `tool result` block 转为 user message content 中的 `tool_result`
 - `tool_result.tool_use_id` 必须对应之前的 `tool_use.id`
@@ -59,7 +61,25 @@ messages 管理要解决两个问题：
 - 已执行工具的结果：`session.messages`
 - pending confirmation payload：`session.context`
 - pending permission request：`session.context`
+- pending user question payload：`session.context`
 - streaming 中间文本：trace / event stream，最终需要保留的文本再进入 session
+- `assistant thinking`：如果 provider 返回的是带签名 reasoning，作为 `assistant thinking` block 保留，不要折叠成普通 assistant prose
+
+## 当前三条等待用户输入的 lane
+
+当前仓库里，`等待用户再说一句` 已经不是一个单一状态，而是三条不同 lane：
+
+- `pendingPermissionRequest`
+  - 用于高风险工具审批
+  - 用户可以走显式 `permissionReply` 快捷输入
+- `pendingConfirmationPayload`
+  - 用于业务确认，例如冲突覆盖
+  - runtime 会按 yes/no 或改时间来解释回复
+- `pendingUserQuestionPayload`
+  - 用于 `plan mode` 下的结构化澄清问题
+  - 不做 yes/no 特判，下一条非空用户消息直接视为回答
+
+这三条 lane 都属于 runtime 控制态，不应伪装成新的 conversation block 类型。
 
 ## 测试关注点
 
@@ -70,3 +90,4 @@ messages 管理要解决两个问题：
 - 多个 tool call 是否按顺序执行和回放
 - permission approve / reject 后 session 状态和 message 历史是否一致
 - history compact 后最近 tail 是否仍保留足够行动上下文
+- signed `thinking` block 是否能跨回合正确回放

@@ -34,7 +34,6 @@
 - `api` 是当前主入口，负责 session 生命周期、执行触发、SSE 输出、trace / system log 查询、用户 settings 读取与归一化、interrupt、snapshot / recover，以及已落地的 routine 相关接口
 - `web` 是当前唯一产品层前端，主要承担工作台和调试可观测性；它消费 `packages/tokens`、`packages/ui-patterns` 和 `packages/ui`
 - agent session 的默认工作目录不再直接落在 repo root，而是 repo 根下的 `agent-workspace/`
-- `worker` 目录当前仅作为历史残留存在；它没有进入 workspace 启动链路，也不应被表述为已启用应用
 
 ### `packages/`
 

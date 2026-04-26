@@ -4,6 +4,10 @@ import { z } from "zod";
 
 import {
   createRunTraceEvent,
+  ModelUnavailableError,
+  UnsupportedModelError,
+  type ModelCatalogEntry,
+  type ModelService,
   type RunEventSink
 } from "@ai-app-template/agent";
 import type {
@@ -38,8 +42,10 @@ export interface ApiAppContext {
 
 const createSessionBodySchema = z.object({
   workingDirectory: z.string().optional(),
+  model: z.string().optional(),
   userId: z.string().optional(),
   yoloMode: z.boolean().optional(),
+  planModeEnabled: z.boolean().optional(),
   contextWindow: z.number().int().min(1000).optional(),
   maxTurns: z.number().int().min(1).optional(),
   enabledCapabilityPacks: z.array(z.string()).optional()
@@ -47,7 +53,9 @@ const createSessionBodySchema = z.object({
 
 const updateSessionSettingsBodySchema = z
   .object({
+    model: z.string().optional(),
     yoloMode: z.boolean().optional(),
+    planModeEnabled: z.boolean().optional(),
     shellAllowPatterns: z.array(z.string()).optional(),
     shellDenyPatterns: z.array(z.string()).optional(),
     toolAllowList: z.array(z.string()).optional(),
@@ -57,7 +65,9 @@ const updateSessionSettingsBodySchema = z
   })
   .refine(
     (value) =>
+      typeof value.model === "string" ||
       typeof value.yoloMode === "boolean" ||
+      typeof value.planModeEnabled === "boolean" ||
       Array.isArray(value.shellAllowPatterns) ||
       Array.isArray(value.shellDenyPatterns) ||
       Array.isArray(value.toolAllowList) ||
@@ -72,6 +82,7 @@ const updateSessionSettingsBodySchema = z
 const updateUserSettingsBodySchema = z
   .object({
     workingDirectory: z.string().optional(),
+    model: z.string().optional(),
     yoloMode: z.boolean().optional(),
     contextWindow: z.number().int().min(1000).optional(),
     maxTurns: z.number().int().min(1).optional(),
@@ -86,6 +97,7 @@ const updateUserSettingsBodySchema = z
   .refine(
     (value) =>
       typeof value.workingDirectory === "string" ||
+      typeof value.model === "string" ||
       typeof value.yoloMode === "boolean" ||
       typeof value.contextWindow === "number" ||
       typeof value.maxTurns === "number" ||
@@ -148,9 +160,64 @@ export interface ApiAppDependencies {
     dispose(): Promise<void>;
     preRunTraceEvent?: TraceEvent;
   }>;
+  modelService?: ModelService;
   defaultModel?: string;
   defaultUserId?: string;
   runtimeUnavailableMessage?: string;
+}
+
+function resolveDefaultModel(
+  dependencies: ApiAppDependencies
+): string | undefined {
+  return dependencies.modelService?.getDefaultModel() ?? dependencies.defaultModel;
+}
+
+function buildModelCatalog(
+  dependencies: ApiAppDependencies
+): { defaultModel: string | null; models: ModelCatalogEntry[] } {
+  if (dependencies.modelService) {
+    return {
+      defaultModel: dependencies.modelService.getDefaultModel(),
+      models: dependencies.modelService.listModels()
+    };
+  }
+
+  const defaultModel = resolveDefaultModel(dependencies) ?? null;
+  return {
+    defaultModel,
+    models: defaultModel
+      ? [
+          {
+            id: defaultModel as ModelCatalogEntry["id"],
+            label: defaultModel,
+            provider: "minimax",
+            description: "当前默认模型。",
+            configured: true,
+            baseURL: "",
+            supportsThinking: true,
+            unavailableReason: null
+          }
+        ]
+      : []
+  };
+}
+
+function resolveRequestedModel(
+  dependencies: ApiAppDependencies,
+  model: string | undefined
+): { model?: string } {
+  const candidate = model?.trim();
+  if (!candidate) {
+    return {};
+  }
+
+  if (!dependencies.modelService) {
+    return { model: candidate };
+  }
+
+  return {
+    model: dependencies.modelService.assertModelAvailable(candidate)
+  };
 }
 
 function resolveUserId(
@@ -168,9 +235,11 @@ function resolveUserId(
 function toCreateSessionInput(input: {
   settings: SessionSettingsRecord;
   defaultModel: string | undefined;
+  modelOverride: string | undefined;
   userId: string;
   workingDirectoryOverride: string | undefined;
   yoloModeOverride: boolean | undefined;
+  planModeEnabledOverride: boolean | undefined;
   contextWindowOverride: number | undefined;
   maxTurnsOverride: number | undefined;
   enabledCapabilityPacksOverride: string[] | undefined;
@@ -180,6 +249,7 @@ function toCreateSessionInput(input: {
   model?: string;
   userId: string;
   yoloMode: boolean;
+  planModeEnabled?: boolean;
   contextWindow: number;
   maxTurns: number;
   shellAllowPatterns: string[];
@@ -193,9 +263,17 @@ function toCreateSessionInput(input: {
     workingDirectory: input.buildWorkingDirectory(
       input.workingDirectoryOverride ?? input.settings.workingDirectory
     ),
-    ...(input.defaultModel ? { model: input.defaultModel } : {}),
+    ...(input.modelOverride ?? input.settings.model ?? input.defaultModel
+      ? {
+          model:
+            input.modelOverride ?? input.settings.model ?? input.defaultModel
+        }
+      : {}),
     userId: input.userId,
     yoloMode: input.yoloModeOverride ?? input.settings.yoloMode,
+    ...(typeof input.planModeEnabledOverride === "boolean"
+      ? { planModeEnabled: input.planModeEnabledOverride }
+      : {}),
     contextWindow: sanitizeContextWindow(
       input.contextWindowOverride ?? input.settings.contextWindow
     ),
@@ -266,6 +344,13 @@ function getErrorStatus(error: unknown): number {
   }
 
   if (error instanceof SyntaxError) {
+    return 400;
+  }
+
+  if (
+    error instanceof UnsupportedModelError ||
+    error instanceof ModelUnavailableError
+  ) {
     return 400;
   }
 
@@ -472,6 +557,10 @@ export function createApiApp(dependencies: ApiAppDependencies) {
     );
   });
 
+  app.get("/models", (c) => {
+    return c.json(buildModelCatalog(dependencies));
+  });
+
   app.get("/sessions", async (c) => {
     const sessions = await dependencies.sessionManager.listSessions();
     return c.json({ sessions });
@@ -482,12 +571,15 @@ export function createApiApp(dependencies: ApiAppDependencies) {
     const body = createSessionBodySchema.parse(await c.req.json());
     const userId = resolveUserId(dependencies, body.userId);
     const settings = await dependencies.settingsRepository.getOrCreate(userId);
+    const requestedModel = resolveRequestedModel(dependencies, body.model);
     const createInput = toCreateSessionInput({
       settings,
-      defaultModel: dependencies.defaultModel,
+      defaultModel: resolveDefaultModel(dependencies),
+      modelOverride: requestedModel.model,
       userId,
       workingDirectoryOverride: body.workingDirectory,
       yoloModeOverride: body.yoloMode,
+      planModeEnabledOverride: body.planModeEnabled,
       contextWindowOverride: body.contextWindow,
       maxTurnsOverride: body.maxTurns,
       enabledCapabilityPacksOverride: body.enabledCapabilityPacks,
@@ -516,6 +608,7 @@ export function createApiApp(dependencies: ApiAppDependencies) {
   app.patch("/users/:userId/settings", async (c) => {
     const userId = resolveUserId(dependencies, c.req.param("userId"));
     const body = updateUserSettingsBodySchema.parse(await c.req.json());
+    const requestedModel = resolveRequestedModel(dependencies, body.model);
     const settings = await dependencies.settingsRepository.update(userId, {
       ...(typeof body.workingDirectory === "string"
         ? {
@@ -524,6 +617,7 @@ export function createApiApp(dependencies: ApiAppDependencies) {
             )
           }
         : {}),
+      ...(requestedModel.model ? { model: requestedModel.model } : {}),
       ...(typeof body.yoloMode === "boolean"
         ? { yoloMode: body.yoloMode }
         : {}),
@@ -582,6 +676,7 @@ export function createApiApp(dependencies: ApiAppDependencies) {
     }
 
     const body = updateSessionSettingsBodySchema.parse(await c.req.json());
+    const requestedModel = resolveRequestedModel(dependencies, body.model);
     const permissionRules = normalizePermissionRuleLists({
       shellAllowPatterns:
         body.shellAllowPatterns ?? session.context.shellAllowPatterns,
@@ -591,9 +686,12 @@ export function createApiApp(dependencies: ApiAppDependencies) {
       toolAskList: body.toolAskList ?? session.context.toolAskList,
       toolDenyList: body.toolDenyList ?? session.context.toolDenyList
     });
-    const updated = await dependencies.sessionManager.updateContext(sessionId, {
+    let updated = await dependencies.sessionManager.updateContext(sessionId, {
       ...(typeof body.yoloMode === "boolean"
         ? { yoloMode: body.yoloMode }
+        : {}),
+      ...(typeof body.planModeEnabled === "boolean"
+        ? { planModeEnabled: body.planModeEnabled }
         : {}),
       shellAllowPatterns: permissionRules.shellAllowPatterns,
       shellDenyPatterns: permissionRules.shellDenyPatterns,
@@ -608,6 +706,12 @@ export function createApiApp(dependencies: ApiAppDependencies) {
           }
         : {})
     });
+    if (requestedModel.model) {
+      updated = await dependencies.sessionManager.setModel(
+        sessionId,
+        requestedModel.model
+      );
+    }
     return c.json({ session: updated });
   });
 

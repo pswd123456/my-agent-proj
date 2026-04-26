@@ -7,7 +7,11 @@ import {
   parseDateString,
   type SessionDisplayState
 } from "./session-workbench-state";
-import { sidebarPanels, type SidebarPanelId } from "./session-workbench-types";
+import {
+  sidebarPanels,
+  type SidebarPanelId,
+  type TurnUsageSummary
+} from "./session-workbench-types";
 
 interface CreateSessionDialogProps {
   open: boolean;
@@ -188,10 +192,43 @@ export function formatCacheUsage(usage: {
   return `read ${formatTokenCount(usage.cacheReadInputTokens)} / write ${formatTokenCount(usage.cacheCreationInputTokens)}`;
 }
 
+export function getEffectiveTurnInputTokens(usage: TurnUsageSummary): number {
+  return Math.max(
+    0,
+    usage.inputTokens +
+      usage.cacheReadInputTokens +
+      usage.cacheCreationInputTokens
+  );
+}
+
+export function getPeakTurnContextTokens(
+  turnUsageByTurnCount: Map<number, TurnUsageSummary>
+): number | null {
+  let peakContextTokens: number | null = null;
+
+  for (const usage of turnUsageByTurnCount.values()) {
+    peakContextTokens = Math.max(
+      peakContextTokens ?? 0,
+      getEffectiveTurnInputTokens(usage)
+    );
+  }
+
+  return peakContextTokens;
+}
+
 export function formatContextWindowUsage(
-  inputTokensCount: number,
+  inputTokensCount: number | null | undefined,
   contextWindow: number
 ): string {
+  if (
+    typeof inputTokensCount !== "number" ||
+    !Number.isFinite(inputTokensCount)
+  ) {
+    return contextWindow > 0
+      ? `-- / ctx ${formatTokenCount(contextWindow)}`
+      : "-- / ctx --";
+  }
+
   if (contextWindow <= 0) {
     return `${formatTokenCount(inputTokensCount)} / ctx --`;
   }
@@ -576,6 +613,11 @@ export function SessionWorkbenchSidebar({
                         {session.pendingConfirmation ? (
                           <span className="text-[var(--app-status-warning)]">
                             冲突确认
+                          </span>
+                        ) : null}
+                        {session.pendingUserQuestion ? (
+                          <span className="text-[var(--app-status-warning)]">
+                            澄清
                           </span>
                         ) : null}
                         {session.yoloMode ? (

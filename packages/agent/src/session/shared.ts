@@ -14,6 +14,7 @@ import type {
   SessionSnapshot,
   SessionState
 } from "../types.js";
+import { resolveTaskBriefPathForSession } from "./task-brief.js";
 import { normalizeTodoState } from "./todo-state.js";
 
 export function createSessionState(
@@ -24,7 +25,8 @@ export function createSessionState(
     turnCount: 0,
     lastError: null,
     pendingToolCallIds: [],
-    interruptRequested: false
+    interruptRequested: false,
+    historyCompactionsSinceFullCompaction: 0
   };
 }
 
@@ -34,6 +36,9 @@ export function createSnapshot(input: {
   model: string;
   userId?: string;
   yoloMode?: boolean;
+  planModeEnabled?: boolean;
+  taskBriefPath?: string | null;
+  lastUserMessage?: string | null;
   workspaceEscapeAllowed?: boolean;
   contextWindow?: number;
   maxTurns?: number;
@@ -48,6 +53,16 @@ export function createSnapshot(input: {
     ...(typeof input.userId === "string" ? { userId: input.userId } : {}),
     ...(typeof input.yoloMode === "boolean"
       ? { yoloMode: input.yoloMode }
+      : {}),
+    ...(typeof input.planModeEnabled === "boolean"
+      ? { planModeEnabled: input.planModeEnabled }
+      : {}),
+    ...(typeof input.taskBriefPath === "string" || input.taskBriefPath === null
+      ? { taskBriefPath: input.taskBriefPath }
+      : {}),
+    ...(typeof input.lastUserMessage === "string" ||
+    input.lastUserMessage === null
+      ? { lastUserMessage: input.lastUserMessage }
       : {}),
     ...(typeof input.workspaceEscapeAllowed === "boolean"
       ? { workspaceEscapeAllowed: input.workspaceEscapeAllowed }
@@ -77,7 +92,24 @@ export function createSnapshot(input: {
     model: input.model,
     contextWindow: input.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
     maxTurns: input.maxTurns ?? DEFAULT_SESSION_MAX_TURNS,
-    context: createScheduleSessionContext(contextInput),
+    context: {
+      ...createScheduleSessionContext(contextInput),
+      taskBriefPath: resolveTaskBriefPathForSession({
+        workingDirectory: input.workingDirectory,
+        sessionId: input.sessionId,
+        ...(typeof contextInput.planModeEnabled === "boolean"
+          ? { planModeEnabled: contextInput.planModeEnabled }
+          : {}),
+        ...(typeof contextInput.taskBriefPath === "string" ||
+        contextInput.taskBriefPath === null
+          ? { taskBriefPath: contextInput.taskBriefPath }
+          : {}),
+        ...(typeof contextInput.lastUserMessage === "string" ||
+        contextInput.lastUserMessage === null
+          ? { lastUserMessage: contextInput.lastUserMessage }
+          : {})
+      })
+    },
     messages: [],
     sessionState: createSessionState(),
     inputTokensCount: 0,
@@ -94,6 +126,13 @@ export function cloneSnapshot(snapshot: SessionSnapshot): SessionSnapshot {
     context: {
       ...cloned.context,
       yoloMode: cloned.context.yoloMode ?? false,
+      planModeEnabled: cloned.context.planModeEnabled ?? false,
+      taskBriefPath: resolveTaskBriefPathForSession({
+        workingDirectory: cloned.workingDirectory,
+        sessionId: cloned.sessionId,
+        planModeEnabled: cloned.context.planModeEnabled ?? false,
+        taskBriefPath: cloned.context.taskBriefPath ?? null
+      }),
       workspaceEscapeAllowed: cloned.context.workspaceEscapeAllowed ?? false,
       shellAllowPatterns: permissionRules.shellAllowPatterns ?? [],
       shellDenyPatterns: permissionRules.shellDenyPatterns ?? [],
@@ -103,11 +142,16 @@ export function cloneSnapshot(snapshot: SessionSnapshot): SessionSnapshot {
       enabledCapabilityPacks: normalizeCapabilityPacks(
         cloned.context.enabledCapabilityPacks
       ),
-      todoState: normalizeTodoState(cloned.context.todoState)
+      pendingUserQuestionPayload:
+        cloned.context.pendingUserQuestionPayload ?? null,
+      todoState: normalizeTodoState(cloned.context.todoState),
+      fullCompactionState: cloned.context.fullCompactionState ?? null
     },
     sessionState: {
       ...cloned.sessionState,
-      interruptRequested: cloned.sessionState.interruptRequested ?? false
+      interruptRequested: cloned.sessionState.interruptRequested ?? false,
+      historyCompactionsSinceFullCompaction:
+        cloned.sessionState.historyCompactionsSinceFullCompaction ?? 0
     }
   };
 }
@@ -123,6 +167,9 @@ export function createScheduleSessionContext(
   input: {
     userId?: string;
     yoloMode?: boolean;
+    planModeEnabled?: boolean;
+    taskBriefPath?: string | null;
+    lastUserMessage?: string | null;
     workspaceEscapeAllowed?: boolean;
     shellAllowPatterns?: string[];
     shellDenyPatterns?: string[];
@@ -138,6 +185,8 @@ export function createScheduleSessionContext(
     status: "waiting_for_user_input",
     currentDateContext: resolveCurrentDateContext(),
     yoloMode: input.yoloMode ?? false,
+    planModeEnabled: input.planModeEnabled ?? false,
+    taskBriefPath: input.taskBriefPath ?? null,
     workspaceEscapeAllowed: input.workspaceEscapeAllowed ?? false,
     shellAllowPatterns:
       input.shellAllowPatterns ?? permissionRules.shellAllowPatterns,
@@ -151,9 +200,11 @@ export function createScheduleSessionContext(
     ),
     pendingPermissionRequest: null,
     pendingConfirmationPayload: null,
+    pendingUserQuestionPayload: null,
     todoState: null,
+    fullCompactionState: null,
     pendingConflictSummary: null,
-    lastUserMessage: null
+    lastUserMessage: input.lastUserMessage ?? null
   };
 }
 
@@ -169,14 +220,21 @@ export function isConversationBlock(
   }
 
   if (value.kind === "user" || value.kind === "assistant") {
-    return typeof value.id === "string" && typeof value.content === "string";
+    return (
+      typeof value.id === "string" &&
+      typeof value.content === "string" &&
+      (typeof value.responseGroupId === "string" ||
+        typeof value.responseGroupId === "undefined")
+    );
   }
 
   if (value.kind === "assistant thinking") {
     return (
       typeof value.id === "string" &&
       typeof value.content === "string" &&
-      typeof value.signature === "string"
+      typeof value.signature === "string" &&
+      (typeof value.responseGroupId === "string" ||
+        typeof value.responseGroupId === "undefined")
     );
   }
 
@@ -186,7 +244,9 @@ export function isConversationBlock(
       typeof value.toolCallId === "string" &&
       typeof value.toolName === "string" &&
       isPlainRecord(value.input) &&
-      typeof value.state === "string"
+      typeof value.state === "string" &&
+      (typeof value.responseGroupId === "string" ||
+        typeof value.responseGroupId === "undefined")
     );
   }
 
@@ -197,7 +257,9 @@ export function isConversationBlock(
       typeof value.toolName === "string" &&
       typeof value.output === "string" &&
       typeof value.isError === "boolean" &&
-      typeof value.state === "string"
+      typeof value.state === "string" &&
+      (typeof value.responseGroupId === "string" ||
+        typeof value.responseGroupId === "undefined")
     );
   }
 
@@ -221,6 +283,11 @@ export function isSessionSnapshot(value: unknown): value is SessionSnapshot {
     typeof value.context.currentDateContext === "string" &&
     (typeof value.context.yoloMode === "boolean" ||
       typeof value.context.yoloMode === "undefined") &&
+    (typeof value.context.planModeEnabled === "boolean" ||
+      typeof value.context.planModeEnabled === "undefined") &&
+    (typeof value.context.taskBriefPath === "string" ||
+      value.context.taskBriefPath === null ||
+      typeof value.context.taskBriefPath === "undefined") &&
     (typeof value.context.workspaceEscapeAllowed === "boolean" ||
       typeof value.context.workspaceEscapeAllowed === "undefined") &&
     (typeof value.context.shellAllowPatterns === "undefined" ||
@@ -243,6 +310,16 @@ export function isSessionSnapshot(value: unknown): value is SessionSnapshot {
           value.context.todoState.activeItemId === null) &&
         (typeof value.context.todoState.lastUpdatedAt === "string" ||
           value.context.todoState.lastUpdatedAt === null))) &&
+    (typeof value.context.fullCompactionState === "undefined" ||
+      value.context.fullCompactionState === null ||
+      (isPlainRecord(value.context.fullCompactionState) &&
+        typeof value.context.fullCompactionState.summaryMarkdown === "string" &&
+        typeof value.context.fullCompactionState.compactedAt === "string" &&
+        typeof value.context.fullCompactionState.promptVersion === "string" &&
+        typeof value.context.fullCompactionState.sourceBlockCount ===
+          "number" &&
+        typeof value.context.fullCompactionState.retainedTailCount ===
+          "number")) &&
     Object.prototype.hasOwnProperty.call(
       value.context,
       "pendingPermissionRequest"
@@ -265,6 +342,10 @@ export function isSessionSnapshot(value: unknown): value is SessionSnapshot {
     Array.isArray(value.sessionState.pendingToolCallIds) &&
     (typeof value.sessionState.interruptRequested === "boolean" ||
       typeof value.sessionState.interruptRequested === "undefined") &&
+    (typeof value.sessionState.historyCompactionsSinceFullCompaction ===
+      "number" ||
+      typeof value.sessionState.historyCompactionsSinceFullCompaction ===
+        "undefined") &&
     typeof value.inputTokensCount === "number" &&
     typeof value.promptCacheKey === "string" &&
     typeof value.updatedAt === "string"

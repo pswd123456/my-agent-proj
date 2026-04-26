@@ -1,5 +1,9 @@
 # Stage 4: unified tool entry + workspace full ops + permission checker v1
 
+## 文档状态
+
+这份文档记录 Stage 4 的工具面与权限层设计稿，保留的是演进路径，不是所有实现细节的当前唯一事实源。当前运行行为请优先看 `docs/architecture/` 里的工具、权限和 workspace 配置文档。
+
 ## 目标
 
 - 把 runtime 的 tool surface 从“当前手工挂载的一小组工具”升级为一个可持续扩展的统一入口。

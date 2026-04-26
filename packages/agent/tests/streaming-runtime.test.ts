@@ -4,12 +4,84 @@ import { createMemoryRoutineRepository } from "@ai-app-template/db";
 
 import { createAgentRuntime, type RunStreamEvent } from "../src/index.js";
 import { createMemorySessionManager } from "../src/session/index.js";
+import type { TraceEvent, TraceManager, TraceRecord } from "../src/trace.js";
 import { ToolRegistry } from "../src/tools/registry.js";
 
+class MemoryTraceManager implements TraceManager {
+  readonly events: TraceEvent[] = [];
+
+  async appendEvent(_sessionId: string, event: TraceEvent): Promise<void> {
+    this.events.push(structuredClone(event));
+  }
+
+  async readEvents(_sessionId: string): Promise<TraceRecord[]> {
+    return [];
+  }
+
+  async deleteEvents(_sessionId: string): Promise<void> {
+    this.events.length = 0;
+  }
+}
+
 describe("runtime streaming assistant text", () => {
-  test("emits incremental assistant_text snapshots and persists only the final assistant block", async () => {
+  test("emits prompt trace events with composition stats", async () => {
     const sessionManager = createMemorySessionManager();
     const routineRepository = createMemoryRoutineRepository();
+    const runtime = createAgentRuntime({
+      client: {
+        messages: {
+          async create() {
+            return {
+              content: [{ type: "text", text: "已完成。" }],
+              stop_reason: "end_turn",
+              usage: {
+                input_tokens: 12,
+                output_tokens: 3,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 0
+              }
+            };
+          }
+        }
+      },
+      model: "MiniMax-M2.7",
+      sessionManager,
+      routineRepository,
+      toolRegistry: new ToolRegistry()
+    });
+
+    const session = await runtime.createSession({
+      workingDirectory: "/tmp/workspace",
+      userId: "prompt-trace-user"
+    });
+
+    const streamEvents: RunStreamEvent[] = [];
+    const result = await runtime.run({
+      sessionId: session.sessionId,
+      message: "先看看这一轮 prompt 有多大。",
+      eventSink(event) {
+        streamEvents.push(event);
+      }
+    });
+
+    expect(result.status).toBe("completed");
+    const promptEvent = streamEvents.find(
+      (event): event is Extract<RunStreamEvent, { kind: "prompt" }> =>
+        event.kind === "prompt"
+    );
+
+    expect(promptEvent).toBeDefined();
+    expect(promptEvent?.compositionStats.totalChars).toBeGreaterThan(0);
+    expect(promptEvent?.compositionStats.runtimeContextChars).toBeGreaterThan(0);
+    expect(promptEvent?.compositionStats.conversationBreakdown.textChars).toBe(
+      "先看看这一轮 prompt 有多大。".length
+    );
+  });
+
+  test("streams incremental assistant_text events but records only the final assistant block in trace", async () => {
+    const sessionManager = createMemorySessionManager();
+    const routineRepository = createMemoryRoutineRepository();
+    const traceManager = new MemoryTraceManager();
     const runtime = createAgentRuntime({
       client: {
         messages: {
@@ -87,6 +159,7 @@ describe("runtime streaming assistant text", () => {
       },
       model: "MiniMax-M2.7",
       sessionManager,
+      traceManager,
       routineRepository,
       toolRegistry: new ToolRegistry()
     });
@@ -130,11 +203,23 @@ describe("runtime streaming assistant text", () => {
     expect(assistantBlocks[0]?.id).toBe(
       assistantEvents[assistantEvents.length - 1]?.assistantMessageId
     );
+
+    const tracedAssistantEvents = traceManager.events.filter(
+      (event): event is Extract<TraceEvent, { kind: "assistant_text" }> =>
+        event.kind === "assistant_text"
+    );
+    expect(tracedAssistantEvents).toHaveLength(1);
+    expect(tracedAssistantEvents[0]).toMatchObject({
+      assistantMessageId: assistantEvents[assistantEvents.length - 1]?.assistantMessageId,
+      text: "你好，世界",
+      snapshot: "你好，世界"
+    });
   });
 
-  test("emits incremental thinking snapshots with a stable thinking message id", async () => {
+  test("streams incremental thinking events but records only the final thinking block in trace", async () => {
     const sessionManager = createMemorySessionManager();
     const routineRepository = createMemoryRoutineRepository();
+    const traceManager = new MemoryTraceManager();
     const runtime = createAgentRuntime({
       client: {
         messages: {
@@ -248,6 +333,7 @@ describe("runtime streaming assistant text", () => {
       },
       model: "MiniMax-M2.7",
       sessionManager,
+      traceManager,
       routineRepository,
       toolRegistry: new ToolRegistry()
     });
@@ -284,6 +370,18 @@ describe("runtime streaming assistant text", () => {
     ).toBe(1);
     expect(
       result.session.messages.some((block) => block.kind === "assistant thinking")
-    ).toBe(false);
+    ).toBe(true);
+
+    const tracedThinkingEvents = traceManager.events.filter(
+      (event): event is Extract<TraceEvent, { kind: "thinking" }> =>
+        event.kind === "thinking"
+    );
+    expect(tracedThinkingEvents).toHaveLength(1);
+    expect(tracedThinkingEvents[0]).toMatchObject({
+      thinkingMessageId: thinkingEvents[thinkingEvents.length - 1]?.thinkingMessageId,
+      text: "先检查一下上下文",
+      signature: "sig-thinking-1",
+      snapshot: "先检查一下上下文"
+    });
   });
 });

@@ -9,7 +9,7 @@
 
 - `apps/api` 是当前运行主入口，负责 session 生命周期、设置读取、runtime 装配、SSE 输出、trace 查询与恢复接口
 - `apps/web` 是当前唯一产品层前端，主要承载 workbench、会话可视化、trace 与调试观察
-- `packages/agent` 提供 runtime loop、prompt、provider 适配、permission checker、session manager、tool registry、skills、trace 与 system log
+- `packages/agent` 提供 runtime loop、prompt、provider 适配、统一模型服务、permission checker、session manager、tool registry、skills、trace 与 system log
 - `packages/db` 提供 PostgreSQL 访问、schema 初始化、settings repository、routine repository
 - `packages/domain` 提供 session settings、session context、权限规则和 routine 领域模型
 - `packages/sdk` 提供给 Web 使用的 API client、摘要转换与跨层类型
@@ -24,7 +24,9 @@
 - 工作区 runtime 上下文还会按次读取 `session.workingDirectory/.agent/`
   - `.agent/skills/` 提供 skill metadata
   - `.agent/.config.toml` 提供 MCP server 配置
+  - `.agent/plans/` 承载 session 级 task brief artifact
 - 用户级 settings 已持久化到 `agent_settings`，当前包含：
+  - `model`
   - `workingDirectory`
   - `yoloMode`
   - `contextWindow`
@@ -67,4 +69,5 @@
 - 想判断主线与专项能力边界：读 `docs/architecture/capability-packs.md`
 - 想确认目录职责和模块归属：读 `docs/architecture/workspace-structure.md`
 - 想确认工作区 `.agent/skills/` 和 `.agent/.config.toml` 的边界：读 `docs/architecture/workspace-agent-config.md`
+- 想确认 plan mode、task brief artifact 和只读 planning 边界：读 `docs/architecture/context-management/plan-mode.md`
 - 想确认技术事实而不是计划：读 `docs/architecture/tech-stack.md`

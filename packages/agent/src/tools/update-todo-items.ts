@@ -1,8 +1,7 @@
 import { z } from "zod";
 
-import type { DomainJsonValue } from "@ai-app-template/domain";
-
 import { updateTodoState } from "../session/todo-state.js";
+import { createTodoWriteAck } from "./planning-tool-result.js";
 import type { RuntimeTool } from "./runtime-tool.js";
 import {
   createToolResult,
@@ -40,40 +39,18 @@ const schema = z.object({
   operations: z.array(operationSchema).min(1)
 });
 
-function toTodoData(
-  value: NonNullable<
-    import("@ai-app-template/domain").ScheduleSessionContext["todoState"]
-  >
-): DomainJsonValue {
-  return {
-    items: value.items.map((item) => ({
-      id: item.id,
-      content: item.content,
-      status: item.status,
-      createdAt: item.createdAt,
-      updatedAt: item.updatedAt
-    })),
-    activeItemId: value.activeItemId,
-    lastUpdatedAt: value.lastUpdatedAt
-  };
-}
+const TODO_ITEM_ID_DESCRIPTION =
+  "Existing todo item id from the current session todo state. Use the real item id returned by todo tools, not the visible list numbering such as 1 or 2.";
 
 function formatDisplayText(
-  value: import("@ai-app-template/domain").ScheduleSessionContext["todoState"]
+  data: ReturnType<typeof createTodoWriteAck>
 ): string {
-  if (!value || value.items.length === 0) {
-    return "[update_todo_items] success\n- items: 0\n- active: none";
-  }
-
-  const activeItem =
-    value.activeItemId === null
-      ? null
-      : (value.items.find((item) => item.id === value.activeItemId) ?? null);
-
   return [
     "[update_todo_items] success",
-    `- items: ${value.items.length}`,
-    `- active: ${activeItem ? activeItem.content : "none"}`
+    `- active_id: ${
+      typeof data.activeItemId === "string" ? data.activeItemId : "none"
+    }`,
+    `- hash: ${typeof data.hash === "string" ? data.hash : "unknown"}`
   ].join("\n");
 }
 
@@ -81,7 +58,7 @@ export function createUpdateTodoItemsTool(): RuntimeTool {
   return {
     name: "update_todo_items",
     description:
-      "Update session todo items as work progresses by marking status, editing text, appending, removing, or switching the active item.",
+      "Update session todo items as work progresses by marking status, editing text, appending, removing, or switching the active item. For id-based operations, use existing todo item ids from the current session todo state, not the visible list numbering.",
     family: "planning",
     isReadOnly: false,
     hasExternalSideEffect: false,
@@ -92,13 +69,18 @@ export function createUpdateTodoItemsTool(): RuntimeTool {
       properties: {
         operations: {
           type: "array",
+          description:
+            "Ordered todo update operations. For set_status, set_content, remove, and set_active, the id field must reference an existing todo item id from the current session todo state, not the visible list numbering.",
           items: {
             oneOf: [
               {
                 type: "object",
                 properties: {
                   type: { type: "string", enum: ["set_status"] },
-                  id: { type: "string" },
+                  id: {
+                    type: "string",
+                    description: TODO_ITEM_ID_DESCRIPTION
+                  },
                   status: {
                     type: "string",
                     enum: ["pending", "in_progress", "done", "cancelled"]
@@ -111,7 +93,10 @@ export function createUpdateTodoItemsTool(): RuntimeTool {
                 type: "object",
                 properties: {
                   type: { type: "string", enum: ["set_content"] },
-                  id: { type: "string" },
+                  id: {
+                    type: "string",
+                    description: TODO_ITEM_ID_DESCRIPTION
+                  },
                   content: { type: "string" }
                 },
                 required: ["type", "id", "content"],
@@ -130,7 +115,10 @@ export function createUpdateTodoItemsTool(): RuntimeTool {
                 type: "object",
                 properties: {
                   type: { type: "string", enum: ["remove"] },
-                  id: { type: "string" }
+                  id: {
+                    type: "string",
+                    description: TODO_ITEM_ID_DESCRIPTION
+                  }
                 },
                 required: ["type", "id"],
                 additionalProperties: false
@@ -139,7 +127,11 @@ export function createUpdateTodoItemsTool(): RuntimeTool {
                 type: "object",
                 properties: {
                   type: { type: "string", enum: ["set_active"] },
-                  id: { type: ["string", "null"] }
+                  id: {
+                    type: ["string", "null"],
+                    description:
+                      "Existing todo item id from the current session todo state, or null to clear the active item. Do not use the visible list numbering."
+                  }
                 },
                 required: ["type", "id"],
                 additionalProperties: false
@@ -182,6 +174,10 @@ export function createUpdateTodoItemsTool(): RuntimeTool {
         await context.sessionManager.updateContext(context.sessionId, {
           todoState
         });
+        const data = createTodoWriteAck({
+          ack: "todo_items_updated",
+          todoState
+        });
 
         return successResult(
           createToolResult({
@@ -190,9 +186,9 @@ export function createUpdateTodoItemsTool(): RuntimeTool {
             message: todoState
               ? "Updated the session todo list."
               : "Cleared the session todo list.",
-            ...(todoState ? { data: toTodoData(todoState) } : {})
+            data
           }),
-          formatDisplayText(todoState)
+          formatDisplayText(data)
         );
       } catch (error) {
         return failureResult(

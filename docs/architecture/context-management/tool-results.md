@@ -12,6 +12,7 @@
 - 下一轮模型能看到完整 tool result
 - trace 可复盘工具真实输出
 - runtime 层没有统一 `head/tail` 截断机制
+- 需要压大结果时，优先由具体工具做语义级分页、stub 或降级，而不是由 runtime 统一裁剪
 
 ## 为什么不做统一截断
 
@@ -36,7 +37,7 @@
 
 例子：
 
-- 文件读取工具支持行窗、最大行数和路径校验
+- 文件读取工具支持行窗、`offset/limit` 分页、路径校验、单次读取超过 `25_000 tokens` 直接报错，并在超限时明确引导“先 `search_text` 定位，再局部 `read_file`”，以及“同文件同范围未变化时返回 unchanged stub”
 - 搜索工具返回 top matches、周边片段和结果总数
 - shell 工具保留 exit code、stderr 摘要和尾部输出
 - 业务工具返回结构化 JSON，而不是长自然语言 dump

@@ -46,6 +46,7 @@ import {
   formatTimestamp,
   formatTokenCount,
   formatWorkingDirectory,
+  getPeakTurnContextTokens,
   getBubbleClass,
   getDebugPreClass,
   getInspectorCardClass,
@@ -63,6 +64,7 @@ interface SessionWorkbenchConversationPanelProps {
   turnUsageByTurnCount: Map<number, TurnUsageSummary>;
   debugConversationView: boolean;
   pendingPermissionRequest: SessionSnapshot["context"]["pendingPermissionRequest"];
+  pendingUserQuestionPayload: SessionSnapshot["context"]["pendingUserQuestionPayload"];
   message: string;
   submitting: boolean;
   canInterrupt: boolean;
@@ -72,7 +74,9 @@ interface SessionWorkbenchConversationPanelProps {
   onMessageChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onInterrupt: () => void;
+  onSessionPlanModeChange: (checked: boolean) => void;
   onPermissionQuickReply: (reply: string) => void;
+  onUserQuestionQuickReply: (reply: string) => void;
   onAssistantAnimationComplete: (itemKey: string) => void;
   headerActions?: ReactNode;
 }
@@ -132,6 +136,15 @@ interface PermissionCardView {
   title: string;
   detailText?: string;
   showActions: boolean;
+}
+
+interface UserQuestionCardView {
+  key: string;
+  questionText: string;
+  options: NonNullable<
+    SessionSnapshot["context"]["pendingUserQuestionPayload"]
+  >["options"];
+  contextNote?: string;
 }
 
 const PERMISSION_FEEDBACK_HIDE_DELAY_MS = 200;
@@ -290,6 +303,32 @@ export function buildComposerActionView(input: {
     buttonLabel: "发送",
     buttonType: "submit",
     disabled: !input.canSubmit
+  };
+}
+
+export function getUserQuestionKey(
+  payload: SessionSnapshot["context"]["pendingUserQuestionPayload"]
+): string | null {
+  if (!payload) {
+    return null;
+  }
+
+  return payload.createdAt;
+}
+
+export function buildUserQuestionCardView(
+  payload: SessionSnapshot["context"]["pendingUserQuestionPayload"]
+): UserQuestionCardView | null {
+  const key = getUserQuestionKey(payload);
+  if (!payload || !key) {
+    return null;
+  }
+
+  return {
+    key,
+    questionText: payload.questionText,
+    options: payload.options,
+    ...(payload.contextNote ? { contextNote: payload.contextNote } : {})
   };
 }
 
@@ -1304,6 +1343,7 @@ export function SessionWorkbenchConversationPanel({
   turnUsageByTurnCount,
   debugConversationView,
   pendingPermissionRequest,
+  pendingUserQuestionPayload,
   message,
   submitting,
   canInterrupt,
@@ -1313,11 +1353,14 @@ export function SessionWorkbenchConversationPanel({
   onMessageChange,
   onSubmit,
   onInterrupt,
+  onSessionPlanModeChange,
   onPermissionQuickReply,
+  onUserQuestionQuickReply,
   onAssistantAnimationComplete,
   headerActions
 }: SessionWorkbenchConversationPanelProps) {
   const [copyButtonLabel, setCopyButtonLabel] = useState("复制");
+  const [quickActionsOpen, setQuickActionsOpen] = useState(false);
   const [permissionCardFeedback, setPermissionCardFeedback] =
     useState<PermissionCardFeedback | null>(null);
   const [expandedCompactItemKeys, setExpandedCompactItemKeys] = useState<
@@ -1329,6 +1372,7 @@ export function SessionWorkbenchConversationPanel({
   const seenCollapsedFlowKeysRef = useRef<Set<string>>(new Set());
   const pendingCollapsedFlowScrollTargetRef = useRef<string | null>(null);
   const pendingAssistantRevealSkipKeyRef = useRef<string | null>(null);
+  const quickActionsRef = useRef<HTMLDivElement | null>(null);
   const conversationViewportRef = useRef<HTMLDivElement | null>(null);
   const timelineContentRef = useRef<HTMLDivElement | null>(null);
   const previousScrollSnapshotRef = useRef(buildConversationScrollSnapshot([]));
@@ -1340,6 +1384,9 @@ export function SessionWorkbenchConversationPanel({
   const smoothScrollResetTimeoutRef = useRef<number | null>(null);
   const permissionRequestKey = getPermissionRequestKey(
     pendingPermissionRequest
+  );
+  const userQuestionCardView = buildUserQuestionCardView(
+    pendingUserQuestionPayload
   );
   const conversationViewItems = useMemo(
     () =>
@@ -1426,6 +1473,10 @@ export function SessionWorkbenchConversationPanel({
     interrupting,
     canSubmit: Boolean(currentSession && message.trim() && !submitting)
   });
+  const peakTurnContextTokens = useMemo(
+    () => getPeakTurnContextTokens(turnUsageByTurnCount),
+    [turnUsageByTurnCount]
+  );
   const renderedTimelineItems = useMemo(
     () =>
       visibleConversationViewItems
@@ -1670,10 +1721,43 @@ export function SessionWorkbenchConversationPanel({
   }, [permissionCardFeedback, permissionRequestKey, submitting]);
 
   useEffect(() => {
+    if (!quickActionsOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      const container = quickActionsRef.current;
+      if (!container || container.contains(event.target as Node)) {
+        return;
+      }
+
+      setQuickActionsOpen(false);
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setQuickActionsOpen(false);
+      }
+    }
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [quickActionsOpen]);
+
+  useEffect(() => {
     if (submitting) {
       autoFollowLatestRef.current = true;
     }
   }, [submitting]);
+
+  useEffect(() => {
+    setQuickActionsOpen(false);
+  }, [currentSession?.sessionId]);
 
   useEffect(() => {
     const currentCollapsedKeys = new Set(
@@ -2024,13 +2108,106 @@ export function SessionWorkbenchConversationPanel({
                   </div>
                 ) : null}
 
-                <textarea
-                  value={message}
-                  onChange={(event) => onMessageChange(event.target.value)}
-                  rows={3}
-                  placeholder="输入你的请求"
-                  className="relative z-10 w-full resize-none rounded-[var(--app-radius-lg)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-canvas)_14%,var(--app-bg-surface)_86%)] px-4 py-3 text-sm leading-7 text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
-                />
+                {userQuestionCardView ? (
+                  <div
+                    key={userQuestionCardView.key}
+                    className="relative z-0 rounded-[var(--app-radius-lg)] border border-[color:color-mix(in_srgb,var(--app-status-warning)_56%,var(--app-border-subtle)_44%)] bg-[color:color-mix(in_srgb,var(--app-status-warning)_12%,var(--app-bg-surface)_88%)] px-4 pb-4 pt-3"
+                  >
+                    <div className="flex flex-col gap-3">
+                      <div className="min-w-0">
+                        <div className="font-mono text-[0.65rem] uppercase tracking-[0.16em] text-[var(--app-text-muted)]">
+                          Need Clarification
+                        </div>
+                        <div className="mt-1 text-sm font-medium leading-6 text-[var(--app-text-primary)]">
+                          {userQuestionCardView.questionText}
+                        </div>
+                        {userQuestionCardView.contextNote ? (
+                          <div className="mt-1 text-xs text-[var(--app-text-muted)]">
+                            {userQuestionCardView.contextNote}
+                          </div>
+                        ) : null}
+                      </div>
+
+                      {userQuestionCardView.options.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {userQuestionCardView.options.map((option) => (
+                            <button
+                              key={`${option.label}:${option.reply}`}
+                              type="button"
+                              title={option.description}
+                              onClick={() =>
+                                onUserQuestionQuickReply(option.reply)
+                              }
+                              disabled={submitting}
+                              className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-accent)] bg-[var(--app-bg-elevated)] px-3 py-1.5 text-sm font-medium text-[var(--app-text-primary)] transition hover:border-[var(--app-status-warning)] hover:text-[var(--app-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+
+                      <div className="text-xs text-[var(--app-text-muted)]">
+                        也可以直接在下面输入你的答案。
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="relative">
+                  <textarea
+                    value={message}
+                    onChange={(event) => onMessageChange(event.target.value)}
+                    rows={3}
+                    placeholder="输入你的请求"
+                    className="relative z-10 w-full resize-none rounded-[var(--app-radius-lg)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-canvas)_14%,var(--app-bg-surface)_86%)] px-4 pb-14 pt-3 text-sm leading-7 text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
+                  />
+                  <div
+                    ref={quickActionsRef}
+                    className="absolute bottom-3 left-3 z-20"
+                  >
+                    <div className="relative">
+                      {quickActionsOpen ? (
+                        <div className="absolute bottom-full left-0 mb-2 w-60 rounded-[var(--app-radius-lg)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_98%,transparent)] p-3 shadow-none">
+                          <label className="flex items-center justify-between gap-3 text-sm text-[var(--app-text-secondary)]">
+                            <div>
+                              <div className="text-sm text-[var(--app-text-primary)]">
+                                Plan Mode
+                              </div>
+                              <div className="mt-1 text-xs leading-5 text-[var(--app-text-muted)]">
+                                当前会话只读规划
+                              </div>
+                            </div>
+                            <input
+                              type="checkbox"
+                              checked={
+                                currentSession?.context.planModeEnabled ?? false
+                              }
+                              onChange={(event) => {
+                                onSessionPlanModeChange(event.target.checked);
+                                setQuickActionsOpen(false);
+                              }}
+                              disabled={!currentSession}
+                              className="h-4 w-4 accent-[var(--app-border-accent)] disabled:cursor-not-allowed disabled:opacity-50"
+                            />
+                          </label>
+                        </div>
+                      ) : null}
+                      <button
+                        type="button"
+                        aria-label="打开会话快捷操作"
+                        aria-expanded={quickActionsOpen}
+                        disabled={!currentSession}
+                        onClick={() =>
+                          setQuickActionsOpen((current) => !current)
+                        }
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-[var(--app-radius-pill)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_70%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_96%,transparent)] text-lg leading-none text-[var(--app-text-secondary)] transition hover:border-[var(--app-border-accent)] hover:text-[var(--app-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                </div>
 
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-[0.72rem]">
@@ -2061,11 +2238,11 @@ export function SessionWorkbenchConversationPanel({
                     </span>
                     <span className="font-mono text-xs text-[var(--app-text-muted)]">
                       {currentSession
-                        ? formatContextWindowUsage(
-                            currentSession.inputTokensCount,
+                        ? `peak ctx ${formatContextWindowUsage(
+                            peakTurnContextTokens,
                             currentSession.contextWindow
-                          )
-                        : "total input -- / ctx --"}
+                          )}`
+                        : "peak ctx -- / ctx --"}
                     </span>
                   </div>
 
