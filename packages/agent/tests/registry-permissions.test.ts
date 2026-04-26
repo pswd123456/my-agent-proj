@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
+import { createMemoryRoutineRepository } from "@ai-app-template/db";
+
 import {
+  createDefaultToolRegistry,
   ToolRegistry,
   createWorkspaceToolRegistry
 } from "../src/tools/registry.js";
@@ -13,10 +16,15 @@ describe("ToolRegistry stage4 metadata contract", () => {
     });
 
     expect(registry.list().map((tool) => tool.name)).toEqual([
+      "apply_patch",
       "copy_path",
       "create_directory",
       "delete_path",
       "edit_file",
+      "find_files",
+      "git_diff",
+      "git_diff_cached",
+      "git_status",
       "list_directory",
       "make_http_request",
       "move_path",
@@ -24,6 +32,20 @@ describe("ToolRegistry stage4 metadata contract", () => {
       "run_shell_command",
       "search_text",
       "write_file"
+    ]);
+  });
+
+  test("mounts planning tools in the default runtime registry even without capability packs", () => {
+    const registry = createDefaultToolRegistry({
+      workingDirectory: "/tmp/workspace",
+      routineRepository: createMemoryRoutineRepository(),
+      enabledCapabilityPacks: []
+    });
+
+    expect(registry.list().map((tool) => tool.name)).toEqual([
+      "get_todo_list",
+      "replace_todo_list",
+      "update_todo_items"
     ]);
   });
 

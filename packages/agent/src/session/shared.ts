@@ -14,6 +14,7 @@ import type {
   SessionSnapshot,
   SessionState
 } from "../types.js";
+import { normalizeTodoState } from "./todo-state.js";
 
 export function createSessionState(
   loopState: LoopState = "waiting for input"
@@ -93,8 +94,7 @@ export function cloneSnapshot(snapshot: SessionSnapshot): SessionSnapshot {
     context: {
       ...cloned.context,
       yoloMode: cloned.context.yoloMode ?? false,
-      workspaceEscapeAllowed:
-        cloned.context.workspaceEscapeAllowed ?? false,
+      workspaceEscapeAllowed: cloned.context.workspaceEscapeAllowed ?? false,
       shellAllowPatterns: permissionRules.shellAllowPatterns ?? [],
       shellDenyPatterns: permissionRules.shellDenyPatterns ?? [],
       toolAllowList: permissionRules.toolAllowList ?? [],
@@ -102,7 +102,8 @@ export function cloneSnapshot(snapshot: SessionSnapshot): SessionSnapshot {
       toolDenyList: permissionRules.toolDenyList ?? [],
       enabledCapabilityPacks: normalizeCapabilityPacks(
         cloned.context.enabledCapabilityPacks
-      )
+      ),
+      todoState: normalizeTodoState(cloned.context.todoState)
     },
     sessionState: {
       ...cloned.sessionState,
@@ -150,6 +151,7 @@ export function createScheduleSessionContext(
     ),
     pendingPermissionRequest: null,
     pendingConfirmationPayload: null,
+    todoState: null,
     pendingConflictSummary: null,
     lastUserMessage: null
   };
@@ -233,6 +235,14 @@ export function isSessionSnapshot(value: unknown): value is SessionSnapshot {
       Array.isArray(value.context.toolDenyList)) &&
     (typeof value.context.enabledCapabilityPacks === "undefined" ||
       Array.isArray(value.context.enabledCapabilityPacks)) &&
+    (typeof value.context.todoState === "undefined" ||
+      value.context.todoState === null ||
+      (isPlainRecord(value.context.todoState) &&
+        Array.isArray(value.context.todoState.items) &&
+        (typeof value.context.todoState.activeItemId === "string" ||
+          value.context.todoState.activeItemId === null) &&
+        (typeof value.context.todoState.lastUpdatedAt === "string" ||
+          value.context.todoState.lastUpdatedAt === null))) &&
     Object.prototype.hasOwnProperty.call(
       value.context,
       "pendingPermissionRequest"

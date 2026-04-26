@@ -4,7 +4,7 @@ const runtime = createMiniMaxRuntime(process.env);
 
 if (!runtime) {
   console.error(
-    "Missing API key. Set API_KEY, MINIMAX_API_KEY, or ANTHROPIC_API_KEY in .env."
+    "Missing API key. Set MINIMAX_API_KEY or ANTHROPIC_API_KEY in .env."
   );
   process.exit(1);
 }

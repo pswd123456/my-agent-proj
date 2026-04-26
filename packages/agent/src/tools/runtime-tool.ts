@@ -13,6 +13,7 @@ export type RuntimeToolFamily =
   | "workspace-shell"
   | "workspace-network"
   | "mcp"
+  | "planning"
   | "schedule";
 
 export type RuntimeToolPermissionProfile =
@@ -42,6 +43,7 @@ export interface ToolExecutionContext {
     toolAllowList: string[];
     toolAskList: string[];
     toolDenyList: string[];
+    todoState?: import("@ai-app-template/domain").SessionTodoState | null;
   };
   permissionRules: PermissionRuleLists;
   sessionMessages: ConversationBlock[];

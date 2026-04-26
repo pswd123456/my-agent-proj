@@ -61,7 +61,8 @@ function createToolExecutionContext(input: {
       shellDenyPatterns: input.session.context.shellDenyPatterns ?? [],
       toolAllowList: input.session.context.toolAllowList ?? [],
       toolAskList: input.session.context.toolAskList ?? [],
-      toolDenyList: input.session.context.toolDenyList ?? []
+      toolDenyList: input.session.context.toolDenyList ?? [],
+      todoState: input.session.context.todoState ?? null
     }
   };
 }

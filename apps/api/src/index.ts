@@ -114,7 +114,7 @@ export const app = createApiApp({
   ...(miniMaxRuntime ? { runtimeFactory: createRuntime } : {}),
   ...(miniMaxRuntime ? { defaultModel: miniMaxRuntime.model } : {}),
   runtimeUnavailableMessage:
-    "MiniMax runtime is not configured. Set API_KEY or MINIMAX_API_KEY and ANTHROPIC_BASE_URL."
+    "MiniMax runtime is not configured. Set MINIMAX_API_KEY and ANTHROPIC_BASE_URL."
 });
 
 const port = Number(process.env.API_PORT ?? process.env.PORT ?? 3001);

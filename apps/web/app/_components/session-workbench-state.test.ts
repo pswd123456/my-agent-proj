@@ -205,4 +205,55 @@ describe("applyStreamEventToSession", () => {
     expect(next.sessionState.loopState).toBe("waiting for tool result");
     expect(next.sessionState.pendingToolCallIds).toEqual(["call-1"]);
   });
+
+  test("hydrates todo state from todo tool results before run completion", () => {
+    const session = createSessionSnapshot();
+    session.context.status = "running";
+    session.sessionState.loopState = "waiting for tool result";
+    session.sessionState.pendingToolCallIds = ["tool-call-1"];
+
+    const next = applyStreamEventToSession(session, {
+      kind: "tool_result",
+      sessionId: session.sessionId,
+      createdAt: "2026-04-26T00:00:01.000Z",
+      turnCount: 1,
+      toolCallId: "tool-call-1",
+      toolName: "update_todo_items",
+      isError: false,
+      output: JSON.stringify({
+        ok: true,
+        code: "TODO_ITEMS_UPDATED",
+        message: "Updated the session todo list.",
+        data: {
+          items: [
+            {
+              id: "item-1",
+              content: "补前端状态",
+              status: "in_progress",
+              createdAt: "2026-04-26T00:00:00.000Z",
+              updatedAt: "2026-04-26T00:00:01.000Z"
+            }
+          ],
+          activeItemId: "item-1",
+          lastUpdatedAt: "2026-04-26T00:00:01.000Z"
+        }
+      })
+    });
+
+    expect(next.context.todoState).toEqual({
+      items: [
+        {
+          id: "item-1",
+          content: "补前端状态",
+          status: "in_progress",
+          createdAt: "2026-04-26T00:00:00.000Z",
+          updatedAt: "2026-04-26T00:00:01.000Z"
+        }
+      ],
+      activeItemId: "item-1",
+      lastUpdatedAt: "2026-04-26T00:00:01.000Z"
+    });
+    expect(next.sessionState.pendingToolCallIds).toEqual([]);
+    expect(next.sessionState.loopState).toBe("running");
+  });
 });

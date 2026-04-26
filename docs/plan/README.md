@@ -9,6 +9,7 @@
 - [Stage 3 skill system v1](./stage3.md)
 - [Stage 4 tool registry / permission checker v1](./stage4.md)
 - [Stage 5 session settings 与工作区默认值](./stage5.md)
+- [Task Brief：planmode / full compaction 共用任务骨架](./task_brief.md)
 - [Product 1 日程管理能力](./product1.md)
 
 ## 阅读建议
@@ -21,4 +22,5 @@
 
 - `stage1.md`：保留最早的 runtime 拆分草稿，主要用于回看概念起点
 - `stage2.md` 到 `stage5.md`：保留已经落地过的阶段规格，适合核对设计意图和验收边界
+- `task_brief.md`：保留 `planmode` 与未来 `full compaction` 共用的任务骨架设计，不代表当前已落地实现
 - `product1.md`：保留日程管理能力的专项设计与约束

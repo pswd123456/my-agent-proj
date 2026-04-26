@@ -15,6 +15,7 @@ export type SessionToolFamily =
   | "workspace-shell"
   | "workspace-network"
   | "mcp"
+  | "planning"
   | "schedule";
 
 export type SessionPermissionProfile =
@@ -53,6 +54,22 @@ export interface PendingPermissionRequest {
   createdAt: string;
 }
 
+export type TodoItemStatus = "pending" | "in_progress" | "done" | "cancelled";
+
+export interface SessionTodoItem {
+  id: string;
+  content: string;
+  status: TodoItemStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SessionTodoState {
+  items: SessionTodoItem[];
+  activeItemId: string | null;
+  lastUpdatedAt: string | null;
+}
+
 export interface ScheduleSessionContext {
   userId: string;
   status: ScheduleSessionStatus;
@@ -67,6 +84,7 @@ export interface ScheduleSessionContext {
   enabledCapabilityPacks: CapabilityPackName[];
   pendingPermissionRequest: PendingPermissionRequest | null;
   pendingConfirmationPayload: PendingConfirmationPayload | null;
+  todoState?: SessionTodoState | null;
   pendingConflictSummary: string | null;
   lastUserMessage: string | null;
 }

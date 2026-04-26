@@ -91,6 +91,19 @@ describe("toIsoString", () => {
       enabledCapabilityPacks: ["workspace", "schedule"],
       pendingPermissionRequest: null,
       pendingConfirmationPayload: null,
+      todoState: {
+        items: [
+          {
+            id: "todo-1",
+            content: "Inspect runtime prompt boundaries",
+            status: "in_progress",
+            createdAt: "2026-04-26T00:00:00.000Z",
+            updatedAt: "2026-04-26T00:00:00.000Z"
+          }
+        ],
+        activeItemId: "todo-1",
+        lastUpdatedAt: "2026-04-26T00:00:00.000Z"
+      },
       pendingConflictSummary: null,
       lastUserMessage: null,
       workingDirectory: "/tmp/workspace",
@@ -109,5 +122,6 @@ describe("toIsoString", () => {
     });
 
     expect(sessionContext.workspaceEscapeAllowed).toBe(true);
+    expect(sessionContext.todoState?.activeItemId).toBe("todo-1");
   });
 });

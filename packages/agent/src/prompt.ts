@@ -15,6 +15,7 @@ import type { SkillDescriptor } from "./skills/index.js";
 import type { ToolRegistry } from "./tools/registry.js";
 import { normalizeCapabilityPacks } from "@ai-app-template/domain";
 import { estimatePromptTokens } from "./runtime/token-budget.js";
+import { formatTodoStateSummary } from "./session/todo-state.js";
 
 export interface PromptEnvelope {
   system: string;
@@ -51,6 +52,7 @@ const DEFAULT_SYSTEM_PROMPT = [
   "Some file writes, deletes, moves, shell commands, and network requests may trigger a permission pause before execution.",
   "Actively utilize the skills listed in the runtime context when they are relevant to the user's request and can improve efficiency or reliability.",
   "Only rely on skills explicitly listed in the current runtime context. Do not invent or assume unavailable skills.",
+  "When a structured todo list is available in the runtime context, use it to stay aligned with the current task and keep item status updated as you make progress.",
   "Keep the final text concise and rely on stable tool results for detail."
 ].join("\n");
 
@@ -199,7 +201,8 @@ function createRuntimeContextMessage(
     `Session status: ${session.context.status}`,
     `YOLO mode: ${session.context.yoloMode ? "enabled" : "disabled"}`,
     `Pending permission request: ${permissionText}`,
-    `Pending confirmation payload: ${pendingText}`
+    `Pending confirmation payload: ${pendingText}`,
+    formatTodoStateSummary(session.context.todoState)
   ];
   if (dynamicPromptMessages.length > 0) {
     runtimeLines.push(...dynamicPromptMessages);
@@ -358,13 +361,8 @@ export class PromptBuilder {
       .join("\n");
     const prefixMessage = createPrefixMessage(session, tools);
     const baseMessages = toAnthropicMessages(session.messages);
-    const {
-      message: runtimeContextMessage,
-      dynamicPromptMessages
-    } = createRuntimeContextMessage(
-      session,
-      runtimeContext
-    );
+    const { message: runtimeContextMessage, dynamicPromptMessages } =
+      createRuntimeContextMessage(session, runtimeContext);
     const skillsContextMessage = createSkillsContextMessage(skills);
     const shouldCompactHistory =
       estimatePromptTokens(

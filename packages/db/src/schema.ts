@@ -2,7 +2,8 @@ import { fileURLToPath } from "node:url";
 
 import type {
   PendingConfirmationPayload,
-  PendingPermissionRequest
+  PendingPermissionRequest,
+  SessionTodoState
 } from "@ai-app-template/domain";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { sql } from "drizzle-orm";
@@ -129,6 +130,7 @@ export const agentSessions = pgTable(
     pendingConfirmationPayload: jsonb(
       "pending_confirmation_payload"
     ).$type<PendingConfirmationPayload | null>(),
+    todoState: jsonb("todo_state").$type<SessionTodoState | null>(),
     pendingConflictSummary: text("pending_conflict_summary"),
     lastUserMessage: text("last_user_message"),
     workingDirectory: text("working_directory").notNull(),

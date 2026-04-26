@@ -13,7 +13,6 @@
         "PORT",
         "API_PORT",
         "WEB_PORT",
-        "API_KEY",
         "MINIMAX_API_KEY",
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_BASE_URL",

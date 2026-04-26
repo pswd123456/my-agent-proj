@@ -143,9 +143,7 @@ describe("PromptBuilder skill context", () => {
     const session = createSessionSnapshot();
     const promptEnvelope = promptBuilder.build(session, new ToolRegistry());
 
-    expect(promptEnvelope.system).toContain(
-      "You are a personal assistant."
-    );
+    expect(promptEnvelope.system).toContain("You are a personal assistant.");
     expect(promptEnvelope.system).not.toMatch(
       /scheduling agent.*routine manager/i
     );
@@ -156,21 +154,70 @@ describe("PromptBuilder skill context", () => {
     expect(JSON.stringify(promptEnvelope.runtimeContextMessages[1])).toContain(
       "none"
     );
+    expect(JSON.stringify(promptEnvelope.runtimeContextMessages[0])).toContain(
+      "Session todo state:\\nnone"
+    );
+  });
+
+  test("injects the active todo summary into runtime context messages", () => {
+    const promptBuilder = createPromptBuilder();
+    const session = createSessionSnapshot();
+    session.context.todoState = {
+      items: [
+        {
+          id: "todo-1",
+          content: "Inspect runtime/session boundaries",
+          status: "in_progress",
+          createdAt: "2026-04-26T00:00:00.000Z",
+          updatedAt: "2026-04-26T00:00:00.000Z"
+        },
+        {
+          id: "todo-2",
+          content: "Write the todo tools",
+          status: "pending",
+          createdAt: "2026-04-26T00:00:00.000Z",
+          updatedAt: "2026-04-26T00:00:00.000Z"
+        },
+        {
+          id: "todo-3",
+          content: "Old finished step",
+          status: "done",
+          createdAt: "2026-04-26T00:00:00.000Z",
+          updatedAt: "2026-04-26T00:00:00.000Z"
+        }
+      ],
+      activeItemId: "todo-1",
+      lastUpdatedAt: "2026-04-26T00:00:00.000Z"
+    };
+
+    const promptEnvelope = promptBuilder.build(session, new ToolRegistry());
+    const runtimeText = JSON.stringify(
+      promptEnvelope.runtimeContextMessages[0]
+    );
+
+    expect(promptEnvelope.system).toContain(
+      "When a structured todo list is available in the runtime context"
+    );
+    expect(runtimeText).toContain("Session todo state:");
+    expect(runtimeText).toContain(
+      "Active item: Inspect runtime/session boundaries"
+    );
+    expect(runtimeText).toContain(
+      "1. Inspect runtime/session boundaries [in_progress]"
+    );
+    expect(runtimeText).toContain("2. Write the todo tools [pending]");
+    expect(runtimeText).not.toContain("Old finished step");
   });
 
   test("injects a soft warning when the turn budget is at least 90% used", () => {
     const promptBuilder = createPromptBuilder();
     const session = createSessionSnapshot();
-    const promptEnvelope = promptBuilder.build(
-      session,
-      new ToolRegistry(),
-      {
-        currentDateTimeContext: "2026-04-26 10:00",
-        currentTimeZone: "Asia/Shanghai",
-        currentTurnCount: 9,
-        maxTurns: 10
-      }
-    );
+    const promptEnvelope = promptBuilder.build(session, new ToolRegistry(), {
+      currentDateTimeContext: "2026-04-26 10:00",
+      currentTimeZone: "Asia/Shanghai",
+      currentTurnCount: 9,
+      maxTurns: 10
+    });
 
     expect(JSON.stringify(promptEnvelope.runtimeContextMessages[0])).toContain(
       "Turn budget is nearly exhausted. Consolidate work, avoid exploratory detours, and prefer a final answer or a crisp blocking question."
@@ -183,16 +230,12 @@ describe("PromptBuilder skill context", () => {
   test("does not inject a soft warning before the 90% turn-budget threshold", () => {
     const promptBuilder = createPromptBuilder();
     const session = createSessionSnapshot();
-    const promptEnvelope = promptBuilder.build(
-      session,
-      new ToolRegistry(),
-      {
-        currentDateTimeContext: "2026-04-26 10:00",
-        currentTimeZone: "Asia/Shanghai",
-        currentTurnCount: 8,
-        maxTurns: 10
-      }
-    );
+    const promptEnvelope = promptBuilder.build(session, new ToolRegistry(), {
+      currentDateTimeContext: "2026-04-26 10:00",
+      currentTimeZone: "Asia/Shanghai",
+      currentTurnCount: 8,
+      maxTurns: 10
+    });
 
     expect(
       JSON.stringify(promptEnvelope.runtimeContextMessages[0])

@@ -100,6 +100,72 @@ describe("session-state-manager", () => {
     expect(rolledBack.session).toEqual(original);
   });
 
+  test("updates todo state from streamed todo tool results", () => {
+    const session = createSessionSnapshot();
+    session.context.status = "running";
+    session.context.pendingPermissionRequest = null;
+    session.sessionState.loopState = "waiting for tool result";
+    session.sessionState.pendingToolCallIds = ["tool-call-1"];
+
+    const next = applyStreamEventToSessionState(createSessionUiState(session), {
+      kind: "tool_result",
+      sessionId: session.sessionId,
+      createdAt: "2026-04-26T00:00:01.000Z",
+      turnCount: 1,
+      toolCallId: "tool-call-1",
+      toolName: "replace_todo_list",
+      isError: false,
+      output: JSON.stringify({
+        ok: true,
+        code: "TODO_LIST_REPLACED",
+        message: "Replaced the session todo list.",
+        data: {
+          items: [
+            {
+              id: "item-1",
+              content: "做前端可视化",
+              status: "in_progress",
+              createdAt: "2026-04-26T00:00:00.000Z",
+              updatedAt: "2026-04-26T00:00:01.000Z"
+            },
+            {
+              id: "item-2",
+              content: "补状态同步",
+              status: "pending",
+              createdAt: "2026-04-26T00:00:00.000Z",
+              updatedAt: "2026-04-26T00:00:00.000Z"
+            }
+          ],
+          activeItemId: "item-1",
+          lastUpdatedAt: "2026-04-26T00:00:01.000Z"
+        }
+      })
+    });
+
+    expect(next.session?.context.todoState).toEqual({
+      items: [
+        {
+          id: "item-1",
+          content: "做前端可视化",
+          status: "in_progress",
+          createdAt: "2026-04-26T00:00:00.000Z",
+          updatedAt: "2026-04-26T00:00:01.000Z"
+        },
+        {
+          id: "item-2",
+          content: "补状态同步",
+          status: "pending",
+          createdAt: "2026-04-26T00:00:00.000Z",
+          updatedAt: "2026-04-26T00:00:00.000Z"
+        }
+      ],
+      activeItemId: "item-1",
+      lastUpdatedAt: "2026-04-26T00:00:01.000Z"
+    });
+    expect(next.session?.sessionState.pendingToolCallIds).toEqual([]);
+    expect(next.session?.sessionState.loopState).toBe("running");
+  });
+
   test("restores the previous interrupt flag when interrupt fails", () => {
     const original = createSessionSnapshot();
     original.context.status = "running";

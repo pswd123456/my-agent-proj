@@ -99,7 +99,10 @@ export function buildPromptMessageSections(
     Extract<import("@ai-app-template/sdk").RunStreamEvent, { kind: "prompt" }>
   >
 ): PromptMessageSection[] {
-  const latestPromptEventsByTurn = new Map<number, (typeof promptEvents)[number]>();
+  const latestPromptEventsByTurn = new Map<
+    number,
+    (typeof promptEvents)[number]
+  >();
 
   for (const event of promptEvents) {
     const previous = latestPromptEventsByTurn.get(event.turnCount);
@@ -108,13 +111,15 @@ export function buildPromptMessageSections(
     }
   }
 
-  const orderedPromptEvents = [...latestPromptEventsByTurn.values()].sort((left, right) => {
-    if (left.turnCount !== right.turnCount) {
-      return left.turnCount - right.turnCount;
-    }
+  const orderedPromptEvents = [...latestPromptEventsByTurn.values()].sort(
+    (left, right) => {
+      if (left.turnCount !== right.turnCount) {
+        return left.turnCount - right.turnCount;
+      }
 
-    return left.createdAt.localeCompare(right.createdAt);
-  });
+      return left.createdAt.localeCompare(right.createdAt);
+    }
+  );
 
   let previousSerialized: string[] | null = null;
 
@@ -167,7 +172,8 @@ export function extractDynamicPromptMessages(
   }
 
   return promptEvent.dynamicPromptMessages.filter(
-    (value): value is string => typeof value === "string" && value.trim().length > 0
+    (value): value is string =>
+      typeof value === "string" && value.trim().length > 0
   );
 }
 
@@ -260,6 +266,8 @@ export function getPermissionFamilyLabel(family: string): string {
       return "workspace network";
     case "mcp":
       return "mcp";
+    case "planning":
+      return "planning";
     case "schedule":
       return "schedule";
     default:
@@ -478,19 +486,6 @@ export function SessionWorkbenchSidebar({
         </div>
 
         <div
-          className={`border-b border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] ${collapsed ? "px-3 py-3" : "px-4 py-4"}`}
-        >
-          {collapsed ? null : (
-            <div className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
-              侧边面板
-            </div>
-          )}
-          <div className={`grid gap-2 ${collapsed ? "" : "mt-3"}`}>
-            {sidebarPanels.map(renderPanelButton)}
-          </div>
-        </div>
-
-        <div
           className={`flex-1 overflow-y-auto ${collapsed ? "px-3 py-3" : "px-4 py-4"}`}
         >
           <div className={`grid ${collapsed ? "gap-2" : "gap-3"}`}>
@@ -595,6 +590,19 @@ export function SessionWorkbenchSidebar({
                 </article>
               );
             })}
+          </div>
+        </div>
+
+        <div
+          className={`border-t border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] ${collapsed ? "px-3 py-3" : "px-4 py-4"}`}
+        >
+          {collapsed ? null : (
+            <div className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
+              侧边面板
+            </div>
+          )}
+          <div className={`grid gap-2 ${collapsed ? "" : "mt-3"}`}>
+            {sidebarPanels.map(renderPanelButton)}
           </div>
         </div>
       </div>

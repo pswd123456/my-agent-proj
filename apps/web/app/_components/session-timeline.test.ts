@@ -705,6 +705,61 @@ describe("buildConversationViewItems compact mode", () => {
     }
   });
 
+  test("keeps list_directory as viewed and other generic tools as called", () => {
+    const listDirectoryCall: Extract<RunStreamEvent, { kind: "tool_call" }> = {
+      ...currentToolCall,
+      createdAt: "2026-04-21T18:46:21.710Z",
+      toolCallId: "call-list-directory",
+      toolName: "list_directory",
+      input: { path: "apps/web/app" }
+    };
+    const listDirectoryResult: Extract<RunStreamEvent, { kind: "tool_result" }> =
+      {
+        ...currentToolResult,
+        createdAt: "2026-04-21T18:46:21.711Z",
+        toolCallId: "call-list-directory",
+        toolName: "list_directory"
+      };
+    const httpCall: Extract<RunStreamEvent, { kind: "tool_call" }> = {
+      ...currentToolCall,
+      createdAt: "2026-04-21T18:46:21.712Z",
+      toolCallId: "call-http",
+      toolName: "make_http_request",
+      input: { url: "https://example.com" }
+    };
+    const httpResult: Extract<RunStreamEvent, { kind: "tool_result" }> = {
+      ...currentToolResult,
+      createdAt: "2026-04-21T18:46:21.713Z",
+      toolCallId: "call-http",
+      toolName: "make_http_request"
+    };
+
+    const view = buildConversationViewItems({
+      timelineItems: [
+        messageItem(firstUser),
+        eventItem(listDirectoryCall),
+        eventItem(listDirectoryResult),
+        eventItem(httpCall),
+        eventItem(httpResult)
+      ],
+      mode: "compact"
+    });
+
+    expect(view.map((item) => item.type)).toEqual([
+      "timeline",
+      "compact-tool",
+      "compact-tool"
+    ]);
+    expect(view[1]?.type).toBe("compact-tool");
+    expect(view[2]?.type).toBe("compact-tool");
+    if (view[1]?.type === "compact-tool") {
+      expect(view[1].title).toContain("已查看");
+    }
+    if (view[2]?.type === "compact-tool") {
+      expect(view[2].title).toContain("已调用");
+    }
+  });
+
   test("merges adjacent successful read and search tools into one file batch", () => {
     const readCall: Extract<RunStreamEvent, { kind: "tool_call" }> = {
       ...currentToolCall,
@@ -1036,6 +1091,103 @@ describe("buildConversationViewItems compact mode", () => {
       "compact-collapsed-flow-event-assistant_text-assistant-final-1",
       "compact-collapsed-flow-event-assistant_text-assistant-final-2"
     ]);
+  });
+
+  test("keeps earlier persisted assistant turns folded when a later streamed turn also collapses", () => {
+    const firstAssistantBlock: Extract<
+      SessionSnapshot["messages"][number],
+      { kind: "assistant" }
+    > = {
+      id: "assistant-block-1",
+      kind: "assistant",
+      content: "第一轮已经处理好了。",
+      createdAt: "2026-04-21T18:46:21.800Z"
+    };
+    const secondUser: Extract<
+      SessionSnapshot["messages"][number],
+      { kind: "user" }
+    > = {
+      id: "user-2",
+      kind: "user",
+      content: "再看一下明天",
+      createdAt: "2026-04-21T18:47:03.349Z"
+    };
+    const secondTurnStart: Extract<RunStreamEvent, { kind: "turn_start" }> = {
+      ...turnStart,
+      createdAt: "2026-04-21T18:47:03.364Z",
+      turnCount: 2
+    };
+    const secondThinkingEvent: Extract<RunStreamEvent, { kind: "thinking" }> = {
+      ...thinkingEvent,
+      createdAt: "2026-04-21T18:47:21.692Z",
+      turnCount: 2,
+      thinkingMessageId: "thinking-2",
+      signature: "sig-2",
+      text: "再检查一下后续日程。"
+    };
+    const secondToolCall: Extract<RunStreamEvent, { kind: "tool_call" }> = {
+      ...currentToolCall,
+      createdAt: "2026-04-21T18:47:21.720Z",
+      turnCount: 2,
+      toolCallId: "call-current-2"
+    };
+    const secondToolResult: Extract<RunStreamEvent, { kind: "tool_result" }> = {
+      ...currentToolResult,
+      createdAt: "2026-04-21T18:47:21.735Z",
+      turnCount: 2,
+      toolCallId: "call-current-2"
+    };
+    const secondFinalAssistantEvent: Extract<
+      RunStreamEvent,
+      { kind: "assistant_text" }
+    > = {
+      kind: "assistant_text",
+      sessionId: "session-1",
+      createdAt: "2026-04-21T18:47:21.800Z",
+      turnCount: 2,
+      assistantMessageId: "assistant-final-2",
+      text: "第二轮也处理好了。"
+    };
+
+    const view = buildConversationViewItems({
+      timelineItems: [
+        messageItem(firstUser),
+        eventItem(turnStart),
+        eventItem(thinkingEvent),
+        eventItem(currentToolCall),
+        eventItem(currentToolResult),
+        messageItem(firstAssistantBlock),
+        messageItem(secondUser),
+        eventItem(secondTurnStart),
+        eventItem(secondThinkingEvent),
+        eventItem(secondToolCall),
+        eventItem(secondToolResult),
+        eventItem(secondFinalAssistantEvent)
+      ],
+      mode: "compact"
+    });
+
+    expect(view.map((item) => item.type)).toEqual([
+      "timeline",
+      "compact-collapsed-flow",
+      "timeline",
+      "timeline",
+      "compact-collapsed-flow",
+      "timeline"
+    ]);
+
+    const collapsedItems = view.filter(
+      (item): item is Extract<typeof item, { type: "compact-collapsed-flow" }> =>
+        item.type === "compact-collapsed-flow"
+    );
+    expect(collapsedItems).toHaveLength(2);
+    expect(collapsedItems.map((item) => item.hiddenCount)).toEqual([2, 2]);
+    expect(collapsedItems[0]?.key).toBe(
+      "compact-collapsed-flow-message-assistant-block-1"
+    );
+    expect(collapsedItems[1]?.key).toBe(
+      "compact-collapsed-flow-event-assistant_text-assistant-final-2"
+    );
   });
 
   test("anchors collapsed flow scrolling to the turn's user message while keeping the final assistant key", () => {

@@ -47,7 +47,7 @@ cp .env.example .env
 
 如果要跑 agent 执行链路，还需要配置模型相关变量：
 
-- `API_KEY`、`MINIMAX_API_KEY` 或 `ANTHROPIC_API_KEY`
+- `MINIMAX_API_KEY` 或 `ANTHROPIC_API_KEY`
 - `ANTHROPIC_BASE_URL`
 - `ANTHROPIC_MODEL`
 - 可选：`ANTHROPIC_TOOL_CHOICE=auto|any|none|tool:<name>` 或 `TOOL_CHOICE`

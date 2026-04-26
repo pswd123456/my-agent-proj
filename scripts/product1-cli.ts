@@ -22,7 +22,7 @@ import {
 const miniMaxRuntime = createMiniMaxRuntime(process.env);
 if (!miniMaxRuntime) {
   console.error(
-    "Missing MiniMax runtime configuration. Set API_KEY, MINIMAX_API_KEY, or ANTHROPIC_API_KEY."
+    "Missing MiniMax runtime configuration. Set MINIMAX_API_KEY or ANTHROPIC_API_KEY."
   );
   process.exit(1);
 }

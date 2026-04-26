@@ -30,6 +30,12 @@ import type {
   SettingsRepository
 } from "@ai-app-template/db";
 
+export interface ApiAppContext {
+  Variables: {
+    requestId: string;
+  };
+}
+
 const createSessionBodySchema = z.object({
   workingDirectory: z.string().optional(),
   userId: z.string().optional(),
@@ -214,8 +220,160 @@ function encodeSseEvent<T extends { kind: string }>(event: T): Uint8Array {
 
 function getRequestId(c: {
   req: { header(name: string): string | undefined };
+  get(name: "requestId"): string | undefined;
 }): string {
-  return c.req.header("x-request-id")?.trim() || randomUUID();
+  const scopedRequestId = c.get("requestId");
+  if (scopedRequestId) {
+    return scopedRequestId;
+  }
+
+  const headerRequestId = c.req.header("x-request-id")?.trim();
+  return headerRequestId || randomUUID();
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function toJsonValue(value: unknown): JsonValue {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.slice(0, 20).map((entry) => toJsonValue(entry));
+  }
+
+  if (isPlainObject(value)) {
+    return Object.fromEntries(
+      Object.entries(value)
+        .slice(0, 20)
+        .map(([key, entry]) => [key, toJsonValue(entry)])
+    );
+  }
+
+  return String(value);
+}
+
+function getErrorStatus(error: unknown): number {
+  if (error instanceof z.ZodError) {
+    return 400;
+  }
+
+  if (error instanceof SyntaxError) {
+    return 400;
+  }
+
+  return 500;
+}
+
+function getErrorCode(error: unknown): string | undefined {
+  if (error instanceof z.ZodError) {
+    return "validation_error";
+  }
+
+  if (isPlainObject(error) && typeof error.code === "string") {
+    return error.code;
+  }
+
+  return undefined;
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  if (typeof error === "string" && error.trim()) {
+    return error;
+  }
+
+  return "Internal Server Error";
+}
+
+function getErrorDetails(error: unknown): JsonValue | undefined {
+  if (error instanceof z.ZodError) {
+    return {
+      issues: error.issues.map((issue) => ({
+        code: issue.code,
+        path: issue.path.map((segment) => String(segment)),
+        message: issue.message
+      }))
+    };
+  }
+
+  const details: Record<string, JsonValue> = {};
+  if (error instanceof Error) {
+    if (typeof error.stack === "string") {
+      details.stack = error.stack;
+    }
+    if (error.cause !== undefined) {
+      details.cause = toJsonValue(error.cause);
+    }
+  }
+
+  if (!isPlainObject(error)) {
+    return Object.keys(details).length > 0 ? details : undefined;
+  }
+
+  const fields = [
+    "code",
+    "severity",
+    "severity_local",
+    "detail",
+    "hint",
+    "position",
+    "where",
+    "schema",
+    "table",
+    "column",
+    "constraint",
+    "file",
+    "line",
+    "routine",
+    "query",
+    "params"
+  ] as const;
+  for (const field of fields) {
+    if (field in error) {
+      details[field] = toJsonValue(error[field]);
+    }
+  }
+
+  return Object.keys(details).length > 0 ? details : undefined;
+}
+
+function buildErrorPayload(error: unknown, requestId: string) {
+  const details = getErrorDetails(error);
+  const status = getErrorStatus(error) as 400 | 500;
+  const code = getErrorCode(error);
+  const payload: {
+    error: {
+      message: string;
+      name: string;
+      requestId: string;
+      status: 400 | 500;
+      code?: string;
+      details?: JsonValue;
+    };
+  } = {
+    error: {
+      message: getErrorMessage(error),
+      name:
+        error instanceof Error && error.name ? error.name : "InternalServerError",
+      requestId,
+      status,
+      ...(code ? { code } : {}),
+      ...(details ? { details } : {})
+    }
+  };
+
+  return payload;
 }
 
 async function logApiEvent(input: {
@@ -269,7 +427,29 @@ async function emitPreRunTraceEvent(input: {
 }
 
 export function createApiApp(dependencies: ApiAppDependencies) {
-  const app = new Hono();
+  const app = new Hono<ApiAppContext>();
+
+  app.use("*", async (c, next) => {
+    const requestId = c.req.header("x-request-id")?.trim() || randomUUID();
+    c.set("requestId", requestId);
+    c.header("x-request-id", requestId);
+    await next();
+  });
+
+  app.onError(async (error, c) => {
+    const requestId = getRequestId(c);
+    const payload = buildErrorPayload(error, requestId);
+    await logApiEvent({
+      logger: dependencies.apiLogger,
+      requestId,
+      event: "request_failed",
+      level: "error",
+      details: payload.error
+    });
+    const response = c.json(payload, payload.error.status);
+    response.headers.set("x-request-id", requestId);
+    return response;
+  });
 
   app.get("/", (c) => {
     return c.json({

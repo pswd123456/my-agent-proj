@@ -5,6 +5,7 @@
 ## 文档列表
 
 - [Workspace 文件工具成熟度评估](./workspace-file-tools-maturity.md)
+- [Web Search / Fetch 接入方案调研](./web-search-fetch-options.md)
 
 ## 使用边界
 

@@ -14,6 +14,7 @@ import {
 import type { RunStreamEvent, SessionSnapshot } from "@ai-app-template/sdk";
 
 import { MessageMarkdown } from "./message-markdown";
+import { SessionTodoPanel } from "./session-todo-panel";
 import {
   getAssistantTextCursorVisible,
   getAssistantTextRenderMode,
@@ -54,6 +55,7 @@ import {
 
 interface SessionWorkbenchConversationPanelProps {
   currentSession: SessionSnapshot | null;
+  todoUpdating: boolean;
   loading: boolean;
   timelineItems: TimelineItem[];
   streamEventKeys: Set<string>;
@@ -1294,6 +1296,7 @@ function hasRenderableTimelineContent(node: React.ReactNode): boolean {
 
 export function SessionWorkbenchConversationPanel({
   currentSession,
+  todoUpdating,
   loading,
   timelineItems,
   streamEventKeys,
@@ -1913,8 +1916,15 @@ export function SessionWorkbenchConversationPanel({
           </div>
 
           <div className="sticky bottom-3 z-10 mt-auto px-1">
-            <form onSubmit={onSubmit} className="grid gap-3">
-              <div className="grid gap-3 rounded-[var(--app-radius-xl)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_95%,transparent)] px-4 py-4">
+            <form onSubmit={onSubmit} className="relative grid gap-3">
+              <div className="grid gap-3">
+                <div className="pointer-events-none absolute inset-x-0 bottom-full mb-2 flex justify-center">
+                  <SessionTodoPanel
+                    todoState={currentSession?.context.todoState ?? null}
+                    updating={todoUpdating}
+                  />
+                </div>
+
                 {permissionCardView ? (
                   <div
                     key={permissionCardView.key}
@@ -2034,17 +2044,17 @@ export function SessionWorkbenchConversationPanel({
                         本次执行已中断，可直接继续输入下一条消息。
                       </span>
                     ) : null}
-                    <span className="min-w-0 rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-3 py-1 font-mono text-[var(--app-text-secondary)]">
+                    <span className="min-w-0 font-mono text-[var(--app-text-secondary)]">
                       cwd{" "}
                       {formatWorkingDirectory(
                         currentSession?.workingDirectory ?? "--"
                       )}
                     </span>
                     <span
-                      className={`rounded-[var(--app-radius-pill)] border px-3 py-1 ${
+                      className={`${
                         currentSession?.context.yoloMode
-                          ? "border-[var(--app-status-success)] text-[var(--app-status-success)]"
-                          : "border-[var(--app-border-subtle)] text-[var(--app-text-muted)]"
+                          ? "text-[var(--app-status-success)]"
+                          : "text-[var(--app-text-muted)]"
                       }`}
                     >
                       yolo {currentSession?.context.yoloMode ? "on" : "off"}

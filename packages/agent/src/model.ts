@@ -218,8 +218,7 @@ export function resolveToolChoice(
 export function resolveMiniMaxRuntimeConfig(
   env: NodeJS.ProcessEnv = process.env
 ): MiniMaxRuntimeConfig | null {
-  const apiKey =
-    env.ANTHROPIC_API_KEY ?? env.MINIMAX_API_KEY ?? env.API_KEY ?? "";
+  const apiKey = env.ANTHROPIC_API_KEY ?? env.MINIMAX_API_KEY ?? "";
 
   if (!apiKey) {
     return null;

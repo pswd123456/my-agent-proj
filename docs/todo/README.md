@@ -8,6 +8,7 @@
 - [Compaction Simplification](./compaction-simplification.md)
 - [Session State Unification Audit](./session-state-unification-audit.md)
 - [Thinking Context Persistence](./thinking-context-persistence.md)
+- [Agent Coding Tool Pack Expansion](./agent-coding-tool-pack-expansion.md)
 
 ## 使用边界
 

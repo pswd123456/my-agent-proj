@@ -89,13 +89,19 @@ function toTimelineViewItem(item: TimelineItem): ConversationViewItem {
   };
 }
 
-function getToolAction(toolName: string): "read" | "search" | "edit" | "call" {
+function getToolAction(
+  toolName: string
+): "read" | "search" | "edit" | "view" | "call" {
   if (toolName === "read_file") {
     return "read";
   }
 
   if (toolName === "search_text") {
     return "search";
+  }
+
+  if (toolName === "list_directory") {
+    return "view";
   }
 
   if (
@@ -124,11 +130,11 @@ function getToolVerb(input: {
   const action = getToolAction(input.toolName);
 
   if (input.status === "failed") {
-    return `${action === "read" ? "阅读" : action === "search" ? "搜索" : action === "edit" ? "编辑" : "调用"}失败`;
+    return `${action === "read" ? "阅读" : action === "search" ? "搜索" : action === "edit" ? "编辑" : action === "view" ? "查看" : "调用"}失败`;
   }
 
   if (input.status === "rejected") {
-    return `已拒绝${action === "read" ? "阅读" : action === "search" ? "搜索" : action === "edit" ? "编辑" : "调用"}`;
+    return `已拒绝${action === "read" ? "阅读" : action === "search" ? "搜索" : action === "edit" ? "编辑" : action === "view" ? "查看" : "调用"}`;
   }
 
   const done = input.status === "success";
@@ -141,7 +147,10 @@ function getToolVerb(input: {
   if (action === "edit") {
     return done ? "已编辑" : "正在编辑";
   }
-  return done ? "已查看" : "正在调用";
+  if (action === "view") {
+    return done ? "已查看" : "正在查看";
+  }
+  return done ? "已调用" : "正在调用";
 }
 
 function stringifyValue(value: unknown): string | null {
@@ -386,6 +395,23 @@ function getAssistantEvent(item: ConversationViewItem) {
   return null;
 }
 
+function getAssistantOutputText(item: ConversationViewItem): string | null {
+  const event = getAssistantEvent(item);
+  if (event) {
+    return event.text;
+  }
+
+  if (
+    item.type === "timeline" &&
+    item.item.type === "message" &&
+    item.item.block.kind === "assistant"
+  ) {
+    return item.item.block.content;
+  }
+
+  return null;
+}
+
 function isAssistantMessageItem(item: ConversationViewItem): boolean {
   return (
     item.type === "timeline" &&
@@ -420,8 +446,8 @@ function compactFinalFlowSegment(
   const finalAssistantIndex = [...items.keys()]
     .reverse()
     .find((index) => {
-      const event = getAssistantEvent(items[index]!);
-      return Boolean(event && event.text.trim().length > 0);
+      const text = getAssistantOutputText(items[index]!);
+      return Boolean(text && text.trim().length > 0);
     });
 
   if (finalAssistantIndex === undefined || finalAssistantIndex < 1) {

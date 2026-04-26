@@ -54,6 +54,7 @@ import {
   rollbackSessionUiState,
   setSessionSnapshot
 } from "./session-state-manager";
+import { isTodoToolName } from "./session-todo-state";
 import { buildTimelineItems, getTimelineEventKey } from "./session-timeline";
 import {
   SessionWorkbenchConversationPanel,
@@ -725,6 +726,17 @@ export function SessionWorkbench() {
       event.kind === "thinking"
   );
   const toolRows = collectToolRows(inspectorEvents);
+  const todoUpdating = Boolean(
+    currentSession &&
+    toolRows.some(
+      (row) =>
+        row.output === null &&
+        currentSession.sessionState.pendingToolCallIds.includes(
+          row.toolCallId
+        ) &&
+        isTodoToolName(row.toolName)
+    )
+  );
   const groupedRoutines = groupRoutinesByDate(routines);
   const weekDates = currentSession
     ? buildWeekRange(currentSession.context.currentDateContext).dates
@@ -840,6 +852,7 @@ export function SessionWorkbench() {
           ) : (
             <SessionWorkbenchConversationPanel
               currentSession={currentSession}
+              todoUpdating={todoUpdating}
               loading={loading}
               timelineItems={timelineItems}
               streamEventKeys={streamEventKeys}

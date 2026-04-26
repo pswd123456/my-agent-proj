@@ -3,6 +3,7 @@ import type { AnthropicToolDefinition } from "../model.js";
 import type { RoutineRepository } from "@ai-app-template/db";
 import type { CapabilityPackName } from "@ai-app-template/domain";
 
+import { createApplyPatchTool } from "./apply-patch.js";
 import { createAskForConfirmationTool } from "./ask-for-confirmation.js";
 import { createCopyPathTool } from "./copy-path.js";
 import { createCreateDirectoryTool } from "./create-directory.js";
@@ -11,15 +12,24 @@ import { createDeletePathTool } from "./delete-path.js";
 import { createDeleteRoutineTool } from "./delete-routine.js";
 import { createEditFileTool } from "./edit-file.js";
 import { createEditRoutineTool } from "./edit-routine.js";
+import { createGetTodoListTool } from "./get-todo-list.js";
+import { createFindFilesTool } from "./find-files.js";
+import {
+  createGitDiffCachedTool,
+  createGitDiffToolUncached
+} from "./git-diff.js";
+import { createGitStatusTool } from "./git-status.js";
 import { createListRoutineByDateTool } from "./list-routine-by-date.js";
 import { createListRoutineByWeekTool } from "./list-routine-by-week.js";
 import { createListDirectoryTool } from "./list-directory.js";
 import { createMakeHttpRequestTool } from "./make-http-request.js";
 import { createMovePathTool } from "./move-path.js";
 import { createReadFileTool } from "./read-file.js";
+import { createReplaceTodoListTool } from "./replace-todo-list.js";
 import { createRunShellCommandTool } from "./run-shell-command.js";
 import { createSearchRoutineByOclockTool } from "./search-routine-by-oclock.js";
 import { createSearchTextTool } from "./search-text.js";
+import { createUpdateTodoItemsTool } from "./update-todo-items.js";
 import { createWriteFileTool } from "./write-file.js";
 import type { RuntimeTool } from "./runtime-tool.js";
 
@@ -98,12 +108,22 @@ function registerTools(
   return registry;
 }
 
+export function createPlanningToolRegistry(): ToolRegistry {
+  return registerTools(new ToolRegistry(), [
+    createGetTodoListTool(),
+    createReplaceTodoListTool(),
+    createUpdateTodoItemsTool()
+  ]);
+}
+
 export function createWorkspaceToolRegistry(options: {
   workingDirectory: string;
 }): ToolRegistry {
   return registerTools(new ToolRegistry(), [
+    createApplyPatchTool(options.workingDirectory),
     createReadFileTool(options.workingDirectory),
     createListDirectoryTool(options.workingDirectory),
+    createFindFilesTool(options.workingDirectory),
     createSearchTextTool(options.workingDirectory),
     createWriteFileTool(options.workingDirectory),
     createEditFileTool(options.workingDirectory),
@@ -111,6 +131,9 @@ export function createWorkspaceToolRegistry(options: {
     createDeletePathTool(options.workingDirectory),
     createMovePathTool(options.workingDirectory),
     createCopyPathTool(options.workingDirectory),
+    createGitStatusTool(),
+    createGitDiffToolUncached(),
+    createGitDiffCachedTool(),
     createRunShellCommandTool(),
     createMakeHttpRequestTool()
   ]);
@@ -136,7 +159,7 @@ export function createDefaultToolRegistry(options: {
   routineRepository: RoutineRepository;
   enabledCapabilityPacks?: readonly string[];
 }): ToolRegistry {
-  const registry = new ToolRegistry();
+  const registry = createPlanningToolRegistry();
   const enabled = new Set(
     options.enabledCapabilityPacks ??
       (["workspace", "schedule"] satisfies CapabilityPackName[])

@@ -6,6 +6,7 @@ import {
   normalizeCapabilityPacks,
   type PendingConfirmationPayload,
   type PendingPermissionRequest,
+  type SessionTodoState,
   type ScheduleSessionContext
 } from "@ai-app-template/domain";
 
@@ -26,6 +27,7 @@ import {
   isSessionSnapshot,
   resolveWorkingDirectory
 } from "./shared.js";
+import { normalizeTodoState } from "./todo-state.js";
 
 type SessionRow = typeof agentSessions.$inferSelect;
 export type SessionMessageRow = typeof sessionMessages.$inferSelect;
@@ -146,6 +148,9 @@ export function toSessionContext(row: SessionRow): ScheduleSessionContext {
   const pendingConfirmationPayload = parseJsonValue(
     row.pendingConfirmationPayload
   );
+  const todoState = normalizeTodoState(
+    parseJsonValue(row.todoState) as SessionTodoState | null | undefined
+  );
 
   return {
     userId: row.userId,
@@ -167,6 +172,7 @@ export function toSessionContext(row: SessionRow): ScheduleSessionContext {
     pendingConfirmationPayload: isRecord(pendingConfirmationPayload)
       ? (pendingConfirmationPayload as unknown as PendingConfirmationPayload)
       : null,
+    todoState,
     pendingConflictSummary: row.pendingConflictSummary,
     lastUserMessage: row.lastUserMessage
   };
@@ -662,6 +668,7 @@ export class PostgresSessionManager implements SessionManager {
         enabledCapabilityPacks: snapshot.context.enabledCapabilityPacks,
         pendingPermissionRequest: snapshot.context.pendingPermissionRequest,
         pendingConfirmationPayload: snapshot.context.pendingConfirmationPayload,
+        todoState: snapshot.context.todoState ?? null,
         pendingConflictSummary: snapshot.context.pendingConflictSummary,
         lastUserMessage: snapshot.context.lastUserMessage,
         workingDirectory: snapshot.workingDirectory,
@@ -695,6 +702,7 @@ export class PostgresSessionManager implements SessionManager {
           pendingPermissionRequest: snapshot.context.pendingPermissionRequest,
           pendingConfirmationPayload:
             snapshot.context.pendingConfirmationPayload,
+          todoState: snapshot.context.todoState ?? null,
           pendingConflictSummary: snapshot.context.pendingConflictSummary,
           lastUserMessage: snapshot.context.lastUserMessage,
           workingDirectory: snapshot.workingDirectory,

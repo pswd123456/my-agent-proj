@@ -1,5 +1,7 @@
 import type { RunStreamEvent, SessionSnapshot } from "@ai-app-template/sdk";
 
+import { applyTodoToolResultToSession } from "./session-todo-state";
+
 export interface SessionUiState {
   session: SessionSnapshot | null;
   submitting: boolean;
@@ -184,18 +186,19 @@ export function applyStreamEventToSessionState(
       const nextPending = current.sessionState.pendingToolCallIds.filter(
         (id) => id !== event.toolCallId
       );
+      const nextSession = applyTodoToolResultToSession(current, event);
       return {
         ...nextBaseState,
         session: {
-          ...current,
+          ...nextSession,
           sessionState: {
-            ...current.sessionState,
+            ...nextSession.sessionState,
             loopState:
               nextPending.length > 0 ? "waiting for tool result" : "running",
             pendingToolCallIds: nextPending
           },
           context: {
-            ...current.context,
+            ...nextSession.context,
             status: "running"
           }
         }

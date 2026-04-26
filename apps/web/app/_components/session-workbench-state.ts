@@ -14,6 +14,7 @@ import {
   type SettingsFormState,
   type TurnUsageSummary
 } from "./session-workbench-types";
+import { applyTodoToolResultToSession } from "./session-todo-state";
 
 type SessionDisplayStateInput = Pick<
   SessionSummary,
@@ -144,16 +145,17 @@ export function applyStreamEventToSession(
       const nextPending = session.sessionState.pendingToolCallIds.filter(
         (id) => id !== event.toolCallId
       );
+      const nextSession = applyTodoToolResultToSession(session, event);
       return {
-        ...session,
+        ...nextSession,
         sessionState: {
-          ...session.sessionState,
+          ...nextSession.sessionState,
           loopState:
             nextPending.length > 0 ? "waiting for tool result" : "running",
           pendingToolCallIds: nextPending
         },
         context: {
-          ...session.context,
+          ...nextSession.context,
           status: "running"
         }
       };
@@ -289,8 +291,7 @@ export function getSessionDisplayState(
   if (session.loopState === "waiting for tool result") {
     const pendingCount = session.pendingToolCallIds.length;
     return {
-      label:
-        pendingCount > 0 ? `等待工具结果 · ${pendingCount}` : "执行中",
+      label: pendingCount > 0 ? `等待工具结果 · ${pendingCount}` : "执行中",
       detail: "工具调用已获准，runtime 正在继续执行当前请求。",
       tone: "active",
       isWaitingForUser: false,

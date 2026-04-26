@@ -14,6 +14,17 @@ export interface ApiClientConfig {
   fetch?: typeof fetch;
 }
 
+interface ApiErrorPayload {
+  error: {
+    message: string;
+    name?: string;
+    code?: string;
+    requestId?: string;
+    status?: number;
+    details?: unknown;
+  };
+}
+
 export interface SessionSummary {
   sessionId: string;
   updatedAt: string;
@@ -102,12 +113,59 @@ function toJsonHeaders(init?: RequestInit): Headers {
   return headers;
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isApiErrorPayload(value: unknown): value is ApiErrorPayload {
+  return (
+    isPlainObject(value) &&
+    isPlainObject(value.error) &&
+    typeof value.error.message === "string"
+  );
+}
+
+function formatApiErrorMessage(
+  payload: ApiErrorPayload,
+  fallbackStatus: number
+): string {
+  const status = payload.error.status ?? fallbackStatus;
+  const lines = [`HTTP ${status}: ${payload.error.message}`];
+  if (payload.error.name && payload.error.name !== "Error") {
+    lines.push(`name: ${payload.error.name}`);
+  }
+  if (payload.error.code) {
+    lines.push(`code: ${payload.error.code}`);
+  }
+  if (payload.error.requestId) {
+    lines.push(`requestId: ${payload.error.requestId}`);
+  }
+  if (typeof payload.error.details !== "undefined") {
+    lines.push(`details: ${JSON.stringify(payload.error.details, null, 2)}`);
+  }
+  return lines.join("\n");
+}
+
 async function ensureOk(response: Response): Promise<Response> {
   if (response.ok) {
     return response;
   }
 
   const text = await response.text();
+  const contentType = response.headers.get("content-type") ?? "";
+  if (text && contentType.includes("application/json")) {
+    try {
+      const payload = JSON.parse(text) as unknown;
+      if (isApiErrorPayload(payload)) {
+        throw new Error(formatApiErrorMessage(payload, response.status));
+      }
+    } catch (error) {
+      if (error instanceof Error) {
+        throw error;
+      }
+    }
+  }
+
   throw new Error(text || `Request failed with status ${response.status}`);
 }
 
