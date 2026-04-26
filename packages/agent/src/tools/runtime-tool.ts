@@ -6,13 +6,20 @@ import type {
 } from "@ai-app-template/domain";
 
 import type { SessionManager } from "../session/contracts.js";
-import type { ConversationBlock, JsonValue, ToolState } from "../types.js";
+import type { DelegateAgentService } from "../delegation/index.js";
+import type {
+  ConversationBlock,
+  JsonValue,
+  ToolResultDetails,
+  ToolState
+} from "../types.js";
 
 export type RuntimeToolFamily =
   | "workspace-file"
   | "workspace-shell"
   | "workspace-network"
   | "mcp"
+  | "delegation"
   | "planning"
   | "schedule";
 
@@ -33,6 +40,7 @@ export interface ToolExecutionContext {
   abortSignal?: AbortSignal;
   routineRepository: RoutineRepository;
   sessionManager: SessionManager;
+  delegateAgentService?: DelegateAgentService;
   sessionContext: {
     status: string;
     currentDateContext: string;
@@ -57,6 +65,7 @@ export interface ToolExecutionResult {
   content: string;
   displayText: string;
   result: ToolResult;
+  details?: ToolResultDetails;
   error?: string;
 }
 

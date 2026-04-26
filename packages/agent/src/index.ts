@@ -1,3 +1,5 @@
+export * from "./background-tasks/index.js";
+export * from "./delegation/index.js";
 export * from "./events.js";
 export * from "./mcp/index.js";
 export * from "./model.js";

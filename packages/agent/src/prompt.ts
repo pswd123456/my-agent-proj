@@ -79,13 +79,10 @@ const DEFAULT_SYSTEM_PROMPT = [
   "Before taking an action, you MUST briefly state your immediate intent in one short sentence so the user can follow what you are about to do.",
   "Keep pre-action intent text concrete and short; do not restate the whole task or write long plans unless the user asks for them.",
   "When the session contains a pending confirmation payload and the user answers yes/no or revises the time, treat it as a response to that pending confirmation.",
-  "When plan mode is enabled and ask_user_question is available, use it for requirement clarification instead of asking a plain-text question and guessing the missing detail yourself.",
   "Some file writes, deletes, moves, shell commands, and network requests may trigger a permission pause before execution.",
   "Actively utilize the skills listed in the runtime context when they are relevant to the user's request and can improve efficiency or reliability.",
   "Only rely on skills explicitly listed in the current runtime context. Do not invent or assume unavailable skills.",
   "When a structured todo list is available, use it to stay aligned with the current task and keep item status updated as you make progress.",
-  "When plan mode is enabled, write or update the task brief only with replace_task_brief; do not use shell redirection or ordinary workspace file mutation tools for task brief writes.",
-  "When plan mode is enabled, follow the task brief binding and next-write rule exposed in the runtime context instead of inferring from the path alone.",
   "For repository or document inspection, follow this retrieval protocol unless the user explicitly asks for a full-file read: (1) use search_text or find_files to narrow the target, (2) read only a narrow window with read_file, (3) expand with the next adjacent window only if needed.",
   "Do not begin context gathering with broad read_file, git_status, or directory-wide exploration when search_text or find_files can narrow the target faster.",
   "When both search_text and read_file are available, you MUST use search_text first before read_file unless you already have an exact file path and exact line range from the current turn.",
@@ -100,6 +97,12 @@ const DEFAULT_SYSTEM_PROMPT = [
 const EPHEMERAL_CACHE_CONTROL = {
   type: "ephemeral"
 } as const;
+
+const PLAN_MODE_DISABLED_TOOL_NAMES = new Set([
+  "get_todo_list",
+  "replace_todo_list",
+  "update_todo_items"
+]);
 
 export const HISTORY_COMPACTION_TRIGGER_RATIO = 0.95;
 export const HISTORY_COMPACTION_TAIL_MESSAGES = 18;
@@ -123,6 +126,13 @@ function shouldExposeToolInPrompt(
     session.context.planModeEnabled &&
     tool.family === "workspace-file" &&
     tool.isReadOnly === false
+  ) {
+    return false;
+  }
+
+  if (
+    session.context.planModeEnabled &&
+    PLAN_MODE_DISABLED_TOOL_NAMES.has(tool.name)
   ) {
     return false;
   }
@@ -375,6 +385,61 @@ function createSkillsContextMessage(
       {
         type: "text",
         text: ["Runtime skills for this workspace:", ...skillLines].join("\n")
+      }
+    ]
+  };
+}
+
+function createPlanModePromptMessage(
+  session: SessionSnapshot,
+  tools: AnthropicToolDefinition[]
+): AnthropicMessage | null {
+  if (!session.context.planModeEnabled) {
+    return null;
+  }
+
+  const toolNames = new Set(tools.map((tool) => tool.name));
+  const lines = [
+    "Plan mode prompt for this run:",
+    "- Stay in planning mode. Do not mutate ordinary workspace files.",
+    "- Todo tools are unavailable in plan mode. Use the task brief as the planning artifact."
+  ];
+
+  if (toolNames.has("ask_user_question")) {
+    lines.push(
+      "- Use ask_user_question for requirement clarification instead of asking a plain-text question and guessing."
+    );
+  }
+  if (toolNames.has("search_task_brief")) {
+    lines.push(
+      "- Use search_task_brief first when you need to locate a section or line number in the current brief."
+    );
+  }
+  if (toolNames.has("read_task_brief")) {
+    lines.push(
+      "- Use read_task_brief with narrow line windows to inspect the brief."
+    );
+  }
+  if (toolNames.has("edit_task_brief")) {
+    lines.push(
+      "- Use edit_task_brief for targeted line edits inside an existing brief."
+    );
+  }
+  if (toolNames.has("replace_task_brief")) {
+    lines.push(
+      "- Use replace_task_brief when creating the first brief or when a full rewrite is clearly cheaper than several small edits."
+    );
+  }
+  lines.push(
+    "- Follow the task brief binding and next-write rule from the runtime context instead of inferring from the path alone."
+  );
+
+  return {
+    role: "user",
+    content: [
+      {
+        type: "text",
+        text: lines.join("\n")
       }
     ]
   };
@@ -743,12 +808,17 @@ export class PromptBuilder {
       .update("\n")
       .update(JSON.stringify(tools))
       .digest("hex");
+    const planModePromptMessage = createPlanModePromptMessage(session, tools);
 
     return {
       system,
       prefixMessages: [prefixMessage],
       messages: baseMessages,
-      runtimeContextMessages: [...runtimeContextMessages, skillsContextMessage],
+      runtimeContextMessages: [
+        ...(planModePromptMessage ? [planModePromptMessage] : []),
+        ...runtimeContextMessages,
+        skillsContextMessage
+      ],
       dynamicPromptMessages,
       tools,
       cacheKey

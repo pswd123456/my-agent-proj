@@ -41,6 +41,7 @@ export interface PatchApplicationSummary {
   hunkCount: number;
   addedLineCount: number;
   removedLineCount: number;
+  diff: string;
 }
 
 type PatchParseResult =
@@ -246,8 +247,28 @@ function summarizeFilePatch(filePatch: UnifiedFilePatch): PatchApplicationSummar
     action: filePatch.action,
     hunkCount: filePatch.hunks.length,
     addedLineCount,
-    removedLineCount
+    removedLineCount,
+    diff: serializeUnifiedFilePatch(filePatch)
   };
+}
+
+function serializeUnifiedFilePatch(filePatch: UnifiedFilePatch): string {
+  const oldPath = filePatch.oldPath === null ? "/dev/null" : `a/${filePatch.oldPath}`;
+  const newPath = filePatch.newPath === null ? "/dev/null" : `b/${filePatch.newPath}`;
+  const lines = [`--- ${oldPath}`, `+++ ${newPath}`];
+
+  for (const hunk of filePatch.hunks) {
+    lines.push(
+      `@@ -${hunk.oldStart},${hunk.oldCount} +${hunk.newStart},${hunk.newCount} @@`
+    );
+    for (const line of hunk.lines) {
+      const prefix =
+        line.kind === "context" ? " " : line.kind === "add" ? "+" : "-";
+      lines.push(`${prefix}${line.text}`);
+    }
+  }
+
+  return lines.join("\n");
 }
 
 export function listPatchTargets(patchText: string): string[] {

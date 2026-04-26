@@ -5,7 +5,11 @@ import path from "node:path";
 
 import { createAskUserQuestionTool } from "../src/tools/ask-user-question.js";
 import { createCreateRoutineTool } from "../src/tools/create-routine.js";
+import { createEditTaskBriefTool } from "../src/tools/edit-task-brief.js";
+import { createReadTaskBriefTool } from "../src/tools/read-task-brief.js";
 import { createReplaceTaskBriefTool } from "../src/tools/replace-task-brief.js";
+import { createReplaceTodoListTool } from "../src/tools/replace-todo-list.js";
+import { createSearchTaskBriefTool } from "../src/tools/search-task-brief.js";
 import { createWriteFileTool } from "../src/tools/write-file.js";
 import { createReadFileTool } from "../src/tools/read-file.js";
 import { ToolRegistry } from "../src/tools/registry.js";
@@ -197,22 +201,25 @@ describe("PromptBuilder skill context", () => {
       });
 
       expect(JSON.stringify(first.runtimeContextMessages[0])).toContain(
+        "Plan mode prompt for this run:"
+      );
+      expect(JSON.stringify(first.runtimeContextMessages[1])).toContain(
         "Plan mode: enabled"
       );
-      expect(JSON.stringify(first.runtimeContextMessages[0])).toContain(
+      expect(JSON.stringify(first.runtimeContextMessages[1])).toContain(
         "Task brief binding: bound_named"
       );
-      expect(JSON.stringify(first.runtimeContextMessages[0])).toContain(
+      expect(JSON.stringify(first.runtimeContextMessages[1])).toContain(
         "Task brief next write: omit plan_name unless you are reusing jump_joy_web_game.md."
       );
-      expect(JSON.stringify(first.runtimeContextMessages[0])).not.toContain(
+      expect(JSON.stringify(first.runtimeContextMessages[1])).not.toContain(
         "First draft"
       );
-      expect(JSON.stringify(second.runtimeContextMessages[0])).not.toContain(
+      expect(JSON.stringify(second.runtimeContextMessages[1])).not.toContain(
         "Second draft"
       );
-      expect(first.runtimeContextMessages[0]).toEqual(
-        second.runtimeContextMessages[0]
+      expect(first.runtimeContextMessages[1]).toEqual(
+        second.runtimeContextMessages[1]
       );
       expect(first.cacheKey).toBe(second.cacheKey);
     } finally {
@@ -220,7 +227,7 @@ describe("PromptBuilder skill context", () => {
     }
   });
 
-  test("hides ordinary workspace file mutations from the prompt tool surface in plan mode", async () => {
+  test("hides ordinary workspace file mutations and todo tools from the prompt tool surface in plan mode", async () => {
     const workspaceRoot = await mkdtemp(path.join(tmpdir(), "prompt-tools-"));
 
     try {
@@ -237,9 +244,13 @@ describe("PromptBuilder skill context", () => {
       );
 
       const toolRegistry = new ToolRegistry()
+        .register(createEditTaskBriefTool())
         .register(createReadFileTool(workspaceRoot))
+        .register(createReadTaskBriefTool())
+        .register(createReplaceTodoListTool())
         .register(createWriteFileTool(workspaceRoot))
-        .register(createReplaceTaskBriefTool());
+        .register(createReplaceTaskBriefTool())
+        .register(createSearchTaskBriefTool());
 
       const promptEnvelope = promptBuilder.build(session, toolRegistry, {
         currentDateTimeContext: "2026-04-26 10:00",
@@ -247,14 +258,20 @@ describe("PromptBuilder skill context", () => {
       });
 
       expect(promptEnvelope.tools.map((tool) => tool.name)).toEqual([
+        "edit_task_brief",
         "read_file",
-        "replace_task_brief"
+        "read_task_brief",
+        "replace_task_brief",
+        "search_task_brief"
       ]);
       expect(JSON.stringify(promptEnvelope.prefixMessages[0])).toContain(
-        "Mounted tools: read_file, replace_task_brief"
+        "Mounted tools: edit_task_brief, read_file, read_task_brief, replace_task_brief, search_task_brief"
       );
       expect(JSON.stringify(promptEnvelope.prefixMessages[0])).not.toContain(
         "write_file"
+      );
+      expect(JSON.stringify(promptEnvelope.prefixMessages[0])).not.toContain(
+        "replace_todo_list"
       );
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true });
@@ -296,8 +313,8 @@ describe("PromptBuilder skill context", () => {
       expect(JSON.stringify(after.prefixMessages[0])).toContain(
         "Mounted tools: ask_user_question"
       );
-      expect(after.system).toContain(
-        "use it for requirement clarification instead of asking a plain-text question"
+      expect(JSON.stringify(after.runtimeContextMessages[0])).toContain(
+        "Use ask_user_question for requirement clarification"
       );
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true });

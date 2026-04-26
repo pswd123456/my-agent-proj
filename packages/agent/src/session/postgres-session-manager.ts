@@ -21,7 +21,8 @@ import type {
   CreateSessionInput,
   JsonValue,
   LoopState,
-  SessionSnapshot
+  SessionSnapshot,
+  ToolResultDetails
 } from "../types.js";
 import type { SessionManager } from "./contracts.js";
 import {
@@ -78,6 +79,50 @@ function readToolInput(
     ...legacy
   } = metadata;
   return legacy as Record<string, JsonValue>;
+}
+
+function readToolResultDetails(
+  metadata: Record<string, JsonValue>
+): ToolResultDetails | undefined {
+  if (!isRecord(metadata.details)) {
+    return undefined;
+  }
+
+  const details = metadata.details as Record<string, unknown>;
+  if (details.kind !== "workspace_file_changes" || !Array.isArray(details.files)) {
+    return undefined;
+  }
+
+  const files = details.files
+    .filter(
+      (file): file is {
+        path: string;
+        action: "modify" | "create" | "delete";
+        addedLineCount: number;
+        removedLineCount: number;
+        diff: string;
+      } =>
+        isRecord(file) &&
+        typeof file.path === "string" &&
+        (file.action === "modify" ||
+          file.action === "create" ||
+          file.action === "delete") &&
+        typeof file.addedLineCount === "number" &&
+        typeof file.removedLineCount === "number" &&
+        typeof file.diff === "string"
+    )
+    .map((file) => ({
+      path: file.path,
+      action: file.action,
+      addedLineCount: file.addedLineCount,
+      removedLineCount: file.removedLineCount,
+      diff: file.diff
+    }));
+
+  return {
+    kind: "workspace_file_changes",
+    files
+  };
 }
 
 function toStringArray(value: unknown): string[] {
@@ -167,6 +212,7 @@ export function toConversationBlock(row: SessionMessageRow): ConversationBlock {
 
   const metadata = toJsonRecord(row.inputJson);
   const responseGroupId = readResponseGroupId(metadata);
+  const details = readToolResultDetails(metadata);
   return {
     id: row.id,
     kind: "tool result",
@@ -176,6 +222,7 @@ export function toConversationBlock(row: SessionMessageRow): ConversationBlock {
     isError: Boolean(row.isError),
     state:
       row.state === "pending" || row.state === "success" ? row.state : "failed",
+    ...(details ? { details } : {}),
     ...(responseGroupId ? { responseGroupId } : {}),
     createdAt
   };
@@ -319,9 +366,15 @@ export function serializeBlock(block: ConversationBlock): {
     toolCallId: block.toolCallId,
     state: block.state,
     isError: block.isError,
-    inputJson: block.responseGroupId
-      ? { responseGroupId: block.responseGroupId }
-      : null,
+    inputJson:
+      block.responseGroupId || block.details
+        ? ({
+            ...(block.responseGroupId
+              ? { responseGroupId: block.responseGroupId }
+              : {}),
+            ...(block.details ? { details: block.details } : {})
+          } as Record<string, JsonValue>)
+        : null,
     outputText: block.output,
     createdAt: block.createdAt
   };

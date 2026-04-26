@@ -16,6 +16,9 @@
 - `packages/agent/src/session/task-brief.ts`
 - `packages/agent/src/prompt.ts`
 - `packages/agent/src/tools/get-task-brief.ts`
+- `packages/agent/src/tools/read-task-brief.ts`
+- `packages/agent/src/tools/search-task-brief.ts`
+- `packages/agent/src/tools/edit-task-brief.ts`
 - `packages/agent/src/tools/replace-task-brief.ts`
 - `packages/agent/src/runtime/permission-checker.ts`
 - `docs/architecture/context-management/plan-mode.md`
@@ -27,7 +30,7 @@
 它是：
 
 - `plan mode` 的配套 artifact
-- `todoState` 之外的一份任务骨架
+- 当前 `plan mode` 下唯一对模型开放的 planning artifact
 - 当前通过 planning tool surface 显式维护的 session 级 artifact
 
 它不是：
@@ -90,10 +93,16 @@
 - `Task brief binding`
 - `Task brief next write`
 
+另外，当 session 开启 `plan mode` 时，还会额外注入一条专用的 `plan mode prompt`，强调：
+
+- `todo` 工具在 plan mode 下不可用
+- 优先通过 `search_task_brief / read_task_brief / edit_task_brief / replace_task_brief` 维护 brief
+- 普通 workspace 文件写工具不可用
+
 这里有两个很重要的现状：
 
 1. `task brief` 正文不进入 stable prefix，也不再重复进入 `runtimeContextMessages`
-2. brief 正文当前主要通过 `replace_task_brief` / `get_task_brief` 的 tool result 回放被模型消费
+2. brief 正文当前主要通过 `read_task_brief / search_task_brief / edit_task_brief / replace_task_brief / get_task_brief` 的 tool result 回放被模型消费
 3. brief 内容变化不会进入 `cacheKey`
 
 因此，当前的 brief 更像“通过 planning 工具显式读写的 artifact”，而不是“每轮自动回灌的运行时上下文”。
@@ -116,19 +125,27 @@
 
 所以，当前并没有“退出后自动继续消费 brief 正文”的机制；后续如果需要这条能力，应单独设计，而不是继续往 runtime context 里塞同一份内容。
 
-### 5. 当前工具面是 `get` / `replace`，不是结构化 update
+### 5. 当前工具面是 `read/search/edit/replace`，不是结构化 update
 
 当前 planning tool surface 已落地的是：
 
+- `read_task_brief`
+- `search_task_brief`
+- `edit_task_brief`
 - `get_task_brief`
 - `replace_task_brief`
 
 其中：
 
+- `read_task_brief` 是当前推荐的 paged read 入口，支持按 line window 读取
+- `search_task_brief` 用于先定位 section / line number，再做窄读取
+- `edit_task_brief` 用于按 inclusive line range 改已有 brief
 - `get_task_brief` 只读，返回 `path / exists / content / truncated`
-- `replace_task_brief` 是当前唯一允许写 brief 的入口
+- `get_task_brief` 当前更多是兼容保留的整篇读取入口
+- `replace_task_brief` 是创建第一版 brief 或整篇重写时的写入口
 - `replace_task_brief` 成功后会返回路径和当前写入内容；当前模型主要通过这类 tool result 回放拿到最新 brief 正文
-- 如果需要在后续轮次重新读取完整 markdown 内容，应显式调用 `get_task_brief`
+- 如果需要在后续轮次重新读取局部内容，应优先调用 `search_task_brief` 或 `read_task_brief`
+- 如果需要在后续轮次重新读取完整 markdown 内容，仍可显式调用 `get_task_brief`
 - 第一次写 brief 时，`replace_task_brief` 必须带 `plan_name`
 - `replace_task_brief` 只允许写当前 session 绑定的 brief 路径
 - 写 brief 只能通过 `replace_task_brief`，不要用 shell 重定向或普通 workspace file 工具写入
@@ -137,61 +154,38 @@
 
 当前并没有落地结构化 `update_task_brief` 聚合工具，也没有 section 级工具。
 
-### 6. 当前 plan mode 只拦普通 workspace 文件写工具
+### 6. 当前 plan mode 会把 todo 从工具面拿掉
 
 当 `planModeEnabled = true` 时：
 
 - prompt 暴露给模型的工具列表会隐藏普通 `workspace-file` 写工具
+- prompt 暴露给模型的工具列表也会隐藏 `get_todo_list / replace_todo_list / update_todo_items`
 - 普通 `workspace-file` 写工具会在权限检查前被直接 block
-- `planning` family 工具仍然可用
-- `task brief` 写入只能通过 `replace_task_brief`，不能用 shell 重定向绕过
+- `todo` 工具在执行层也会被 block
+- `task brief` 写入不能用 shell 重定向绕过
 
-当前被 `plan mode` 拦截的是“普通工作区文件改动”，不是所有 mutating tool 的总开关。
+当前被 `plan mode` 拦截的是：
+
+1. 普通工作区文件改动
+2. todo 工具
 
 这条边界的意义是：
 
 - 让“维护 task brief artifact”和“修改普通工作区文件”分开
-- planning 阶段可以继续读文件、看 git、维护 todo 和 brief
+- planning 阶段可以继续读文件、看 git、维护 brief
 - 但不能直接改业务文件
+- 也不会再让模型在 todo 和 brief 之间摇摆
 - 即使旧消息或异常 tool call 仍然带上普通写工具，权限层也会继续 block，作为 prompt 侧隐藏之外的兜底保护
 
-## 与 todoState 的当前分工
+## 与 todoState 的当前关系
 
-当前仓库里，`todoState` 和 `task brief` 是两层不同的 planning 信息：
+当前仓库里，`todoState` 仍然作为 session 级能力保留，但在 `plan mode` 下：
 
-### `todoState`
+- 不暴露给模型
+- 不允许工具调用
+- 不再承担 planning artifact 的角色
 
-负责：
-
-- 当前任务拆分
-- active item
-- 步骤状态流转
-
-更适合回答：
-
-- 现在做哪一步
-- 哪一步完成了
-- 哪一步被取消了
-
-### `task brief`
-
-负责：
-
-- 目标
-- 约束
-- 验收标准
-- 已验证事实
-- 决策
-- checkpoint 锚点
-
-更适合回答：
-
-- 这次任务到底要交付什么
-- 哪些前提已经确认
-- 为什么当前计划成立
-- 中断后应该从什么认知状态继续
-
-当前这两者没有做结构化双写同步，brief 正文仍以 markdown 文件为事实源。
+也就是说，在当前 `plan mode` 里，模型看到的 planning 主体只剩 `task brief`。
 
 ## 为什么当前不做成通用 working memory
 

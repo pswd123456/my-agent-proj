@@ -9,8 +9,9 @@
 
 - `apps/api` 是当前运行主入口，负责 session 生命周期、设置读取、runtime 装配、SSE 输出、trace 查询与恢复接口
 - `apps/web` 是当前唯一产品层前端，主要承载 workbench、会话可视化、trace 与调试观察
+- `apps/worker` 是后台执行入口，负责轮询 `background_tasks`、认领 detached task，并用独立 child session 驱动长任务
 - `packages/agent` 提供 runtime loop、prompt、provider 适配、统一模型服务、permission checker、session manager、tool registry、skills、trace 与 system log
-- `packages/db` 提供 PostgreSQL 访问、schema 初始化、settings repository、routine repository
+- `packages/db` 提供 PostgreSQL 访问、schema 初始化、settings repository、routine repository、background task repository
 - `packages/domain` 提供 session settings、session context、权限规则和 routine 领域模型
 - `packages/sdk` 提供给 Web 使用的 API client、摘要转换与跨层类型
 
@@ -21,6 +22,7 @@
 - session 默认 `maxTurns` 是 `50`，接口允许的上限是 `200`
 - 默认启用的 capability packs 是 `workspace` 和 `schedule`
 - session settings 的解析顺序是 `explicit override > user settings > repo default`
+- detached background task 使用独立 child session，不与 parent session 共用消息历史
 - 工作区 runtime 上下文还会按次读取 `session.workingDirectory/.agent/`
   - `.agent/skills/` 提供 skill metadata
   - `.agent/.config.toml` 提供 MCP server 配置
@@ -54,6 +56,14 @@
 - `POST /sessions/:sessionId/routines/reset`
 
 文档描述这些接口时，应优先以 `apps/api/src/app.ts` 当前实现为准。
+
+## 后台任务现状
+
+- 当前已落地 `BackgroundTaskManager` v1 基座
+- 任务主记录保存在 `background_tasks`
+- 每次执行尝试保存在 `background_task_runs`
+- v1 只支持 `agent_session` 执行后端
+- 当前没有公开 background task API，也没有 cron/subagent tool surface
 
 ## 当前事实源
 

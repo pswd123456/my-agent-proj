@@ -5,6 +5,7 @@ import {
   parseUnifiedPatch
 } from "./unified-patch.js";
 import { createToolResult, failureResult, successResult } from "./tool-result.js";
+import type { ToolResultDetails } from "../types.js";
 
 function summarizeTargetPaths(targets: string[]): string {
   if (targets.length === 0) {
@@ -125,6 +126,16 @@ export function createApplyPatchTool(workingDirectory: string): RuntimeTool {
           patch: parsedPatch.value,
           allowWorkspaceEscape: context.allowWorkspaceEscape ?? false
         });
+        const details: ToolResultDetails = {
+          kind: "workspace_file_changes",
+          files: summaries.map((summary) => ({
+            path: summary.path,
+            action: summary.action,
+            addedLineCount: summary.addedLineCount,
+            removedLineCount: summary.removedLineCount,
+            diff: summary.diff
+          }))
+        };
 
         return successResult(
           createToolResult({
@@ -138,13 +149,15 @@ export function createApplyPatchTool(workingDirectory: string): RuntimeTool {
                 action: summary.action,
                 hunkCount: summary.hunkCount,
                 addedLineCount: summary.addedLineCount,
-                removedLineCount: summary.removedLineCount
+                removedLineCount: summary.removedLineCount,
+                diff: summary.diff
               }))
             }
           }),
           `[apply_patch] success\n- ${summaries.length} file(s): ${summarizeTargetPaths(
             summaries.map((summary) => summary.path)
-          )}`
+          )}`,
+          details
         );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

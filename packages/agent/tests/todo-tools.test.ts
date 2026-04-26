@@ -5,10 +5,13 @@ import path from "node:path";
 import { createMemorySessionManager } from "../src/session/index.js";
 import { resolveLegacyTaskBriefPath } from "../src/session/task-brief.js";
 import {
+  createEditTaskBriefTool,
   createGetTaskBriefTool,
   createGetTodoListTool,
+  createReadTaskBriefTool,
   createReplaceTaskBriefTool,
   createReplaceTodoListTool,
+  createSearchTaskBriefTool,
   createUpdateTodoItemsTool
 } from "../src/tools/index.js";
 import type { ToolExecutionContext } from "../src/tools/runtime-tool.js";
@@ -250,7 +253,7 @@ describe("todo tools", () => {
     expect(replaceResult.content).not.toContain("Acceptance Criteria");
     expect(replaceResult.content).toContain('"ack": "task_brief_replaced"');
     expect(replaceResult.content).toContain('"path":');
-    expect(replaceResult.content).toContain('"hash"');
+    expect(replaceResult.content).not.toContain('"hash"');
 
     const persisted = await sessionManager.getSession(session.sessionId);
     const taskBriefPath = persisted?.context.taskBriefPath;
@@ -275,6 +278,91 @@ describe("todo tools", () => {
     expect(readResult.state).toBe("success");
     expect(readResult.content).toContain('"exists": true');
     expect(readResult.content).toContain("Jump joy web game");
+  });
+
+  test("read_task_brief supports line windows and search_task_brief returns line numbers", async () => {
+    const sessionManager = createMemorySessionManager();
+    const session = await sessionManager.createSession({
+      workingDirectory: "/tmp/workspace",
+      userId: "todo-user",
+      planModeEnabled: true
+    });
+
+    const content = [
+      "# Task Brief",
+      "",
+      "## Goal",
+      "Jump joy web game",
+      "",
+      "## Acceptance Criteria",
+      "- no file writes",
+      "- keep plan mode read only"
+    ].join("\n");
+    await createReplaceTaskBriefTool().execute(
+      { plan_name: "jump_joy_web_game", content },
+      await createSessionContext(sessionManager, session.sessionId)
+    );
+
+    const readResult = await createReadTaskBriefTool().execute(
+      { startLine: 3, endLine: 7 },
+      await createSessionContext(sessionManager, session.sessionId)
+    );
+    expect(readResult.state).toBe("success");
+    expect(readResult.content).toContain('"startLine": 3');
+    expect(readResult.content).toContain('"endLine": 7');
+    expect(readResult.content).toContain("Jump joy web game");
+    expect(readResult.content).not.toContain("# Task Brief");
+
+    const searchResult = await createSearchTaskBriefTool().execute(
+      { query: "plan mode", maxResults: 5 },
+      await createSessionContext(sessionManager, session.sessionId)
+    );
+    expect(searchResult.state).toBe("success");
+    expect(searchResult.content).toContain('"line": 8');
+    expect(searchResult.content).toContain("keep plan mode read only");
+  });
+
+  test("edit_task_brief replaces an inclusive line range", async () => {
+    const sessionManager = createMemorySessionManager();
+    const session = await sessionManager.createSession({
+      workingDirectory: "/tmp/workspace",
+      userId: "todo-user",
+      planModeEnabled: true
+    });
+
+    await createReplaceTaskBriefTool().execute(
+      {
+        plan_name: "jump_joy_web_game",
+        content: [
+          "# Task Brief",
+          "",
+          "## Goal",
+          "Jump joy web game",
+          "",
+          "## Next Checkpoint",
+          "Draft v1"
+        ].join("\n")
+      },
+      await createSessionContext(sessionManager, session.sessionId)
+    );
+
+    const editResult = await createEditTaskBriefTool().execute(
+      {
+        startLine: 6,
+        endLine: 7,
+        content: ["## Next Checkpoint", "Draft v2"].join("\n")
+      },
+      await createSessionContext(sessionManager, session.sessionId)
+    );
+    expect(editResult.state).toBe("success");
+    expect(editResult.content).toContain('"code": "TASK_BRIEF_EDITED"');
+
+    const readResult = await createReadTaskBriefTool().execute(
+      {},
+      await createSessionContext(sessionManager, session.sessionId)
+    );
+    expect(readResult.content).toContain("Draft v2");
+    expect(readResult.content).not.toContain("Draft v1");
   });
 
   test("replace_task_brief requires plan_name before the first write", async () => {

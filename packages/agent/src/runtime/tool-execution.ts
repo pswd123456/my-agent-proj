@@ -1,6 +1,7 @@
 import type { RoutineRepository } from "@ai-app-template/db";
 
 import type { RunEventSink } from "../events.js";
+import type { DelegateAgentService } from "../delegation/index.js";
 import type { SessionManager } from "../session.js";
 import type { TraceManager } from "../trace.js";
 import type { JsonValue, RunSessionResult, SessionSnapshot } from "../types.js";
@@ -28,6 +29,7 @@ function createToolExecutionContext(input: {
   session: SessionSnapshot;
   routineRepository: RoutineRepository;
   sessionManager: SessionManager;
+  delegateAgentService?: DelegateAgentService;
   tool: ReturnType<ToolRegistry["get"]>;
   abortSignal?: AbortSignal;
   allowWorkspaceEscape?: boolean;
@@ -42,6 +44,9 @@ function createToolExecutionContext(input: {
     ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
     routineRepository: input.routineRepository,
     sessionManager: input.sessionManager,
+    ...(input.delegateAgentService
+      ? { delegateAgentService: input.delegateAgentService }
+      : {}),
     allowWorkspaceEscape: workspaceEscapeAllowed ?? false,
     permissionRules: {
       shellAllowPatterns: input.session.context.shellAllowPatterns ?? [],
@@ -73,6 +78,7 @@ export async function executeToolAction(input: {
   sessionManager: SessionManager;
   routineRepository: RoutineRepository;
   toolRegistry: ToolRegistry;
+  delegateAgentService?: DelegateAgentService;
   traceManager: TraceManager | undefined;
   session: SessionSnapshot;
   turnCount: number;
@@ -218,6 +224,9 @@ export async function executeToolAction(input: {
     session,
     routineRepository: input.routineRepository,
     sessionManager: input.sessionManager,
+    ...(input.delegateAgentService
+      ? { delegateAgentService: input.delegateAgentService }
+      : {}),
     tool,
     ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
     ...(typeof input.allowWorkspaceEscape === "boolean"
@@ -343,6 +352,7 @@ export async function executeToolAction(input: {
       name: input.toolName,
       content: result.content,
       isError: result.state === "failed",
+      ...(result.details ? { details: result.details } : {}),
       ...(input.responseGroupId
         ? { responseGroupId: input.responseGroupId }
         : {})
@@ -363,7 +373,8 @@ export async function executeToolAction(input: {
       toolName: input.toolName,
       output: result.content,
       isError: result.state === "failed",
-      displayText: result.displayText
+      displayText: result.displayText,
+      ...(result.details ? { details: result.details } : {})
     }
   });
 
@@ -375,7 +386,8 @@ export async function executeToolAction(input: {
       toolName: input.toolName,
       content: result.content,
       displayText: result.displayText,
-      isError: result.state === "failed"
+      isError: result.state === "failed",
+      ...(result.details ? { details: result.details } : {})
     }
   };
 }

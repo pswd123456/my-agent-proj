@@ -15,6 +15,7 @@
 - `runtime.ts` 负责 agent 执行编排
 - `prompt.ts` 负责 prompt 拼装与消息转换
 - `session/` 负责 session 契约、校验与存取实现
+- `background-tasks/` 负责后台长任务的生命周期管理与 detached worker 执行编排
 - `models/` 负责模型目录、provider 选择与客户端装配
 - `tools/` 负责 tool registry 与具体工具实现
 - `model.ts` 负责模型协议适配

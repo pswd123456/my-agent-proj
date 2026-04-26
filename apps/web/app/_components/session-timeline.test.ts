@@ -92,6 +92,25 @@ const currentToolResult: Extract<RunStreamEvent, { kind: "tool_result" }> = {
   isError: false
 };
 
+const fileChangeDetails = {
+  kind: "workspace_file_changes" as const,
+  files: [
+    {
+      path: "apps/web/app/page.tsx",
+      action: "modify" as const,
+      addedLineCount: 4,
+      removedLineCount: 2,
+      diff: [
+        "--- apps/web/app/page.tsx",
+        "+++ apps/web/app/page.tsx",
+        "@@ -10,2 +10,4 @@",
+        "-old line",
+        "+new line"
+      ].join("\n")
+    }
+  ]
+};
+
 const turnEnd: Extract<RunStreamEvent, { kind: "turn_end" }> = {
   kind: "turn_end",
   sessionId: "session-1",
@@ -702,6 +721,76 @@ describe("buildConversationViewItems compact mode", () => {
     if (doneView[1]?.type === "compact-tool") {
       expect(doneView[1].title).toContain("已编辑");
       expect(doneView[1].originalItems).toHaveLength(2);
+    }
+  });
+
+  test("keeps structured file changes on compact tool items from live events", () => {
+    const editCall: Extract<RunStreamEvent, { kind: "tool_call" }> = {
+      ...currentToolCall,
+      toolCallId: "call-edit-file",
+      toolName: "edit_file",
+      input: { path: "apps/web/app/page.tsx", startLine: 10, endLine: 11 }
+    };
+    const editResult: Extract<RunStreamEvent, { kind: "tool_result" }> = {
+      ...currentToolResult,
+      toolCallId: "call-edit-file",
+      toolName: "edit_file",
+      details: fileChangeDetails
+    };
+
+    const view = buildConversationViewItems({
+      timelineItems: [messageItem(firstUser), eventItem(editCall), eventItem(editResult)],
+      mode: "compact"
+    });
+
+    expect(view[1]?.type).toBe("compact-tool");
+    if (view[1]?.type === "compact-tool") {
+      expect(view[1].fileChanges).toEqual(fileChangeDetails.files);
+      expect(view[1].title).toBe("已编辑 apps/web/app/page.tsx");
+    }
+  });
+
+  test("keeps structured file changes on compact tool items from history messages", () => {
+    const toolCallMessage: Extract<
+      SessionSnapshot["messages"][number],
+      { kind: "tool call" }
+    > = {
+      id: "tool-call-message-1",
+      kind: "tool call",
+      toolCallId: "call-edit-history",
+      toolName: "edit_file",
+      input: { path: "apps/web/app/page.tsx", startLine: 10, endLine: 11 },
+      state: "pending",
+      createdAt: "2026-04-21T18:46:21.700Z"
+    };
+    const toolResultMessage: Extract<
+      SessionSnapshot["messages"][number],
+      { kind: "tool result" }
+    > = {
+      id: "tool-result-message-1",
+      kind: "tool result",
+      toolCallId: "call-edit-history",
+      toolName: "edit_file",
+      output: '{"ok":true}',
+      isError: false,
+      state: "success",
+      details: fileChangeDetails,
+      createdAt: "2026-04-21T18:46:21.710Z"
+    };
+
+    const view = buildConversationViewItems({
+      timelineItems: [
+        messageItem(firstUser),
+        messageItem(toolCallMessage),
+        messageItem(toolResultMessage)
+      ],
+      mode: "compact"
+    });
+
+    expect(view[1]?.type).toBe("compact-tool");
+    if (view[1]?.type === "compact-tool") {
+      expect(view[1].fileChanges).toEqual(fileChangeDetails.files);
+      expect(view[1].originalItems).toHaveLength(2);
     }
   });
 

@@ -9,9 +9,11 @@ import { createAskUserQuestionTool } from "./ask-user-question.js";
 import { createCopyPathTool } from "./copy-path.js";
 import { createCreateDirectoryTool } from "./create-directory.js";
 import { createCreateRoutineTool } from "./create-routine.js";
+import { createDelegateAgentTool } from "./delegate-agent.js";
 import { createDeletePathTool } from "./delete-path.js";
 import { createDeleteRoutineTool } from "./delete-routine.js";
 import { createEditFileTool } from "./edit-file.js";
+import { createEditTaskBriefTool } from "./edit-task-brief.js";
 import { createEditRoutineTool } from "./edit-routine.js";
 import { createGetTodoListTool } from "./get-todo-list.js";
 import { createGetTaskBriefTool } from "./get-task-brief.js";
@@ -27,10 +29,12 @@ import { createListDirectoryTool } from "./list-directory.js";
 import { createMakeHttpRequestTool } from "./make-http-request.js";
 import { createMovePathTool } from "./move-path.js";
 import { createReadFileTool } from "./read-file.js";
+import { createReadTaskBriefTool } from "./read-task-brief.js";
 import { createReplaceTodoListTool } from "./replace-todo-list.js";
 import { createReplaceTaskBriefTool } from "./replace-task-brief.js";
 import { createRunShellCommandTool } from "./run-shell-command.js";
 import { createSearchRoutineByOclockTool } from "./search-routine-by-oclock.js";
+import { createSearchTaskBriefTool } from "./search-task-brief.js";
 import { createSearchTextTool } from "./search-text.js";
 import { createUpdateTodoItemsTool } from "./update-todo-items.js";
 import { createWriteFileTool } from "./write-file.js";
@@ -114,10 +118,14 @@ function registerTools(
 export function createPlanningToolRegistry(): ToolRegistry {
   return registerTools(new ToolRegistry(), [
     createAskUserQuestionTool(),
+    createDelegateAgentTool(),
+    createEditTaskBriefTool(),
     createGetTaskBriefTool(),
     createGetTodoListTool(),
+    createReadTaskBriefTool(),
     createReplaceTaskBriefTool(),
     createReplaceTodoListTool(),
+    createSearchTaskBriefTool(),
     createUpdateTodoItemsTool()
   ]);
 }

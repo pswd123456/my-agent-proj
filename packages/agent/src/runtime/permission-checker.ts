@@ -30,6 +30,12 @@ export type PermissionCheckResult =
   | PermissionAskUserResult
   | PermissionBlockResult;
 
+const PLAN_MODE_DISABLED_TODO_TOOLS = new Set([
+  "get_todo_list",
+  "replace_todo_list",
+  "update_todo_items"
+]);
+
 function buildFallbackPermissionSummary(tool: RuntimeTool): string {
   if (tool.family === "workspace-shell") {
     return `需要你的确认后才能执行 shell 命令：${tool.name}`;
@@ -147,6 +153,16 @@ export async function checkToolPermission(input: {
     return buildSandboxBlockedResult(
       input.tool.name,
       "Plan mode blocks workspace file mutations. Use replace_task_brief for task brief writes, or exit plan mode first."
+    );
+  }
+
+  if (
+    input.executionContext.sessionContext.planModeEnabled &&
+    PLAN_MODE_DISABLED_TODO_TOOLS.has(input.tool.name)
+  ) {
+    return buildSandboxBlockedResult(
+      input.tool.name,
+      "Plan mode disables todo tools. Use task brief tools and ask_user_question instead."
     );
   }
 

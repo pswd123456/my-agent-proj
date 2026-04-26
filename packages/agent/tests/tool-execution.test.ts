@@ -34,6 +34,18 @@ describe("tool execution", () => {
     const sessionManager = createMemorySessionManager();
     const routineRepository = createMemoryRoutineRepository();
     const traceManager = new MemoryTraceManager();
+    const details = {
+      kind: "workspace_file_changes" as const,
+      files: [
+        {
+          path: "src/example.ts",
+          action: "modify" as const,
+          addedLineCount: 3,
+          removedLineCount: 2,
+          diff: "--- src/example.ts\n+++ src/example.ts\n@@ -1,2 +1,3 @@\n-old\n+new"
+        }
+      ]
+    };
     const toolRegistry = new ToolRegistry().register({
       name: "large_output_tool",
       description: "Returns a large deterministic payload.",
@@ -55,6 +67,7 @@ describe("tool execution", () => {
           state: "success",
           content: longContent,
           displayText: "large output",
+          details,
           result: {
             ok: true,
             code: "OK",
@@ -87,6 +100,7 @@ describe("tool execution", () => {
       throw new Error("expected completed tool execution");
     }
     expect(executed.output.content).toBe(longContent);
+    expect(executed.output.details).toEqual(details);
 
     const persisted = await sessionManager.getSession(session.sessionId);
     const toolResult = persisted?.messages.find(
@@ -97,6 +111,7 @@ describe("tool execution", () => {
       throw new Error("expected persisted tool result");
     }
     expect(toolResult.output).toBe(longContent);
+    expect(toolResult.details).toEqual(details);
     expect(toolResult.output).toContain("middle-content-that-must-survive");
     expect(toolResult.output).not.toContain("Tool result compacted");
 
@@ -105,5 +120,6 @@ describe("tool execution", () => {
         event.kind === "tool_result"
     );
     expect(traceToolResult?.output).toBe(longContent);
+    expect(traceToolResult?.details).toEqual(details);
   });
 });

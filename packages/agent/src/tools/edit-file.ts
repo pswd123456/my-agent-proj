@@ -12,6 +12,7 @@ import {
   failureResult,
   successResult
 } from "./tool-result.js";
+import type { ToolResultDetails } from "../types.js";
 
 function normalizePositiveInteger(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) && value > 0
@@ -270,6 +271,18 @@ export function createEditFileTool(workingDirectory: string): RuntimeTool {
           mode: originalStat.mode
         });
         const warnings = staleWarning ? [staleWarning] : [];
+        const details: ToolResultDetails = {
+          kind: "workspace_file_changes",
+          files: [
+            {
+              path: relativePath,
+              action: "modify",
+              addedLineCount: replacementLines.length,
+              removedLineCount: originalLines.length,
+              diff
+            }
+          ]
+        };
 
         return successResult(
           createToolResult({
@@ -291,7 +304,8 @@ export function createEditFileTool(workingDirectory: string): RuntimeTool {
             absolutePath
           )}\n- replaced lines ${startLine}-${endLine}${
             warnings.length > 0 ? "\n- warnings emitted" : ""
-          }`
+          }`,
+          details
         );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

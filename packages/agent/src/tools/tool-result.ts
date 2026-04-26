@@ -6,6 +6,7 @@ import type {
   ToolExecutionResult,
   ToolValidationResult
 } from "./runtime-tool.js";
+import type { ToolResultDetails } from "../types.js";
 
 export function validateWithSchema(
   schema: z.ZodType<Record<string, unknown>>,
@@ -38,25 +39,29 @@ export function createToolResult<T extends DomainJsonValue>(
 
 export function successResult<T extends DomainJsonValue>(
   value: ToolResult<T>,
-  displayText: string
+  displayText: string,
+  details?: ToolResultDetails
 ): ToolExecutionResult {
   return {
     state: "success",
     content: JSON.stringify(value, null, 2),
     displayText,
-    result: value
+    result: value,
+    ...(details ? { details } : {})
   };
 }
 
 export function failureResult(
   value: ToolResult,
-  displayText: string
+  displayText: string,
+  details?: ToolResultDetails
 ): ToolExecutionResult {
   return {
     state: "failed",
     content: JSON.stringify(value, null, 2),
     displayText,
     result: value,
+    ...(details ? { details } : {}),
     error: value.message
   };
 }

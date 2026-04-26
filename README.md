@@ -6,6 +6,7 @@
 
 - `apps/web`：Web workbench
 - `apps/api`：session 生命周期、执行入口、流式输出、trace、system logs、settings，以及当前已挂载的 routine API
+- `apps/worker`：后台任务 worker，负责轮询并执行 detached background task
 - `packages/agent`：runtime、prompt、provider 适配、session、skills、tools、trace
 - `packages/db`：PostgreSQL schema、Drizzle migrations 与 repositories
 
@@ -55,6 +56,10 @@ cp .env.example .env
 - 可选：`DEEPSEEK_BASE_URL`
 - 可选：`DEFAULT_AGENT_MODEL` 或 `AGENT_MODEL`
 - 可选：`ANTHROPIC_TOOL_CHOICE=auto|any|none|tool:<name>` 或 `TOOL_CHOICE`
+- 可选：`WORKER_ID`
+- 可选：`WORKER_POLL_INTERVAL_MS`
+- 可选：`WORKER_TASK_HEARTBEAT_MS`
+- 可选：`WORKER_TASK_STALE_MS`
 
 ### 3. 启动开发环境
 
@@ -68,6 +73,7 @@ bun dev
 
 - `apps/api`：默认 `http://localhost:3001`
 - `apps/web`：默认 `http://localhost:3000`
+- `apps/worker`：后台任务 worker（无 HTTP 端口）
 
 如果只想单独启动某一端，可以分别在两个终端里运行：
 

@@ -75,19 +75,24 @@ prefix message 带 `cache_control: { type: "ephemeral" }`，并参与当前 `cac
 
 ## runtimeContextMessages
 
-`runtimeContextMessages` 放每次执行才需要的易变上下文，当前包括两类：
+`runtimeContextMessages` 放每次执行才需要的易变上下文，当前包括三类：
 
-1. runtime context
+1. plan mode prompt
+   - 只在当前 session 开启 `plan mode` 时注入
+   - 用来给模型一组只属于本轮 planning 态的执行规则
+   - 当前会强调：todo 工具不可用、优先通过 `search_task_brief / read_task_brief / edit_task_brief / replace_task_brief` 维护 brief、普通 workspace 文件写工具不可用
+
+2. runtime context
    - current local datetime
    - current timezone
    - working directory
    - session status
    - YOLO mode
-   - pending permission request
-   - pending confirmation payload
-   - pending user question payload
+    - pending permission request
+    - pending confirmation payload
+    - pending user question payload
 
-2. workspace skills
+3. workspace skills
    - 从 `session.workingDirectory/.agent/skills/` 发现的 skill metadata
    - 当前只暴露模型需要选择技能的元信息
 

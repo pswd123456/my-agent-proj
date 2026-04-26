@@ -5,6 +5,7 @@ import type { SessionSnapshot } from "@ai-app-template/sdk";
 import {
   buildPermissionQuickReplies,
   buildComposerActionView,
+  getCompactToolFileChangeRows,
   buildPermissionCardView,
   buildUserQuestionCardView,
   createPermissionCardFeedback,
@@ -186,6 +187,31 @@ describe("composer action view", () => {
     expect(view.buttonType).toBe("submit");
     expect(view.disabled).toBe(false);
     expect(view.buttonLabel).toBe("发送");
+  });
+});
+
+describe("compact tool file change rows", () => {
+  test("formats file names and +/- line counts for collapsed tool cards", () => {
+    expect(
+      getCompactToolFileChangeRows({
+        fileChanges: [
+          {
+            path: "apps/web/app/page.tsx",
+            action: "modify",
+            addedLineCount: 5,
+            removedLineCount: 3,
+            diff: "--- apps/web/app/page.tsx\n+++ apps/web/app/page.tsx"
+          }
+        ]
+      })
+    ).toEqual([
+      {
+        path: "apps/web/app/page.tsx",
+        action: "modify",
+        countsLabel: "+5 / -3",
+        diff: "--- apps/web/app/page.tsx\n+++ apps/web/app/page.tsx"
+      }
+    ]);
   });
 });
 

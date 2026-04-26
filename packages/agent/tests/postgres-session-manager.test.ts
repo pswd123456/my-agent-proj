@@ -73,6 +73,84 @@ describe("toIsoString", () => {
     ).toBe(true);
   });
 
+  test("serializes and restores tool result details", () => {
+    const serialized = serializeBlock({
+      id: "tool-result-1",
+      kind: "tool result",
+      toolCallId: "call-1",
+      toolName: "edit_file",
+      output: '{"ok":true}',
+      isError: false,
+      state: "success",
+      details: {
+        kind: "workspace_file_changes",
+        files: [
+          {
+            path: "apps/web/app/page.tsx",
+            action: "modify",
+            addedLineCount: 2,
+            removedLineCount: 1,
+            diff: "--- apps/web/app/page.tsx\n+++ apps/web/app/page.tsx"
+          }
+        ]
+      },
+      createdAt: "2026-04-26T00:00:00.000Z"
+    });
+
+    expect(serialized.inputJson).toEqual({
+      details: {
+        kind: "workspace_file_changes",
+        files: [
+          {
+            path: "apps/web/app/page.tsx",
+            action: "modify",
+            addedLineCount: 2,
+            removedLineCount: 1,
+            diff: "--- apps/web/app/page.tsx\n+++ apps/web/app/page.tsx"
+          }
+        ]
+      }
+    });
+
+    const row: SessionMessageRow = {
+      id: "tool-result-1",
+      sessionId: "session-1",
+      messageIndex: 2,
+      role: serialized.role,
+      content: serialized.content,
+      toolName: serialized.toolName,
+      toolCallId: serialized.toolCallId,
+      state: serialized.state,
+      isError: serialized.isError,
+      inputJson: serialized.inputJson,
+      outputText: serialized.outputText,
+      createdAt: serialized.createdAt
+    };
+
+    expect(toConversationBlock(row)).toEqual({
+      id: "tool-result-1",
+      kind: "tool result",
+      toolCallId: "call-1",
+      toolName: "edit_file",
+      output: '{"ok":true}',
+      isError: false,
+      state: "success",
+      details: {
+        kind: "workspace_file_changes",
+        files: [
+          {
+            path: "apps/web/app/page.tsx",
+            action: "modify",
+            addedLineCount: 2,
+            removedLineCount: 1,
+            diff: "--- apps/web/app/page.tsx\n+++ apps/web/app/page.tsx"
+          }
+        ]
+      },
+      createdAt: "2026-04-26T00:00:00.000Z"
+    });
+  });
+
   test("restores workspace escape approval from postgres rows", () => {
     const sessionContext = toSessionContext({
       id: "session-1",

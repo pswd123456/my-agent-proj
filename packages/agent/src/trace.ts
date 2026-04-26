@@ -16,7 +16,7 @@ import type {
   SkillDescriptor,
   SkillDiscoveryDiagnostic
 } from "./skills/index.js";
-import type { JsonValue, SessionSnapshot } from "./types.js";
+import type { JsonValue, SessionSnapshot, ToolResultDetails } from "./types.js";
 
 export interface TracePromptEvent {
   kind: "prompt";
@@ -109,6 +109,7 @@ export interface TraceToolResultEvent {
   output: string;
   isError: boolean;
   displayText?: string;
+  details?: ToolResultDetails;
 }
 
 export interface TracePermissionRequestEvent {

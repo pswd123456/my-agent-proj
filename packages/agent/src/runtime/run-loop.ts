@@ -26,6 +26,7 @@ import { discoverWorkspaceSkills } from "../skills/index.js";
 import type { TraceManager } from "../trace.js";
 import type { Logger } from "../system-log.js";
 import type { JsonValue, RunSessionResult, SessionSnapshot } from "../types.js";
+import type { DelegateAgentService } from "../delegation/index.js";
 import type { ToolRegistry } from "../tools/registry.js";
 import {
   buildAssistantBlockContent,
@@ -144,6 +145,7 @@ export async function runSessionLoop(input: {
   sessionManager: SessionManager;
   routineRepository: RoutineRepository;
   toolRegistry: ToolRegistry;
+  delegateAgentService?: DelegateAgentService;
   traceManager: TraceManager | undefined;
   promptBuilder: PromptBuilder;
   session: SessionSnapshot;
@@ -314,6 +316,9 @@ export async function runSessionLoop(input: {
           sessionManager: input.sessionManager,
           routineRepository: input.routineRepository,
           toolRegistry: input.toolRegistry,
+          ...(input.delegateAgentService
+            ? { delegateAgentService: input.delegateAgentService }
+            : {}),
           traceManager: input.traceManager,
           session,
           turnCount: Math.max(1, carriedTurnCount),
@@ -831,6 +836,9 @@ export async function runSessionLoop(input: {
             sessionManager: input.sessionManager,
             routineRepository: input.routineRepository,
             toolRegistry: input.toolRegistry,
+            ...(input.delegateAgentService
+              ? { delegateAgentService: input.delegateAgentService }
+              : {}),
             traceManager: input.traceManager,
             session,
             turnCount,

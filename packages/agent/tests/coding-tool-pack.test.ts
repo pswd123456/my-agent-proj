@@ -147,14 +147,63 @@ describe("apply_patch", () => {
           action: "modify",
           hunkCount: 1,
           addedLineCount: 1,
-          removedLineCount: 1
+          removedLineCount: 1,
+          diff: [
+            "--- a/alpha.txt",
+            "+++ b/alpha.txt",
+            "@@ -1,2 +1,2 @@",
+            " one",
+            "-two",
+            "+TWO"
+          ].join("\n")
         },
         {
           path: "nested/beta.txt",
           action: "modify",
           hunkCount: 1,
           addedLineCount: 1,
-          removedLineCount: 0
+          removedLineCount: 0,
+          diff: [
+            "--- a/nested/beta.txt",
+            "+++ b/nested/beta.txt",
+            "@@ -1,2 +1,3 @@",
+            " beta",
+            " gamma",
+            "+delta"
+          ].join("\n")
+        }
+      ]
+    });
+    expect(result.details).toEqual({
+      kind: "workspace_file_changes",
+      files: [
+        {
+          path: "alpha.txt",
+          action: "modify",
+          addedLineCount: 1,
+          removedLineCount: 1,
+          diff: [
+            "--- a/alpha.txt",
+            "+++ b/alpha.txt",
+            "@@ -1,2 +1,2 @@",
+            " one",
+            "-two",
+            "+TWO"
+          ].join("\n")
+        },
+        {
+          path: "nested/beta.txt",
+          action: "modify",
+          addedLineCount: 1,
+          removedLineCount: 0,
+          diff: [
+            "--- a/nested/beta.txt",
+            "+++ b/nested/beta.txt",
+            "@@ -1,2 +1,3 @@",
+            " beta",
+            " gamma",
+            "+delta"
+          ].join("\n")
         }
       ]
     });

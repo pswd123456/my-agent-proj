@@ -1,4 +1,4 @@
-import type { RunStreamEvent } from "@ai-app-template/sdk";
+import type { RunStreamEvent, SessionSnapshot } from "@ai-app-template/sdk";
 
 import { getTimelineEventKey, type TimelineItem } from "./session-timeline";
 
@@ -15,6 +15,13 @@ export interface CompactToolViewItem {
   status: CompactToolStatus;
   title: string;
   target: string;
+  fileChanges: Array<{
+    path: string;
+    action: "modify" | "create" | "delete";
+    addedLineCount: number;
+    removedLineCount: number;
+    diff: string;
+  }> | null;
   originalItems: ConversationViewItem[];
 }
 
@@ -56,12 +63,18 @@ type ToolEvent = Extract<
   | { kind: "permission_blocked" }
 >;
 
+type ToolMessageBlock = Extract<
+  SessionSnapshot["messages"][number],
+  { kind: "tool call" } | { kind: "tool result" }
+>;
+
 interface ToolGroup {
   toolCallId: string;
   toolName: string;
   createdAt: string;
   input: Record<string, unknown> | null;
   status: CompactToolStatus;
+  fileChanges: CompactToolViewItem["fileChanges"];
   originalItems: ConversationViewItem[];
 }
 
@@ -108,6 +121,7 @@ function getToolAction(
     [
       "write_file",
       "edit_file",
+      "apply_patch",
       "create_directory",
       "copy_path",
       "move_path",
@@ -203,8 +217,36 @@ function getToolTarget(
   return toolName;
 }
 
+function getFileChanges(
+  details:
+    | Extract<RunStreamEvent, { kind: "tool_result" }>["details"]
+    | Extract<ToolMessageBlock, { kind: "tool result" }>["details"]
+    | undefined
+): CompactToolViewItem["fileChanges"] {
+  if (details?.kind !== "workspace_file_changes" || details.files.length === 0) {
+    return null;
+  }
+
+  return details.files.map((file) => ({
+    path: file.path,
+    action: file.action,
+    addedLineCount: file.addedLineCount,
+    removedLineCount: file.removedLineCount,
+    diff: file.diff
+  }));
+}
+
 function toCompactToolViewItem(group: ToolGroup): CompactToolViewItem {
   const target = getToolTarget(group.toolName, group.input);
+  const title =
+    group.status === "success" && group.fileChanges
+      ? group.fileChanges.length === 1
+        ? `已编辑 ${group.fileChanges[0]!.path}`
+        : `已编辑 ${group.fileChanges.length} 个文件`
+      : `${getToolVerb({
+          toolName: group.toolName,
+          status: group.status
+        })} ${target}`;
   return {
     type: "compact-tool",
     key: `compact-tool-${group.toolCallId}`,
@@ -213,44 +255,34 @@ function toCompactToolViewItem(group: ToolGroup): CompactToolViewItem {
     toolName: group.toolName,
     status: group.status,
     target,
-    title: `${getToolVerb({
-      toolName: group.toolName,
-      status: group.status
-    })} ${target}`,
+    title,
+    fileChanges: group.fileChanges,
     originalItems: group.originalItems
   };
 }
 
-function updateToolGroup(group: ToolGroup, event: ToolEvent): ToolGroup {
+function updateToolGroup(
+  group: ToolGroup,
+  source: ToolEvent | ToolMessageBlock,
+  originalItem: ConversationViewItem
+): ToolGroup {
   const next: ToolGroup = {
     ...group,
     createdAt:
-      group.createdAt < event.createdAt ? group.createdAt : event.createdAt,
-    toolName: "toolName" in event ? event.toolName : group.toolName,
-    originalItems: [
-      ...group.originalItems,
-      {
-        type: "timeline",
-        key: `tool-original-${getTimelineEventKey(event)}`,
-        createdAt: event.createdAt,
-        item: {
-          type: "event",
-          key: `event-${getTimelineEventKey(event)}`,
-          createdAt: event.createdAt,
-          event
-        }
-      }
-    ]
+      group.createdAt < source.createdAt ? group.createdAt : source.createdAt,
+    toolName: source.toolName,
+    originalItems: [...group.originalItems, originalItem]
   };
 
-  if (event.kind === "tool_call") {
-    next.input = event.input;
+  if (source.kind === "tool call" || source.kind === "tool_call") {
+    next.input = source.input;
     next.status = "running";
-  } else if (event.kind === "tool_result") {
-    next.status = event.isError ? "failed" : "success";
+  } else if (source.kind === "tool result" || source.kind === "tool_result") {
+    next.status = source.isError ? "failed" : "success";
+    next.fileChanges = source.isError ? null : getFileChanges(source.details);
   } else if (
-    event.kind === "permission_rejected" ||
-    event.kind === "permission_blocked"
+    source.kind === "permission_rejected" ||
+    source.kind === "permission_blocked"
   ) {
     next.status = "rejected";
   }
@@ -258,18 +290,29 @@ function updateToolGroup(group: ToolGroup, event: ToolEvent): ToolGroup {
   return next;
 }
 
-function createToolGroup(event: ToolEvent): ToolGroup {
+function createToolGroup(
+  source: ToolEvent | ToolMessageBlock,
+  originalItem: ConversationViewItem
+): ToolGroup {
   return updateToolGroup(
     {
-      toolCallId: event.toolCallId,
-      toolName: "toolName" in event ? event.toolName : "tool",
-      createdAt: event.createdAt,
+      toolCallId: source.toolCallId,
+      toolName: source.toolName,
+      createdAt: source.createdAt,
       input: null,
       status: "running",
+      fileChanges: null,
       originalItems: []
     },
-    event
+    source,
+    originalItem
   );
+}
+
+function isToolMessageBlock(
+  block: SessionSnapshot["messages"][number]
+): block is ToolMessageBlock {
+  return block.kind === "tool call" || block.kind === "tool result";
 }
 
 function compactToolEvents(
@@ -280,6 +323,24 @@ function compactToolEvents(
   const toolIndexById = new Map<string, number>();
 
   for (const item of timelineItems) {
+    if (item.type === "message" && isToolMessageBlock(item.block)) {
+      const timelineViewItem = toTimelineViewItem(item);
+      const current = toolGroups.get(item.block.toolCallId);
+      const next = current
+        ? updateToolGroup(current, item.block, timelineViewItem)
+        : createToolGroup(item.block, timelineViewItem);
+      toolGroups.set(item.block.toolCallId, next);
+
+      const existingIndex = toolIndexById.get(item.block.toolCallId);
+      if (existingIndex === undefined) {
+        toolIndexById.set(item.block.toolCallId, items.length);
+        items.push(toCompactToolViewItem(next));
+      } else {
+        items[existingIndex] = toCompactToolViewItem(next);
+      }
+      continue;
+    }
+
     if (item.type !== "event") {
       items.push(toTimelineViewItem(item));
       continue;
@@ -296,8 +357,8 @@ function compactToolEvents(
 
     const current = toolGroups.get(item.event.toolCallId);
     const next = current
-      ? updateToolGroup(current, item.event)
-      : createToolGroup(item.event);
+      ? updateToolGroup(current, item.event, toTimelineViewItem(item))
+      : createToolGroup(item.event, toTimelineViewItem(item));
     toolGroups.set(item.event.toolCallId, next);
 
     const existingIndex = toolIndexById.get(item.event.toolCallId);

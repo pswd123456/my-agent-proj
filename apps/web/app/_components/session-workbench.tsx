@@ -9,7 +9,6 @@ import {
   type RoutineRecord,
   type RunStreamEvent,
   type SessionSettingsRecord,
-  type SessionSnapshot,
   type TraceRecord
 } from "@ai-app-template/sdk";
 
@@ -75,6 +74,13 @@ const apiClient = createApiClient({
 });
 
 const SESSION_RAIL_COLLAPSED_STORAGE_KEY = "workbench-session-rail-collapsed";
+const ACTIVE_SESSION_REFRESH_INTERVAL_MS = 3_000;
+
+type RefreshSelectedSessionOptions = {
+  resetRunView?: boolean;
+  syncSettings?: boolean;
+  showLoadingSettings?: boolean;
+};
 
 export function SessionWorkbench() {
   const router = useRouter();
@@ -82,6 +88,7 @@ export function SessionWorkbench() {
   const requestedSessionId = searchParams.get("sessionId");
   const selectedSessionIdRef = useRef<string | null>(null);
   const preferredUserIdRef = useRef<string | null>(null);
+  const backgroundRefreshInFlightRef = useRef(false);
 
   const [sessionRegistry, setSessionRegistry] = useState(() =>
     createSessionRegistryState()
@@ -278,8 +285,20 @@ export function SessionWorkbench() {
     };
   }, [selectedSessionId]);
 
-  async function refreshSelectedSession(sessionId: string) {
-    setLoadingSettings(true);
+  async function refreshSelectedSession(
+    sessionId: string,
+    options: RefreshSelectedSessionOptions = {}
+  ) {
+    const {
+      resetRunView: shouldResetRunView = true,
+      syncSettings = true,
+      showLoadingSettings = true
+    } = options;
+
+    if (showLoadingSettings) {
+      setLoadingSettings(true);
+    }
+
     try {
       const session = await apiClient.getSession(sessionId);
       const week = buildWeekRange(session.context.currentDateContext);
@@ -289,21 +308,75 @@ export function SessionWorkbench() {
           startDate: week.startDate,
           endDate: week.endDate
         }),
-        apiClient.getUserSettings(session.context.userId)
+        syncSettings
+          ? apiClient.getUserSettings(session.context.userId)
+          : Promise.resolve<SessionSettingsRecord | null>(null)
       ]);
+
+      if (selectedSessionIdRef.current !== sessionId) {
+        return;
+      }
 
       setSessionUiState((current) => setSessionSnapshot(current, session));
       setTraceRecords(trace);
       setRoutines(routinesResult.routines);
-      setUserSettings(settings);
-      setSettingsForm(toSettingsFormState(settings));
+      if (settings) {
+        setUserSettings(settings);
+        setSettingsForm(toSettingsFormState(settings));
+      }
       setMaxTurns(String(session.maxTurns));
       setSessionRegistry((current) => hydrateSelectedSession(current, session));
-      setRunViewState(resetRunView());
+      if (shouldResetRunView) {
+        setRunViewState(resetRunView());
+      }
     } finally {
-      setLoadingSettings(false);
+      if (showLoadingSettings) {
+        setLoadingSettings(false);
+      }
     }
   }
+
+  useEffect(() => {
+    if (
+      !currentSession ||
+      !canInterruptSessionExecution({
+        session: currentSession,
+        submitting
+      })
+    ) {
+      return;
+    }
+
+    const sessionId = currentSession.sessionId;
+    const intervalId = window.setInterval(() => {
+      if (
+        backgroundRefreshInFlightRef.current ||
+        selectedSessionIdRef.current !== sessionId
+      ) {
+        return;
+      }
+
+      backgroundRefreshInFlightRef.current = true;
+      void refreshSelectedSession(sessionId, {
+        resetRunView: false,
+        syncSettings: false,
+        showLoadingSettings: false
+      })
+        .catch(() => undefined)
+        .finally(() => {
+          backgroundRefreshInFlightRef.current = false;
+        });
+    }, ACTIVE_SESSION_REFRESH_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [
+    currentSession?.sessionId,
+    currentSession?.context.status,
+    currentSession?.sessionState.loopState,
+    submitting
+  ]);
 
   async function handleCreateSession() {
     if (creatingSession) {

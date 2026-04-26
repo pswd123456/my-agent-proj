@@ -25,7 +25,11 @@
         "DEFAULT_AGENT_MODEL",
         "AGENT_MODEL",
         "ANTHROPIC_TOOL_CHOICE",
-        "TOOL_CHOICE"
+        "TOOL_CHOICE",
+        "WORKER_ID",
+        "WORKER_POLL_INTERVAL_MS",
+        "WORKER_TASK_HEARTBEAT_MS",
+        "WORKER_TASK_STALE_MS"
       ]
     },
     "lint": {

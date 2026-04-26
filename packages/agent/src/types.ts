@@ -16,6 +16,23 @@ export type JsonValue =
   | JsonValue[]
   | { readonly [key: string]: JsonValue };
 
+export type WorkspaceFileChangeAction = "modify" | "create" | "delete";
+
+export interface WorkspaceFileChangeSummary {
+  path: string;
+  action: WorkspaceFileChangeAction;
+  addedLineCount: number;
+  removedLineCount: number;
+  diff: string;
+}
+
+export interface WorkspaceFileChangesToolResultDetails {
+  kind: "workspace_file_changes";
+  files: WorkspaceFileChangeSummary[];
+}
+
+export type ToolResultDetails = WorkspaceFileChangesToolResultDetails;
+
 export interface BaseConversationBlock {
   id: string;
   createdAt: string;
@@ -55,6 +72,7 @@ export interface ToolResultConversationBlock extends BaseConversationBlock {
   output: string;
   isError: boolean;
   state: ToolState;
+  details?: ToolResultDetails;
   responseGroupId?: string;
 }
 
@@ -127,4 +145,5 @@ export interface ToolOutputSummary {
   content: string;
   displayText: string;
   isError: boolean;
+  details?: ToolResultDetails;
 }

@@ -193,8 +193,7 @@ export function createReplaceTaskBriefTool(): RuntimeTool {
         await fs.mkdir(path.dirname(boundPath.path), { recursive: true });
         await writeTextFileAtomic(boundPath.path, parsed.data.content);
         const data = createTaskBriefWriteAck({
-          path: boundPath.path,
-          content: parsed.data.content
+          path: boundPath.path
         });
 
         return successResult(
@@ -206,8 +205,7 @@ export function createReplaceTaskBriefTool(): RuntimeTool {
           }),
           [
             "[replace_task_brief] success",
-            `- path: ${boundPath.path}`,
-            `- hash: ${data.hash}`
+            `- path: ${boundPath.path}`
           ].join("\n")
         );
       } catch (error) {

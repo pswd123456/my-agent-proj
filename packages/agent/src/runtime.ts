@@ -25,6 +25,7 @@ import type { SessionManager } from "./session.js";
 import type { ToolRegistry } from "./tools/registry.js";
 import type { TraceManager } from "./trace.js";
 import type { RunEventSink } from "./events.js";
+import type { DelegateAgentService } from "./delegation/index.js";
 import { runSessionLoop } from "./runtime/run-loop.js";
 
 export interface AgentRuntimeOptions {
@@ -36,6 +37,7 @@ export interface AgentRuntimeOptions {
   sessionManager: SessionManager;
   routineRepository: RoutineRepository;
   toolRegistry: ToolRegistry;
+  delegateAgentService?: DelegateAgentService;
   traceManager?: TraceManager;
   promptBuilder?: PromptBuilder;
   maxTurns?: number;
@@ -254,6 +256,9 @@ export class AgentRuntime {
         maxTokens: this.options.maxTokens,
         toolChoice: this.options.toolChoice,
         eventSink,
+        ...(this.options.delegateAgentService
+          ? { delegateAgentService: this.options.delegateAgentService }
+          : {}),
         ...(runtimeLogger ? { logger: runtimeLogger } : {})
       };
       const result = await runSessionLoop(runLoopInput);

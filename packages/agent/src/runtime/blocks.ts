@@ -4,7 +4,8 @@ import type { AnthropicContentBlock } from "../model.js";
 import type {
   ConversationBlock,
   JsonValue,
-  SessionSnapshot
+  SessionSnapshot,
+  ToolResultDetails
 } from "../types.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -74,6 +75,7 @@ export function buildToolResultBlock(input: {
   name: string;
   content: string;
   isError: boolean;
+  details?: ToolResultDetails;
   responseGroupId?: string;
 }): ConversationBlock {
   return {
@@ -84,6 +86,7 @@ export function buildToolResultBlock(input: {
     output: input.content,
     isError: input.isError,
     state: input.isError ? "failed" : "success",
+    ...(input.details ? { details: input.details } : {}),
     ...(input.responseGroupId ? { responseGroupId: input.responseGroupId } : {}),
     createdAt: new Date().toISOString()
   };

@@ -10,7 +10,8 @@ export type SystemLogComponent =
   | "tool-execution"
   | "confirmation"
   | "interrupt"
-  | "api";
+  | "api"
+  | "worker";
 
 export interface SystemLogRecord {
   timestamp: string;

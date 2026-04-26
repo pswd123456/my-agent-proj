@@ -12,7 +12,8 @@ import type {
   ConversationBlock,
   LoopState,
   SessionSnapshot,
-  SessionState
+  SessionState,
+  ToolResultDetails
 } from "../types.js";
 import { resolveTaskBriefPathForSession } from "./task-brief.js";
 import { normalizeTodoState } from "./todo-state.js";
@@ -212,6 +213,27 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function isToolResultDetails(value: unknown): value is ToolResultDetails {
+  if (!isPlainRecord(value) || value.kind !== "workspace_file_changes") {
+    return false;
+  }
+
+  return (
+    Array.isArray(value.files) &&
+    value.files.every(
+      (file) =>
+        isPlainRecord(file) &&
+        typeof file.path === "string" &&
+        (file.action === "modify" ||
+          file.action === "create" ||
+          file.action === "delete") &&
+        typeof file.addedLineCount === "number" &&
+        typeof file.removedLineCount === "number" &&
+        typeof file.diff === "string"
+    )
+  );
+}
+
 export function isConversationBlock(
   value: unknown
 ): value is ConversationBlock {
@@ -258,6 +280,8 @@ export function isConversationBlock(
       typeof value.output === "string" &&
       typeof value.isError === "boolean" &&
       typeof value.state === "string" &&
+      (typeof value.details === "undefined" ||
+        isToolResultDetails(value.details)) &&
       (typeof value.responseGroupId === "string" ||
         typeof value.responseGroupId === "undefined")
     );

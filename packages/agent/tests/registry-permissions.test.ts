@@ -43,8 +43,15 @@ describe("ToolRegistry stage4 metadata contract", () => {
     });
 
     expect(registry.list().map((tool) => tool.name)).toEqual([
+      "ask_user_question",
+      "delegate_agent",
+      "edit_task_brief",
+      "get_task_brief",
       "get_todo_list",
+      "read_task_brief",
+      "replace_task_brief",
       "replace_todo_list",
+      "search_task_brief",
       "update_todo_items"
     ]);
   });

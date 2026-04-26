@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-import { isTimestampWithoutTimeZoneColumn } from "../src/schema.js";
+import {
+  backgroundTaskRuns,
+  backgroundTasks,
+  isTimestampWithoutTimeZoneColumn,
+  productSchema
+} from "../src/schema.js";
 
 describe("isTimestampWithoutTimeZoneColumn", () => {
   test("returns true for legacy timestamp columns", () => {
@@ -19,5 +24,10 @@ describe("isTimestampWithoutTimeZoneColumn", () => {
         udt_name: "timestamptz"
       })
     ).toBe(false);
+  });
+
+  test("exposes background task tables in the product schema", () => {
+    expect(productSchema.backgroundTasks).toBe(backgroundTasks);
+    expect(productSchema.backgroundTaskRuns).toBe(backgroundTaskRuns);
   });
 });

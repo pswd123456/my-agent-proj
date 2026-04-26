@@ -2,6 +2,8 @@ import { serve } from "@hono/node-server";
 
 import {
   createAgentRuntime,
+  createBackgroundTaskManager,
+  createDelegateAgentService,
   createDefaultToolRegistry,
   createModelService,
   createPostgresSessionManager,
@@ -16,6 +18,7 @@ import {
   type SessionSnapshot
 } from "@ai-app-template/agent";
 import {
+  createPostgresBackgroundTaskRepository,
   createPostgresDatabase,
   createPostgresSettingsRepository,
   createPostgresRoutineRepository,
@@ -55,6 +58,15 @@ await ensureApiWorkingDirectory(workspaceRoot);
 const routineRepository = createPostgresRoutineRepository(database);
 const settingsRepository = createPostgresSettingsRepository(database);
 const sessionManager = createPostgresSessionManager(database);
+const backgroundTaskRepository = createPostgresBackgroundTaskRepository(database);
+const backgroundTaskManager = createBackgroundTaskManager({
+  sessionManager,
+  repository: backgroundTaskRepository
+});
+const delegateAgentService = createDelegateAgentService({
+  sessionManager,
+  taskManager: backgroundTaskManager
+});
 
 function buildWorkingDirectory(input?: string): string {
   return resolveApiWorkingDirectory(workspaceRoot, input);
@@ -81,6 +93,7 @@ async function createRuntime(session: SessionSnapshot) {
       sessionManager,
       routineRepository,
       toolRegistry,
+      delegateAgentService,
       traceManager,
       systemLogManager,
       runtimeLogger: createLogger({

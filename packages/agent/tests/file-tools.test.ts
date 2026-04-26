@@ -529,6 +529,26 @@ describe("edit_file", () => {
         "+ THREE"
       ].join("\n")
     });
+    expect(result.details).toEqual({
+      kind: "workspace_file_changes",
+      files: [
+        {
+          path: "notes.txt",
+          action: "modify",
+          addedLineCount: 2,
+          removedLineCount: 2,
+          diff: [
+            "--- notes.txt",
+            "+++ notes.txt",
+            "@@ -2,2 +2,2 @@",
+            "- two",
+            "- three",
+            "+ TWO",
+            "+ THREE"
+          ].join("\n")
+        }
+      ]
+    });
     await expect(readFile(targetPath, "utf8")).resolves.toBe(
       "one\nTWO\nTHREE\nfour\n"
     );

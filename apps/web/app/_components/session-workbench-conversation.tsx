@@ -102,6 +102,22 @@ interface TypewriterTextContentProps {
 
 type MessageRole = "user" | "assistant";
 
+export function getCompactToolFileChangeRows(
+  item: Pick<CompactToolViewItem, "fileChanges">
+): Array<{
+  path: string;
+  action: "modify" | "create" | "delete";
+  countsLabel: string;
+  diff: string;
+}> {
+  return (item.fileChanges ?? []).map((file) => ({
+    path: file.path,
+    action: file.action,
+    countsLabel: `+${file.addedLineCount} / -${file.removedLineCount}`,
+    diff: file.diff
+  }));
+}
+
 function MessageRoleLabel({
   role,
   timestamp
@@ -962,6 +978,8 @@ function renderCompactToolItem(
   onToggleExpanded: (key: string) => void,
   renderNestedItems: (items: ConversationViewItem[]) => React.ReactNode
 ) {
+  const fileChangeRows = getCompactToolFileChangeRows(item);
+
   return (
     <article key={item.key} className={getInspectorCardClass()}>
       <button
@@ -976,7 +994,27 @@ function renderCompactToolItem(
           <div className="mt-2 min-w-0 text-sm font-medium text-[var(--app-text-primary)] [overflow-wrap:anywhere]">
             {item.title}
           </div>
+          {fileChangeRows.length > 0 ? (
+            <div className="mt-3 grid gap-2">
+              {fileChangeRows.map((file) => (
+                <div
+                  key={`${item.key}-${file.path}`}
+                  className="flex flex-wrap items-center justify-between gap-2 text-xs leading-5 text-[var(--app-text-secondary)]"
+                >
+                  <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
+                    {file.path}
+                  </span>
+                  <span className="shrink-0 font-mono text-[0.72rem] text-[var(--app-text-muted)]">
+                    {file.countsLabel}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
+        <span className="shrink-0 text-[0.72rem] text-[var(--app-text-muted)]">
+          {expanded ? "收起" : "展开"}
+        </span>
       </button>
       <div
         aria-hidden={!expanded}
@@ -987,9 +1025,34 @@ function renderCompactToolItem(
         }`}
       >
         <div className="min-h-0 overflow-hidden">
-          <div className="grid gap-3">
-            {renderNestedItems(item.originalItems)}
-          </div>
+          {fileChangeRows.length > 0 ? (
+            <div className="grid gap-3">
+              {fileChangeRows.map((file) => (
+                <section
+                  key={`${item.key}-${file.path}-diff`}
+                  className="grid gap-2 rounded-[var(--app-radius-md)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_72%,transparent)] px-3 py-3"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs leading-5">
+                    <span className="min-w-0 flex-1 font-medium text-[var(--app-text-primary)] [overflow-wrap:anywhere]">
+                      {file.path}
+                    </span>
+                    <span className="shrink-0 font-mono text-[0.72rem] text-[var(--app-text-muted)]">
+                      {file.countsLabel}
+                    </span>
+                  </div>
+                  <pre
+                    className={getDebugPreClass("surface").replace("mt-2 ", "")}
+                  >
+                    {file.diff}
+                  </pre>
+                </section>
+              ))}
+            </div>
+          ) : (
+            <div className="grid gap-3">
+              {renderNestedItems(item.originalItems)}
+            </div>
+          )}
         </div>
       </div>
     </article>

@@ -218,6 +218,42 @@ describe("Stage 4 permission flow", () => {
     }
   });
 
+  test("blocks todo tools while plan mode is enabled", async () => {
+    const sessionManager = createMemorySessionManager();
+    const routineRepository = createMemoryRoutineRepository();
+
+    const session = await sessionManager.createSession({
+      workingDirectory: await createWorkspaceRoot(),
+      model: "MiniMax-M2.7",
+      userId: "stage4-user",
+      planModeEnabled: true
+    });
+
+    const executed = await executeToolAction({
+      sessionManager,
+      routineRepository,
+      toolRegistry: createPlanningToolRegistry(),
+      traceManager: undefined,
+      session,
+      turnCount: 1,
+      toolCallId: "call-planmode-todo",
+      toolName: "replace_todo_list",
+      toolInput: {
+        items: [{ content: "Should be blocked in plan mode" }]
+      },
+      eventSink: undefined
+    });
+
+    expect(executed.kind).toBe("completed");
+    if (executed.kind !== "completed") {
+      throw new Error("expected completed result");
+    }
+    expect(executed.output.isError).toBe(true);
+    expect(executed.output.displayText).toContain(
+      "Plan mode disables todo tools"
+    );
+  });
+
   test("rejects ask_user_question outside plan mode", async () => {
     const sessionManager = createMemorySessionManager();
     const routineRepository = createMemoryRoutineRepository();

@@ -16,6 +16,7 @@ export type SessionToolFamily =
   | "workspace-shell"
   | "workspace-network"
   | "mcp"
+  | "delegation"
   | "planning"
   | "schedule";
 

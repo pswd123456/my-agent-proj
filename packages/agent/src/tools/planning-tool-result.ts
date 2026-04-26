@@ -16,7 +16,6 @@ export interface TaskBriefWriteAck {
   [key: string]: DomainJsonValue;
   ack: "task_brief_replaced";
   path: string;
-  hash: string;
 }
 
 function createShortHash(value: DomainJsonValue): string {
@@ -61,11 +60,9 @@ export function createTodoWriteAck(input: {
 
 export function createTaskBriefWriteAck(input: {
   path: string;
-  content: string;
 }): TaskBriefWriteAck {
   return {
     ack: "task_brief_replaced",
-    path: input.path,
-    hash: createShortHash(input.content)
+    path: input.path
   };
 }

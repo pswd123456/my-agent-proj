@@ -1,7 +1,11 @@
 import { fileURLToPath } from "node:url";
 
 import type {
+  BackgroundTaskPayload,
+  DelegateTaskCard,
   PendingConfirmationPayload,
+  BackgroundTaskStatus,
+  BackgroundTaskKind,
   PendingPermissionRequest,
   SessionFullCompactionState,
   PendingUserQuestionPayload,
@@ -234,6 +238,105 @@ export const agentSettings = pgTable("agent_settings", {
     .defaultNow()
 });
 
+export const backgroundTasks = pgTable(
+  "background_tasks",
+  {
+    id: text("id").primaryKey(),
+    kind: text("kind").$type<BackgroundTaskKind>().notNull(),
+    status: text("status").$type<BackgroundTaskStatus>().notNull(),
+    executor: text("executor").notNull(),
+    parentSessionId: text("parent_session_id"),
+    childSessionId: text("child_session_id").notNull(),
+    payload: jsonb("payload").$type<BackgroundTaskPayload>().notNull(),
+    taskCard: jsonb("task_card").$type<DelegateTaskCard | null>(),
+    resultSummary: text("result_summary"),
+    lastError: text("last_error"),
+    cancelRequested: boolean("cancel_requested").notNull().default(false),
+    activeRunId: text("active_run_id"),
+    claimedBy: text("claimed_by"),
+    claimedAt: timestamp("claimed_at", {
+      mode: "string",
+      withTimezone: true
+    }),
+    lastHeartbeatAt: timestamp("last_heartbeat_at", {
+      mode: "string",
+      withTimezone: true
+    }),
+    completedAt: timestamp("completed_at", {
+      mode: "string",
+      withTimezone: true
+    }),
+    createdAt: timestamp("created_at", {
+      mode: "string",
+      withTimezone: true
+    })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", {
+      mode: "string",
+      withTimezone: true
+    })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => ({
+    statusUpdatedIdx: index("background_tasks_status_updated_at_idx").on(
+      table.status,
+      table.updatedAt
+    ),
+    childSessionUnique: uniqueIndex("background_tasks_child_session_id_key").on(
+      table.childSessionId
+    )
+  })
+);
+
+export const backgroundTaskRuns = pgTable(
+  "background_task_runs",
+  {
+    id: text("id").primaryKey(),
+    taskId: text("task_id").notNull(),
+    runId: text("run_id").notNull(),
+    status: text("status").$type<BackgroundTaskStatus>().notNull(),
+    workerId: text("worker_id"),
+    errorSummary: text("error_summary"),
+    resultSummary: text("result_summary"),
+    startedAt: timestamp("started_at", {
+      mode: "string",
+      withTimezone: true
+    })
+      .notNull()
+      .defaultNow(),
+    finishedAt: timestamp("finished_at", {
+      mode: "string",
+      withTimezone: true
+    }),
+    lastHeartbeatAt: timestamp("last_heartbeat_at", {
+      mode: "string",
+      withTimezone: true
+    }),
+    createdAt: timestamp("created_at", {
+      mode: "string",
+      withTimezone: true
+    })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", {
+      mode: "string",
+      withTimezone: true
+    })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => ({
+    taskStatusUpdatedIdx: index("background_task_runs_task_status_updated_idx").on(
+      table.taskId,
+      table.status,
+      table.updatedAt
+    ),
+    runUnique: uniqueIndex("background_task_runs_run_id_key").on(table.runId)
+  })
+);
+
 export const sessionMessages = pgTable(
   "session_messages",
   {
@@ -270,6 +373,8 @@ export const productSchema = {
   routines,
   agentSessions,
   agentSettings,
+  backgroundTasks,
+  backgroundTaskRuns,
   sessionMessages
 } as const;
 
