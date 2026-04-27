@@ -5,7 +5,7 @@ import {
   DEFAULT_SESSION_MODEL,
   DEFAULT_SESSION_MAX_TURNS,
   DEFAULT_SESSION_WORKING_DIRECTORY,
-  PERMISSION_TOOL_OPTIONS
+  SETTINGS_PERMISSION_TOOL_OPTIONS
 } from "@ai-app-template/domain";
 
 import {
@@ -25,7 +25,7 @@ describe("MemorySettingsRepository", () => {
     expect(settings.yoloMode).toBe(false);
     expect(settings.contextWindow).toBe(DEFAULT_CONTEXT_WINDOW);
     expect(settings.maxTurns).toBe(DEFAULT_SESSION_MAX_TURNS);
-    expect(settings.toolAskList).toEqual([...PERMISSION_TOOL_OPTIONS]);
+    expect(settings.toolAskList).toEqual([...SETTINGS_PERMISSION_TOOL_OPTIONS]);
     expect(settings.debugConversationView).toBe(false);
   });
 
@@ -71,6 +71,20 @@ describe("MemorySettingsRepository", () => {
     expect(settings.toolAllowList).toEqual(["write_file", "search_text"]);
     expect(settings.toolAskList).toEqual([]);
     expect(settings.toolDenyList).toEqual(["read_file", "delete_path"]);
+  });
+
+  test("strips shell and network tools from persisted tool permission lists", async () => {
+    const repository = createMemorySettingsRepository();
+
+    const settings = await repository.update("user-a", {
+      toolAllowList: ["read_file", "run_shell_command", "make_http_request"],
+      toolAskList: ["make_http_request", "write_file"],
+      toolDenyList: ["run_shell_command", "delete_path"]
+    });
+
+    expect(settings.toolAllowList).toEqual(["read_file"]);
+    expect(settings.toolAskList).toEqual(["write_file"]);
+    expect(settings.toolDenyList).toEqual(["delete_path"]);
   });
 
   test("parses legacy JSON string columns from postgres rows", async () => {

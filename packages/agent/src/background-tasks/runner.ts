@@ -37,7 +37,10 @@ export interface RunBackgroundTaskInput {
 }
 
 function summarizeResult(result: RunSessionResult): string | null {
-  if (typeof result.finalAnswer === "string" && result.finalAnswer.trim().length > 0) {
+  if (
+    typeof result.finalAnswer === "string" &&
+    result.finalAnswer.trim().length > 0
+  ) {
     return result.finalAnswer;
   }
   if (typeof result.stopReason === "string" && result.stopReason.length > 0) {
@@ -97,7 +100,8 @@ function buildUserQuestionRequest(
       options: payload.options.map((option) => ({
         label: option.label,
         reply: option.reply,
-        ...(option.description ? { description: option.description } : {})
+        ...(option.description ? { description: option.description } : {}),
+        ...(option.isRecommended ? { isRecommended: true } : {})
       })),
       ...(payload.contextNote ? { contextNote: payload.contextNote } : {})
     }
@@ -125,9 +129,7 @@ function buildConfirmationRequest(
   };
 }
 
-function buildDelegateMainAgentRequest(
-  result: RunSessionResult
-): {
+function buildDelegateMainAgentRequest(result: RunSessionResult): {
   request: DelegateRequestEnvelope;
   expectedParentReply: DelegateExpectedParentReply;
   summary: string;
@@ -212,7 +214,10 @@ function parseDelegatePollMetadata(
     nextIntervalMs:
       typeof metadata.nextIntervalMs === "number" &&
       Number.isFinite(metadata.nextIntervalMs)
-        ? Math.max(1_000, Math.min(DELEGATE_POLL_MAX_INTERVAL_MS, metadata.nextIntervalMs))
+        ? Math.max(
+            1_000,
+            Math.min(DELEGATE_POLL_MAX_INTERVAL_MS, metadata.nextIntervalMs)
+          )
         : 5_000
   };
 }
@@ -237,7 +242,9 @@ async function maybeHandleDelegatePollWakeup(input: {
   const activeDelegateIds = delegateTasks
     .filter(
       (task): task is BackgroundTaskRecord =>
-        !!task && task.kind === "subagent" && isActiveDelegateStatus(task.status)
+        !!task &&
+        task.kind === "subagent" &&
+        isActiveDelegateStatus(task.status)
     )
     .map((task) => task.taskId);
 
@@ -375,7 +382,8 @@ export async function runBackgroundTask(
         taskId: claim.task.taskId,
         runId: claim.run.runId,
         workerId,
-        resultSummary: "Wakeup skipped while the main session is waiting on a guarded state."
+        resultSummary:
+          "Wakeup skipped while the main session is waiting on a guarded state."
       });
       return;
     }
@@ -386,7 +394,8 @@ export async function runBackgroundTask(
       taskId: claim.task.taskId,
       runId: claim.run.runId,
       workerId,
-      errorSummary: "Background task exceeded its deadline before execution started."
+      errorSummary:
+        "Background task exceeded its deadline before execution started."
     });
     if (claim.task.kind === "subagent") {
       await notifySubagentParent({
@@ -396,7 +405,8 @@ export async function runBackgroundTask(
         task: timedOutClaim.task,
         kind: "delegate_timeout",
         fallbackSummary: "后台子任务超时。",
-        fallbackContent: "Background task exceeded its deadline before execution started."
+        fallbackContent:
+          "Background task exceeded its deadline before execution started."
       });
     } else if (claim.task.kind === "session_wakeup") {
       await notifyWakeupSession({
@@ -406,7 +416,8 @@ export async function runBackgroundTask(
         task: timedOutClaim.task,
         kind: "delegate_timeout",
         summary: "主会话后台续跑超时。",
-        content: "Background task exceeded its deadline before execution started."
+        content:
+          "Background task exceeded its deadline before execution started."
       });
     }
     return;
@@ -448,7 +459,9 @@ export async function runBackgroundTask(
             !interruptRequested
           ) {
             interruptRequested = true;
-            void input.sessionManager.requestInterrupt(claim.task.childSessionId);
+            void input.sessionManager.requestInterrupt(
+              claim.task.childSessionId
+            );
           }
           if (
             heartbeatClaim?.task &&
@@ -456,7 +469,9 @@ export async function runBackgroundTask(
             !interruptRequested
           ) {
             interruptRequested = true;
-            void input.sessionManager.requestInterrupt(claim.task.childSessionId);
+            void input.sessionManager.requestInterrupt(
+              claim.task.childSessionId
+            );
           }
         })
         .finally(() => {
@@ -474,7 +489,9 @@ export async function runBackgroundTask(
         ? { permissionReply: claim.task.payload.permissionReply }
         : {})
     };
-    const result = (await runtimeHandle.runtime.run(resultInput)) as RunSessionResult;
+    const result = (await runtimeHandle.runtime.run(
+      resultInput
+    )) as RunSessionResult;
 
     const resultSummary = summarizeResult(result);
     if (hasTaskExpired(claim.task)) {
@@ -557,20 +574,22 @@ export async function runBackgroundTask(
             expectedParentReply: request.expectedParentReply
           });
 
-        const waitingClaim = await input.taskManager.markTaskWaitingForMainAgent({
-          taskId: claim.task.taskId,
-          runId: claim.run.runId,
-          workerId,
-          resultSummary: taskCard?.latestResponse?.summary ?? resultSummary,
-          ...(taskCard ? { taskCard } : {})
-        });
+        const waitingClaim =
+          await input.taskManager.markTaskWaitingForMainAgent({
+            taskId: claim.task.taskId,
+            runId: claim.run.runId,
+            workerId,
+            resultSummary: taskCard?.latestResponse?.summary ?? resultSummary,
+            ...(taskCard ? { taskCard } : {})
+          });
         await notifySubagentParent({
           sessionManager: input.sessionManager,
           traceManager: input.traceManager,
           taskManager: input.taskManager,
           task: waitingClaim.task,
           kind: "delegate_needs_main_agent",
-          fallbackSummary: taskCard?.latestResponse?.summary ?? "后台子任务需要主代理处理。",
+          fallbackSummary:
+            taskCard?.latestResponse?.summary ?? "后台子任务需要主代理处理。",
           fallbackContent:
             taskCard?.latestResponse?.content ??
             "Subagent needs the main agent to continue."
@@ -655,7 +674,8 @@ export async function runBackgroundTask(
             response: {
               kind: "message",
               summary: resultSummary ?? "Delegate completed.",
-              content: result.finalAnswer ?? resultSummary ?? "Delegate completed.",
+              content:
+                result.finalAnswer ?? resultSummary ?? "Delegate completed.",
               request: null
             },
             expectedParentReply: "none"
@@ -676,7 +696,8 @@ export async function runBackgroundTask(
         task: completedClaim.task,
         kind: "delegate_completed",
         fallbackSummary: "后台子任务已完成。",
-        fallbackContent: result.finalAnswer ?? resultSummary ?? "Delegate completed."
+        fallbackContent:
+          result.finalAnswer ?? resultSummary ?? "Delegate completed."
       });
     }
   } catch (error) {
@@ -687,8 +708,7 @@ export async function runBackgroundTask(
               kind: "failed",
               summary:
                 error instanceof Error ? error.message : "Delegate failed.",
-              content:
-                error instanceof Error ? error.message : String(error),
+              content: error instanceof Error ? error.message : String(error),
               request: null
             },
             expectedParentReply: "none"

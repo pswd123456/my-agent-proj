@@ -9,6 +9,9 @@ import {
   capabilityPackOptions,
   MAX_TURNS_LIMIT,
   permissionToolOptions,
+  isYoloPinnedPermissionTool,
+  schedulePermissionTools,
+  workspacePermissionTools,
   type InspectorTabId,
   type SettingsFormState,
   type SidebarPanelId
@@ -16,7 +19,8 @@ import {
 import {
   formatDayLabel,
   getPermissionToolLabel,
-  getSoftBlockClass
+  getSoftBlockClass,
+  WorkbenchSwitch
 } from "./session-workbench-shared";
 import type { InspectorProjection } from "./session-message-manager";
 import { SessionWorkbenchInspector } from "./session-workbench-inspector";
@@ -39,34 +43,6 @@ function formatCapabilityPackDescription(packName: string): string {
     ? "文件、搜索、shell 与网络等工作区能力。"
     : "日程创建、编辑、查询与冲突确认相关能力。";
 }
-
-const schedulePermissionTools = new Set([
-  "create_routine",
-  "edit_routine",
-  "delete_routine",
-  "search_routine_by_oclock",
-  "list_routine_by_week",
-  "list_routine_by_date",
-  "ask_for_confirmation"
-]);
-
-const workspacePermissionTools = new Set([
-  "apply_patch",
-  "read_file",
-  "list_directory",
-  "find_files",
-  "search_text",
-  "create_directory",
-  "write_file",
-  "copy_path",
-  "move_path",
-  "delete_path",
-  "git_status",
-  "git_diff",
-  "git_diff_cached",
-  "run_shell_command",
-  "make_http_request"
-]);
 
 function getVisiblePermissionTools(enabledCapabilityPacks: string[]): string[] {
   const enabled = new Set(enabledCapabilityPacks);
@@ -277,17 +253,14 @@ export function SessionWorkbenchDrawer({
                       YOLO
                     </div>
                     <div className="mt-1 text-xs leading-5 text-[var(--app-text-muted)]">
-                      打开后，工作区文件操作可直接执行；shell / network
-                      仍按权限规则处理。
+                      打开后，除 shell / network 外的工具都会直接执行； shell /
+                      network 仍在运行时单独审批。
                     </div>
                   </div>
-                  <input
-                    type="checkbox"
+                  <WorkbenchSwitch
                     checked={settingsForm.yoloMode}
-                    onChange={(event) =>
-                      onSettingsYoloModeChange(event.target.checked)
-                    }
-                    className="h-4 w-4 accent-[var(--app-border-accent)]"
+                    ariaLabel="切换 YOLO 默认设置"
+                    onChange={onSettingsYoloModeChange}
                   />
                 </label>
 
@@ -300,15 +273,10 @@ export function SessionWorkbenchDrawer({
                       显示完整 turns、thinking、工具调用和结果。
                     </div>
                   </div>
-                  <input
-                    type="checkbox"
+                  <WorkbenchSwitch
                     checked={settingsForm.debugConversationView}
-                    onChange={(event) =>
-                      onSettingsDebugConversationViewChange(
-                        event.target.checked
-                      )
-                    }
-                    className="h-4 w-4 accent-[var(--app-border-accent)]"
+                    ariaLabel="切换调试对话视图默认设置"
+                    onChange={onSettingsDebugConversationViewChange}
                   />
                 </label>
 
@@ -377,12 +345,20 @@ export function SessionWorkbenchDrawer({
                   <div className={tertiaryHeadingClassName}>
                     Tool Permission
                   </div>
+                  <div className="text-xs leading-5 text-[var(--app-text-muted)]">
+                    shell / network
+                    不在这里配置。它们会在运行时按命令或请求单独确认。
+                  </div>
                   {visiblePermissionTools.map((tool) => {
-                    const decision = settingsForm.toolDenyList.includes(tool)
-                      ? "deny"
-                      : settingsForm.toolAllowList.includes(tool)
-                        ? "allow"
-                        : "ask";
+                    const pinnedByYolo =
+                      settingsForm.yoloMode && isYoloPinnedPermissionTool(tool);
+                    const decision = pinnedByYolo
+                      ? "allow"
+                      : settingsForm.toolDenyList.includes(tool)
+                        ? "deny"
+                        : settingsForm.toolAllowList.includes(tool)
+                          ? "allow"
+                          : "ask";
                     return (
                       <div
                         key={tool}
@@ -393,7 +369,9 @@ export function SessionWorkbenchDrawer({
                             {formatToolOptionLabel(tool)}
                           </div>
                           <div className="mt-1 text-xs leading-5 text-[var(--app-text-muted)]">
-                            {tool}
+                            {pinnedByYolo
+                              ? "YOLO 已启用，当前会话内固定允许。"
+                              : tool}
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
@@ -401,6 +379,7 @@ export function SessionWorkbenchDrawer({
                             <button
                               key={target}
                               type="button"
+                              disabled={pinnedByYolo}
                               onClick={() =>
                                 onSettingsPermissionToolToggle(tool, target)
                               }

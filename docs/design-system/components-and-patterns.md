@@ -69,6 +69,14 @@
 - 只负责三栏外框、section header 和 inspector shell
 - 具体业务区块，例如 session 列表、消息流、周历面板，仍应留在应用层实现
 
+### `Select / Dropdown`
+
+- 优先使用成熟的 headless 组件承载键盘导航、焦点管理和弹层定位，不再直接写裸原生 `<select>` 外观
+- workbench 内的下拉框默认复用统一语义 token：`control.field.*` 负责 trigger，`control.menu.*` 负责菜单层和选中态
+- trigger 保持单行、可截断、右侧固定展开指示，不因文案长短改变高度
+- 菜单项默认使用文本主次层级区分可用 / 不可用 / 当前选中，不额外堆装饰标签
+- 如果只是同一类下拉框的不同业务文案，优先扩展现有 Select variant，不新建平行组件
+
 ## 与 `DESIGN.md` 的关系
 
 - `DESIGN.md` 负责说明这些 pattern 应呈现出的统一气质

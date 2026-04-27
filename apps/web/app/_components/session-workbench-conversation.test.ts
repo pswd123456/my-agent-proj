@@ -6,9 +6,11 @@ import {
   buildBackgroundNotificationCopy,
   buildPermissionQuickReplies,
   buildComposerActionView,
+  buildConfirmationCardView,
   getCompactToolFileChangeRows,
   buildPermissionCardView,
   buildUserQuestionCardView,
+  getConfirmationKey,
   createPermissionCardFeedback,
   getPermissionRequestKey,
   getUserQuestionKey
@@ -36,7 +38,8 @@ const pendingUserQuestionPayload: NonNullable<
     {
       label: "先做 CLI",
       reply: "先做 CLI",
-      description: "先把 runtime 和 tool 行为跑通"
+      description: "先把 runtime 和 tool 行为跑通",
+      isRecommended: true
     },
     {
       label: "CLI + Web",
@@ -46,6 +49,25 @@ const pendingUserQuestionPayload: NonNullable<
   ],
   contextNote: "这会影响当前 plan mode 的交付边界。",
   createdAt: "2026-04-26T09:00:00.000Z"
+};
+
+const pendingConfirmationPayload: NonNullable<
+  SessionSnapshot["context"]["pendingConfirmationPayload"]
+> = {
+  summaryText: "请确认是否覆盖原有日程",
+  proposedItems: [
+    {
+      previewText: "创建 04-27 09:00-10:00 的新日程：项目站会"
+    }
+  ],
+  conflictItems: [
+    {
+      routineId: "routine-1",
+      previewText: "04-27 09:00-09:30 已有日程：晨会"
+    }
+  ],
+  contextNote: "确认后会先删除冲突项，再创建新的安排。",
+  createdAt: "2026-04-27T08:00:00.000Z"
 };
 
 describe("permission card feedback", () => {
@@ -59,6 +81,35 @@ describe("permission card feedback", () => {
       {
         label: "本会话允许 workspace 外文件操作",
         reply: "本会话允许 workspace 外文件操作"
+      }
+    ]);
+  });
+
+  test("offers four shell approval scopes when the command is long enough", () => {
+    expect(
+      buildPermissionQuickReplies({
+        ...pendingPermissionRequest,
+        toolName: "run_shell_command",
+        toolInput: {
+          command: "git status --short origin/main"
+        }
+      })
+    ).toEqual([
+      {
+        label: "本会话允许 shell:git *",
+        reply: "本会话允许 shell:git *"
+      },
+      {
+        label: "本会话允许 shell:git status *",
+        reply: "本会话允许 shell:git status *"
+      },
+      {
+        label: "本会话允许 shell:git status --short *",
+        reply: "本会话允许 shell:git status --short *"
+      },
+      {
+        label: "本会话允许 shell:git status --short origin/main",
+        reply: "本会话允许 shell:git status --short origin/main"
       }
     ]);
   });
@@ -233,11 +284,13 @@ describe("background notification copy", () => {
     expect(
       buildBackgroundNotificationCopy({
         summary: "子代理已完成目录检查。",
-        content: "子代理已完成目录检查。\n\n发现 apps、packages、docs 三个核心目录。"
+        content:
+          "子代理已完成目录检查。\n\n发现 apps、packages、docs 三个核心目录。"
       })
     ).toEqual({
       summaryText: "子代理已完成目录检查。",
-      contentText: "子代理已完成目录检查。\n\n发现 apps、packages、docs 三个核心目录。"
+      contentText:
+        "子代理已完成目录检查。\n\n发现 apps、packages、docs 三个核心目录。"
     });
   });
 });
@@ -249,11 +302,31 @@ describe("user question card", () => {
     expect(view?.key).toBe(getUserQuestionKey(pendingUserQuestionPayload));
     expect(view?.questionText).toBe("这次计划要覆盖 CLI 还是 Web workbench？");
     expect(view?.options).toHaveLength(2);
+    expect(view?.options[0]?.isRecommended).toBe(true);
     expect(view?.contextNote).toBe("这会影响当前 plan mode 的交付边界。");
   });
 
   test("returns null when there is no pending clarification", () => {
     expect(buildUserQuestionCardView(null)).toBeNull();
     expect(getUserQuestionKey(null)).toBeNull();
+  });
+});
+
+describe("confirmation card", () => {
+  test("builds a conflict confirmation card from the pending payload", () => {
+    const view = buildConfirmationCardView(pendingConfirmationPayload);
+
+    expect(view?.key).toBe(getConfirmationKey(pendingConfirmationPayload));
+    expect(view?.summaryText).toBe("请确认是否覆盖原有日程");
+    expect(view?.proposedItems).toHaveLength(1);
+    expect(view?.conflictItems).toHaveLength(1);
+    expect(view?.contextNote).toBe(
+      "确认后会先删除冲突项，再创建新的安排。"
+    );
+  });
+
+  test("returns null when there is no pending confirmation", () => {
+    expect(buildConfirmationCardView(null)).toBeNull();
+    expect(getConfirmationKey(null)).toBeNull();
   });
 });

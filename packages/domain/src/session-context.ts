@@ -48,6 +48,7 @@ export interface PendingUserQuestionOption {
   label: string;
   reply: string;
   description?: string;
+  isRecommended?: boolean;
 }
 
 export interface PendingUserQuestionPayload {

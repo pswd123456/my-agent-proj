@@ -36,6 +36,12 @@ const PLAN_MODE_DISABLED_TODO_TOOLS = new Set([
   "update_todo_items"
 ]);
 
+function isYoloAutoAllowTool(tool: RuntimeTool): boolean {
+  return (
+    tool.family !== "workspace-shell" && tool.family !== "workspace-network"
+  );
+}
+
 function buildFallbackPermissionSummary(tool: RuntimeTool): string {
   if (tool.family === "workspace-shell") {
     return `需要你的确认后才能执行 shell 命令：${tool.name}`;
@@ -96,7 +102,9 @@ function createPendingPermissionRequest(input: {
     toolCallId: input.toolCallId,
     toolName: input.tool.name,
     toolInput: input.toolInput,
-    ...(input.responseGroupId ? { responseGroupId: input.responseGroupId } : {}),
+    ...(input.responseGroupId
+      ? { responseGroupId: input.responseGroupId }
+      : {}),
     family: input.tool.family,
     permissionProfile: input.tool.permissionProfile,
     summaryText: input.summaryText,
@@ -127,7 +135,9 @@ async function buildPermissionAskResult(input: {
       toolCallId: input.toolCallId,
       tool: input.tool,
       toolInput: input.toolInput,
-      ...(input.responseGroupId ? { responseGroupId: input.responseGroupId } : {}),
+      ...(input.responseGroupId
+        ? { responseGroupId: input.responseGroupId }
+        : {}),
       summaryText:
         permissionRequest?.summaryText ??
         buildFallbackPermissionSummary(input.tool),
@@ -167,7 +177,8 @@ export async function checkToolPermission(input: {
   }
 
   if (input.tool.sandboxProfile === "workspace-rooted") {
-    const sandboxTargets = input.tool.getSandboxTargets?.(input.toolInput) ?? [];
+    const sandboxTargets =
+      input.tool.getSandboxTargets?.(input.toolInput) ?? [];
     const sandboxPreflight = await preflightWorkspaceSandboxTargets({
       workingDirectory: input.executionContext.workingDirectory,
       targets: sandboxTargets
@@ -183,25 +194,38 @@ export async function checkToolPermission(input: {
     if (
       sandboxPreflight.outsideTargets.length > 0 &&
       !input.executionContext.sessionContext.workspaceEscapeAllowed &&
-      !input.executionContext.allowWorkspaceEscape
+      !input.executionContext.allowWorkspaceEscape &&
+      !(
+        input.executionContext.sessionContext.yoloMode &&
+        isYoloAutoAllowTool(input.tool)
+      )
     ) {
       const contextNote = formatWorkspaceEscapeContextNote(
         sandboxPreflight.outsideTargets.map((target) => target.requestedPath)
       );
       return {
         decision: "ask_user",
-    request: createPendingPermissionRequest({
-      toolCallId: input.toolCallId,
-      tool: input.tool,
-      toolInput: input.toolInput,
-      ...(input.responseGroupId ? { responseGroupId: input.responseGroupId } : {}),
-      summaryText:
-        "需要你的确认后才能访问 workspace 外路径。本次同意后，当前 session 的后续文件操作将不再重复询问。",
+        request: createPendingPermissionRequest({
+          toolCallId: input.toolCallId,
+          tool: input.tool,
+          toolInput: input.toolInput,
+          ...(input.responseGroupId
+            ? { responseGroupId: input.responseGroupId }
+            : {}),
+          summaryText:
+            "需要你的确认后才能访问 workspace 外路径。本次同意后，当前 session 的后续文件操作将不再重复询问。",
           ...(contextNote ? { contextNote } : {}),
           allowWorkspaceEscape: true
         })
       };
     }
+  }
+
+  if (
+    input.executionContext.sessionContext.yoloMode &&
+    isYoloAutoAllowTool(input.tool)
+  ) {
+    return { decision: "allow" };
   }
 
   const shellCommand =
@@ -236,14 +260,6 @@ export async function checkToolPermission(input: {
   }
 
   if (input.tool.permissionProfile === "allow") {
-    return { decision: "allow" };
-  }
-
-  if (
-    input.executionContext.sessionContext.yoloMode &&
-    input.tool.family === "workspace-file" &&
-    input.tool.permissionProfile === "destructive-only"
-  ) {
     return { decision: "allow" };
   }
 

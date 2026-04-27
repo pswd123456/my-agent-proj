@@ -191,6 +191,21 @@ export const semantic = {
       danger: foundation.color.berry[300]
     }
   },
+  control: {
+    field: {
+      background: "rgba(32, 24, 18, 0.92)",
+      border: "rgba(246, 239, 223, 0.12)",
+      borderHover: "rgba(246, 239, 223, 0.22)",
+      borderFocus: "rgba(105, 221, 189, 0.38)"
+    },
+    menu: {
+      background: "rgba(41, 31, 24, 0.98)",
+      border: "rgba(246, 239, 223, 0.14)",
+      itemHover: "rgba(247, 245, 239, 0.08)",
+      itemSelected: "rgba(15, 126, 102, 0.28)",
+      icon: foundation.color.sand[200]
+    }
+  },
   typography: {
     eyebrow: {
       fontFamily: foundation.typography.fontFamily.mono,
@@ -590,6 +605,51 @@ export const tokenSections: readonly TokenSection[] = [
         name: "surface.card.shadow",
         value: semantic.surface.card.shadow,
         usage: "内容卡、列表项和小型摘要块"
+      }
+    ]
+  },
+  {
+    id: "semantic-control",
+    layer: "semantic",
+    title: "Semantic Control",
+    category: "control",
+    description: "表单控件与下拉菜单的统一材质、边框和状态色。",
+    presentation: "color",
+    tokens: [
+      {
+        name: "control.field.background",
+        value: semantic.control.field.background,
+        usage: "输入框、Select trigger 与轻量工具栏控件底色"
+      },
+      {
+        name: "control.field.border",
+        value: semantic.control.field.border,
+        usage: "控件默认边框"
+      },
+      {
+        name: "control.field.borderHover",
+        value: semantic.control.field.borderHover,
+        usage: "控件 hover 时的边框增强"
+      },
+      {
+        name: "control.field.borderFocus",
+        value: semantic.control.field.borderFocus,
+        usage: "键盘 focus 与当前交互高亮"
+      },
+      {
+        name: "control.menu.background",
+        value: semantic.control.menu.background,
+        usage: "下拉面板和轻量弹出菜单底色"
+      },
+      {
+        name: "control.menu.itemHover",
+        value: semantic.control.menu.itemHover,
+        usage: "菜单项 hover 或高亮态"
+      },
+      {
+        name: "control.menu.itemSelected",
+        value: semantic.control.menu.itemSelected,
+        usage: "菜单项选中态"
       }
     ]
   }

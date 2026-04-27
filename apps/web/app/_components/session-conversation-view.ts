@@ -22,6 +22,11 @@ export interface CompactToolViewItem {
     removedLineCount: number;
     diff: string;
   }> | null;
+  taskBriefPreview: {
+    path: string;
+    content: string;
+    operation: "replace" | "edit";
+  } | null;
   originalItems: ConversationViewItem[];
 }
 
@@ -75,7 +80,12 @@ interface ToolGroup {
   input: Record<string, unknown> | null;
   status: CompactToolStatus;
   fileChanges: CompactToolViewItem["fileChanges"];
+  taskBriefPreview: CompactToolViewItem["taskBriefPreview"];
   originalItems: ConversationViewItem[];
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isToolEvent(event: RunStreamEvent): event is ToolEvent {
@@ -122,6 +132,8 @@ function getToolAction(
       "write_file",
       "edit_file",
       "apply_patch",
+      "replace_task_brief",
+      "edit_task_brief",
       "create_directory",
       "copy_path",
       "move_path",
@@ -193,6 +205,15 @@ function getToolTarget(
     return path ? `${query} @ ${path}` : query;
   }
 
+  if (toolName === "replace_task_brief") {
+    const planName = stringifyValue(input.plan_name);
+    return planName ? `task brief / ${planName}` : "task brief";
+  }
+
+  if (toolName === "edit_task_brief") {
+    return "task brief";
+  }
+
   const path = stringifyValue(input.path);
   if (path) {
     return path;
@@ -239,6 +260,26 @@ function getFileChanges(
   }));
 }
 
+function getTaskBriefPreview(
+  details: unknown
+): CompactToolViewItem["taskBriefPreview"] {
+  if (
+    !isPlainRecord(details) ||
+    details.kind !== "task_brief" ||
+    typeof details.path !== "string" ||
+    typeof details.content !== "string" ||
+    (details.operation !== "replace" && details.operation !== "edit")
+  ) {
+    return null;
+  }
+
+  return {
+    path: details.path,
+    content: details.content,
+    operation: details.operation
+  };
+}
+
 function toCompactToolViewItem(group: ToolGroup): CompactToolViewItem {
   const target = getToolTarget(group.toolName, group.input);
   const title =
@@ -246,6 +287,8 @@ function toCompactToolViewItem(group: ToolGroup): CompactToolViewItem {
       ? group.fileChanges.length === 1
         ? `已编辑 ${group.fileChanges[0]!.path}`
         : `已编辑 ${group.fileChanges.length} 个文件`
+      : group.status === "success" && group.taskBriefPreview
+        ? "已更新 task brief"
       : `${getToolVerb({
           toolName: group.toolName,
           status: group.status
@@ -260,6 +303,7 @@ function toCompactToolViewItem(group: ToolGroup): CompactToolViewItem {
     target,
     title,
     fileChanges: group.fileChanges,
+    taskBriefPreview: group.taskBriefPreview,
     originalItems: group.originalItems
   };
 }
@@ -283,6 +327,9 @@ function updateToolGroup(
   } else if (source.kind === "tool result" || source.kind === "tool_result") {
     next.status = source.isError ? "failed" : "success";
     next.fileChanges = source.isError ? null : getFileChanges(source.details);
+    next.taskBriefPreview = source.isError
+      ? null
+      : getTaskBriefPreview(source.details);
   } else if (
     source.kind === "permission_rejected" ||
     source.kind === "permission_blocked"
@@ -305,6 +352,7 @@ function createToolGroup(
       input: null,
       status: "running",
       fileChanges: null,
+      taskBriefPreview: null,
       originalItems: []
     },
     source,
@@ -504,6 +552,10 @@ function isExecutionFlowItem(item: ConversationViewItem): boolean {
   );
 }
 
+function shouldPreserveVisibleFlowItem(item: ConversationViewItem): boolean {
+  return item.type === "compact-tool" && item.taskBriefPreview !== null;
+}
+
 function isRunCompleteItem(item: ConversationViewItem): boolean {
   return (
     item.type === "timeline" &&
@@ -558,15 +610,47 @@ function compactFinalFlowSegment(
     return items;
   }
 
+  const compactedHiddenItems: ConversationViewItem[] = [];
+  let bufferedItems: ConversationViewItem[] = [];
+  let collapsedSegmentIndex = 0;
+  const usesSegmentedCollapsedKeys = hiddenItems.some(
+    shouldPreserveVisibleFlowItem
+  );
+
+  const flushBufferedItems = () => {
+    if (bufferedItems.length === 0) {
+      return;
+    }
+
+    compactedHiddenItems.push({
+      type: "compact-collapsed-flow",
+      key: usesSegmentedCollapsedKeys
+        ? `compact-collapsed-flow-${items[finalAssistantIndex]!.key}-${collapsedSegmentIndex}`
+        : `compact-collapsed-flow-${items[finalAssistantIndex]!.key}`,
+      createdAt: bufferedItems[0]!.createdAt,
+      hiddenCount: bufferedItems.length,
+      originalItems: bufferedItems
+    });
+    collapsedSegmentIndex += 1;
+
+    bufferedItems = [];
+  };
+
+  for (const hiddenItem of hiddenItems) {
+    if (shouldPreserveVisibleFlowItem(hiddenItem)) {
+      flushBufferedItems();
+      compactedHiddenItems.push(hiddenItem);
+      continue;
+    }
+
+    bufferedItems.push(hiddenItem);
+  }
+
+  flushBufferedItems();
+
   return [
     items[0]!,
-    {
-      type: "compact-collapsed-flow",
-      key: `compact-collapsed-flow-${items[finalAssistantIndex]!.key}`,
-      createdAt: hiddenItems[0]!.createdAt,
-      hiddenCount: hiddenItems.length,
-      originalItems: hiddenItems
-    },
+    ...compactedHiddenItems,
     items[finalAssistantIndex]!,
     ...items.slice(finalAssistantIndex + 1)
   ];

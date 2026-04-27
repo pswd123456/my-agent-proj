@@ -50,6 +50,11 @@ export const PERMISSION_TOOL_OPTIONS = [
   "ask_for_confirmation"
 ] as const;
 
+export const SETTINGS_PERMISSION_TOOL_OPTIONS = PERMISSION_TOOL_OPTIONS.filter(
+  (toolName) =>
+    toolName !== "run_shell_command" && toolName !== "make_http_request"
+) as readonly string[];
+
 function normalizeList(values: unknown): string[] {
   if (!Array.isArray(values)) {
     return [];
@@ -74,6 +79,18 @@ function normalizeList(values: unknown): string[] {
   return normalized;
 }
 
+function normalizeToolList(
+  values: unknown,
+  allowedTools?: ReadonlySet<string>
+): string[] {
+  const normalized = normalizeList(values);
+  if (!allowedTools) {
+    return normalized;
+  }
+
+  return normalized.filter((toolName) => allowedTools.has(toolName));
+}
+
 export function createPermissionRuleLists(): PermissionRuleLists {
   return {
     shellAllowPatterns: [],
@@ -87,16 +104,45 @@ export function createPermissionRuleLists(): PermissionRuleLists {
 export function normalizePermissionRuleLists(
   input?: PermissionRuleInput | null
 ): PermissionRuleLists {
-  const toolDenyList = normalizeList(input?.toolDenyList);
+  const toolDenyList = normalizeToolList(input?.toolDenyList);
   const deniedTools = new Set(toolDenyList);
 
-  const toolAllowList = normalizeList(input?.toolAllowList).filter(
+  const toolAllowList = normalizeToolList(input?.toolAllowList).filter(
     (toolName) => !deniedTools.has(toolName)
   );
   const allowedTools = new Set(toolAllowList);
 
-  const toolAskList = normalizeList(input?.toolAskList).filter(
+  const toolAskList = normalizeToolList(input?.toolAskList).filter(
     (toolName) => !deniedTools.has(toolName) && !allowedTools.has(toolName)
+  );
+
+  return {
+    shellAllowPatterns: normalizeList(input?.shellAllowPatterns),
+    shellDenyPatterns: normalizeList(input?.shellDenyPatterns),
+    toolAllowList,
+    toolAskList,
+    toolDenyList
+  };
+}
+
+export function normalizeSettingsPermissionRuleLists(
+  input?: PermissionRuleInput | null
+): PermissionRuleLists {
+  const allowedTools = new Set<string>(SETTINGS_PERMISSION_TOOL_OPTIONS);
+  const toolDenyList = normalizeToolList(input?.toolDenyList, allowedTools);
+  const deniedTools = new Set(toolDenyList);
+
+  const toolAllowList = normalizeToolList(
+    input?.toolAllowList,
+    allowedTools
+  ).filter((toolName) => !deniedTools.has(toolName));
+  const allowedToolSet = new Set(toolAllowList);
+
+  const toolAskList = normalizeToolList(
+    input?.toolAskList,
+    allowedTools
+  ).filter(
+    (toolName) => !deniedTools.has(toolName) && !allowedToolSet.has(toolName)
   );
 
   return {

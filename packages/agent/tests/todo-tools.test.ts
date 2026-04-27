@@ -254,6 +254,18 @@ describe("todo tools", () => {
     expect(replaceResult.content).toContain('"ack": "task_brief_replaced"');
     expect(replaceResult.content).toContain('"path":');
     expect(replaceResult.content).not.toContain('"hash"');
+    expect(replaceResult.details).toEqual({
+      kind: "task_brief",
+      path: path.join(
+        "/tmp/workspace",
+        ".agent",
+        "plans",
+        session.sessionId,
+        "jump_joy_web_game.md"
+      ),
+      content,
+      operation: "replace"
+    });
 
     const persisted = await sessionManager.getSession(session.sessionId);
     const taskBriefPath = persisted?.context.taskBriefPath;
@@ -356,6 +368,28 @@ describe("todo tools", () => {
     );
     expect(editResult.state).toBe("success");
     expect(editResult.content).toContain('"code": "TASK_BRIEF_EDITED"');
+    expect(editResult.details).toEqual({
+      kind: "task_brief",
+      path: path.join(
+        "/tmp/workspace",
+        ".agent",
+        "plans",
+        session.sessionId,
+        "jump_joy_web_game.md"
+      ),
+      content: [
+        "# Task Brief",
+        "",
+        "## Goal",
+        "Jump joy web game",
+        "",
+        "## Next Checkpoint",
+        "Draft v2"
+      ].join("\n"),
+      operation: "edit",
+      startLine: 6,
+      endLine: 7
+    });
 
     const readResult = await createReadTaskBriefTool().execute(
       {},

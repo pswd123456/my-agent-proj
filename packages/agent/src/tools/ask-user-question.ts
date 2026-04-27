@@ -11,14 +11,36 @@ import {
 const optionSchema = z.object({
   label: z.string().min(1),
   reply: z.string().min(1),
-  description: z.string().min(1).optional()
+  description: z.string().min(1).optional(),
+  is_recommended: z.boolean().optional()
 });
 
-const schema = z.object({
-  question_text: z.string().min(1),
-  options: z.array(optionSchema).max(4).optional(),
-  context_note: z.string().min(1).optional()
-});
+const schema = z
+  .object({
+    question_text: z.string().min(1),
+    options: z.array(optionSchema).max(4).optional(),
+    context_note: z.string().min(1).optional()
+  })
+  .superRefine((input, ctx) => {
+    const recommendedCount =
+      input.options?.filter((option) => option.is_recommended).length ?? 0;
+    if (recommendedCount > 1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "At most one option can be marked as recommended.",
+        path: ["options"]
+      });
+    }
+  });
+
+function mapOption(option: z.infer<typeof optionSchema>) {
+  return {
+    label: option.label,
+    reply: option.reply,
+    ...(option.description ? { description: option.description } : {}),
+    ...(option.is_recommended ? { isRecommended: true } : {})
+  };
+}
 
 function renderQuestionSummary(input: z.infer<typeof schema>): string {
   const lines = [
@@ -27,10 +49,13 @@ function renderQuestionSummary(input: z.infer<typeof schema>): string {
   ];
 
   for (const option of input.options ?? []) {
+    const prefix = option.is_recommended
+      ? "- recommended option: "
+      : "- option: ";
     const optionLine =
       option.label === option.reply
-        ? `- option: ${option.label}`
-        : `- option: ${option.label} -> ${option.reply}`;
+        ? `${prefix}${option.label}`
+        : `${prefix}${option.label} -> ${option.reply}`;
     lines.push(optionLine);
     if (option.description) {
       lines.push(`  note: ${option.description}`);
@@ -65,7 +90,8 @@ export function createAskUserQuestionTool(): RuntimeTool {
             properties: {
               label: { type: "string" },
               reply: { type: "string" },
-              description: { type: "string" }
+              description: { type: "string" },
+              is_recommended: { type: "boolean" }
             },
             required: ["label", "reply"],
             additionalProperties: false
@@ -120,11 +146,7 @@ export function createAskUserQuestionTool(): RuntimeTool {
         pendingPermissionRequest: null,
         pendingUserQuestionPayload: {
           questionText: parsed.data.question_text,
-          options: (parsed.data.options ?? []).map((option) => ({
-            label: option.label,
-            reply: option.reply,
-            ...(option.description ? { description: option.description } : {})
-          })),
+          options: (parsed.data.options ?? []).map(mapOption),
           ...(parsed.data.context_note
             ? { contextNote: parsed.data.context_note }
             : {}),
@@ -143,7 +165,10 @@ export function createAskUserQuestionTool(): RuntimeTool {
             options: (parsed.data.options ?? []).map((option) => ({
               label: option.label,
               reply: option.reply,
-              ...(option.description ? { description: option.description } : {})
+              ...(option.description
+                ? { description: option.description }
+                : {}),
+              ...(option.is_recommended ? { is_recommended: true } : {})
             })),
             context_note: parsed.data.context_note ?? null
           }

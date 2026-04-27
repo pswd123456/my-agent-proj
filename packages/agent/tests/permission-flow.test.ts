@@ -344,7 +344,8 @@ describe("Stage 4 permission flow", () => {
                         {
                           label: "先做 CLI",
                           reply: "先做 CLI",
-                          description: "先把 runtime 跑通"
+                          description: "先把 runtime 跑通",
+                          is_recommended: true
                         }
                       ],
                       context_note: "这会影响交付边界。"
@@ -392,9 +393,17 @@ describe("Stage 4 permission flow", () => {
     expect(firstRun.status).toBe("waiting for input");
     expect(firstRun.session.context.status).toBe("waiting_for_user_question");
     expect(firstRun.session.context.pendingUserQuestionPayload).toMatchObject({
-      questionText: "这次计划要覆盖 CLI 还是 Web？"
+      questionText: "这次计划要覆盖 CLI 还是 Web？",
+      options: [
+        expect.objectContaining({
+          label: "先做 CLI",
+          reply: "先做 CLI",
+          isRecommended: true
+        })
+      ]
     });
     expect(firstRun.finalAnswer).toContain("这次计划要覆盖 CLI 还是 Web？");
+    expect(firstRun.finalAnswer).toContain("推荐");
     expect(
       emittedEvents.some((event) => event.kind === "user_question_request")
     ).toBe(true);
@@ -408,6 +417,57 @@ describe("Stage 4 permission flow", () => {
     expect(secondRun.finalAnswer).toBe("收到，我先按 CLI 范围继续规划。");
     expect(secondRun.session.context.pendingUserQuestionPayload).toBeNull();
     expect(secondRun.session.context.status).toBe("completed");
+  });
+
+  test("rejects multiple recommended clarification options", async () => {
+    const sessionManager = createMemorySessionManager();
+    const routineRepository = createMemoryRoutineRepository();
+
+    const session = await sessionManager.createSession({
+      workingDirectory: await createWorkspaceRoot(),
+      model: "MiniMax-M2.7",
+      userId: "stage4-user",
+      planModeEnabled: true
+    });
+
+    const executed = await executeToolAction({
+      sessionManager,
+      routineRepository,
+      toolRegistry: createPlanningToolRegistry(),
+      traceManager: undefined,
+      session,
+      turnCount: 1,
+      toolCallId: "call-question-too-many-recommended",
+      toolName: "ask_user_question",
+      toolInput: {
+        question_text: "先做 CLI 还是 Web？",
+        options: [
+          {
+            label: "先做 CLI",
+            reply: "先做 CLI",
+            is_recommended: true
+          },
+          {
+            label: "先做 Web",
+            reply: "先做 Web",
+            is_recommended: true
+          }
+        ]
+      },
+      eventSink: undefined
+    });
+
+    expect(executed.kind).toBe("completed");
+    if (executed.kind !== "completed") {
+      throw new Error("expected completed result");
+    }
+    expect(executed.output.isError).toBe(true);
+    expect(executed.output.displayText).toContain(
+      "[ask_user_question] invalid input"
+    );
+    expect(executed.output.content).toContain(
+      "At most one option can be marked as recommended."
+    );
   });
 
   test("pauses for permission before overwriting an existing file and resumes after approval", async () => {
@@ -993,7 +1053,9 @@ describe("Stage 4 permission flow", () => {
         workingDirectory: workspaceRoot,
         model: "MiniMax-M2.7",
         userId: "stage4-user",
-        yoloMode: true
+        yoloMode: true,
+        toolAskList: ["read_file"],
+        toolDenyList: ["write_file"]
       });
       const session = await readFileIntoSession({
         sessionManager,
@@ -1028,13 +1090,32 @@ describe("Stage 4 permission flow", () => {
         await readFile(path.join(workspaceRoot, "existing.txt"), "utf8")
       ).toBe("after");
 
-      const shellRequest = await executeToolAction({
+      const readResult = await executeToolAction({
         sessionManager,
         routineRepository,
         toolRegistry,
         traceManager: undefined,
         session: executed.session,
         turnCount: 2,
+        toolCallId: "call-yolo-read",
+        toolName: "read_file",
+        toolInput: {
+          path: "existing.txt"
+        },
+        eventSink: undefined
+      });
+      expect(readResult.kind).toBe("completed");
+
+      const shellRequest = await executeToolAction({
+        sessionManager,
+        routineRepository,
+        toolRegistry,
+        traceManager: undefined,
+        session:
+          readResult.kind === "completed"
+            ? readResult.session
+            : executed.session,
+        turnCount: 3,
         toolCallId: "call-yolo-shell",
         toolName: "run_shell_command",
         toolInput: {
@@ -1044,13 +1125,35 @@ describe("Stage 4 permission flow", () => {
       });
       expect(shellRequest.kind).toBe("permission_request");
 
+      const networkRequest = await executeToolAction({
+        sessionManager,
+        routineRepository,
+        toolRegistry,
+        traceManager: undefined,
+        session:
+          readResult.kind === "completed"
+            ? readResult.session
+            : executed.session,
+        turnCount: 4,
+        toolCallId: "call-yolo-network",
+        toolName: "make_http_request",
+        toolInput: {
+          url: "https://example.com"
+        },
+        eventSink: undefined
+      });
+      expect(networkRequest.kind).toBe("permission_request");
+
       const outsideRequest = await executeToolAction({
         sessionManager,
         routineRepository,
         toolRegistry,
         traceManager: undefined,
-        session: executed.session,
-        turnCount: 3,
+        session:
+          readResult.kind === "completed"
+            ? readResult.session
+            : executed.session,
+        turnCount: 5,
         toolCallId: "call-yolo-outside",
         toolName: "read_file",
         toolInput: {
@@ -1058,11 +1161,11 @@ describe("Stage 4 permission flow", () => {
         },
         eventSink: undefined
       });
-      expect(outsideRequest.kind).toBe("permission_request");
-      if (outsideRequest.kind !== "permission_request") {
-        throw new Error("expected workspace escape request in yolo mode");
+      expect(outsideRequest.kind).toBe("completed");
+      if (outsideRequest.kind !== "completed") {
+        throw new Error("expected workspace escape to complete in yolo mode");
       }
-      expect(outsideRequest.request.allowWorkspaceEscape).toBe(true);
+      expect(outsideRequest.output.content).toContain("outside");
     } finally {
       await rm(outsidePath, { force: true });
       await rm(workspaceRoot, { recursive: true, force: true });

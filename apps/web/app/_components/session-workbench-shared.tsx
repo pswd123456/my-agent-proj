@@ -1,9 +1,14 @@
 "use client";
 
+import * as Select from "@radix-ui/react-select";
 import type { SessionSnapshot, SessionSummary } from "@ai-app-template/sdk";
+import { useState } from "react";
 
 import {
+  DEFAULT_VISIBLE_SESSION_ROW_COUNT,
   getSessionDisplayState,
+  getSessionSidebarPageIndex,
+  getVisibleSessionSidebarRows,
   parseDateString,
   buildSessionSidebarRows,
   type SessionDisplayState
@@ -33,6 +38,61 @@ interface SessionWorkbenchSidebarProps {
   onSelectSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string) => void;
   onToggleSidebarPanel: (panelId: SidebarPanelId) => void;
+}
+
+interface WorkbenchSwitchProps {
+  checked: boolean;
+  disabled?: boolean;
+  ariaLabel: string;
+  onChange: (checked: boolean) => void;
+}
+
+interface WorkbenchSelectOption {
+  value: string;
+  label: string;
+  disabled?: boolean;
+}
+
+interface WorkbenchSelectProps {
+  value: string;
+  options: WorkbenchSelectOption[];
+  disabled?: boolean;
+  ariaLabel: string;
+  onValueChange: (value: string) => void;
+}
+
+function ChevronDownIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M4 6.5 8 10l4-3.5" />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="m3.75 8.25 2.5 2.5 6-6" />
+    </svg>
+  );
 }
 
 export function formatTimestamp(value: string): string {
@@ -361,6 +421,79 @@ export function getSoftBlockClass(extraClassName = ""): string {
   return `min-w-0 rounded-[var(--app-radius-md)] border border-dashed border-[color:color-mix(in_srgb,var(--app-border-subtle)_52%,transparent)] bg-transparent px-4 py-4 ${extraClassName}`.trim();
 }
 
+export function getWorkbenchSwitchState(checked: boolean): "true" | "false" {
+  return checked ? "true" : "false";
+}
+
+export function WorkbenchSwitch({
+  checked,
+  disabled = false,
+  ariaLabel,
+  onChange
+}: WorkbenchSwitchProps) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={ariaLabel}
+      data-checked={getWorkbenchSwitchState(checked)}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className="app-switch"
+    >
+      <span className="app-switch-thumb" />
+    </button>
+  );
+}
+
+export function WorkbenchSelect({
+  value,
+  options,
+  disabled = false,
+  ariaLabel,
+  onValueChange
+}: WorkbenchSelectProps) {
+  return (
+    <Select.Root
+      value={value}
+      disabled={disabled}
+      onValueChange={onValueChange}
+    >
+      <Select.Trigger aria-label={ariaLabel} className="app-select-trigger">
+        <Select.Value className="app-select-value" />
+        <Select.Icon className="app-select-icon">
+          <ChevronDownIcon />
+        </Select.Icon>
+      </Select.Trigger>
+      <Select.Portal>
+        <Select.Content
+          position="popper"
+          sideOffset={8}
+          align="start"
+          className="app-select-content"
+        >
+          <Select.Viewport className="app-select-viewport">
+            {options.map((option) => (
+              <Select.Item
+                key={option.value}
+                value={option.value}
+                className="app-select-item"
+                {...(option.disabled ? { disabled: true } : {})}
+              >
+                <Select.ItemText>{option.label}</Select.ItemText>
+                <Select.ItemIndicator className="app-select-item-indicator">
+                  <CheckIcon />
+                </Select.ItemIndicator>
+              </Select.Item>
+            ))}
+          </Select.Viewport>
+        </Select.Content>
+      </Select.Portal>
+    </Select.Root>
+  );
+}
+
 export function CreateSessionDialog({
   open,
   creatingSession,
@@ -437,6 +570,7 @@ export function SessionWorkbenchSidebar({
   onDeleteSession,
   onToggleSidebarPanel
 }: SessionWorkbenchSidebarProps) {
+  const [visiblePageCount, setVisiblePageCount] = useState(1);
   const railWidthClass = collapsed ? "lg:w-[92px]" : "lg:w-[320px]";
 
   function getPanelShortLabel(panelId: SidebarPanelId): string {
@@ -494,6 +628,16 @@ export function SessionWorkbenchSidebar({
   }
 
   const sidebarRows = buildSessionSidebarRows(sessions);
+  const selectedPageCount =
+    getSessionSidebarPageIndex(sidebarRows, {
+      selectedSessionId,
+      visibleCount: DEFAULT_VISIBLE_SESSION_ROW_COUNT
+    }) + 1;
+  const visibleSidebarRows = getVisibleSessionSidebarRows(sidebarRows, {
+    pageCount: Math.max(visiblePageCount, selectedPageCount),
+    visibleCount: DEFAULT_VISIBLE_SESSION_ROW_COUNT
+  });
+  const hiddenSessionCount = sidebarRows.length - visibleSidebarRows.length;
 
   return (
     <aside
@@ -529,7 +673,7 @@ export function SessionWorkbenchSidebar({
           className={`flex-1 overflow-y-auto ${collapsed ? "px-3 py-3" : "px-4 py-4"}`}
         >
           <div className={`grid ${collapsed ? "gap-2" : "gap-3"}`}>
-            {sidebarRows.map(({ session, depth, childCount }) => {
+            {visibleSidebarRows.map(({ session, depth, childCount }) => {
               const isActive = session.sessionId === selectedSessionId;
               const isDeleting = deletingSessionId === session.sessionId;
               const displayState = getSessionDisplayState(session);
@@ -552,9 +696,7 @@ export function SessionWorkbenchSidebar({
                   ? "text-[var(--app-status-success)]"
                   : "text-[var(--app-text-secondary)]";
               const rowStyle =
-                depth > 0
-                  ? { marginLeft: `${depth * 0.75}rem` }
-                  : undefined;
+                depth > 0 ? { marginLeft: `${depth * 0.75}rem` } : undefined;
 
               if (collapsed) {
                 return (
@@ -653,7 +795,8 @@ export function SessionWorkbenchSidebar({
                         ) : null}
                         {session.pendingBackgroundNotificationCount > 0 ? (
                           <span className="text-[var(--app-status-warning)]">
-                            后台更新 {session.pendingBackgroundNotificationCount}
+                            后台更新{" "}
+                            {session.pendingBackgroundNotificationCount}
                           </span>
                         ) : null}
                         {session.activeBackgroundTaskCount > 0 ? (
@@ -673,6 +816,21 @@ export function SessionWorkbenchSidebar({
                 </article>
               );
             })}
+            {hiddenSessionCount > 0 ? (
+              <button
+                type="button"
+                onClick={() => setVisiblePageCount((current) => current + 1)}
+                className={`rounded-[var(--app-radius-lg)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] bg-transparent text-[var(--app-text-secondary)] transition hover:border-[var(--app-border-strong)] hover:text-[var(--app-text-primary)] ${
+                  collapsed
+                    ? "h-11 w-full text-[0.72rem] font-medium uppercase tracking-[0.14em]"
+                    : "px-3 py-2.5 text-sm text-left"
+                }`}
+              >
+                {collapsed
+                  ? `+${hiddenSessionCount}`
+                  : `查看更多 ${hiddenSessionCount} 个会话`}
+              </button>
+            ) : null}
           </div>
         </div>
 

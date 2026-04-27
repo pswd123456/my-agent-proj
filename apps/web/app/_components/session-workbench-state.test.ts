@@ -6,6 +6,8 @@ import {
   buildSessionSidebarRows,
   applyStreamEventToSession,
   canInterruptSessionExecution,
+  getSessionSidebarPageIndex,
+  getVisibleSessionSidebarRows,
   getSessionDisplayState
 } from "./session-workbench-state";
 
@@ -371,5 +373,67 @@ describe("buildSessionSidebarRows", () => {
     expect(rows[0]?.childCount).toBe(1);
     expect(rows[1]?.depth).toBe(1);
     expect(rows[2]?.depth).toBe(0);
+  });
+});
+
+describe("getVisibleSessionSidebarRows", () => {
+  test("limits the sidebar to the first 20 rows by default", () => {
+    const rows = buildSessionSidebarRows(
+      Array.from({ length: 24 }, (_, index) =>
+        createSessionSummary(
+          `session-${index + 1}`,
+          `2026-04-${String(24 - index).padStart(2, "0")}T00:00:00.000Z`
+        )
+      )
+    );
+
+    const visibleRows = getVisibleSessionSidebarRows(rows, {
+      pageCount: 1,
+      visibleCount: 20
+    });
+
+    expect(visibleRows).toHaveLength(20);
+    expect(visibleRows[0]?.session.sessionId).toBe("session-1");
+    expect(visibleRows.at(-1)?.session.sessionId).toBe("session-20");
+  });
+
+  test("appends one more batch when the page count increases", () => {
+    const rows = buildSessionSidebarRows(
+      Array.from({ length: 41 }, (_, index) =>
+        createSessionSummary(
+          `session-${index + 1}`,
+          `2026-03-${String(41 - index).padStart(2, "0")}T00:00:00.000Z`
+        )
+      )
+    );
+
+    const visibleRows = getVisibleSessionSidebarRows(rows, {
+      pageCount: 2,
+      visibleCount: 20
+    });
+
+    expect(visibleRows).toHaveLength(40);
+    expect(visibleRows[0]?.session.sessionId).toBe("session-1");
+    expect(visibleRows.at(-1)?.session.sessionId).toBe("session-40");
+  });
+});
+
+describe("getSessionSidebarPageIndex", () => {
+  test("maps an older selected session to the batch that contains it", () => {
+    const rows = buildSessionSidebarRows(
+      Array.from({ length: 41 }, (_, index) =>
+        createSessionSummary(
+          `session-${index + 1}`,
+          `2026-03-${String(41 - index).padStart(2, "0")}T00:00:00.000Z`
+        )
+      )
+    );
+
+    expect(
+      getSessionSidebarPageIndex(rows, {
+        selectedSessionId: "session-24",
+        visibleCount: 20
+      })
+    ).toBe(1);
   });
 });

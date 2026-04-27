@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 
 import {
   buildPromptMessageSections,
@@ -8,7 +10,9 @@ import {
   getPeakTurnContextTokens,
   getSidebarStateBadgeClass,
   formatContextWindowUsage,
-  stringifyPromptDebugValue
+  getWorkbenchSwitchState,
+  stringifyPromptDebugValue,
+  WorkbenchSwitch
 } from "./session-workbench-shared";
 
 describe("sidebar state tone", () => {
@@ -122,6 +126,31 @@ describe("context window formatting", () => {
   });
 });
 
+describe("workbench switch", () => {
+  test("maps checked state to data attributes", () => {
+    expect(getWorkbenchSwitchState(true)).toBe("true");
+    expect(getWorkbenchSwitchState(false)).toBe("false");
+  });
+
+  test("renders switch semantics and state markup", () => {
+    const markup = renderToStaticMarkup(
+      createElement(WorkbenchSwitch, {
+        checked: true,
+        disabled: true,
+        ariaLabel: "切换 plan mode",
+        onChange: () => {}
+      })
+    );
+
+    expect(markup).toContain('role="switch"');
+    expect(markup).toContain('aria-checked="true"');
+    expect(markup).toContain('aria-label="切换 plan mode"');
+    expect(markup).toContain('data-checked="true"');
+    expect(markup).toContain("app-switch-thumb");
+    expect(markup).toContain("disabled");
+  });
+});
+
 describe("turn context tokens", () => {
   test("adds cached tokens into effective turn context", () => {
     expect(
@@ -137,9 +166,30 @@ describe("turn context tokens", () => {
     expect(
       getPeakTurnContextTokens(
         new Map([
-          [1, { inputTokens: 2_855, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 }],
-          [2, { inputTokens: 39_554, cacheReadInputTokens: 2_613, cacheCreationInputTokens: 0 }],
-          [3, { inputTokens: 12_570, cacheReadInputTokens: 65_408, cacheCreationInputTokens: 0 }]
+          [
+            1,
+            {
+              inputTokens: 2_855,
+              cacheReadInputTokens: 0,
+              cacheCreationInputTokens: 0
+            }
+          ],
+          [
+            2,
+            {
+              inputTokens: 39_554,
+              cacheReadInputTokens: 2_613,
+              cacheCreationInputTokens: 0
+            }
+          ],
+          [
+            3,
+            {
+              inputTokens: 12_570,
+              cacheReadInputTokens: 65_408,
+              cacheCreationInputTokens: 0
+            }
+          ]
         ])
       )
     ).toBe(77_978);

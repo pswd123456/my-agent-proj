@@ -24,7 +24,7 @@ import {
   DEFAULT_SESSION_SETTINGS_USER_ID,
   SESSION_MAX_TURNS_LIMIT,
   normalizeCapabilityPacks,
-  normalizePermissionRuleLists,
+  normalizeSettingsPermissionRules,
   sanitizeContextWindow,
   sanitizeSessionMaxTurns
 } from "@ai-app-template/domain";
@@ -157,9 +157,7 @@ export interface ApiAppDependencies {
   systemLogManager: SystemLogManager;
   apiLogger?: Logger;
   buildWorkingDirectory(input?: string): string;
-  runtimeFactory?: (
-    session: SessionSnapshot
-  ) => Promise<{
+  runtimeFactory?: (session: SessionSnapshot) => Promise<{
     runtime: AgentRuntime;
     dispose(): Promise<void>;
     preRunTraceEvent?: TraceEvent;
@@ -173,12 +171,15 @@ export interface ApiAppDependencies {
 function resolveDefaultModel(
   dependencies: ApiAppDependencies
 ): string | undefined {
-  return dependencies.modelService?.getDefaultModel() ?? dependencies.defaultModel;
+  return (
+    dependencies.modelService?.getDefaultModel() ?? dependencies.defaultModel
+  );
 }
 
-function buildModelCatalog(
-  dependencies: ApiAppDependencies
-): { defaultModel: string | null; models: ModelCatalogEntry[] } {
+function buildModelCatalog(dependencies: ApiAppDependencies): {
+  defaultModel: string | null;
+  models: ModelCatalogEntry[];
+} {
   if (dependencies.modelService) {
     return {
       defaultModel: dependencies.modelService.getDefaultModel(),
@@ -267,7 +268,7 @@ function toCreateSessionInput(input: {
     workingDirectory: input.buildWorkingDirectory(
       input.workingDirectoryOverride ?? input.settings.workingDirectory
     ),
-    ...(input.modelOverride ?? input.settings.model ?? input.defaultModel
+    ...((input.modelOverride ?? input.settings.model ?? input.defaultModel)
       ? {
           model:
             input.modelOverride ?? input.settings.model ?? input.defaultModel
@@ -454,7 +455,9 @@ function buildErrorPayload(error: unknown, requestId: string) {
     error: {
       message: getErrorMessage(error),
       name:
-        error instanceof Error && error.name ? error.name : "InternalServerError",
+        error instanceof Error && error.name
+          ? error.name
+          : "InternalServerError",
       requestId,
       status,
       ...(code ? { code } : {}),
@@ -691,7 +694,7 @@ export function createApiApp(dependencies: ApiAppDependencies) {
 
     const body = updateSessionSettingsBodySchema.parse(await c.req.json());
     const requestedModel = resolveRequestedModel(dependencies, body.model);
-    const permissionRules = normalizePermissionRuleLists({
+    const permissionRules = normalizeSettingsPermissionRules({
       shellAllowPatterns:
         body.shellAllowPatterns ?? session.context.shellAllowPatterns,
       shellDenyPatterns:

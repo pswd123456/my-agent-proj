@@ -14,6 +14,7 @@
     "@ai-app-template/sdk": "workspace:*",
     "@ai-app-template/tokens": "workspace:*",
     "@ai-app-template/ui-patterns": "workspace:*",
+    "@radix-ui/react-select": "^2.2.6",
     "@tailwindcss/postcss": "4.2.2",
     "next": "16.2.1",
     "postcss": "8.5.8",

@@ -40,6 +40,43 @@ function runCompleteEvent(
   };
 }
 
+function toolCallEvent(input: {
+  toolCallId: string;
+  toolName: string;
+  createdAt: string;
+  toolInput?: Record<string, unknown>;
+}): Extract<RunStreamEvent, { kind: "tool_call" }> {
+  return {
+    kind: "tool_call",
+    sessionId: "session-1",
+    createdAt: input.createdAt,
+    turnCount: 1,
+    toolCallId: input.toolCallId,
+    toolName: input.toolName,
+    input: input.toolInput ?? {}
+  };
+}
+
+function toolResultEvent(input: {
+  toolCallId: string;
+  toolName: string;
+  createdAt: string;
+  details?: Extract<RunStreamEvent, { kind: "tool_result" }>["details"];
+}): Extract<RunStreamEvent, { kind: "tool_result" }> {
+  return {
+    kind: "tool_result",
+    sessionId: "session-1",
+    createdAt: input.createdAt,
+    turnCount: 1,
+    toolCallId: input.toolCallId,
+    toolName: input.toolName,
+    output: '{"ok":true}',
+    displayText: "ok",
+    isError: false,
+    ...(input.details ? { details: input.details } : {})
+  };
+}
+
 function toMessageItem(
   block: SessionSnapshot["messages"][number]
 ): TimelineItem {
@@ -99,5 +136,57 @@ describe("session-conversation-view", () => {
         }
       }
     });
+  });
+
+  test("keeps task brief previews visible in compact mode", () => {
+    const items = buildConversationViewItems({
+      mode: "compact",
+      timelineItems: [
+        toMessageItem(
+          userBlock("user-1", "写一个 task brief", "2026-04-27T00:00:01.000Z")
+        ),
+        toEventItem(
+          toolCallEvent({
+            toolCallId: "tool-1",
+            toolName: "replace_task_brief",
+            createdAt: "2026-04-27T00:00:02.000Z",
+            toolInput: {
+              plan_name: "ship_task_brief",
+              content: "# Task Brief\n\n## Goal\nShip it"
+            }
+          })
+        ),
+        toEventItem(
+          toolResultEvent({
+            toolCallId: "tool-1",
+            toolName: "replace_task_brief",
+            createdAt: "2026-04-27T00:00:03.000Z",
+            details: {
+              kind: "task_brief",
+              path: "/tmp/workspace/.agent/plans/session-1/ship_task_brief.md",
+              content: "# Task Brief\n\n## Goal\nShip it",
+              operation: "replace"
+            }
+          })
+        ),
+        toEventItem(assistantEvent("2026-04-27T00:00:04.000Z")),
+        toEventItem(runCompleteEvent("2026-04-27T00:00:05.000Z"))
+      ]
+    });
+
+    expect(items.map((item) => item.type)).toEqual([
+      "timeline",
+      "compact-tool",
+      "timeline"
+    ]);
+    expect(items[1]?.type).toBe("compact-tool");
+    if (items[1]?.type === "compact-tool") {
+      expect(items[1].title).toBe("已更新 task brief");
+      expect(items[1].taskBriefPreview).toEqual({
+        path: "/tmp/workspace/.agent/plans/session-1/ship_task_brief.md",
+        content: "# Task Brief\n\n## Goal\nShip it",
+        operation: "replace"
+      });
+    }
   });
 });

@@ -46,7 +46,9 @@ import {
   getDebugPreClass,
   getInspectorCardClass,
   getSoftBlockClass,
-  stringify
+  stringify,
+  WorkbenchSelect,
+  WorkbenchSwitch
 } from "./session-workbench-shared";
 
 interface SessionWorkbenchConversationPanelProps {
@@ -61,6 +63,7 @@ interface SessionWorkbenchConversationPanelProps {
   autoCollapsingItemKeys: Set<string>;
   debugConversationView: boolean;
   pendingPermissionRequest: SessionSnapshot["context"]["pendingPermissionRequest"];
+  pendingConfirmationPayload: SessionSnapshot["context"]["pendingConfirmationPayload"];
   pendingUserQuestionPayload: SessionSnapshot["context"]["pendingUserQuestionPayload"];
   message: string;
   submitting: boolean;
@@ -72,8 +75,13 @@ interface SessionWorkbenchConversationPanelProps {
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onInterrupt: () => void;
   onSettingsModelChange: (model: string) => void;
+  onSettingsYoloModeChange: (checked: boolean) => void;
   onSessionPlanModeChange: (checked: boolean) => void;
-  onPermissionQuickReply: (reply: string) => void;
+  onPermissionQuickReply: (
+    reply: string,
+    options?: { persistShellApproval?: boolean }
+  ) => void | Promise<void>;
+  onConfirmationQuickReply: (reply: string) => void;
   onUserQuestionQuickReply: (reply: string) => void;
   onAssistantAnimationComplete: (itemKey: string) => void;
   onToggleExpandedItem: (key: string) => void;
@@ -208,6 +216,18 @@ interface UserQuestionCardView {
   contextNote?: string;
 }
 
+interface ConfirmationCardView {
+  key: string;
+  summaryText: string;
+  proposedItems: NonNullable<
+    SessionSnapshot["context"]["pendingConfirmationPayload"]
+  >["proposedItems"];
+  conflictItems: NonNullable<
+    SessionSnapshot["context"]["pendingConfirmationPayload"]
+  >["conflictItems"];
+  contextNote?: string;
+}
+
 const PERMISSION_FEEDBACK_HIDE_DELAY_MS = 200;
 const AUTO_COLLAPSE_ANIMATION_MS = 240;
 const COLLAPSE_SCROLL_TOP_OFFSET_PX = 20;
@@ -225,6 +245,40 @@ function escapeTimelineItemKey(key: string): string {
 
 function splitShellTokens(command: string): string[] {
   return command.trim().split(/\s+/).filter(Boolean);
+}
+
+function buildShellApprovalReplies(
+  command: string
+): Array<{ label: string; reply: string }> {
+  const normalizedCommand = command.trim();
+  const tokens = splitShellTokens(normalizedCommand);
+  if (tokens.length === 0) {
+    return [];
+  }
+
+  const patterns = [
+    tokens.length === 1 ? tokens[0] : `${tokens[0]} *`,
+    tokens.length >= 2 ? `${tokens.slice(0, 2).join(" ")} *` : null,
+    tokens.length >= 3 ? `${tokens.slice(0, 3).join(" ")} *` : null,
+    normalizedCommand
+  ];
+
+  const replies: Array<{ label: string; reply: string }> = [];
+  for (const pattern of patterns) {
+    const normalizedPattern = pattern?.trim();
+    if (!normalizedPattern) {
+      continue;
+    }
+
+    const reply = `本会话允许 shell:${normalizedPattern}`;
+    if (replies.some((item) => item.reply === reply)) {
+      continue;
+    }
+
+    replies.push({ label: reply, reply });
+  }
+
+  return replies;
 }
 
 export function getPermissionRequestKey(
@@ -256,27 +310,9 @@ export function buildPermissionQuickReplies(
   if (request.toolName === "run_shell_command") {
     const command =
       typeof request.toolInput.command === "string"
-        ? request.toolInput.command.trim()
+        ? request.toolInput.command
         : "";
-    const tokens = splitShellTokens(command);
-    const replies: Array<{ label: string; reply: string }> = [];
-
-    if (tokens.length > 0) {
-      const firstPattern = tokens.length === 1 ? tokens[0] : `${tokens[0]} *`;
-      replies.push({
-        label: `本会话允许 shell:${firstPattern}`,
-        reply: `本会话允许 shell:${firstPattern}`
-      });
-    }
-
-    if (tokens.length > 1) {
-      const secondPattern = `${tokens.slice(0, 2).join(" ")} *`;
-      const reply = `本会话允许 shell:${secondPattern}`;
-      if (!replies.some((item) => item.reply === reply)) {
-        replies.push({ label: reply, reply });
-      }
-    }
-
+    const replies = buildShellApprovalReplies(command);
     if (replies.length > 0) {
       return replies;
     }
@@ -389,6 +425,33 @@ export function buildUserQuestionCardView(
     key,
     questionText: payload.questionText,
     options: payload.options,
+    ...(payload.contextNote ? { contextNote: payload.contextNote } : {})
+  };
+}
+
+export function getConfirmationKey(
+  payload: SessionSnapshot["context"]["pendingConfirmationPayload"]
+): string | null {
+  if (!payload) {
+    return null;
+  }
+
+  return payload.createdAt;
+}
+
+export function buildConfirmationCardView(
+  payload: SessionSnapshot["context"]["pendingConfirmationPayload"]
+): ConfirmationCardView | null {
+  const key = getConfirmationKey(payload);
+  if (!payload || !key) {
+    return null;
+  }
+
+  return {
+    key,
+    summaryText: payload.summaryText,
+    proposedItems: payload.proposedItems,
+    conflictItems: payload.conflictItems,
     ...(payload.contextNote ? { contextNote: payload.contextNote } : {})
   };
 }
@@ -1042,6 +1105,7 @@ function renderCompactToolItem(
   renderNestedItems: (items: ConversationViewItem[]) => React.ReactNode
 ) {
   const fileChangeRows = getCompactToolFileChangeRows(item);
+  const taskBriefPreview = item.taskBriefPreview;
 
   return (
     <article key={item.key} className={getInspectorCardClass()}>
@@ -1072,6 +1136,19 @@ function renderCompactToolItem(
                   </span>
                 </div>
               ))}
+            </div>
+          ) : taskBriefPreview ? (
+            <div className="mt-3">
+              <div className="font-mono text-[0.68rem] uppercase tracking-[0.16em] text-[var(--app-text-muted)]">
+                Task Brief
+              </div>
+              <div className="mt-1 text-xs text-[var(--app-text-muted)] [overflow-wrap:anywhere]">
+                {taskBriefPreview.path}
+              </div>
+              <MessageMarkdown
+                content={taskBriefPreview.content}
+                className="mt-3 text-[var(--app-text-secondary)]"
+              />
             </div>
           ) : null}
         </div>
@@ -1337,6 +1414,7 @@ export function SessionWorkbenchConversationPanel({
   autoCollapsingItemKeys,
   debugConversationView,
   pendingPermissionRequest,
+  pendingConfirmationPayload,
   pendingUserQuestionPayload,
   message,
   submitting,
@@ -1348,8 +1426,10 @@ export function SessionWorkbenchConversationPanel({
   onSubmit,
   onInterrupt,
   onSettingsModelChange,
+  onSettingsYoloModeChange,
   onSessionPlanModeChange,
   onPermissionQuickReply,
+  onConfirmationQuickReply,
   onUserQuestionQuickReply,
   onAssistantAnimationComplete,
   onToggleExpandedItem,
@@ -1360,6 +1440,7 @@ export function SessionWorkbenchConversationPanel({
   const [quickActionsOpen, setQuickActionsOpen] = useState(false);
   const [permissionCardFeedback, setPermissionCardFeedback] =
     useState<PermissionCardFeedback | null>(null);
+  const [persistShellApproval, setPersistShellApproval] = useState(false);
   const pendingCollapsedFlowScrollTargetRef = useRef<string | null>(null);
   const pendingAssistantRevealSkipKeyRef = useRef<string | null>(null);
   const quickActionsRef = useRef<HTMLDivElement | null>(null);
@@ -1374,6 +1455,11 @@ export function SessionWorkbenchConversationPanel({
   const smoothScrollResetTimeoutRef = useRef<number | null>(null);
   const permissionRequestKey = getPermissionRequestKey(
     pendingPermissionRequest
+  );
+  const isShellPermissionRequest =
+    pendingPermissionRequest?.toolName === "run_shell_command";
+  const confirmationCardView = buildConfirmationCardView(
+    pendingConfirmationPayload
   );
   const userQuestionCardView = buildUserQuestionCardView(
     pendingUserQuestionPayload
@@ -1607,6 +1693,10 @@ export function SessionWorkbenchConversationPanel({
       setPermissionCardFeedback(null);
     }
   }, [permissionCardFeedback, permissionRequestKey]);
+
+  useEffect(() => {
+    setPersistShellApproval(false);
+  }, [permissionRequestKey]);
 
   useEffect(() => {
     if (!permissionCardFeedback) {
@@ -1943,44 +2033,64 @@ export function SessionWorkbenchConversationPanel({
                       </div>
 
                       {permissionCardView.showActions ? (
-                        <div className="flex shrink-0 flex-wrap gap-2">
-                          {buildPermissionQuickReplies(
-                            pendingPermissionRequest
-                          ).map((option) => (
+                        <div className="flex shrink-0 flex-col items-start gap-2">
+                          {isShellPermissionRequest ? (
+                            <label className="flex items-center gap-2 text-xs text-[var(--app-text-muted)]">
+                              <input
+                                type="checkbox"
+                                checked={persistShellApproval}
+                                onChange={(event) =>
+                                  setPersistShellApproval(event.target.checked)
+                                }
+                                disabled={submitting}
+                                className="h-4 w-4 accent-[var(--app-border-accent)] disabled:cursor-not-allowed disabled:opacity-50"
+                              />
+                              <span>以后不再询问这条规则</span>
+                            </label>
+                          ) : null}
+                          <div className="flex flex-wrap gap-2">
+                            {buildPermissionQuickReplies(
+                              pendingPermissionRequest
+                            ).map((option) => (
+                              <button
+                                key={option.reply}
+                                type="button"
+                                onClick={() => {
+                                  setPermissionCardFeedback(
+                                    createPermissionCardFeedback(
+                                      pendingPermissionRequest,
+                                      option.reply
+                                    )
+                                  );
+                                  void onPermissionQuickReply(option.reply, {
+                                    persistShellApproval:
+                                      isShellPermissionRequest &&
+                                      persistShellApproval
+                                  });
+                                }}
+                                disabled={submitting}
+                                className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-accent)] bg-[var(--app-bg-elevated)] px-3 py-1.5 text-sm font-medium text-[var(--app-text-primary)] transition hover:border-[var(--app-status-success)] hover:text-[var(--app-status-success)] disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                {option.label}
+                              </button>
+                            ))}
                             <button
-                              key={option.reply}
                               type="button"
                               onClick={() => {
                                 setPermissionCardFeedback(
                                   createPermissionCardFeedback(
                                     pendingPermissionRequest,
-                                    option.reply
+                                    "取消"
                                   )
                                 );
-                                onPermissionQuickReply(option.reply);
+                                void onPermissionQuickReply("取消");
                               }}
                               disabled={submitting}
-                              className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-accent)] bg-[var(--app-bg-elevated)] px-3 py-1.5 text-sm font-medium text-[var(--app-text-primary)] transition hover:border-[var(--app-status-success)] hover:text-[var(--app-status-success)] disabled:cursor-not-allowed disabled:opacity-50"
+                              className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-3 py-1.5 text-sm text-[var(--app-text-secondary)] transition hover:border-[var(--app-status-danger)] hover:text-[var(--app-status-danger)] disabled:cursor-not-allowed disabled:opacity-50"
                             >
-                              {option.label}
+                              取消
                             </button>
-                          ))}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setPermissionCardFeedback(
-                                createPermissionCardFeedback(
-                                  pendingPermissionRequest,
-                                  "取消"
-                                )
-                              );
-                              onPermissionQuickReply("取消");
-                            }}
-                            disabled={submitting}
-                            className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-3 py-1.5 text-sm text-[var(--app-text-secondary)] transition hover:border-[var(--app-status-danger)] hover:text-[var(--app-status-danger)] disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            取消
-                          </button>
+                          </div>
                         </div>
                       ) : (
                         <div
@@ -1995,6 +2105,88 @@ export function SessionWorkbenchConversationPanel({
                             : "已取消"}
                         </div>
                       )}
+                    </div>
+                  </div>
+                ) : null}
+
+                {confirmationCardView ? (
+                  <div
+                    key={confirmationCardView.key}
+                    className="relative z-0 rounded-[var(--app-radius-lg)] border border-[color:color-mix(in_srgb,var(--app-status-warning)_56%,var(--app-border-subtle)_44%)] bg-[color:color-mix(in_srgb,var(--app-status-warning)_12%,var(--app-bg-surface)_88%)] px-4 pb-4 pt-3"
+                  >
+                    <div className="flex flex-col gap-3">
+                      <div className="min-w-0">
+                        <div className="font-mono text-[0.65rem] uppercase tracking-[0.16em] text-[var(--app-text-muted)]">
+                          Need Confirmation
+                        </div>
+                        <div className="mt-1 text-sm font-medium leading-6 text-[var(--app-text-primary)]">
+                          {confirmationCardView.summaryText}
+                        </div>
+                        {confirmationCardView.conflictItems?.length ? (
+                          <div className="mt-3 grid gap-2">
+                            <div className="font-mono text-[0.65rem] uppercase tracking-[0.16em] text-[var(--app-text-muted)]">
+                              当前冲突
+                            </div>
+                            <div className="grid gap-2">
+                              {confirmationCardView.conflictItems.map(
+                                (item) => (
+                                  <div
+                                    key={item.routineId}
+                                    className="rounded-[var(--app-radius-md)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_94%,transparent)] px-3 py-2 text-sm leading-6 text-[var(--app-text-secondary)]"
+                                  >
+                                    {item.previewText}
+                                  </div>
+                                )
+                              )}
+                            </div>
+                          </div>
+                        ) : null}
+                        <div className="mt-3 grid gap-2">
+                          <div className="font-mono text-[0.65rem] uppercase tracking-[0.16em] text-[var(--app-text-muted)]">
+                            待执行调整
+                          </div>
+                          <div className="grid gap-2">
+                            {confirmationCardView.proposedItems.map(
+                              (item, index) => (
+                                <div
+                                  key={`${confirmationCardView.key}-${index}`}
+                                  className="rounded-[var(--app-radius-md)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_94%,transparent)] px-3 py-2 text-sm leading-6 text-[var(--app-text-secondary)]"
+                                >
+                                  {item.previewText}
+                                </div>
+                              )
+                            )}
+                          </div>
+                        </div>
+                        {confirmationCardView.contextNote ? (
+                          <div className="mt-3 text-xs text-[var(--app-text-muted)]">
+                            {confirmationCardView.contextNote}
+                          </div>
+                        ) : null}
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void onConfirmationQuickReply("确认")}
+                          disabled={submitting}
+                          className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-accent)] bg-[var(--app-bg-elevated)] px-3 py-1.5 text-sm font-medium text-[var(--app-text-primary)] transition hover:border-[var(--app-status-success)] hover:text-[var(--app-status-success)] disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          确认执行
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void onConfirmationQuickReply("取消")}
+                          disabled={submitting}
+                          className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-3 py-1.5 text-sm text-[var(--app-text-secondary)] transition hover:border-[var(--app-status-danger)] hover:text-[var(--app-status-danger)] disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          暂不执行
+                        </button>
+                      </div>
+
+                      <div className="text-xs text-[var(--app-text-muted)]">
+                        也可以直接回复新的时间或调整方案。
+                      </div>
                     </div>
                   </div>
                 ) : null}
@@ -2030,9 +2222,20 @@ export function SessionWorkbenchConversationPanel({
                                 onUserQuestionQuickReply(option.reply)
                               }
                               disabled={submitting}
-                              className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-accent)] bg-[var(--app-bg-elevated)] px-3 py-1.5 text-sm font-medium text-[var(--app-text-primary)] transition hover:border-[var(--app-status-warning)] hover:text-[var(--app-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+                              className={`rounded-[var(--app-radius-pill)] border px-3 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                                option.isRecommended
+                                  ? "border-[var(--app-status-warning)] bg-[color:color-mix(in_srgb,var(--app-status-warning)_18%,var(--app-bg-elevated)_82%)] text-[var(--app-text-primary)]"
+                                  : "border-[var(--app-border-accent)] bg-[var(--app-bg-elevated)] text-[var(--app-text-primary)] hover:border-[var(--app-status-warning)] hover:text-[var(--app-text-primary)]"
+                              }`}
                             >
-                              {option.label}
+                              <span className="inline-flex items-center gap-2">
+                                <span>{option.label}</span>
+                                {option.isRecommended ? (
+                                  <span className="rounded-[var(--app-radius-pill)] border border-[color:color-mix(in_srgb,var(--app-status-warning)_72%,transparent)] px-1.5 py-0.5 text-[0.65rem] uppercase tracking-[0.08em] text-[var(--app-status-warning)]">
+                                    推荐
+                                  </span>
+                                ) : null}
+                              </span>
                             </button>
                           ))}
                         </div>
@@ -2065,25 +2268,35 @@ export function SessionWorkbenchConversationPanel({
                               <span className="text-[0.68rem] uppercase tracking-[0.14em] text-[var(--app-text-muted)]">
                                 Model
                               </span>
-                              <select
+                              <WorkbenchSelect
                                 value={selectedModelId}
-                                onChange={(event) => {
-                                  onSettingsModelChange(event.target.value);
-                                }}
                                 disabled={!currentSession}
-                                className="w-full rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-3 py-2.5 text-sm text-[var(--app-text-primary)] outline-none transition focus:border-[var(--app-border-accent)] disabled:cursor-not-allowed disabled:opacity-50"
-                              >
-                                {modelCatalog.map((model) => (
-                                  <option
-                                    key={model.id}
-                                    value={model.id}
-                                    disabled={!model.configured}
-                                  >
-                                    {model.label}
-                                    {model.configured ? "" : " (unavailable)"}
-                                  </option>
-                                ))}
-                              </select>
+                                ariaLabel="选择当前会话模型"
+                                onValueChange={onSettingsModelChange}
+                                options={modelCatalog.map((model) => ({
+                                  value: model.id,
+                                  label: model.configured
+                                    ? model.label
+                                    : `${model.label} (unavailable)`,
+                                  disabled: !model.configured
+                                }))}
+                              />
+                            </label>
+
+                            <label className="flex items-center justify-between gap-3 rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_92%,transparent)] px-3 py-2.5 text-sm text-[var(--app-text-secondary)]">
+                              <div>
+                                <div className="text-sm text-[var(--app-text-primary)]">
+                                  YOLO
+                                </div>
+                              </div>
+                              <WorkbenchSwitch
+                                checked={
+                                  currentSession?.context.yoloMode ?? false
+                                }
+                                onChange={onSettingsYoloModeChange}
+                                disabled={!currentSession}
+                                ariaLabel="切换当前会话的 YOLO 模式"
+                              />
                             </label>
 
                             <label className="flex items-center justify-between gap-3 rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_92%,transparent)] px-3 py-2.5 text-sm text-[var(--app-text-secondary)]">
@@ -2092,17 +2305,14 @@ export function SessionWorkbenchConversationPanel({
                                   Plan Mode
                                 </div>
                               </div>
-                              <input
-                                type="checkbox"
+                              <WorkbenchSwitch
                                 checked={
                                   currentSession?.context.planModeEnabled ??
                                   false
                                 }
-                                onChange={(event) => {
-                                  onSessionPlanModeChange(event.target.checked);
-                                }}
+                                onChange={onSessionPlanModeChange}
                                 disabled={!currentSession}
-                                className="h-4 w-4 accent-[var(--app-border-accent)] disabled:cursor-not-allowed disabled:opacity-50"
+                                ariaLabel="切换当前会话的 Plan Mode"
                               />
                             </label>
                           </div>

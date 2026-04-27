@@ -115,6 +115,8 @@ export interface SessionSidebarRow {
   childCount: number;
 }
 
+export const DEFAULT_VISIBLE_SESSION_ROW_COUNT = 20;
+
 function sortSessionSummariesByFreshness(
   sessions: SessionSummary[]
 ): SessionSummary[] {
@@ -195,6 +197,46 @@ export function buildSessionSidebarRows(
   }
 
   return rows;
+}
+
+export function getSessionSidebarPageIndex(
+  rows: SessionSidebarRow[],
+  input: {
+    selectedSessionId: string | null;
+    visibleCount?: number;
+  }
+): number {
+  const visibleCount = Math.max(
+    1,
+    input.visibleCount ?? DEFAULT_VISIBLE_SESSION_ROW_COUNT
+  );
+  const selectedIndex =
+    input.selectedSessionId === null
+      ? -1
+      : rows.findIndex(
+          (row) => row.session.sessionId === input.selectedSessionId
+        );
+
+  if (selectedIndex < 0) {
+    return 0;
+  }
+
+  return Math.floor(selectedIndex / visibleCount);
+}
+
+export function getVisibleSessionSidebarRows(
+  rows: SessionSidebarRow[],
+  input: {
+    visibleCount?: number;
+    pageCount?: number;
+  }
+): SessionSidebarRow[] {
+  const visibleCountPerPage = Math.max(
+    1,
+    input.visibleCount ?? DEFAULT_VISIBLE_SESSION_ROW_COUNT
+  );
+  const pageCount = Math.max(1, input.pageCount ?? 1);
+  return rows.slice(0, visibleCountPerPage * pageCount);
 }
 
 export function applyStreamEventToSession(

@@ -31,7 +31,18 @@ export interface WorkspaceFileChangesToolResultDetails {
   files: WorkspaceFileChangeSummary[];
 }
 
-export type ToolResultDetails = WorkspaceFileChangesToolResultDetails;
+export interface TaskBriefToolResultDetails {
+  kind: "task_brief";
+  path: string;
+  content: string;
+  operation: "replace" | "edit";
+  startLine?: number;
+  endLine?: number;
+}
+
+export type ToolResultDetails =
+  | WorkspaceFileChangesToolResultDetails
+  | TaskBriefToolResultDetails;
 
 export interface BaseConversationBlock {
   id: string;

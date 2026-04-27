@@ -206,7 +206,13 @@ export function createReplaceTaskBriefTool(): RuntimeTool {
           [
             "[replace_task_brief] success",
             `- path: ${boundPath.path}`
-          ].join("\n")
+          ].join("\n"),
+          {
+            kind: "task_brief",
+            path: boundPath.path,
+            content: parsed.data.content,
+            operation: "replace"
+          }
         );
       } catch (error) {
         const message =

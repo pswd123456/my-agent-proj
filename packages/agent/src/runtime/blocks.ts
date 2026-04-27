@@ -65,7 +65,9 @@ export function buildToolCallBlock(input: {
     toolName: input.name,
     input: input.toolInput as Record<string, JsonValue>,
     state: "pending",
-    ...(input.responseGroupId ? { responseGroupId: input.responseGroupId } : {}),
+    ...(input.responseGroupId
+      ? { responseGroupId: input.responseGroupId }
+      : {}),
     createdAt: new Date().toISOString()
   };
 }
@@ -87,7 +89,9 @@ export function buildToolResultBlock(input: {
     isError: input.isError,
     state: input.isError ? "failed" : "success",
     ...(input.details ? { details: input.details } : {}),
-    ...(input.responseGroupId ? { responseGroupId: input.responseGroupId } : {}),
+    ...(input.responseGroupId
+      ? { responseGroupId: input.responseGroupId }
+      : {}),
     createdAt: new Date().toISOString()
   };
 }
@@ -341,8 +345,9 @@ export function renderPendingUserQuestionAnswer(
   if (pendingUserQuestion.options.length > 0) {
     lines.push(
       ...pendingUserQuestion.options.map((option, index) => {
+        const recommended = option.isRecommended ? "（推荐）" : "";
         const detail = option.description ? `：${option.description}` : "";
-        return `- 选项 ${index + 1}：${option.label}${detail}`;
+        return `- 选项 ${index + 1}${recommended}：${option.label}${detail}`;
       })
     );
   }

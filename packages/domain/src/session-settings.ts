@@ -4,7 +4,8 @@ import type {
 } from "./permission-rules.js";
 import {
   normalizePermissionRuleLists,
-  PERMISSION_TOOL_OPTIONS
+  normalizeSettingsPermissionRuleLists,
+  SETTINGS_PERMISSION_TOOL_OPTIONS
 } from "./permission-rules.js";
 
 export const DEFAULT_SESSION_SETTINGS_USER_ID = "cli-user";
@@ -65,7 +66,7 @@ export function resolveSessionSettingsDefaults(
     shellAllowPatterns: [],
     shellDenyPatterns: [],
     toolAllowList: [],
-    toolAskList: [...PERMISSION_TOOL_OPTIONS],
+    toolAskList: [...SETTINGS_PERMISSION_TOOL_OPTIONS],
     toolDenyList: [],
     enabledCapabilityPacks: [...DEFAULT_CAPABILITY_PACKS],
     debugConversationView: false,
@@ -93,6 +94,12 @@ export function normalizeSessionPermissionRules(
   input?: PermissionRuleInput | null
 ): PermissionRuleLists {
   return normalizePermissionRuleLists(input);
+}
+
+export function normalizeSettingsPermissionRules(
+  input?: PermissionRuleInput | null
+): PermissionRuleLists {
+  return normalizeSettingsPermissionRuleLists(input);
 }
 
 export function sanitizeContextWindow(value: number | undefined): number {

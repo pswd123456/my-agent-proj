@@ -7,7 +7,7 @@ import type {
 import {
   DEFAULT_SESSION_MODEL,
   normalizeCapabilityPacks,
-  normalizePermissionRuleLists,
+  normalizeSettingsPermissionRules,
   resolveSessionSettingsDefaults,
   sanitizeContextWindow,
   sanitizeSessionMaxTurns
@@ -65,7 +65,7 @@ function toStringArray(value: unknown): string[] {
 }
 
 export function mapSettingsRow(row: SettingsRow): SessionSettingsRecord {
-  const permissionRules = normalizePermissionRuleLists({
+  const permissionRules = normalizeSettingsPermissionRules({
     shellAllowPatterns: toStringArray(row.shellAllowPatterns),
     shellDenyPatterns: toStringArray(row.shellDenyPatterns),
     toolAllowList: toStringArray(row.toolAllowList),
@@ -104,7 +104,7 @@ function buildPatchedSettings(
   current: SessionSettingsRecord,
   patch: SessionSettingsInput
 ): SessionSettingsRecord {
-  const permissionRules = normalizePermissionRuleLists({
+  const permissionRules = normalizeSettingsPermissionRules({
     shellAllowPatterns: patch.shellAllowPatterns ?? current.shellAllowPatterns,
     shellDenyPatterns: patch.shellDenyPatterns ?? current.shellDenyPatterns,
     toolAllowList: patch.toolAllowList ?? current.toolAllowList,

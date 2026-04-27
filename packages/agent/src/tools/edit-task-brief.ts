@@ -247,7 +247,15 @@ export function createEditTaskBriefTool(): RuntimeTool {
           "[edit_task_brief] success",
           `- path: ${taskBriefPath}`,
           `- replaced lines ${parsed.data.startLine}-${parsed.data.endLine}`
-        ].join("\n")
+        ].join("\n"),
+        {
+          kind: "task_brief",
+          path: taskBriefPath,
+          content: edit.content,
+          operation: "edit",
+          startLine: parsed.data.startLine,
+          endLine: parsed.data.endLine
+        }
       );
     }
   };

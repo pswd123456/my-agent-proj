@@ -65,8 +65,13 @@ import {
   SessionWorkbenchSidebar
 } from "./session-workbench-ui";
 import {
+  SESSION_RAIL_COLLAPSE_MEDIA_QUERY,
+  resolveSessionRailCollapsedState
+} from "./session-workbench-rail";
+import {
   DEFAULT_MAX_TURNS,
   clearActiveSidebarPanel,
+  isYoloPinnedPermissionTool,
   type InspectorTabId,
   type SettingsFormState,
   type SidebarPanelId
@@ -79,6 +84,28 @@ const apiClient = createApiClient({
 const SESSION_RAIL_COLLAPSED_STORAGE_KEY = "workbench-session-rail-collapsed";
 const ACTIVE_SESSION_REFRESH_INTERVAL_MS = 3_000;
 const SESSION_LIST_REFRESH_INTERVAL_MS = 5_000;
+
+function extractShellApprovalPattern(reply: string): string | null {
+  const prefix = "本会话允许 shell:";
+  if (!reply.startsWith(prefix)) {
+    return null;
+  }
+
+  const pattern = reply.slice(prefix.length).trim();
+  return pattern.length > 0 ? pattern : null;
+}
+
+function appendShellAllowPattern(
+  currentPatterns: string,
+  nextPattern: string
+): string {
+  const patterns = splitPatternLines(currentPatterns);
+  if (patterns.includes(nextPattern)) {
+    return patterns.join("\n");
+  }
+
+  return [...patterns, nextPattern].join("\n");
+}
 
 type RefreshSelectedSessionOptions = {
   resetRunView?: boolean;
@@ -144,24 +171,23 @@ export function SessionWorkbench() {
       return;
     }
 
-    const storedValue = window.localStorage.getItem(
-      SESSION_RAIL_COLLAPSED_STORAGE_KEY
-    );
-    if (storedValue === "true") {
-      setIsSessionRailCollapsed(true);
-    }
+    const mediaQuery = window.matchMedia(SESSION_RAIL_COLLAPSE_MEDIA_QUERY);
+    const syncSessionRailState = () => {
+      const storedValue = window.localStorage.getItem(
+        SESSION_RAIL_COLLAPSED_STORAGE_KEY
+      );
+      setIsSessionRailCollapsed(
+        resolveSessionRailCollapsedState(storedValue, mediaQuery.matches)
+      );
+    };
+
+    syncSessionRailState();
+    mediaQuery.addEventListener("change", syncSessionRailState);
+
+    return () => {
+      mediaQuery.removeEventListener("change", syncSessionRailState);
+    };
   }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    window.localStorage.setItem(
-      SESSION_RAIL_COLLAPSED_STORAGE_KEY,
-      String(isSessionRailCollapsed)
-    );
-  }, [isSessionRailCollapsed]);
 
   useEffect(() => {
     preferredUserIdRef.current =
@@ -593,7 +619,26 @@ export function SessionWorkbench() {
     await submitSessionMessage(message.trim());
   }
 
-  async function handlePermissionQuickReply(reply: string) {
+  async function handlePermissionQuickReply(
+    reply: string,
+    options?: { persistShellApproval?: boolean }
+  ) {
+    if (options?.persistShellApproval) {
+      const shellPattern = extractShellApprovalPattern(reply);
+      if (shellPattern) {
+        const nextForm = patchSettingsForm(settingsForm, {
+          shellAllowPatterns: appendShellAllowPattern(
+            settingsForm.shellAllowPatterns,
+            shellPattern
+          )
+        });
+        const saved = await handleSaveUserSettings(nextForm);
+        if (!saved) {
+          return;
+        }
+      }
+    }
+
     await submitSessionMessage(reply, { permissionReply: true });
   }
 
@@ -622,10 +667,10 @@ export function SessionWorkbench() {
 
   async function handleSaveUserSettings(
     nextForm: SettingsFormState = settingsForm
-  ) {
+  ): Promise<boolean> {
     const targetUserId = currentSession?.context.userId ?? userSettings?.userId;
     if (!targetUserId || savingSettings) {
-      return;
+      return false;
     }
 
     const normalizedForm = normalizeSettingsFormState(nextForm);
@@ -673,8 +718,10 @@ export function SessionWorkbench() {
         );
         setSessionRegistry((current) => upsertSession(current, syncedSession));
       }
+      return true;
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : String(error));
+      return false;
     } finally {
       setSavingSettings(false);
     }
@@ -688,7 +735,10 @@ export function SessionWorkbench() {
     toolName: string,
     target: "allow" | "ask" | "deny"
   ) {
-    if (savingSettings) {
+    if (
+      savingSettings ||
+      (settingsForm.yoloMode && isYoloPinnedPermissionTool(toolName))
+    ) {
       return;
     }
 
@@ -883,6 +933,8 @@ export function SessionWorkbench() {
     : [];
   const pendingPermissionRequest =
     currentSession?.context.pendingPermissionRequest ?? null;
+  const pendingConfirmationPayload =
+    currentSession?.context.pendingConfirmationPayload ?? null;
   const pendingUserQuestionPayload =
     currentSession?.context.pendingUserQuestionPayload ?? null;
   const showSidebarPanel = activeSidebarPanel !== null;
@@ -909,7 +961,16 @@ export function SessionWorkbench() {
       type="button"
       title={sidebarToggleLabel}
       aria-label={sidebarToggleLabel}
-      onClick={() => setIsSessionRailCollapsed((current) => !current)}
+      onClick={() =>
+        setIsSessionRailCollapsed((current) => {
+          const nextValue = !current;
+          window.localStorage.setItem(
+            SESSION_RAIL_COLLAPSED_STORAGE_KEY,
+            String(nextValue)
+          );
+          return nextValue;
+        })
+      }
       className="inline-flex items-center justify-center rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-3 py-1 text-[0.72rem] uppercase tracking-[0.14em] text-[var(--app-text-muted)] transition hover:border-[var(--app-border-strong)] hover:text-[var(--app-text-primary)]"
     >
       {isSessionRailCollapsed ? ">>" : "<<"}
@@ -1007,6 +1068,7 @@ export function SessionWorkbench() {
               }
               debugConversationView={settingsForm.debugConversationView}
               pendingPermissionRequest={pendingPermissionRequest}
+              pendingConfirmationPayload={pendingConfirmationPayload}
               pendingUserQuestionPayload={pendingUserQuestionPayload}
               message={message}
               submitting={submitting}
@@ -1024,11 +1086,17 @@ export function SessionWorkbench() {
               onSettingsModelChange={(model) =>
                 void handleSettingsModelChange(model)
               }
+              onSettingsYoloModeChange={(checked) =>
+                void handleSettingsYoloModeChange(checked)
+              }
               onSessionPlanModeChange={(checked) =>
                 void handleSessionPlanModeChange(checked)
               }
               onPermissionQuickReply={(reply) =>
                 void handlePermissionQuickReply(reply)
+              }
+              onConfirmationQuickReply={(reply) =>
+                void submitSessionMessage(reply)
               }
               onUserQuestionQuickReply={(reply) =>
                 void submitSessionMessage(reply)

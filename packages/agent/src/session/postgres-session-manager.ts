@@ -90,6 +90,30 @@ function readToolResultDetails(
   }
 
   const details = metadata.details as Record<string, unknown>;
+  if (details.kind === "task_brief") {
+    if (
+      typeof details.path !== "string" ||
+      typeof details.content !== "string" ||
+      (details.operation !== "replace" && details.operation !== "edit")
+    ) {
+      return undefined;
+    }
+
+    const startLine =
+      typeof details.startLine === "number" ? details.startLine : undefined;
+    const endLine =
+      typeof details.endLine === "number" ? details.endLine : undefined;
+
+    return {
+      kind: "task_brief",
+      path: details.path,
+      content: details.content,
+      operation: details.operation,
+      ...(typeof startLine === "number" ? { startLine } : {}),
+      ...(typeof endLine === "number" ? { endLine } : {})
+    };
+  }
+
   if (details.kind !== "workspace_file_changes" || !Array.isArray(details.files)) {
     return undefined;
   }

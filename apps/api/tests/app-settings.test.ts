@@ -94,7 +94,8 @@ async function createTestApp() {
         },
         assertModelAvailable(model) {
           if (
-            model !== DEFAULT_MINIMAX_MODEL && model !== DEFAULT_DEEPSEEK_MODEL
+            model !== DEFAULT_MINIMAX_MODEL &&
+            model !== DEFAULT_DEEPSEEK_MODEL
           ) {
             throw new Error(`Unsupported model: ${model}`);
           }
@@ -193,9 +194,9 @@ describe("createApiApp settings bootstrap", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           yoloMode: true,
-          toolAllowList: ["read_file"],
-          toolAskList: ["read_file", "write_file"],
-          toolDenyList: ["delete_path"]
+          toolAllowList: ["read_file", "run_shell_command"],
+          toolAskList: ["read_file", "write_file", "make_http_request"],
+          toolDenyList: ["delete_path", "make_http_request"]
         })
       }
     );

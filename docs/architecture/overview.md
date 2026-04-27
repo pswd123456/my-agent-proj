@@ -38,6 +38,8 @@
   - `toolAllowList` / `toolAskList` / `toolDenyList`
   - `enabledCapabilityPacks`
 
+当前权限语义里，`yoloMode` 会自动放行除 `run_shell_command` / `make_http_request` 之外的所有工具；shell / network 不走用户级 tool allow/ask/deny 配置，仍然在运行时单独审批。
+
 ## API 现状
 
 当前 API 不只是 session create/execute：

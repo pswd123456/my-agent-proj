@@ -233,24 +233,39 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isToolResultDetails(value: unknown): value is ToolResultDetails {
-  if (!isPlainRecord(value) || value.kind !== "workspace_file_changes") {
+  if (!isPlainRecord(value) || typeof value.kind !== "string") {
     return false;
   }
 
-  return (
-    Array.isArray(value.files) &&
-    value.files.every(
-      (file) =>
-        isPlainRecord(file) &&
-        typeof file.path === "string" &&
-        (file.action === "modify" ||
-          file.action === "create" ||
-          file.action === "delete") &&
-        typeof file.addedLineCount === "number" &&
-        typeof file.removedLineCount === "number" &&
-        typeof file.diff === "string"
-    )
-  );
+  if (value.kind === "workspace_file_changes") {
+    return (
+      Array.isArray(value.files) &&
+      value.files.every(
+        (file) =>
+          isPlainRecord(file) &&
+          typeof file.path === "string" &&
+          (file.action === "modify" ||
+            file.action === "create" ||
+            file.action === "delete") &&
+          typeof file.addedLineCount === "number" &&
+          typeof file.removedLineCount === "number" &&
+          typeof file.diff === "string"
+      )
+    );
+  }
+
+  if (value.kind === "task_brief") {
+    return (
+      typeof value.path === "string" &&
+      typeof value.content === "string" &&
+      (value.operation === "replace" || value.operation === "edit") &&
+      (typeof value.startLine === "number" ||
+        typeof value.startLine === "undefined") &&
+      (typeof value.endLine === "number" || typeof value.endLine === "undefined")
+    );
+  }
+
+  return false;
 }
 
 export function isConversationBlock(

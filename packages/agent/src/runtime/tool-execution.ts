@@ -25,6 +25,17 @@ export type ExecuteToolActionResult =
       >;
     };
 
+function isYoloAutoAllowTool(
+  tool: ReturnType<ToolRegistry["get"]>,
+  session: SessionSnapshot
+): boolean {
+  return (
+    session.context.yoloMode &&
+    tool.family !== "workspace-shell" &&
+    tool.family !== "workspace-network"
+  );
+}
+
 function createToolExecutionContext(input: {
   session: SessionSnapshot;
   routineRepository: RoutineRepository;
@@ -35,7 +46,11 @@ function createToolExecutionContext(input: {
   allowWorkspaceEscape?: boolean;
 }): ToolExecutionContext {
   const workspaceEscapeAllowed =
-    input.allowWorkspaceEscape ?? input.session.context.workspaceEscapeAllowed;
+    typeof input.allowWorkspaceEscape === "boolean"
+      ? input.allowWorkspaceEscape
+      : input.session.context.workspaceEscapeAllowed === true
+        ? true
+        : isYoloAutoAllowTool(input.tool, input.session);
 
   return {
     sessionId: input.session.sessionId,
@@ -235,7 +250,7 @@ export async function executeToolAction(input: {
   });
   const permissionCheck = input.skipPermissionCheck
     ? { decision: "allow" as const }
-      : await checkToolPermission({
+    : await checkToolPermission({
         toolCallId: input.toolCallId,
         tool,
         toolInput: (validation.value ?? input.toolInput) as Record<

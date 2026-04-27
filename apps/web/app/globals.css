@@ -221,6 +221,158 @@ a {
   padding: 0.6rem 0.9rem;
 }
 
+.app-switch {
+  align-items: center;
+  background: var(--app-switch-track-off);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: var(--app-switch-height);
+  padding: var(--app-switch-padding);
+  transition:
+    background var(--app-motion-standard) var(--app-ease-standard),
+    border-color var(--app-motion-standard) var(--app-ease-standard),
+    opacity var(--app-motion-standard) var(--app-ease-standard);
+  width: var(--app-switch-width);
+}
+
+.app-switch[data-checked="true"] {
+  background: var(--app-switch-track-on);
+}
+
+.app-switch:hover:not(:disabled) {
+  border-color: var(--app-border-strong);
+}
+
+.app-switch:focus-visible {
+  outline: 2px solid var(--app-border-accent);
+  outline-offset: 2px;
+}
+
+.app-switch:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.app-switch-thumb {
+  background: var(--app-switch-thumb);
+  border-radius: 999px;
+  box-shadow: 0 1px 2px rgba(15, 11, 8, 0.28);
+  display: block;
+  height: calc(
+    var(--app-switch-height) - (var(--app-switch-padding) * 2) - 2px
+  );
+  transform: translateX(0);
+  transition: transform var(--app-motion-standard) var(--app-ease-standard);
+  width: calc(var(--app-switch-height) - (var(--app-switch-padding) * 2) - 2px);
+}
+
+.app-switch[data-checked="true"] .app-switch-thumb {
+  transform: translateX(
+    calc(var(--app-switch-width) - var(--app-switch-height))
+  );
+}
+
+.app-select-trigger {
+  align-items: center;
+  background: var(--app-control-field-bg);
+  border: 1px solid var(--app-control-field-border);
+  border-radius: var(--app-radius-lg);
+  color: var(--app-text-primary);
+  display: inline-flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+  min-height: 2.75rem;
+  padding: 0.625rem 0.875rem;
+  transition:
+    border-color var(--app-motion-standard) var(--app-ease-standard),
+    background var(--app-motion-standard) var(--app-ease-standard),
+    color var(--app-motion-standard) var(--app-ease-standard);
+  width: 100%;
+}
+
+.app-select-trigger:hover:not(:disabled) {
+  border-color: var(--app-control-field-border-hover);
+}
+
+.app-select-trigger:focus-visible {
+  border-color: var(--app-control-field-border-focus);
+  outline: 2px solid
+    color-mix(in srgb, var(--app-control-field-border-focus) 70%, transparent);
+  outline-offset: 2px;
+}
+
+.app-select-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.app-select-value {
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-select-icon {
+  color: var(--app-control-menu-icon);
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.app-select-content {
+  background: var(--app-control-menu-bg);
+  border: 1px solid var(--app-control-menu-border);
+  border-radius: calc(var(--app-radius-lg) + 0.125rem);
+  box-shadow: var(--app-shadow-sm);
+  overflow: hidden;
+  z-index: 40;
+}
+
+.app-select-viewport {
+  padding: 0.35rem;
+}
+
+.app-select-item {
+  align-items: center;
+  border-radius: calc(var(--app-radius-md) - 0.125rem);
+  color: var(--app-text-secondary);
+  cursor: default;
+  display: flex;
+  font-size: 0.875rem;
+  justify-content: space-between;
+  min-height: 2.5rem;
+  padding: 0.625rem 0.75rem;
+  position: relative;
+  transition:
+    background var(--app-motion-standard) var(--app-ease-standard),
+    color var(--app-motion-standard) var(--app-ease-standard);
+}
+
+.app-select-item[data-highlighted] {
+  background: var(--app-control-menu-item-hover);
+  color: var(--app-text-primary);
+  outline: none;
+}
+
+.app-select-item[data-state="checked"] {
+  background: var(--app-control-menu-item-selected);
+  color: var(--app-text-primary);
+}
+
+.app-select-item[data-disabled] {
+  color: var(--app-text-muted);
+  pointer-events: none;
+}
+
+.app-select-item-indicator {
+  color: var(--app-accent);
+  display: inline-flex;
+  flex: 0 0 auto;
+  margin-left: 0.75rem;
+}
+
 @media (min-width: 768px) {
   .token-row {
     grid-template-columns: minmax(0, 8rem) minmax(0, 1fr) minmax(14rem, 18rem);
