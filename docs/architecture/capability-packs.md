@@ -19,6 +19,12 @@
 
 这层的职责是“跑通 agent”，而不是绑定某个具体产品领域。
 
+当前有几个能力属于 core runtime，而不是 capability pack：
+
+- `planning` 工具面，包括 `ask_user_question`、task brief 读写和 todo 交互
+- `delegation`，也就是主 agent 发起和回收 delegated subagent
+- `MCP`，也就是工作区级按次装配的动态工具挂载
+
 ### 2. Capability pack
 
 能力包是挂在 runtime 上的一组领域能力，可以包含：
@@ -28,13 +34,18 @@
 - 必要的数据访问依赖
 - 专项文档与测试
 
-当前仓库里，`日程管理` 应视为第一个已落地的 capability pack。
+当前仓库里，真正按 pack 装配的是下面两组：
 
-它可以继续使用当前的：
+- `workspace`：文件、目录、git、shell、HTTP 和工作区文件写能力
+- `schedule`：`create_routine` / `edit_routine` / `delete_routine` / `search_routine_by_oclock` / `list_routine_by_week` / `list_routine_by_date` / `ask_for_confirmation`
+
+其中 `schedule` 会继续使用当前的：
 
 - `RoutineRepository`
 - `create_routine` / `edit_routine` / `delete_routine`
 - confirmation 相关等待流转
+
+`ask_user_question` 不属于 capability pack；它只在 `plan mode` 开启时作为 planning 工具面的一部分暴露。
 
 ## 当前建议阅读顺序
 

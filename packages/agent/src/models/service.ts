@@ -7,11 +7,13 @@ import type { AnthropicCompatibleClient } from "../model.js";
 export const DEFAULT_MINIMAX_MODEL = DEFAULT_SESSION_MODEL;
 export const DEFAULT_MINIMAX_BASE_URL = "https://api.minimaxi.com/anthropic";
 export const DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-pro";
+export const DEFAULT_DEEPSEEK_FLASH_MODEL = "deepseek-v4-flash";
 export const DEFAULT_DEEPSEEK_BASE_URL = "https://api.deepseek.com/anthropic";
 
 export const SUPPORTED_MODEL_IDS = [
   DEFAULT_MINIMAX_MODEL,
-  DEFAULT_DEEPSEEK_MODEL
+  DEFAULT_DEEPSEEK_MODEL,
+  DEFAULT_DEEPSEEK_FLASH_MODEL
 ] as const;
 
 export type SupportedModelId = (typeof SUPPORTED_MODEL_IDS)[number];
@@ -58,6 +60,13 @@ const MODEL_DEFINITIONS: readonly ModelDefinition[] = [
     label: "DeepSeek V4 Pro",
     provider: "deepseek",
     description: "通过 DeepSeek 官方 Anthropic-compatible endpoint 接入。",
+    supportsThinking: true
+  },
+  {
+    id: DEFAULT_DEEPSEEK_FLASH_MODEL,
+    label: "DeepSeek V4 Flash",
+    provider: "deepseek",
+    description: "更快的 DeepSeek Anthropic-compatible endpoint 选项。",
     supportsThinking: true
   }
 ];

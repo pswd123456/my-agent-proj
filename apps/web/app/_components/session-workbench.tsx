@@ -721,6 +721,14 @@ export function SessionWorkbench() {
     await handleSaveUserSettings(nextForm);
   }
 
+  async function handleSettingsModelChange(model: string) {
+    const nextForm = patchSettingsForm(settingsForm, {
+      model
+    });
+    setSettingsForm(nextForm);
+    await handleSaveUserSettings(nextForm);
+  }
+
   async function handleSessionPlanModeChange(checked: boolean) {
     if (!currentSession || submitting) {
       return;
@@ -925,7 +933,6 @@ export function SessionWorkbench() {
               settingsMeta={settingsMeta}
               settingsStatusText={settingsStatusText}
               settingsForm={settingsForm}
-              modelCatalog={modelCatalog}
               loadingSettings={loadingSettings}
               savingSettings={savingSettings}
               pendingPermissionToolName={pendingPermissionToolName}
@@ -973,9 +980,14 @@ export function SessionWorkbench() {
               interrupting={interrupting}
               showInterruptedHint={showInterruptedHint}
               errorText={errorText}
+              modelCatalog={modelCatalog}
+              selectedModelId={settingsForm.model || currentSession?.model || ""}
               onMessageChange={setMessage}
               onSubmit={(event) => void handleSubmit(event)}
               onInterrupt={() => void handleInterruptSession()}
+              onSettingsModelChange={(model) =>
+                void handleSettingsModelChange(model)
+              }
               onSessionPlanModeChange={(checked) =>
                 void handleSessionPlanModeChange(checked)
               }

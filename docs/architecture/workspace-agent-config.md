@@ -2,7 +2,7 @@
 
 ## 当前用途边界
 
-工作区级 agent 配置统一来自当前 `session.workingDirectory` 下的 `.agent/` 目录，但不同子路径承担不同职责：
+工作区级 agent 配置统一来自当前 `session.workingDirectory` 下的 `.agent/` 目录，`apps/api` 和 `apps/worker` 都会读取同一份工作区输入，但不同子路径承担不同职责：
 
 - `.agent/skills/`：给 runtime 提供 workspace skill metadata
 - `.agent/.config.toml`：给 runtime 提供 workspace MCP server 配置
@@ -58,7 +58,7 @@ transport 通过字段推断：
 
 ## 运行时装配
 
-- API 在每次 `execute` / `execute/stream` 前读取 `.agent/.config.toml`
+- API 和 worker 在各自的 runtime 创建前读取 `.agent/.config.toml`
 - 连接成功的 MCP server 会把工具挂进本次 `ToolRegistry`
 - MCP tool 统一命名为 `mcp__<server>__<tool>`
 - MCP tool 默认走 `always-ask-user`
@@ -88,5 +88,5 @@ transport 通过字段推断：
 
 - 配置解析：`packages/agent/src/mcp/config-loader.ts`
 - MCP 连接与工具挂载：`packages/agent/src/mcp/client-manager.ts`
-- API 装配：`apps/api/src/index.ts`
+- API / worker 装配：`apps/api/src/index.ts`、`apps/worker/src/index.ts`
 - trace 事件结构：`packages/agent/src/trace.ts`

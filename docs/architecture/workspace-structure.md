@@ -34,17 +34,17 @@
 - 放具体应用与部署单元
 - `api` 是当前主入口，负责 session 生命周期、执行触发、SSE 输出、trace / system log 查询、用户 settings 读取与归一化、interrupt、snapshot / recover，以及已落地的 routine 相关接口
 - `worker` 负责 detached background task 的轮询、认领、心跳、取消协作与 child session 执行
-- `web` 是当前唯一产品层前端，主要承担工作台和调试可观测性；它消费 `packages/tokens`、`packages/ui-patterns` 和 `packages/ui`
+- `web` 是当前产品层前端，主要承担工作台和调试可观测性；它消费 `packages/sdk`、`packages/tokens`、`packages/ui-patterns` 和 `packages/ui`
 - agent session 的默认工作目录不再直接落在 repo root，而是 repo 根下的 `agent-workspace/`
 
 ### `packages/`
 
 - 放跨应用复用的共享能力
-- `agent` 放 runtime、prompt、provider 适配、session 抽象、skills、tools 和 trace
+- `agent` 放 runtime、prompt、provider 适配、session 抽象、skills、MCP、background tasks、delegation、tools 和 trace
 - `db` 放数据库连接、schema 初始化、settings repository、session 持久化配套、routine repository 和 background task repository
-- `domain` 放日程、session context、session settings 和权限规则等纯领域模型
+- `domain` 放日程、session context、session settings、background task 和权限规则等纯领域模型
 - `sdk` 放 API client、会话摘要转换和跨层类型导出
-- `tokens` 放设计 token
+- `tokens` 放设计 token 与语义 token
 - `ui-patterns` 放工作台、页面骨架等可复用模式
 - `ui` 放更细粒度的基础 UI 组件
 

@@ -13,17 +13,19 @@ flowchart LR
     Next.js workbench"]
     api["apps/api
     Hono API"]
+    worker["apps/worker
+    background task worker"]
   end
 
   subgraph packages["packages"]
     sdk["packages/sdk
     API client + shared types"]
     agent["packages/agent
-    runtime + prompt + tools + session + trace"]
+    runtime + prompt + tools + session + models + skills + MCP + background tasks + delegation + trace"]
     db["packages/db
     schema + migrations + settings/routine repository + db client"]
     domain["packages/domain
-    routine + session settings + session context"]
+    routine + session settings + session context + background task + delegate types"]
     ui["packages/ui
     base UI components"]
     patterns["packages/ui-patterns
@@ -34,6 +36,8 @@ flowchart LR
 
   postgres[("PostgreSQL")]
   minimax["MiniMax
+  Anthropic-compatible API"]
+  deepseek["DeepSeek
   Anthropic-compatible API"]
   trace["tmp/agent-sessions/sessions/*.trace.jsonl"]
   logs["tmp/agent-sessions/logs/system.log.jsonl*"]
@@ -46,10 +50,13 @@ flowchart LR
   sdk --> api
   api --> agent
   api --> db
+  worker --> agent
+  worker --> db
   agent --> domain
   agent --> db
   db --> postgres
   agent --> minimax
+  agent --> deepseek
   agent --> trace
   agent --> logs
 ```
@@ -68,7 +75,7 @@ sequenceDiagram
   participant Skills as WorkspaceSkills
   participant Prompt as PromptBuilder
   participant Permission as PermissionChecker
-  participant Model as MiniMax API
+  participant Model as Anthropic-compatible model API
   participant Tools as ToolRegistry
   participant Repo as RoutineRepository
   participant Trace as Trace JSONL
@@ -106,10 +113,32 @@ sequenceDiagram
   Web-->>User: 展示对话、thinking、tools、prompt、trace
 ```
 
+## 后台任务链路
+
+```mermaid
+sequenceDiagram
+  participant API as apps/api
+  participant Worker as apps/worker
+  participant Task as background_tasks
+  participant Session as child session
+  participant Runtime as AgentRuntime
+  participant Delegate as delegation service
+
+  API->>Task: enqueue subagent task
+  Worker->>Task: claimNextTask / heartbeatTask
+  Worker->>Session: load child session
+  Worker->>Runtime: run(childSessionId, message)
+  Runtime->>Delegate: 发起 delegated subagent 或回填结果
+  Runtime-->>Worker: RunSessionResult
+  Worker->>Task: complete / fail / waiting state
+```
+
 ## 读图提示
 
 - `apps/api` 是当前运行主入口，负责把各层装配起来
+- `apps/worker` 负责 detached background task 的轮询、认领和执行
 - `packages/agent` 是执行核心，既包含 runtime loop，也包含 prompt、session、skills、tools 和 trace
+- `packages/ui-patterns`、`packages/ui` 和 `packages/tokens` 是 `apps/web` 的共享视觉与布局层
 - tool 执行前还有独立的 permission checker；待批准请求和业务确认流是分开建模的
-- `PostgreSQL` 保存 session 与 routine 数据，`tmp/` 主要保存 trace 与 system logs
+- `PostgreSQL` 保存 session、routine 与 background task 数据，`tmp/` 主要保存 trace 与 system logs
 - `settingsRepository` 保存用户级 session settings，包含工作目录、yolo、context window、max turns 和权限规则

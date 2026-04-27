@@ -11,7 +11,11 @@ import {
   type FormEvent
 } from "react";
 
-import type { RunStreamEvent, SessionSnapshot } from "@ai-app-template/sdk";
+import type {
+  ModelCatalogEntry,
+  RunStreamEvent,
+  SessionSnapshot
+} from "@ai-app-template/sdk";
 
 import { MessageMarkdown } from "./message-markdown";
 import { SessionTodoPanel } from "./session-todo-panel";
@@ -56,6 +60,8 @@ import {
 
 interface SessionWorkbenchConversationPanelProps {
   currentSession: SessionSnapshot | null;
+  modelCatalog: ModelCatalogEntry[];
+  selectedModelId: string;
   todoUpdating: boolean;
   loading: boolean;
   timelineItems: TimelineItem[];
@@ -74,6 +80,7 @@ interface SessionWorkbenchConversationPanelProps {
   onMessageChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onInterrupt: () => void;
+  onSettingsModelChange: (model: string) => void;
   onSessionPlanModeChange: (checked: boolean) => void;
   onPermissionQuickReply: (reply: string) => void;
   onUserQuestionQuickReply: (reply: string) => void;
@@ -1398,6 +1405,8 @@ function hasRenderableTimelineContent(node: React.ReactNode): boolean {
 
 export function SessionWorkbenchConversationPanel({
   currentSession,
+  modelCatalog,
+  selectedModelId,
   todoUpdating,
   loading,
   timelineItems,
@@ -1416,6 +1425,7 @@ export function SessionWorkbenchConversationPanel({
   onMessageChange,
   onSubmit,
   onInterrupt,
+  onSettingsModelChange,
   onSessionPlanModeChange,
   onPermissionQuickReply,
   onUserQuestionQuickReply,
@@ -2231,29 +2241,53 @@ export function SessionWorkbenchConversationPanel({
                   >
                     <div className="relative">
                       {quickActionsOpen ? (
-                        <div className="absolute bottom-full left-0 mb-2 w-60 rounded-[var(--app-radius-lg)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_98%,transparent)] p-3 shadow-none">
-                          <label className="flex items-center justify-between gap-3 text-sm text-[var(--app-text-secondary)]">
-                            <div>
-                              <div className="text-sm text-[var(--app-text-primary)]">
-                                Plan Mode
+                        <div className="absolute bottom-full left-0 mb-2 w-72 rounded-[var(--app-radius-lg)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_98%,transparent)] p-3 shadow-none">
+                          <div className="grid gap-3">
+                            <label className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
+                              <span className="text-[0.68rem] uppercase tracking-[0.14em] text-[var(--app-text-muted)]">
+                                Model
+                              </span>
+                              <select
+                                value={selectedModelId}
+                                onChange={(event) => {
+                                  onSettingsModelChange(event.target.value);
+                                }}
+                                disabled={!currentSession}
+                                className="w-full rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-3 py-2.5 text-sm text-[var(--app-text-primary)] outline-none transition focus:border-[var(--app-border-accent)] disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                {modelCatalog.map((model) => (
+                                  <option
+                                    key={model.id}
+                                    value={model.id}
+                                    disabled={!model.configured}
+                                  >
+                                    {model.label}
+                                    {model.configured ? "" : " (unavailable)"}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+
+                            <label className="flex items-center justify-between gap-3 rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_92%,transparent)] px-3 py-2.5 text-sm text-[var(--app-text-secondary)]">
+                              <div>
+                                <div className="text-sm text-[var(--app-text-primary)]">
+                                  Plan Mode
+                                </div>
                               </div>
-                              <div className="mt-1 text-xs leading-5 text-[var(--app-text-muted)]">
-                                当前会话只读规划
-                              </div>
-                            </div>
-                            <input
-                              type="checkbox"
-                              checked={
-                                currentSession?.context.planModeEnabled ?? false
-                              }
-                              onChange={(event) => {
-                                onSessionPlanModeChange(event.target.checked);
-                                setQuickActionsOpen(false);
-                              }}
-                              disabled={!currentSession}
-                              className="h-4 w-4 accent-[var(--app-border-accent)] disabled:cursor-not-allowed disabled:opacity-50"
-                            />
-                          </label>
+                              <input
+                                type="checkbox"
+                                checked={
+                                  currentSession?.context.planModeEnabled ??
+                                  false
+                                }
+                                onChange={(event) => {
+                                  onSessionPlanModeChange(event.target.checked);
+                                }}
+                                disabled={!currentSession}
+                                className="h-4 w-4 accent-[var(--app-border-accent)] disabled:cursor-not-allowed disabled:opacity-50"
+                              />
+                            </label>
+                          </div>
                         </div>
                       ) : null}
                       <button
@@ -2264,7 +2298,7 @@ export function SessionWorkbenchConversationPanel({
                         onClick={() =>
                           setQuickActionsOpen((current) => !current)
                         }
-                        className="inline-flex h-9 w-9 items-center justify-center rounded-[var(--app-radius-pill)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_70%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_96%,transparent)] text-lg leading-none text-[var(--app-text-secondary)] transition hover:border-[var(--app-border-accent)] hover:text-[var(--app-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-transparent text-[1.35rem] leading-none text-[var(--app-text-secondary)] transition hover:bg-[color:color-mix(in_srgb,var(--app-bg-surface)_90%,transparent)] hover:text-[var(--app-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         +
                       </button>

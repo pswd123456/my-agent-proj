@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   DEFAULT_DEEPSEEK_MODEL,
+  DEFAULT_DEEPSEEK_FLASH_MODEL,
   DEFAULT_MINIMAX_BASE_URL,
   DEFAULT_MINIMAX_MODEL,
   createModelService
@@ -24,6 +25,10 @@ describe("AnthropicCompatibleModelService", () => {
       }),
       expect.objectContaining({
         id: DEFAULT_DEEPSEEK_MODEL,
+        configured: false
+      }),
+      expect.objectContaining({
+        id: DEFAULT_DEEPSEEK_FLASH_MODEL,
         configured: false
       })
     ]);

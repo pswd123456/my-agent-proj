@@ -8,6 +8,7 @@
 - [模板初始化](./template/README.md)
 - [技术栈总览](./tech-stack.md)
 - [架构文档目录](./architecture/README.md)
+- [后台任务与 delegation](./architecture/background-tasks-and-delegation.md)
 - [MCP 模块落地](./architecture/mcp-module.md)
 - [阶段文档目录](./plan/README.md)
 - [调查文档目录](./investigation/README.md)
@@ -28,13 +29,13 @@
 - 若某项约定已经沉淀为专题文档，后续应优先更新专题文档，而不是把补充内容继续加回入口页
 - `docs/plan/` 主要保留阶段规划、实现规格和历史演进，不是判断当前运行现状的首选入口
 
-当前仓库只保留 `apps/api` 和 `apps/web` 两个应用入口；如果未来新增应用，继续放在 `apps/` 下并补充对应文档。
+当前仓库的应用入口包括 `apps/api`、`apps/web` 和 `apps/worker`；如果未来新增应用，继续放在 `apps/` 下并补充对应文档。
 
 ## 当前推荐事实源
 
 - API 路由、请求体和返回结构以 `apps/api/src/app.ts` 为准
 - session 默认值、capability pack 默认装配和 `maxTurns`/`contextWindow` 上限以 `packages/domain/src/session-settings.ts` 为准
-- runtime 实际装配方式以 `apps/api/src/index.ts` 为准
+- runtime 实际装配方式以 `apps/api/src/index.ts` 和 `apps/worker/src/index.ts` 为准
 - tool surface 与 capability pack 装配以 `packages/agent/src/tools/registry.ts` 为准
 - 数据表、settings 和 session 持久化字段以 `packages/db/src/schema.ts` 为准
 - trace、权限流和工具执行边界以 `packages/agent/src/` 下对应实现为准

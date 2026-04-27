@@ -4,7 +4,6 @@ import type { ReactNode } from "react";
 
 import { WorkbenchPanel } from "@ai-app-template/ui-patterns";
 import type {
-  ModelCatalogEntry,
   RoutineRecord,
   RunStreamEvent,
   SessionSnapshot
@@ -77,7 +76,6 @@ interface SessionWorkbenchDrawerProps {
   settingsMeta: string;
   settingsStatusText: string;
   settingsForm: SettingsFormState;
-  modelCatalog: ModelCatalogEntry[];
   loadingSettings: boolean;
   savingSettings: boolean;
   pendingPermissionToolName: string | null;
@@ -115,7 +113,6 @@ export function SessionWorkbenchDrawer({
   settingsMeta,
   settingsStatusText,
   settingsForm,
-  modelCatalog,
   loadingSettings,
   savingSettings,
   pendingPermissionToolName,
@@ -268,38 +265,6 @@ export function SessionWorkbenchDrawer({
 
               <div className="grid gap-2">
                 <div className={sectionHeadingClassName}>Execution</div>
-                <label className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
-                  <span className={tertiaryHeadingClassName}>Model</span>
-                  <select
-                    value={settingsForm.model}
-                    onChange={(event) =>
-                      onSettingsFormChange({ model: event.target.value })
-                    }
-                    onBlur={onSettingsBlur}
-                    className="w-full rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm text-[var(--app-text-primary)] outline-none transition focus:border-[var(--app-border-accent)]"
-                  >
-                    {modelCatalog.map((model) => (
-                      <option
-                        key={model.id}
-                        value={model.id}
-                        disabled={!model.configured}
-                      >
-                        {model.label}
-                        {model.configured ? "" : " (unavailable)"}
-                      </option>
-                    ))}
-                  </select>
-                  <span className="text-xs leading-6 text-[var(--app-text-muted)]">
-                    {modelCatalog.find((item) => item.id === settingsForm.model)
-                      ?.configured
-                      ? modelCatalog.find((item) => item.id === settingsForm.model)
-                          ?.description
-                      : modelCatalog.find((item) => item.id === settingsForm.model)
-                          ?.unavailableReason ??
-                        "选择当前会话和后续新建会话默认使用的模型。"}
-                  </span>
-                </label>
-
                 <label className="flex items-center justify-between gap-3 rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm text-[var(--app-text-secondary)]">
                   <div>
                     <div className="text-sm text-[var(--app-text-primary)]">

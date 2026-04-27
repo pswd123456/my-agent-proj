@@ -3,17 +3,18 @@
 ## 当前定位
 
 - 仓库主线是一个以 `TypeScript` + `Bun` 为主栈的通用个人助手 `agent runtime`
-- 当前优先服务工作区理解、文件操作、权限等待、执行可观测性，以及 capability pack 扩展
+- 当前优先服务工作区理解、文件操作、权限等待、执行可观测性、后台任务执行，以及 capability pack 扩展
 
 ## 当前运行主链路
 
 - `apps/api` 是当前运行主入口，负责 session 生命周期、设置读取、runtime 装配、SSE 输出、trace 查询与恢复接口
 - `apps/web` 是当前唯一产品层前端，主要承载 workbench、会话可视化、trace 与调试观察
 - `apps/worker` 是后台执行入口，负责轮询 `background_tasks`、认领 detached task，并用独立 child session 驱动长任务
-- `packages/agent` 提供 runtime loop、prompt、provider 适配、统一模型服务、permission checker、session manager、tool registry、skills、trace 与 system log
-- `packages/db` 提供 PostgreSQL 访问、schema 初始化、settings repository、routine repository、background task repository
-- `packages/domain` 提供 session settings、session context、权限规则和 routine 领域模型
+- `packages/agent` 提供 runtime loop、prompt、provider 适配、统一模型服务、permission checker、session manager、tool registry、skills、MCP、background tasks、delegation、trace 与 system log
+- `packages/db` 提供 PostgreSQL 访问、schema 初始化、settings repository、routine repository 与 background task repository
+- `packages/domain` 提供 session settings、session context、权限规则、background task 载荷与 routine 领域模型
 - `packages/sdk` 提供给 Web 使用的 API client、摘要转换与跨层类型
+- `packages/ui-patterns`、`packages/ui` 和 `packages/tokens` 分别承载页面骨架、基础组件与设计 token
 
 ## 当前默认行为
 
@@ -42,6 +43,7 @@
 当前 API 不只是 session create/execute：
 
 - `GET /health`
+- `GET /models`
 - `GET/POST /sessions`
 - `GET/PATCH/DELETE /sessions/:sessionId`
 - `POST /sessions/:sessionId/execute`
@@ -63,13 +65,17 @@
 - 任务主记录保存在 `background_tasks`
 - 每次执行尝试保存在 `background_task_runs`
 - v1 只支持 `agent_session` 执行后端
-- 当前没有公开 background task API，也没有 cron/subagent tool surface
+- `apps/worker` 负责轮询和执行这些任务，`packages/agent/src/delegation/` 负责主 agent 发起与回复 delegated subagent
+- 当前没有公开 background task API，也没有 cron tool surface；`subagent` 是内部任务类型，不是对外 HTTP 接口
 
 ## 当前事实源
 
 - API 装配：`apps/api/src/index.ts`
+- worker 装配：`apps/worker/src/index.ts`
 - session 默认值：`packages/domain/src/session-settings.ts`
 - tool surface：`packages/agent/src/tools/registry.ts`
+- background task：`packages/agent/src/background-tasks/`
+- delegation：`packages/agent/src/delegation/`
 - 工作区 `.agent/` 配置：`docs/architecture/workspace-agent-config.md`
 - 数据表：`packages/db/src/schema.ts`
 
@@ -77,6 +83,7 @@
 
 - 想先建立全局认知：读 `docs/architecture/diagram.md`
 - 想判断主线与专项能力边界：读 `docs/architecture/capability-packs.md`
+- 想确认后台任务、子代理和 worker 链路：读 `docs/architecture/background-tasks-and-delegation.md`
 - 想确认目录职责和模块归属：读 `docs/architecture/workspace-structure.md`
 - 想确认工作区 `.agent/skills/` 和 `.agent/.config.toml` 的边界：读 `docs/architecture/workspace-agent-config.md`
 - 想确认 plan mode、task brief artifact 和只读 planning 边界：读 `docs/architecture/context-management/plan-mode.md`

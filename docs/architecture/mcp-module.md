@@ -5,7 +5,7 @@
 `MCP` 在当前仓库里不是一个独立产品面，而是 `agent runtime` 的工作区级动态扩展层：
 
 - 配置来源是 `session.workingDirectory/.agent/.config.toml`
-- 装配时机是每次 `execute` / `execute/stream` 前
+- 装配时机是每次 session runtime 创建前；`apps/api` 和 `apps/worker` 都会走这条链路
 - 暴露形态是挂进当前 `ToolRegistry` 的一组运行时工具
 - 生命周期只覆盖当前一次运行，不写入数据库，也不作为 session 持久状态保存
 
@@ -39,6 +39,7 @@ packages/agent/src/mcp/
   tool-adapter.ts
 
 apps/api/src/index.ts
+apps/worker/src/index.ts
 packages/agent/src/tools/registry.ts
 packages/agent/src/runtime/permission-checker.ts
 packages/agent/src/runtime/permission.ts
@@ -188,6 +189,7 @@ task-style MCP 结果如果没有 `content`，当前会走兼容分支，写成 
 MCP 连接不是单例，也不跨回合复用：
 
 - `apps/api/src/index.ts` 在 `createRuntime(session)` 内调用 `loadWorkspaceMcpTools()`
+- `apps/worker/src/index.ts` 在 background task runtime 创建时也调用同一入口
 - 本轮执行完成后通过 `runtimeHandle.dispose()` 关闭连接
 - 对 `StreamableHTTPClientTransport` 会先尝试 `terminateSession()`
 - 无论关闭过程中是否出错，都会吞掉清理异常，避免影响主流程收尾

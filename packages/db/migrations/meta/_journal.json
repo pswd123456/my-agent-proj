@@ -64,6 +64,20 @@
       "when": 1777766400000,
       "tag": "0008_full_compaction_state",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1777800960000,
+      "tag": "0009_background_tasks",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1777802100000,
+      "tag": "0010_delegate_task_card",
+      "breakpoints": true
     }
   ]
 }

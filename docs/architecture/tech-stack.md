@@ -6,6 +6,7 @@
 - 前端是 `Next.js 16` + `React 19` + `Tailwind CSS 4`
 - API 是 `Hono` + `Zod`
 - agent runtime 是仓库内自定义的 `AgentRuntime.run` 执行循环
+- 后台执行入口是 `apps/worker`，和 API 共享同一套 runtime、数据库与任务模型
 - 数据层是 `PostgreSQL` + `Drizzle ORM` + `postgres` 驱动
 - 模型接入当前通过 `Anthropic SDK` 对接 Anthropic-compatible endpoint，并由统一模型服务在 MiniMax 与 DeepSeek 之间做选择
 
@@ -22,6 +23,7 @@
 - `apps/web` 使用 `Next.js App Router`
 - UI 基础依赖是 `React 19`
 - 样式当前采用 `Tailwind CSS 4`
+- `packages/sdk` 提供 Web 侧 API client、会话摘要转换和跨层类型
 - 页面模式和工作台布局下沉在 `packages/ui-patterns`
 - 基础组件沉淀在 `packages/ui`
 - 设计 token 的运行时真相源在 `packages/tokens`
@@ -30,7 +32,6 @@
 
 - `apps/api` 使用 `Hono`
 - 请求入参校验使用 `Zod`
-- `packages/sdk` 提供面向 Web 的 API client 和类型导出
 - 当前 API 契约以代码和 SDK 为准，`OpenAPI` 尚未落地为权威源
 
 ### Agent Runtime
@@ -40,6 +41,8 @@
 - provider 适配在 `packages/agent/src/model.ts`
 - 统一模型服务在 `packages/agent/src/models/`
 - session 抽象和 PostgreSQL / file / memory 实现在 `packages/agent/src/session/`
+- 后台任务和 delegated subagent 实现在 `packages/agent/src/background-tasks/` 与 `packages/agent/src/delegation/`
+- MCP 工作区挂载实现在 `packages/agent/src/mcp/`
 - runtime 已落地 permission checker、interrupt、history compact 和 system log 边界
 - workspace skill discovery 在 `packages/agent/src/skills/`
 - tool registry 与具体工具在 `packages/agent/src/tools/`
