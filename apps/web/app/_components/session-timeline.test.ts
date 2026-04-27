@@ -321,7 +321,7 @@ describe("buildTimelineItems", () => {
       items
         .filter((item) => item.type === "event")
         .map((item) => item.event.kind)
-    ).toEqual(["turn_start", "assistant_text", "tool_result"]);
+    ).toEqual(["turn_start", "tool_result", "assistant_text"]);
   });
 
   test("uses thinking trace events instead of duplicating persisted thinking blocks", () => {
@@ -562,6 +562,89 @@ describe("buildTimelineItems", () => {
         .filter((item) => item.type === "event")
         .map((item) => item.event.kind)
     ).toEqual(["turn_start", "thinking", "assistant_text"]);
+  });
+
+  test("keeps later runs separate when the provider reuses turnCount values", () => {
+    const secondUser: Extract<
+      SessionSnapshot["messages"][number],
+      { kind: "user" }
+    > = {
+      id: "user-2",
+      kind: "user",
+      content: "再看一下下一轮",
+      createdAt: "2026-04-21T18:47:03.349Z"
+    };
+    const firstAssistantEvent: Extract<
+      RunStreamEvent,
+      { kind: "assistant_text" }
+    > = {
+      kind: "assistant_text",
+      sessionId: "session-1",
+      createdAt: "2026-04-21T18:46:21.800Z",
+      turnCount: 1,
+      assistantMessageId: "assistant-final-1",
+      text: "第一轮已经处理好了。"
+    };
+    const secondTurnStart: Extract<RunStreamEvent, { kind: "turn_start" }> = {
+      ...turnStart,
+      createdAt: "2026-04-21T18:47:03.364Z",
+      turnCount: 1
+    };
+    const secondThinkingEvent: Extract<RunStreamEvent, { kind: "thinking" }> = {
+      ...thinkingEvent,
+      createdAt: "2026-04-21T18:47:21.692Z",
+      turnCount: 1,
+      thinkingMessageId: "thinking-2",
+      signature: "sig-2",
+      text: "第二轮先检查新的上下文。"
+    };
+    const secondAssistantEvent: Extract<
+      RunStreamEvent,
+      { kind: "assistant_text" }
+    > = {
+      kind: "assistant_text",
+      sessionId: "session-1",
+      createdAt: "2026-04-21T18:47:21.800Z",
+      turnCount: 1,
+      assistantMessageId: "assistant-final-2",
+      text: "第二轮也处理好了。"
+    };
+
+    const items = buildTimelineItems({
+      messages: [firstUser, secondUser],
+      historyEvents: [
+        turnStart,
+        thinkingEvent,
+        firstAssistantEvent,
+        secondTurnStart,
+        secondThinkingEvent,
+        secondAssistantEvent
+      ],
+      streamEvents: []
+    });
+
+    expect(
+      items.map((item) => {
+        if (item.type === "event") {
+          return item.event.kind;
+        }
+
+        if (item.type === "pending-user") {
+          return "pending-user";
+        }
+
+        return item.block.kind;
+      })
+    ).toEqual([
+      "turn_start",
+      "user",
+      "thinking",
+      "assistant_text",
+      "turn_start",
+      "user",
+      "thinking",
+      "assistant_text"
+    ]);
   });
 
   test("renders provider-emitted historical tool text as assistant text instead of tool call", () => {
@@ -1002,7 +1085,10 @@ describe("buildConversationViewItems compact mode", () => {
         eventItem(currentToolResult),
         eventItem(streamingAssistantEvent)
       ],
-      mode: "compact"
+      mode: "compact",
+      streamEventKeys: new Set([
+        getTimelineEventKey(streamingAssistantEvent)
+      ])
     });
 
     expect(view.map((item) => item.type)).toEqual([
@@ -1014,6 +1100,38 @@ describe("buildConversationViewItems compact mode", () => {
     expect(
       view.some((item) => item.type === "compact-collapsed-flow")
     ).toBeFalse();
+  });
+
+  test("folds settled assistant history even when no run_complete event is present", () => {
+    const settledAssistantEvent: Extract<
+      RunStreamEvent,
+      { kind: "assistant_text" }
+    > = {
+      kind: "assistant_text",
+      sessionId: "session-1",
+      createdAt: "2026-04-21T18:46:21.800Z",
+      turnCount: 1,
+      assistantMessageId: "assistant-settled",
+      text: "已经处理好了。"
+    };
+
+    const view = buildConversationViewItems({
+      timelineItems: [
+        messageItem(firstUser),
+        eventItem(turnStart),
+        eventItem(thinkingEvent),
+        eventItem(currentToolCall),
+        eventItem(currentToolResult),
+        eventItem(settledAssistantEvent)
+      ],
+      mode: "compact"
+    });
+
+    expect(view.map((item) => item.type)).toEqual([
+      "timeline",
+      "compact-collapsed-flow",
+      "timeline"
+    ]);
   });
 
   test("does not fold when the first assistant text arrives before any tool execution", () => {
@@ -1213,6 +1331,118 @@ describe("buildConversationViewItems compact mode", () => {
     expect(collapsedItems.map((item) => item.key)).toEqual([
       "compact-collapsed-flow-event-assistant_text-assistant-final-1",
       "compact-collapsed-flow-event-assistant_text-assistant-final-2"
+    ]);
+  });
+
+  test("still collapses each run separately when later runs reuse turnCount", () => {
+    const secondUser: Extract<
+      SessionSnapshot["messages"][number],
+      { kind: "user" }
+    > = {
+      id: "user-2",
+      kind: "user",
+      content: "再看一下明天",
+      createdAt: "2026-04-21T18:47:03.349Z"
+    };
+    const secondTurnStart: Extract<RunStreamEvent, { kind: "turn_start" }> = {
+      ...turnStart,
+      createdAt: "2026-04-21T18:47:03.364Z",
+      turnCount: 1
+    };
+    const secondThinkingEvent: Extract<RunStreamEvent, { kind: "thinking" }> = {
+      ...thinkingEvent,
+      createdAt: "2026-04-21T18:47:21.692Z",
+      turnCount: 1,
+      thinkingMessageId: "thinking-2",
+      signature: "sig-2",
+      text: "再检查一下后续日程。"
+    };
+    const secondToolCall: Extract<RunStreamEvent, { kind: "tool_call" }> = {
+      ...currentToolCall,
+      createdAt: "2026-04-21T18:47:21.720Z",
+      turnCount: 1,
+      toolCallId: "call-current-2"
+    };
+    const secondToolResult: Extract<RunStreamEvent, { kind: "tool_result" }> = {
+      ...currentToolResult,
+      createdAt: "2026-04-21T18:47:21.735Z",
+      turnCount: 1,
+      toolCallId: "call-current-2"
+    };
+    const firstFinalAssistantEvent: Extract<
+      RunStreamEvent,
+      { kind: "assistant_text" }
+    > = {
+      kind: "assistant_text",
+      sessionId: "session-1",
+      createdAt: "2026-04-21T18:46:21.800Z",
+      turnCount: 1,
+      assistantMessageId: "assistant-final-1",
+      text: "第一轮已经处理好了。"
+    };
+    const secondFinalAssistantEvent: Extract<
+      RunStreamEvent,
+      { kind: "assistant_text" }
+    > = {
+      kind: "assistant_text",
+      sessionId: "session-1",
+      createdAt: "2026-04-21T18:47:21.800Z",
+      turnCount: 1,
+      assistantMessageId: "assistant-final-2",
+      text: "第二轮也处理好了。"
+    };
+    const firstCompletedRunEvent: Extract<
+      RunStreamEvent,
+      { kind: "run_complete" }
+    > = {
+      ...interruptedRunCompleteEvent,
+      createdAt: "2026-04-21T18:46:21.810Z",
+      status: "completed",
+      stopReason: "end_turn"
+    };
+    const secondCompletedRunEvent: Extract<
+      RunStreamEvent,
+      { kind: "run_complete" }
+    > = {
+      ...interruptedRunCompleteEvent,
+      createdAt: "2026-04-21T18:47:21.810Z",
+      status: "completed",
+      stopReason: "end_turn"
+    };
+
+    const timelineItems = buildTimelineItems({
+      messages: [firstUser, secondUser],
+      historyEvents: [
+        turnStart,
+        thinkingEvent,
+        currentToolCall,
+        currentToolResult,
+        firstFinalAssistantEvent,
+        firstCompletedRunEvent,
+        secondTurnStart,
+        secondThinkingEvent,
+        secondToolCall,
+        secondToolResult,
+        secondFinalAssistantEvent,
+        secondCompletedRunEvent
+      ],
+      streamEvents: []
+    });
+
+    const view = buildConversationViewItems({
+      timelineItems,
+      mode: "compact"
+    });
+
+    expect(view.map((item) => item.type)).toEqual([
+      "timeline",
+      "compact-collapsed-flow",
+      "timeline",
+      "timeline",
+      "timeline",
+      "compact-collapsed-flow",
+      "timeline",
+      "timeline"
     ]);
   });
 

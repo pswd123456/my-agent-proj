@@ -25,6 +25,7 @@
 - 做工作区 MCP 配置、挂载、权限或 trace 相关工作时，优先看 `docs/architecture/mcp-module.md`
 - 如果要判断“仓库主线是什么、哪些只是专项能力”，优先看 `docs/architecture/capability-packs.md`
 - 做 messages 管理、compact、tool result 上下文或 prompt 分层时，优先看 `docs/architecture/context-management/`
+- 做前端 workbench 的消息 dedupe、折叠、stream overlay 或 inspector 编排时，也优先看 `docs/architecture/context-management/`
 - 做 UI、一致性、tokens、组件策略、页面模板相关工作时，从 `docs/design-system/` 开始
 - 若某项约定已经沉淀为专题文档，后续应优先更新专题文档，而不是把补充内容继续加回入口页
 - `docs/plan/` 主要保留阶段规划、实现规格和历史演进，不是判断当前运行现状的首选入口

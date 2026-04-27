@@ -19,6 +19,7 @@ export * from "./git-status.js";
 export * from "./list-routine-by-date.js";
 export * from "./list-routine-by-week.js";
 export * from "./list-directory.js";
+export * from "./manage-capability-packs.js";
 export * from "./make-http-request.js";
 export * from "./move-path.js";
 export * from "./read-file.js";

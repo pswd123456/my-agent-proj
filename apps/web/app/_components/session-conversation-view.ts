@@ -481,6 +481,18 @@ function isAssistantMessageItem(item: ConversationViewItem): boolean {
   );
 }
 
+function isStreamingAssistantItem(
+  item: ConversationViewItem,
+  streamEventKeys: Set<string>
+): boolean {
+  const assistantEvent = getAssistantEvent(item);
+  if (!assistantEvent) {
+    return false;
+  }
+
+  return streamEventKeys.has(getTimelineEventKey(assistantEvent));
+}
+
 function isExecutionFlowItem(item: ConversationViewItem): boolean {
   return (
     item.type === "compact-tool" ||
@@ -498,7 +510,8 @@ function isRunCompleteItem(item: ConversationViewItem): boolean {
 }
 
 function compactFinalFlowSegment(
-  items: ConversationViewItem[]
+  items: ConversationViewItem[],
+  streamEventKeys: Set<string>
 ): ConversationViewItem[] {
   if (items.length <= 1 || !isUserInputItem(items[0]!)) {
     return items;
@@ -516,11 +529,16 @@ function compactFinalFlowSegment(
   }
 
   const trailingItems = items.slice(finalAssistantIndex + 1);
-  if (
-    trailingItems.length === 0 ||
-    !trailingItems.some(isRunCompleteItem) ||
-    trailingItems.some((item) => !isRunCompleteItem(item))
-  ) {
+  const finalAssistantItem = items[finalAssistantIndex]!;
+  const hasOnlyTerminalTrailingItems =
+    trailingItems.length > 0 &&
+    trailingItems.some(isRunCompleteItem) &&
+    trailingItems.every(isRunCompleteItem);
+  const endsOnSettledAssistant =
+    trailingItems.length === 0 &&
+    !isStreamingAssistantItem(finalAssistantItem, streamEventKeys);
+
+  if (!hasOnlyTerminalTrailingItems && !endsOnSettledAssistant) {
     return items;
   }
 
@@ -547,7 +565,10 @@ function compactFinalFlowSegment(
   ];
 }
 
-function compactFinalFlow(items: ConversationViewItem[]): ConversationViewItem[] {
+function compactFinalFlow(
+  items: ConversationViewItem[],
+  streamEventKeys: Set<string>
+): ConversationViewItem[] {
   const next: ConversationViewItem[] = [];
   let segmentStart = 0;
   let currentIndex = 0;
@@ -567,7 +588,12 @@ function compactFinalFlow(items: ConversationViewItem[]): ConversationViewItem[]
       segmentEnd += 1;
     }
 
-    next.push(...compactFinalFlowSegment(items.slice(currentIndex, segmentEnd)));
+    next.push(
+      ...compactFinalFlowSegment(
+        items.slice(currentIndex, segmentEnd),
+        streamEventKeys
+      )
+    );
     segmentStart = segmentEnd;
     currentIndex = segmentEnd;
   }
@@ -582,13 +608,15 @@ function compactFinalFlow(items: ConversationViewItem[]): ConversationViewItem[]
 export function buildConversationViewItems(input: {
   timelineItems: TimelineItem[];
   mode: ConversationViewMode;
+  streamEventKeys?: Set<string>;
 }): ConversationViewItem[] {
   if (input.mode === "debug") {
     return input.timelineItems.map(toTimelineViewItem);
   }
 
   return compactFinalFlow(
-    compactReadSearchRuns(compactToolEvents(input.timelineItems))
+    compactReadSearchRuns(compactToolEvents(input.timelineItems)),
+    input.streamEventKeys ?? new Set()
   );
 }
 

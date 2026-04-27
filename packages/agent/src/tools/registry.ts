@@ -26,6 +26,7 @@ import { createGitStatusTool } from "./git-status.js";
 import { createListRoutineByDateTool } from "./list-routine-by-date.js";
 import { createListRoutineByWeekTool } from "./list-routine-by-week.js";
 import { createListDirectoryTool } from "./list-directory.js";
+import { createManageCapabilityPacksTool } from "./manage-capability-packs.js";
 import { createMakeHttpRequestTool } from "./make-http-request.js";
 import { createMovePathTool } from "./move-path.js";
 import { createReadFileTool } from "./read-file.js";
@@ -122,6 +123,7 @@ export function createPlanningToolRegistry(): ToolRegistry {
     createEditTaskBriefTool(),
     createGetTaskBriefTool(),
     createGetTodoListTool(),
+    createManageCapabilityPacksTool(),
     createReadTaskBriefTool(),
     createReplaceTaskBriefTool(),
     createReplaceTodoListTool(),

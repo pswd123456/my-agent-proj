@@ -22,6 +22,7 @@
 当前有几个能力属于 core runtime，而不是 capability pack：
 
 - `planning` 工具面，包括 `ask_user_question`、task brief 读写和 todo 交互
+- `manage_capability_packs`，也就是读取和切换 session capability pack 的 core/planning 工具
 - `delegation`，也就是主 agent 发起和回收 delegated subagent
 - `MCP`，也就是工作区级按次装配的动态工具挂载
 
@@ -46,6 +47,8 @@
 - confirmation 相关等待流转
 
 `ask_user_question` 不属于 capability pack；它只在 `plan mode` 开启时作为 planning 工具面的一部分暴露。
+
+`manage_capability_packs` 也不属于 capability pack 本身；它只是让 model 读取和调整 session 级 pack 装配的管理工具。当前实现里，enable / disable 只会写回 session 状态，并从下一次 run 开始影响实际 mounted tools。
 
 ## 当前建议阅读顺序
 

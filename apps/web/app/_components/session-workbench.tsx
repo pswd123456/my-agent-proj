@@ -14,10 +14,7 @@ import {
 
 import {
   buildWeekRange,
-  collectToolRows,
-  collectTurnUsage,
   canInterruptSessionExecution,
-  flattenTraceRecords,
   findReusableNewSessionSummary,
   groupRoutinesByDate,
   normalizeContextWindow,
@@ -38,13 +35,18 @@ import {
   upsertSession
 } from "./session-registry-manager";
 import {
-  appendStreamEvent,
-  beginRun,
-  createRunViewState,
-  finishRun,
-  markAssistantAnimationComplete,
-  resetRunView
-} from "./run-view-state-manager";
+  appendMessageManagerEvent,
+  beginMessageManagerRun,
+  buildMessageManagerProjection,
+  completeMessageManagerAutoCollapse,
+  createMessageManagerState,
+  finishMessageManagerRun,
+  markMessageManagerAnimationComplete,
+  registerMessageManagerCollapsedFlows,
+  resetMessageManagerState,
+  resetMessageManagerViewState,
+  toggleMessageManagerExpanded
+} from "./session-message-manager";
 import {
   applyStreamEventToSessionState,
   beginSessionInterrupt,
@@ -55,7 +57,6 @@ import {
   setSessionSnapshot
 } from "./session-state-manager";
 import { isTodoToolName } from "./session-todo-state";
-import { buildTimelineItems, getTimelineEventKey } from "./session-timeline";
 import {
   SessionWorkbenchConversationPanel,
   SessionWorkbenchDrawer,
@@ -98,7 +99,9 @@ export function SessionWorkbench() {
   );
   const [traceRecords, setTraceRecords] = useState<TraceRecord[]>([]);
   const [routines, setRoutines] = useState<RoutineRecord[]>([]);
-  const [runViewState, setRunViewState] = useState(() => createRunViewState());
+  const [messageManagerState, setMessageManagerState] = useState(() =>
+    createMessageManagerState()
+  );
   const [message, setMessage] = useState("");
   const [activeTab, setActiveTab] = useState<InspectorTabId>("prompt");
   const [loading, setLoading] = useState(true);
@@ -123,8 +126,6 @@ export function SessionWorkbench() {
     string | null
   >(null);
   const { sessions, selectedSessionId } = sessionRegistry;
-  const { streamEvents, recentAssistantEventKeys, pendingUserMessage } =
-    runViewState;
   const [maxTurns, setMaxTurns] = useState(String(DEFAULT_MAX_TURNS));
   const [errorText, setErrorText] = useState<string | null>(null);
   const currentSession = sessionUiState.session;
@@ -327,7 +328,7 @@ export function SessionWorkbench() {
       setMaxTurns(String(session.maxTurns));
       setSessionRegistry((current) => hydrateSelectedSession(current, session));
       if (shouldResetRunView) {
-        setRunViewState(resetRunView());
+        setMessageManagerState(resetMessageManagerState());
       }
     } finally {
       if (showLoadingSettings) {
@@ -390,7 +391,7 @@ export function SessionWorkbench() {
       setSessionRegistry((current) =>
         selectSession(current, reusableSession.sessionId)
       );
-      setRunViewState(resetRunView());
+      setMessageManagerState(resetMessageManagerState());
       router.replace(`/?sessionId=${reusableSession.sessionId}`, {
         scroll: false
       });
@@ -408,7 +409,7 @@ export function SessionWorkbench() {
       setSessionUiState((current) => setSessionSnapshot(current, session));
       setTraceRecords([]);
       setRoutines([]);
-      setRunViewState(resetRunView());
+      setMessageManagerState(resetMessageManagerState());
       router.replace(`/?sessionId=${session.sessionId}`, { scroll: false });
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : String(error));
@@ -420,7 +421,7 @@ export function SessionWorkbench() {
   function handleSelectSession(sessionId: string) {
     focusConversationView();
     setSessionRegistry((current) => selectSession(current, sessionId));
-    setRunViewState(resetRunView());
+    setMessageManagerState(resetMessageManagerState());
     router.replace(`/?sessionId=${sessionId}`, { scroll: false });
   }
 
@@ -453,7 +454,7 @@ export function SessionWorkbench() {
       setSessionUiState((current) => setSessionSnapshot(current, null));
       setTraceRecords([]);
       setRoutines([]);
-      setRunViewState(resetRunView());
+      setMessageManagerState(resetMessageManagerState());
 
       if (nextSessionId) {
         setSessionRegistry((current) => selectSession(current, nextSessionId));
@@ -489,8 +490,8 @@ export function SessionWorkbench() {
 
     setMaxTurns(String(nextMaxTurns));
     if (!(options?.permissionReply ?? false)) {
-      setRunViewState((current) =>
-        beginRun(current, {
+      setMessageManagerState((current) =>
+        beginMessageManagerRun(current, {
           createdAt: new Date().toISOString(),
           text: nextMessage
         })
@@ -516,7 +517,9 @@ export function SessionWorkbench() {
           const isActiveSession = isActiveStreamSession();
 
           if (isActiveSession) {
-            setRunViewState((current) => appendStreamEvent(current, runEvent));
+            setMessageManagerState((current) =>
+              appendMessageManagerEvent(current, runEvent)
+            );
             setSessionUiState((current) =>
               applyStreamEventToSessionState(current, runEvent)
             );
@@ -554,7 +557,7 @@ export function SessionWorkbench() {
       setSessionUiState((current) =>
         finishSessionSubmission(current, sessionId)
       );
-      setRunViewState((current) => finishRun(current));
+      setMessageManagerState((current) => finishMessageManagerRun(current));
     }
   }
 
@@ -816,27 +819,29 @@ export function SessionWorkbench() {
         ? "修改后会自动保存，并用于后续新建会话"
         : "设置尚未加载";
 
-  const historyEvents = flattenTraceRecords(traceRecords);
-  const inspectorEvents = streamEvents.length ? streamEvents : historyEvents;
-  const turnUsageByTurnCount = collectTurnUsage([
-    ...historyEvents,
-    ...streamEvents
-  ]);
-  const latestPromptEvent = [...inspectorEvents]
-    .reverse()
-    .find(
-      (event): event is Extract<RunStreamEvent, { kind: "prompt" }> =>
-        event.kind === "prompt"
-    );
-  const promptEvents = inspectorEvents.filter(
-    (event): event is Extract<RunStreamEvent, { kind: "prompt" }> =>
-      event.kind === "prompt"
+  const messageProjection = useMemo(
+    () =>
+      buildMessageManagerProjection({
+        session: currentSession,
+        traceRecords,
+        debugConversationView: settingsForm.debugConversationView,
+        state: messageManagerState
+      }),
+    [
+      currentSession,
+      traceRecords,
+      settingsForm.debugConversationView,
+      messageManagerState
+    ]
   );
-  const thinkingEvents = inspectorEvents.filter(
-    (event): event is Extract<RunStreamEvent, { kind: "thinking" }> =>
-      event.kind === "thinking"
-  );
-  const toolRows = collectToolRows(inspectorEvents);
+  const {
+    conversation: conversationProjection,
+    inspector: inspectorProjection
+  } = messageProjection;
+  const {
+    toolRows,
+    turnUsageByTurnCount
+  } = inspectorProjection;
   const todoUpdating = Boolean(
     currentSession &&
     toolRows.some(
@@ -856,16 +861,6 @@ export function SessionWorkbench() {
     currentSession?.context.pendingPermissionRequest ?? null;
   const pendingUserQuestionPayload =
     currentSession?.context.pendingUserQuestionPayload ?? null;
-  const timelineItems = buildTimelineItems({
-    messages: currentSession?.messages ?? [],
-    historyEvents,
-    streamEvents,
-    pendingUserMessage
-  });
-  const streamEventKeys = useMemo(
-    () => new Set(streamEvents.map((event) => getTimelineEventKey(event))),
-    [streamEvents]
-  );
   const showSidebarPanel = activeSidebarPanel !== null;
   const canInterrupt = canInterruptSessionExecution({
     session: currentSession,
@@ -898,10 +893,27 @@ export function SessionWorkbench() {
   );
 
   function handleAssistantAnimationComplete(itemKey: string) {
-    setRunViewState((current) =>
-      markAssistantAnimationComplete(current, itemKey)
+    setMessageManagerState((current) =>
+      markMessageManagerAnimationComplete(current, itemKey)
     );
   }
+
+  useEffect(() => {
+    setMessageManagerState((current) => resetMessageManagerViewState(current));
+  }, [currentSession?.sessionId, settingsForm.debugConversationView]);
+
+  useEffect(() => {
+    if (conversationProjection.newlyCollapsedFlowKeys.length === 0) {
+      return;
+    }
+
+    setMessageManagerState((current) =>
+      registerMessageManagerCollapsedFlows(
+        current,
+        conversationProjection.newlyCollapsedFlowKeys
+      )
+    );
+  }, [conversationProjection.newlyCollapsedFlowKeys]);
 
   return (
     <main className="min-h-screen bg-[var(--app-bg-canvas)] text-[var(--app-text-primary)]">
@@ -938,12 +950,8 @@ export function SessionWorkbench() {
               pendingPermissionToolName={pendingPermissionToolName}
               weekDates={weekDates}
               groupedRoutines={groupedRoutines}
-              inspectorEvents={inspectorEvents}
+              inspectorProjection={inspectorProjection}
               activeTab={activeTab}
-              latestPromptEvent={latestPromptEvent}
-              thinkingEvents={thinkingEvents}
-              toolRows={toolRows}
-              promptEvents={promptEvents}
               onResetAllRoutines={() => void handleResetAllRoutines()}
               onSelectTab={setActiveTab}
               onSettingsFormChange={handleSettingsFormChange}
@@ -967,10 +975,12 @@ export function SessionWorkbench() {
               currentSession={currentSession}
               todoUpdating={todoUpdating}
               loading={loading}
-              timelineItems={timelineItems}
-              streamEventKeys={streamEventKeys}
-              recentAssistantEventKeys={recentAssistantEventKeys}
+              conversationProjection={conversationProjection}
               turnUsageByTurnCount={turnUsageByTurnCount}
+              expandedItemKeys={messageManagerState.expandedItemKeys}
+              autoCollapsingItemKeys={
+                messageManagerState.autoCollapsingItemKeys
+              }
               debugConversationView={settingsForm.debugConversationView}
               pendingPermissionRequest={pendingPermissionRequest}
               pendingUserQuestionPayload={pendingUserQuestionPayload}
@@ -998,6 +1008,16 @@ export function SessionWorkbench() {
                 void submitSessionMessage(reply)
               }
               onAssistantAnimationComplete={handleAssistantAnimationComplete}
+              onToggleExpandedItem={(key) =>
+                setMessageManagerState((current) =>
+                  toggleMessageManagerExpanded(current, key)
+                )
+              }
+              onAutoCollapseComplete={(key) =>
+                setMessageManagerState((current) =>
+                  completeMessageManagerAutoCollapse(current, key)
+                )
+              }
               headerActions={sidebarToggleButton}
             />
           )}

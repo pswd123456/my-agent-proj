@@ -5,7 +5,6 @@ import type { ReactNode } from "react";
 import { WorkbenchPanel } from "@ai-app-template/ui-patterns";
 import type {
   RoutineRecord,
-  RunStreamEvent,
   SessionSnapshot
 } from "@ai-app-template/sdk";
 
@@ -19,12 +18,11 @@ import {
 } from "./session-workbench-types";
 import {
   formatDayLabel,
-  formatWorkingDirectory,
   getPermissionToolLabel,
   getSoftBlockClass
 } from "./session-workbench-shared";
+import type { InspectorProjection } from "./session-message-manager";
 import { SessionWorkbenchInspector } from "./session-workbench-inspector";
-import type { ToolRow } from "./session-workbench-state";
 
 const sectionHeadingClassName =
   "text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]";
@@ -81,12 +79,8 @@ interface SessionWorkbenchDrawerProps {
   pendingPermissionToolName: string | null;
   weekDates: string[];
   groupedRoutines: Map<string, RoutineRecord[]>;
-  inspectorEvents: RunStreamEvent[];
+  inspectorProjection: InspectorProjection;
   activeTab: InspectorTabId;
-  latestPromptEvent: PromptEvent | undefined;
-  thinkingEvents: ThinkingEvent[];
-  toolRows: ToolRow[];
-  promptEvents: PromptEvent[];
   onResetAllRoutines: () => void;
   onSelectTab: (tabId: InspectorTabId) => void;
   onSettingsFormChange: (patch: Partial<SettingsFormState>) => void;
@@ -100,9 +94,6 @@ interface SessionWorkbenchDrawerProps {
   onSettingsCapabilityPackToggle: (packName: string) => void;
   headerActions?: ReactNode;
 }
-
-type PromptEvent = Extract<RunStreamEvent, { kind: "prompt" }>;
-type ThinkingEvent = Extract<RunStreamEvent, { kind: "thinking" }>;
 
 export function SessionWorkbenchDrawer({
   activeSidebarPanel,
@@ -118,12 +109,8 @@ export function SessionWorkbenchDrawer({
   pendingPermissionToolName,
   weekDates,
   groupedRoutines,
-  inspectorEvents,
+  inspectorProjection,
   activeTab,
-  latestPromptEvent,
-  thinkingEvents,
-  toolRows,
-  promptEvents,
   onResetAllRoutines,
   onSelectTab,
   onSettingsFormChange,
@@ -164,7 +151,7 @@ export function SessionWorkbenchDrawer({
             ? settingsMeta
             : activeSidebarPanel === "calendar"
               ? (currentSession?.context.currentDateContext ?? "--")
-              : `${inspectorEvents.length} events`
+              : `${inspectorProjection.inspectorEvents.length} events`
         }
         headerActions={headerActions}
       >
@@ -483,11 +470,7 @@ export function SessionWorkbenchDrawer({
           {activeSidebarPanel === "inspector" ? (
             <SessionWorkbenchInspector
               activeTab={activeTab}
-              inspectorEvents={inspectorEvents}
-              latestPromptEvent={latestPromptEvent}
-              thinkingEvents={thinkingEvents}
-              toolRows={toolRows}
-              promptEvents={promptEvents}
+              inspectorProjection={inspectorProjection}
               onSelectTab={onSelectTab}
             />
           ) : null}

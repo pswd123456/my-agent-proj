@@ -6,6 +6,7 @@ import type { RunStreamEvent } from "@ai-app-template/sdk";
 
 import type { ToolRow } from "./session-workbench-state";
 import { getTimelineEventRenderKey } from "./session-timeline";
+import type { InspectorProjection } from "./session-message-manager";
 import { type InspectorTabId, inspectorTabs } from "./session-workbench-types";
 import {
   buildPromptMessageSections,
@@ -25,11 +26,7 @@ type RunErrorEvent = Extract<RunStreamEvent, { kind: "run_error" }>;
 
 interface SessionWorkbenchInspectorProps {
   activeTab: InspectorTabId;
-  inspectorEvents: RunStreamEvent[];
-  latestPromptEvent: PromptEvent | undefined;
-  thinkingEvents: ThinkingEvent[];
-  toolRows: ToolRow[];
-  promptEvents: PromptEvent[];
+  inspectorProjection: InspectorProjection;
   onSelectTab: (tabId: InspectorTabId) => void;
 }
 
@@ -579,15 +576,29 @@ function TraceTabPanel({
 function renderInspectorTabPanel(props: SessionWorkbenchInspectorProps) {
   switch (props.activeTab) {
     case "prompt":
-      return <PromptTabPanel latestPromptEvent={props.latestPromptEvent} />;
+      return (
+        <PromptTabPanel
+          latestPromptEvent={props.inspectorProjection.latestPromptEvent}
+        />
+      );
     case "messages":
-      return <PromptMessagesPanel promptEvents={props.promptEvents} />;
+      return (
+        <PromptMessagesPanel promptEvents={props.inspectorProjection.promptEvents} />
+      );
     case "thinking":
-      return <ThinkingTabPanel thinkingEvents={props.thinkingEvents} />;
+      return (
+        <ThinkingTabPanel
+          thinkingEvents={props.inspectorProjection.thinkingEvents}
+        />
+      );
     case "tools":
-      return <ToolTabPanel toolRows={props.toolRows} />;
+      return <ToolTabPanel toolRows={props.inspectorProjection.toolRows} />;
     case "trace":
-      return <TraceTabPanel inspectorEvents={props.inspectorEvents} />;
+      return (
+        <TraceTabPanel
+          inspectorEvents={props.inspectorProjection.inspectorEvents}
+        />
+      );
     default:
       return null;
   }

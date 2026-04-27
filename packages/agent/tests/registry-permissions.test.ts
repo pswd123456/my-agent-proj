@@ -48,6 +48,7 @@ describe("ToolRegistry stage4 metadata contract", () => {
       "edit_task_brief",
       "get_task_brief",
       "get_todo_list",
+      "manage_capability_packs",
       "read_task_brief",
       "replace_task_brief",
       "replace_todo_list",

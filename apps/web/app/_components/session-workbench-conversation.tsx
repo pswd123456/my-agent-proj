@@ -28,14 +28,12 @@ import {
   TYPEWRITER_FRAME_MS
 } from "./message-typewriter";
 import {
-  buildConversationViewItems,
-  getCompactCollapsedFlowAnchors,
-  getCompactCollapsedFlowScrollTargetKey,
   type CompactCollapsedFlowViewItem,
   type CompactFileBatchViewItem,
   type CompactToolViewItem,
   type ConversationViewItem
 } from "./session-conversation-view";
+import type { ConversationProjection } from "./session-message-manager";
 import {
   buildConversationScrollSnapshot,
   getConversationScrollIntent,
@@ -64,10 +62,10 @@ interface SessionWorkbenchConversationPanelProps {
   selectedModelId: string;
   todoUpdating: boolean;
   loading: boolean;
-  timelineItems: TimelineItem[];
-  streamEventKeys: Set<string>;
-  recentAssistantEventKeys: Set<string>;
+  conversationProjection: ConversationProjection;
   turnUsageByTurnCount: Map<number, TurnUsageSummary>;
+  expandedItemKeys: Set<string>;
+  autoCollapsingItemKeys: Set<string>;
   debugConversationView: boolean;
   pendingPermissionRequest: SessionSnapshot["context"]["pendingPermissionRequest"];
   pendingUserQuestionPayload: SessionSnapshot["context"]["pendingUserQuestionPayload"];
@@ -85,6 +83,8 @@ interface SessionWorkbenchConversationPanelProps {
   onPermissionQuickReply: (reply: string) => void;
   onUserQuestionQuickReply: (reply: string) => void;
   onAssistantAnimationComplete: (itemKey: string) => void;
+  onToggleExpandedItem: (key: string) => void;
+  onAutoCollapseComplete: (key: string) => void;
   headerActions?: ReactNode;
 }
 
@@ -1208,7 +1208,6 @@ function renderConversationViewItem(
     recentAssistantEventKeys: Set<string>;
     timestampedAssistantEventKeys: Set<string>;
     timestampedAssistantMessageIds: Set<string>;
-    hiddenItemKeys: Set<string>;
     autoCollapseKeys: Set<string>;
     onAssistantAnimationComplete: (itemKey: string) => void;
     turnUsageByTurnCount: Map<number, TurnUsageSummary>;
@@ -1223,10 +1222,6 @@ function renderConversationViewItem(
         {renderConversationViewItem(nestedItem, input)}
       </div>
     ));
-
-  if (input.hiddenItemKeys.has(item.key)) {
-    return null;
-  }
 
   if (item.type === "timeline") {
     return renderTimelineItem(
@@ -1270,135 +1265,6 @@ function renderConversationViewItem(
   );
 }
 
-function getConversationViewEvent(
-  item: ConversationViewItem
-): RunStreamEvent | null {
-  if (item.type === "timeline" && item.item.type === "event") {
-    return item.item.event;
-  }
-
-  return null;
-}
-
-function getConversationViewAssistantMessageId(
-  item: ConversationViewItem
-): string | null {
-  if (
-    item.type === "timeline" &&
-    item.item.type === "message" &&
-    item.item.block.kind === "assistant"
-  ) {
-    return item.item.block.id;
-  }
-
-  return null;
-}
-
-function getConversationViewTurnCount(
-  item: ConversationViewItem
-): number | null {
-  const event = getConversationViewEvent(item);
-  if (event && "turnCount" in event) {
-    return event.turnCount;
-  }
-
-  if (item.type === "compact-tool") {
-    const firstEvent = item.originalItems
-      .map(getConversationViewEvent)
-      .find((nestedEvent): nestedEvent is RunStreamEvent =>
-        Boolean(nestedEvent && "turnCount" in nestedEvent)
-      );
-    return firstEvent && "turnCount" in firstEvent
-      ? firstEvent.turnCount
-      : null;
-  }
-
-  if (item.type === "compact-file-batch") {
-    const firstTool = item.originalItems.find(
-      (nestedItem): nestedItem is CompactToolViewItem =>
-        nestedItem.type === "compact-tool"
-    );
-    return firstTool ? getConversationViewTurnCount(firstTool) : null;
-  }
-
-  return null;
-}
-
-function shouldInvalidateAssistantFinalCandidate(
-  item: ConversationViewItem
-): boolean {
-  const event = getConversationViewEvent(item);
-  if (!event) {
-    return item.type !== "timeline";
-  }
-
-  return (
-    event.kind !== "turn_end" &&
-    event.kind !== "run_complete" &&
-    event.kind !== "assistant_text"
-  );
-}
-
-function getTimestampedAssistantKeys(items: ConversationViewItem[]): {
-  eventKeys: Set<string>;
-  messageIds: Set<string>;
-} {
-  const eventKeys = new Set<string>();
-  const messageIds = new Set<string>();
-  let currentTurnCount: number | null = null;
-  let finalAssistantCandidate:
-    | { kind: "event"; key: string }
-    | { kind: "message"; id: string }
-    | null = null;
-
-  function flushCurrentTurn() {
-    if (!finalAssistantCandidate) {
-      return;
-    }
-
-    if (finalAssistantCandidate.kind === "event") {
-      eventKeys.add(finalAssistantCandidate.key);
-    } else {
-      messageIds.add(finalAssistantCandidate.id);
-    }
-  }
-
-  for (const item of items) {
-    const itemTurnCount = getConversationViewTurnCount(item);
-    if (itemTurnCount !== null && itemTurnCount !== currentTurnCount) {
-      flushCurrentTurn();
-      currentTurnCount = itemTurnCount;
-      finalAssistantCandidate = null;
-    }
-
-    const event = getConversationViewEvent(item);
-    if (event?.kind === "assistant_text") {
-      finalAssistantCandidate = {
-        kind: "event",
-        key: getTimelineEventKey(event)
-      };
-      continue;
-    }
-
-    const assistantMessageId = getConversationViewAssistantMessageId(item);
-    if (assistantMessageId) {
-      finalAssistantCandidate = {
-        kind: "message",
-        id: assistantMessageId
-      };
-      continue;
-    }
-
-    if (shouldInvalidateAssistantFinalCandidate(item)) {
-      finalAssistantCandidate = null;
-    }
-  }
-
-  flushCurrentTurn();
-
-  return { eventKeys, messageIds };
-}
-
 function hasRenderableTimelineContent(node: React.ReactNode): boolean {
   return node !== null && node !== undefined && node !== false;
 }
@@ -1409,10 +1275,10 @@ export function SessionWorkbenchConversationPanel({
   selectedModelId,
   todoUpdating,
   loading,
-  timelineItems,
-  streamEventKeys,
-  recentAssistantEventKeys,
+  conversationProjection,
   turnUsageByTurnCount,
+  expandedItemKeys,
+  autoCollapsingItemKeys,
   debugConversationView,
   pendingPermissionRequest,
   pendingUserQuestionPayload,
@@ -1430,19 +1296,14 @@ export function SessionWorkbenchConversationPanel({
   onPermissionQuickReply,
   onUserQuestionQuickReply,
   onAssistantAnimationComplete,
+  onToggleExpandedItem,
+  onAutoCollapseComplete,
   headerActions
 }: SessionWorkbenchConversationPanelProps) {
   const [copyButtonLabel, setCopyButtonLabel] = useState("复制");
   const [quickActionsOpen, setQuickActionsOpen] = useState(false);
   const [permissionCardFeedback, setPermissionCardFeedback] =
     useState<PermissionCardFeedback | null>(null);
-  const [expandedCompactItemKeys, setExpandedCompactItemKeys] = useState<
-    Set<string>
-  >(new Set());
-  const [autoCollapsingItemKeys, setAutoCollapsingItemKeys] = useState<
-    Set<string>
-  >(new Set());
-  const seenCollapsedFlowKeysRef = useRef<Set<string>>(new Set());
   const pendingCollapsedFlowScrollTargetRef = useRef<string | null>(null);
   const pendingAssistantRevealSkipKeyRef = useRef<string | null>(null);
   const quickActionsRef = useRef<HTMLDivElement | null>(null);
@@ -1461,56 +1322,9 @@ export function SessionWorkbenchConversationPanel({
   const userQuestionCardView = buildUserQuestionCardView(
     pendingUserQuestionPayload
   );
-  const conversationViewItems = useMemo(
-    () =>
-      buildConversationViewItems({
-        timelineItems,
-        mode: debugConversationView ? "debug" : "compact"
-      }),
-    [debugConversationView, timelineItems]
-  );
-  const collapsedFlowAnchorsByKey = useMemo(() => {
-    const next = new Map<
-      string,
-      { scrollTargetKey: string | null; assistantItemKey: string | null }
-    >();
-
-    for (const item of conversationViewItems) {
-      if (item.type !== "compact-collapsed-flow") {
-        continue;
-      }
-
-      next.set(
-        item.key,
-        getCompactCollapsedFlowAnchors({
-          items: conversationViewItems,
-          collapsedFlowKey: item.key
-        })
-      );
-    }
-
-    return next;
-  }, [conversationViewItems]);
-  const hiddenAssistantItemKeys = useMemo(() => {
-    const next = new Set<string>();
-
-    for (const key of autoCollapsingItemKeys) {
-      const assistantItemKey =
-        collapsedFlowAnchorsByKey.get(key)?.assistantItemKey;
-      if (assistantItemKey) {
-        next.add(assistantItemKey);
-      }
-    }
-
-    return next;
-  }, [autoCollapsingItemKeys, collapsedFlowAnchorsByKey]);
-  const visibleConversationViewItems = useMemo(
-    () =>
-      conversationViewItems.filter(
-        (item) => !hiddenAssistantItemKeys.has(item.key)
-      ),
-    [conversationViewItems, hiddenAssistantItemKeys]
-  );
+  const visibleConversationViewItems = conversationProjection.visibleItems;
+  const collapsedFlowAnchorsByKey =
+    conversationProjection.collapsedFlowAnchorsByKey;
   const scrollItems = useMemo(
     () =>
       visibleConversationViewItems.map((item) => {
@@ -1533,10 +1347,6 @@ export function SessionWorkbenchConversationPanel({
     () => buildConversationScrollSnapshot(scrollItems),
     [scrollItems]
   );
-  const timestampedAssistantKeys = useMemo(
-    () => getTimestampedAssistantKeys(conversationViewItems),
-    [conversationViewItems]
-  );
   const permissionCardView = buildPermissionCardView({
     pendingPermissionRequest,
     feedback: permissionCardFeedback
@@ -1556,34 +1366,26 @@ export function SessionWorkbenchConversationPanel({
         .map((item) => ({
           item,
           content: renderConversationViewItem(item, {
-            streamEventKeys,
-            recentAssistantEventKeys,
-            timestampedAssistantEventKeys: timestampedAssistantKeys.eventKeys,
-            timestampedAssistantMessageIds: timestampedAssistantKeys.messageIds,
-            hiddenItemKeys: hiddenAssistantItemKeys,
+            streamEventKeys: conversationProjection.streamEventKeys,
+            recentAssistantEventKeys:
+              conversationProjection.recentAssistantEventKeys,
+            timestampedAssistantEventKeys:
+              conversationProjection.timestampedAssistantEventKeys,
+            timestampedAssistantMessageIds:
+              conversationProjection.timestampedAssistantMessageIds,
             autoCollapseKeys: autoCollapsingItemKeys,
             onAssistantAnimationComplete,
             turnUsageByTurnCount,
-            expandedKeys: expandedCompactItemKeys,
+            expandedKeys: expandedItemKeys,
             onToggleExpanded: (key) => {
-              setExpandedCompactItemKeys((current) => {
-                const next = new Set(current);
-                if (next.has(key)) {
-                  next.delete(key);
-                  const scrollTargetKey =
-                    getCompactCollapsedFlowScrollTargetKey({
-                      items: conversationViewItems,
-                      collapsedFlowKey: key
-                    }) ?? null;
-                  if (scrollTargetKey) {
-                    pendingCollapsedFlowScrollTargetRef.current =
-                      scrollTargetKey;
-                  }
-                } else {
-                  next.add(key);
+              if (expandedItemKeys.has(key)) {
+                const scrollTargetKey =
+                  collapsedFlowAnchorsByKey.get(key)?.scrollTargetKey ?? null;
+                if (scrollTargetKey) {
+                  pendingCollapsedFlowScrollTargetRef.current = scrollTargetKey;
                 }
-                return next;
-              });
+              }
+              onToggleExpandedItem(key);
             },
             onAutoCollapseComplete: (key) => {
               const assistantItemKey =
@@ -1591,31 +1393,21 @@ export function SessionWorkbenchConversationPanel({
               if (assistantItemKey) {
                 pendingAssistantRevealSkipKeyRef.current = assistantItemKey;
               }
-              setAutoCollapsingItemKeys((current) => {
-                if (!current.has(key)) {
-                  return current;
-                }
-
-                const next = new Set(current);
-                next.delete(key);
-                return next;
-              });
+              onAutoCollapseComplete(key);
             }
           })
         }))
         .filter((entry) => hasRenderableTimelineContent(entry.content)),
     [
       visibleConversationViewItems,
-      streamEventKeys,
-      recentAssistantEventKeys,
-      timestampedAssistantKeys,
-      hiddenAssistantItemKeys,
+      conversationProjection,
       autoCollapsingItemKeys,
       onAssistantAnimationComplete,
       turnUsageByTurnCount,
-      expandedCompactItemKeys,
-      conversationViewItems,
-      collapsedFlowAnchorsByKey
+      expandedItemKeys,
+      collapsedFlowAnchorsByKey,
+      onToggleExpandedItem,
+      onAutoCollapseComplete
     ]
   );
 
@@ -1833,62 +1625,28 @@ export function SessionWorkbenchConversationPanel({
   }, [currentSession?.sessionId]);
 
   useEffect(() => {
-    const currentCollapsedKeys = new Set(
-      conversationViewItems
-        .filter((item) => item.type === "compact-collapsed-flow")
-        .map((item) => item.key)
-    );
+    const lastKey = conversationProjection.newlyCollapsedFlowKeys.at(-1) ?? null;
+    if (!lastKey) {
+      return;
+    }
 
+    const scrollTargetKey =
+      collapsedFlowAnchorsByKey.get(lastKey)?.scrollTargetKey ?? null;
+    if (scrollTargetKey) {
+      pendingCollapsedFlowScrollTargetRef.current = scrollTargetKey;
+    }
+  }, [collapsedFlowAnchorsByKey, conversationProjection.newlyCollapsedFlowKeys]);
+
+  useEffect(() => {
     previousScrollSnapshotRef.current = buildConversationScrollSnapshot([]);
     previousViewportScrollTopRef.current = 0;
     autoFollowLatestRef.current = true;
     skipNextResizeAutoFollowRef.current = false;
-    seenCollapsedFlowKeysRef.current = currentCollapsedKeys;
     pendingCollapsedFlowScrollTargetRef.current = null;
     pendingAssistantRevealSkipKeyRef.current = null;
-    setExpandedCompactItemKeys(new Set());
-    setAutoCollapsingItemKeys(new Set());
     clearPendingResizeAutoFollowSkip();
     clearPendingSmoothScrollReset();
   }, [currentSession?.sessionId, debugConversationView]);
-
-  useEffect(() => {
-    const nextAutoCollapseKeys: string[] = [];
-
-    for (const item of conversationViewItems) {
-      if (item.type !== "compact-collapsed-flow") {
-        continue;
-      }
-
-      if (seenCollapsedFlowKeysRef.current.has(item.key)) {
-        continue;
-      }
-
-      seenCollapsedFlowKeysRef.current.add(item.key);
-      nextAutoCollapseKeys.push(item.key);
-    }
-
-    if (nextAutoCollapseKeys.length === 0) {
-      return;
-    }
-
-    const lastKey = nextAutoCollapseKeys.at(-1) ?? null;
-    if (lastKey) {
-      const scrollTargetKey =
-        collapsedFlowAnchorsByKey.get(lastKey)?.scrollTargetKey ?? null;
-      if (scrollTargetKey) {
-        pendingCollapsedFlowScrollTargetRef.current = scrollTargetKey;
-      }
-    }
-
-    setAutoCollapsingItemKeys((current) => {
-      const next = new Set(current);
-      for (const key of nextAutoCollapseKeys) {
-        next.add(key);
-      }
-      return next;
-    });
-  }, [collapsedFlowAnchorsByKey, conversationViewItems]);
 
   useEffect(() => {
     return () => {
@@ -1942,7 +1700,7 @@ export function SessionWorkbenchConversationPanel({
       topOffsetPx: COLLAPSE_SCROLL_TOP_OFFSET_PX
     });
   }, [
-    expandedCompactItemKeys,
+    expandedItemKeys,
     autoCollapsingItemKeys,
     armResizeAutoFollowSkip,
     scrollTimelineItemIntoView

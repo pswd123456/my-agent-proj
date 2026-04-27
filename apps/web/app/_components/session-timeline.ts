@@ -62,25 +62,25 @@ function getEventSortOrder(event: RunStreamEvent): number {
       return 0;
     case "thinking":
       return 1;
-    case "assistant_text":
-      return 2;
     case "tool_call":
-      return 3;
+      return 2;
     case "permission_request":
-      return 4;
+      return 3;
     case "permission_approved":
-      return 5;
+      return 4;
     case "permission_rejected":
-      return 6;
+      return 5;
     case "permission_blocked":
-      return 7;
-    case "user_question_request":
-      return 8;
-    case "interrupt_requested":
-      return 9;
-    case "interrupted":
-      return 10;
+      return 6;
     case "tool_result":
+      return 7;
+    case "assistant_text":
+      return 8;
+    case "user_question_request":
+      return 9;
+    case "interrupt_requested":
+      return 10;
+    case "interrupted":
       return 11;
     case "fallback":
       return 12;
@@ -101,14 +101,14 @@ function getNarrativePhaseOrder(event: RunStreamEvent): number {
       return 0;
     case "thinking":
       return 1;
-    case "assistant_text":
-      return 2;
     case "tool_call":
     case "permission_request":
     case "permission_approved":
     case "permission_rejected":
     case "permission_blocked":
     case "tool_result":
+      return 2;
+    case "assistant_text":
       return 3;
     case "user_question_request":
       return 4;
@@ -143,22 +143,10 @@ function compareByCreatedAt(
   return left.createdAt.localeCompare(right.createdAt);
 }
 
-function compareEvents(left: RunStreamEvent, right: RunStreamEvent): number {
-  const leftTurnCount = getEventTurnCount(left);
-  const rightTurnCount = getEventTurnCount(right);
-
-  if (
-    leftTurnCount !== null &&
-    rightTurnCount !== null &&
-    leftTurnCount === rightTurnCount
-  ) {
-    const leftNarrativePhase = getNarrativePhaseOrder(left);
-    const rightNarrativePhase = getNarrativePhaseOrder(right);
-    if (leftNarrativePhase !== rightNarrativePhase) {
-      return leftNarrativePhase - rightNarrativePhase;
-    }
-  }
-
+function compareEventsChronologically(
+  left: RunStreamEvent,
+  right: RunStreamEvent
+): number {
   if (left.createdAt === right.createdAt) {
     return (
       getEventSortOrder(left) - getEventSortOrder(right) ||
@@ -167,6 +155,61 @@ function compareEvents(left: RunStreamEvent, right: RunStreamEvent): number {
   }
 
   return left.createdAt.localeCompare(right.createdAt);
+}
+
+function buildEventTurnSequenceByKey(
+  events: RunStreamEvent[]
+): Map<string, number> {
+  const turnSequenceByKey = new Map<string, number>();
+  let currentTurnSequence = -1;
+  let lastSeenTurnCount: number | null = null;
+
+  for (const event of events) {
+    const eventTurnCount = getEventTurnCount(event);
+    const turnCountAdvanced =
+      eventTurnCount !== null &&
+      lastSeenTurnCount !== null &&
+      eventTurnCount > lastSeenTurnCount;
+
+    if (event.kind === "turn_start" || turnCountAdvanced) {
+      currentTurnSequence += 1;
+    } else if (currentTurnSequence < 0) {
+      currentTurnSequence = 0;
+    }
+
+    turnSequenceByKey.set(getTimelineEventKey(event), currentTurnSequence);
+
+    if (eventTurnCount !== null) {
+      lastSeenTurnCount = eventTurnCount;
+    }
+  }
+
+  return turnSequenceByKey;
+}
+
+function compareEventsForTimeline(
+  left: RunStreamEvent,
+  right: RunStreamEvent,
+  turnSequenceByKey: Map<string, number>
+): number {
+  const leftTurnSequence =
+    turnSequenceByKey.get(getTimelineEventKey(left)) ?? Number.MAX_SAFE_INTEGER;
+  const rightTurnSequence =
+    turnSequenceByKey.get(getTimelineEventKey(right)) ?? Number.MAX_SAFE_INTEGER;
+
+  if (leftTurnSequence === rightTurnSequence) {
+    const leftNarrativePhase = getNarrativePhaseOrder(left);
+    const rightNarrativePhase = getNarrativePhaseOrder(right);
+    if (leftNarrativePhase !== rightNarrativePhase) {
+      return leftNarrativePhase - rightNarrativePhase;
+    }
+  }
+
+  if (leftTurnSequence !== rightTurnSequence) {
+    return leftTurnSequence - rightTurnSequence;
+  }
+
+  return compareEventsChronologically(left, right);
 }
 
 function buildMessageTimeline(
@@ -281,7 +324,7 @@ export function buildTimelineItems(input: {
       const previousKey = permissionEventKeysByToolCallId.get(event.toolCallId);
       if (previousKey) {
         const previous = visibleEventsByKey.get(previousKey);
-        if (previous && compareEvents(previous, event) <= 0) {
+        if (previous && compareEventsChronologically(previous, event) <= 0) {
           visibleEventsByKey.delete(previousKey);
           const nextKey = getTimelineEventKey(event);
           permissionEventKeysByToolCallId.set(event.toolCallId, nextKey);
@@ -300,7 +343,13 @@ export function buildTimelineItems(input: {
     visibleEventsByKey.set(getTimelineEventKey(event), event);
   }
 
-  const visibleEvents = [...visibleEventsByKey.values()].sort(compareEvents);
+  const chronologicalEvents = [...visibleEventsByKey.values()].sort(
+    compareEventsChronologically
+  );
+  const turnSequenceByKey = buildEventTurnSequenceByKey(chronologicalEvents);
+  const visibleEvents = [...chronologicalEvents].sort((left, right) =>
+    compareEventsForTimeline(left, right, turnSequenceByKey)
+  );
 
   if (visibleEvents.length === 0) {
     return buildMessageTimeline(input.messages, input.pendingUserMessage);
