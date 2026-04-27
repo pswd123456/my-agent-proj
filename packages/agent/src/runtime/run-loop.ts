@@ -27,6 +27,7 @@ import type { TraceManager } from "../trace.js";
 import type { Logger } from "../system-log.js";
 import type { JsonValue, RunSessionResult, SessionSnapshot } from "../types.js";
 import type { DelegateAgentService } from "../delegation/index.js";
+import { consumeBackgroundNotifications } from "../background-tasks/notifications.js";
 import type { ToolRegistry } from "../tools/registry.js";
 import {
   buildAssistantBlockContent,
@@ -58,6 +59,70 @@ interface StreamedThinkingSnapshot {
   thinkingMessageId: string;
   text: string;
   signature: string;
+}
+
+const ACTIVE_DELEGATE_STATUSES = new Set([
+  "queued",
+  "claimed",
+  "running",
+  "cancelling"
+]);
+
+interface ActiveDelegateResult {
+  delegateId: string;
+  status: string;
+  waitMode: "blocking" | "unblocking";
+  initialCheckAfterMs: number;
+}
+
+function clampDelegateInitialCheckAfterMs(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.max(1_000, Math.min(120_000, Math.floor(value)))
+    : 5_000;
+}
+
+function getActiveDelegateResult(
+  output: RunSessionResult["toolOutputs"][number]
+): ActiveDelegateResult | null {
+  if (output.toolName !== "delegate_agent" || output.isError) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(output.content) as {
+      ok?: boolean;
+      code?: string;
+      data?: {
+        delegate_id?: unknown;
+        status?: unknown;
+        wait_mode?: unknown;
+        initial_check_after_ms?: unknown;
+      };
+    };
+    if (parsed?.ok !== true || parsed?.code !== "DELEGATE_AGENT_OK") {
+      return null;
+    }
+
+    if (
+      typeof parsed.data?.delegate_id !== "string" ||
+      typeof parsed.data.status !== "string" ||
+      !ACTIVE_DELEGATE_STATUSES.has(parsed.data.status)
+    ) {
+      return null;
+    }
+
+    return {
+      delegateId: parsed.data.delegate_id,
+      status: parsed.data.status,
+      waitMode:
+        parsed.data.wait_mode === "unblocking" ? "unblocking" : "blocking",
+      initialCheckAfterMs: clampDelegateInitialCheckAfterMs(
+        parsed.data.initial_check_after_ms
+      )
+    };
+  } catch {
+    return null;
+  }
 }
 
 function getUnresolvedPendingToolCalls(session: SessionSnapshot): Array<{
@@ -173,6 +238,10 @@ export async function runSessionLoop(input: {
   const pendingPermissionAtStart = session.context.pendingPermissionRequest
     ? structuredClone(session.context.pendingPermissionRequest)
     : null;
+  let visibleBackgroundNotificationIds =
+    session.context.pendingBackgroundNotifications.map(
+      (notification) => notification.id
+    );
   const discoveredSkills = await discoverWorkspaceSkills(
     session.workingDirectory
   );
@@ -181,6 +250,7 @@ export async function runSessionLoop(input: {
   let toolCallCount = 0;
   let toolResultCount = 0;
   const toolOutputs: RunSessionResult["toolOutputs"] = [];
+  const activeUnblockingDelegates = new Map<string, number>();
   let consumedPermissionReply = false;
   let carriedTurnCount = 0;
   let currentTurnCount = Math.max(0, session.sessionState.turnCount);
@@ -224,6 +294,164 @@ export async function runSessionLoop(input: {
       partialAssistantText: partialAssistant?.text ?? null,
       partialAssistantMessageId: partialAssistant?.assistantMessageId ?? null
     });
+  }
+
+  async function consumeHandledBackgroundNotifications(
+    turnCount: number,
+    notificationIds = visibleBackgroundNotificationIds
+  ): Promise<SessionSnapshot | null> {
+    if (notificationIds.length === 0) {
+      return null;
+    }
+
+    await consumeBackgroundNotifications({
+      sessionManager: input.sessionManager,
+      traceManager: input.traceManager,
+      eventSink: input.eventSink,
+      sessionId: session.sessionId,
+      turnCount,
+      notificationIds
+    });
+
+    const refreshedSession = await input.sessionManager.getSession(
+      session.sessionId
+    );
+    if (refreshedSession) {
+      session = refreshedSession;
+      return refreshedSession;
+    }
+
+    return null;
+  }
+
+  async function finalizeResultAfterNotificationConsumption(
+    result: RunSessionResult,
+    turnCount: number,
+    notificationIds = visibleBackgroundNotificationIds
+  ): Promise<RunSessionResult> {
+    session =
+      (await input.sessionManager.getSession(session.sessionId)) ?? session;
+    const notificationIdsToConsume = new Set(notificationIds);
+    if (result.status === "completed") {
+      for (const notification of session.context.pendingBackgroundNotifications) {
+        if (!notification.requiresMainAgentReply) {
+          notificationIdsToConsume.add(notification.id);
+        }
+      }
+    }
+
+    const refreshedSession = await consumeHandledBackgroundNotifications(
+      turnCount,
+      [...notificationIdsToConsume]
+    );
+    if (!refreshedSession) {
+      return result;
+    }
+
+    return {
+      ...result,
+      session: refreshedSession
+    };
+  }
+
+  async function maybePauseForActiveDelegate(inputForPause: {
+    output: RunSessionResult["toolOutputs"][number];
+    turnCount: number;
+    notificationIds: string[];
+  }): Promise<RunSessionResult | null> {
+    const activeDelegate = getActiveDelegateResult(inputForPause.output);
+    if (!activeDelegate) {
+      return null;
+    }
+
+    if (activeDelegate.waitMode === "unblocking") {
+      activeUnblockingDelegates.set(
+        activeDelegate.delegateId,
+        activeDelegate.initialCheckAfterMs
+      );
+      return null;
+    }
+
+    session =
+      (await input.sessionManager.getSession(session.sessionId)) ?? session;
+    session = await input.sessionManager.updateContext(session.sessionId, {
+      status: "waiting_for_user_input"
+    });
+
+    const result = await completeLocally({
+      sessionManager: input.sessionManager,
+      traceManager: input.traceManager,
+      session,
+      turnCount: inputForPause.turnCount,
+      loopState: "waiting for input",
+      finalAnswer: "",
+      stopReason: "background_task_running",
+      toolCallCount,
+      toolResultCount,
+      toolOutputs,
+      eventSink: input.eventSink,
+      appendAssistantMessage: false
+    });
+
+    return finalizeResultAfterNotificationConsumption(
+      result,
+      inputForPause.turnCount,
+      inputForPause.notificationIds
+    );
+  }
+
+  async function maybePauseForUnblockingDelegates(inputForPause: {
+    turnCount: number;
+    notificationIds: string[];
+  }): Promise<RunSessionResult | null> {
+    if (activeUnblockingDelegates.size === 0 || !input.delegateAgentService) {
+      return null;
+    }
+
+    session =
+      (await input.sessionManager.getSession(session.sessionId)) ?? session;
+    if (
+      session.context.pendingBackgroundNotifications.length > 0 ||
+      session.context.pendingPermissionRequest ||
+      session.context.pendingConfirmationPayload ||
+      session.context.pendingUserQuestionPayload ||
+      session.context.status === "waiting_for_permission" ||
+      session.context.status === "waiting_for_conflict_confirmation" ||
+      session.context.status === "waiting_for_user_question"
+    ) {
+      return null;
+    }
+
+    await input.delegateAgentService.scheduleDelegatePollWakeup({
+      parentSessionId: session.sessionId,
+      delegateIds: [...activeUnblockingDelegates.keys()],
+      initialCheckAfterMs: Math.min(...activeUnblockingDelegates.values())
+    });
+
+    session = await input.sessionManager.updateContext(session.sessionId, {
+      status: "waiting_for_user_input"
+    });
+
+    const result = await completeLocally({
+      sessionManager: input.sessionManager,
+      traceManager: input.traceManager,
+      session,
+      turnCount: inputForPause.turnCount,
+      loopState: "waiting for input",
+      finalAnswer: "",
+      stopReason: "background_task_running",
+      toolCallCount,
+      toolResultCount,
+      toolOutputs,
+      eventSink: input.eventSink,
+      appendAssistantMessage: false
+    });
+
+    return finalizeResultAfterNotificationConsumption(
+      result,
+      inputForPause.turnCount,
+      inputForPause.notificationIds
+    );
   }
 
   try {
@@ -335,7 +563,7 @@ export async function runSessionLoop(input: {
         session = executed.session;
         toolCallCount += 1;
         if (executed.kind === "permission_request") {
-          return completeLocally({
+          const result = await completeLocally({
             sessionManager: input.sessionManager,
             traceManager: input.traceManager,
             session,
@@ -350,10 +578,23 @@ export async function runSessionLoop(input: {
             appendAssistantMessage: false,
             clearPendingToolCallIds: false
           });
+          return finalizeResultAfterNotificationConsumption(
+            result,
+            Math.max(1, carriedTurnCount)
+          );
         }
 
         toolResultCount += 1;
         toolOutputs.push(executed.output);
+
+        const pausedForActiveDelegate = await maybePauseForActiveDelegate({
+          output: executed.output,
+          turnCount: Math.max(1, carriedTurnCount),
+          notificationIds: visibleBackgroundNotificationIds
+        });
+        if (pausedForActiveDelegate) {
+          return pausedForActiveDelegate;
+        }
 
         {
           const interrupted = await maybeCompleteInterrupted();
@@ -384,6 +625,11 @@ export async function runSessionLoop(input: {
         session.sessionId,
         turnCount
       );
+      const notificationIdsVisibleThisTurn =
+        session.context.pendingBackgroundNotifications.map(
+          (notification) => notification.id
+        );
+      visibleBackgroundNotificationIds = notificationIdsVisibleThisTurn;
 
       {
         const interrupted = await maybeCompleteInterrupted();
@@ -853,7 +1099,7 @@ export async function runSessionLoop(input: {
           session = executed.session;
           toolCallCount += 1;
           if (executed.kind === "permission_request") {
-            return completeLocally({
+            const result = await completeLocally({
               sessionManager: input.sessionManager,
               traceManager: input.traceManager,
               session,
@@ -868,10 +1114,24 @@ export async function runSessionLoop(input: {
               appendAssistantMessage: false,
               clearPendingToolCallIds: false
             });
+            return finalizeResultAfterNotificationConsumption(
+              result,
+              turnCount,
+              notificationIdsVisibleThisTurn
+            );
           }
 
           toolResultCount += 1;
           toolOutputs.push(executed.output);
+
+          const pausedForActiveDelegate = await maybePauseForActiveDelegate({
+            output: executed.output,
+            turnCount,
+            notificationIds: notificationIdsVisibleThisTurn
+          });
+          if (pausedForActiveDelegate) {
+            return pausedForActiveDelegate;
+          }
 
           {
             const interrupted = await maybeCompleteInterrupted();
@@ -892,7 +1152,7 @@ export async function runSessionLoop(input: {
           session.context.status === "waiting_for_conflict_confirmation" &&
           session.context.pendingConfirmationPayload
         ) {
-          return completeLocally({
+          const result = await completeLocally({
             sessionManager: input.sessionManager,
             traceManager: input.traceManager,
             session,
@@ -907,6 +1167,11 @@ export async function runSessionLoop(input: {
             toolOutputs,
             eventSink: input.eventSink
           });
+          return finalizeResultAfterNotificationConsumption(
+            result,
+            turnCount,
+            notificationIdsVisibleThisTurn
+          );
         }
 
         if (
@@ -923,7 +1188,7 @@ export async function runSessionLoop(input: {
               question: session.context.pendingUserQuestionPayload
             }
           });
-          return completeLocally({
+          const result = await completeLocally({
             sessionManager: input.sessionManager,
             traceManager: input.traceManager,
             session,
@@ -938,6 +1203,11 @@ export async function runSessionLoop(input: {
             toolOutputs,
             eventSink: input.eventSink
           });
+          return finalizeResultAfterNotificationConsumption(
+            result,
+            turnCount,
+            notificationIdsVisibleThisTurn
+          );
         }
 
         session = await input.sessionManager.setLoopState(
@@ -958,6 +1228,15 @@ export async function runSessionLoop(input: {
       }
 
       if (assistantTexts.length > 0) {
+        const pausedForUnblockingDelegates =
+          await maybePauseForUnblockingDelegates({
+            turnCount,
+            notificationIds: notificationIdsVisibleThisTurn
+          });
+        if (pausedForUnblockingDelegates) {
+          return pausedForUnblockingDelegates;
+        }
+
         const finalAnswer = assistantTexts.join("\n").trim();
         if (session.context.pendingConfirmationPayload) {
           session = await input.sessionManager.updateContext(
@@ -966,7 +1245,7 @@ export async function runSessionLoop(input: {
               status: "waiting_for_conflict_confirmation"
             }
           );
-          return completeLocally({
+          const result = await completeLocally({
             sessionManager: input.sessionManager,
             traceManager: input.traceManager,
             session,
@@ -980,6 +1259,11 @@ export async function runSessionLoop(input: {
             eventSink: input.eventSink,
             appendAssistantMessage: false
           });
+          return finalizeResultAfterNotificationConsumption(
+            result,
+            turnCount,
+            notificationIdsVisibleThisTurn
+          );
         }
 
         {
@@ -997,7 +1281,7 @@ export async function runSessionLoop(input: {
             }
           );
         }
-        return completeLocally({
+        const result = await completeLocally({
           sessionManager: input.sessionManager,
           traceManager: input.traceManager,
           session,
@@ -1011,6 +1295,19 @@ export async function runSessionLoop(input: {
           eventSink: input.eventSink,
           appendAssistantMessage: false
         });
+        return finalizeResultAfterNotificationConsumption(
+          result,
+          turnCount,
+          notificationIdsVisibleThisTurn
+        );
+      }
+
+      const pausedForUnblockingDelegates = await maybePauseForUnblockingDelegates({
+        turnCount,
+        notificationIds: notificationIdsVisibleThisTurn
+      });
+      if (pausedForUnblockingDelegates) {
+        return pausedForUnblockingDelegates;
       }
 
       {
@@ -1127,7 +1424,7 @@ export async function runSessionLoop(input: {
         })
       );
     }
-    return result;
+    return finalizeResultAfterNotificationConsumption(result, input.maxTurns);
   } catch (error) {
     const interrupted = await maybeCompleteInterrupted();
     if (interrupted) {

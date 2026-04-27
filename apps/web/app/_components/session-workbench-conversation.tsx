@@ -19,14 +19,7 @@ import type {
 
 import { MessageMarkdown } from "./message-markdown";
 import { SessionTodoPanel } from "./session-todo-panel";
-import {
-  getAssistantTextCursorVisible,
-  getAssistantTextRenderMode,
-  getNextTypewriterLength,
-  getTypewriterVisibleLengthOnChange,
-  splitTypewriterCharacters,
-  TYPEWRITER_FRAME_MS
-} from "./message-typewriter";
+import { getAssistantTextRenderMode } from "./message-typewriter";
 import {
   type CompactCollapsedFlowViewItem,
   type CompactFileBatchViewItem,
@@ -123,6 +116,51 @@ export function getCompactToolFileChangeRows(
     countsLabel: `+${file.addedLineCount} / -${file.removedLineCount}`,
     diff: file.diff
   }));
+}
+
+interface BackgroundNotificationCopySource {
+  summary: string;
+  content: string;
+}
+
+function normalizeBackgroundNotificationText(
+  value: string | null | undefined
+): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.replace(/\r\n/g, "\n").trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+export function buildBackgroundNotificationCopy(
+  notification: BackgroundNotificationCopySource
+): {
+  summaryText: string | null;
+  contentText: string | null;
+} {
+  const summaryText = normalizeBackgroundNotificationText(notification.summary);
+  const contentText = normalizeBackgroundNotificationText(notification.content);
+
+  if (!summaryText) {
+    return {
+      summaryText: null,
+      contentText
+    };
+  }
+
+  if (!contentText || contentText === summaryText) {
+    return {
+      summaryText,
+      contentText: null
+    };
+  }
+
+  return {
+    summaryText,
+    contentText
+  };
 }
 
 function MessageRoleLabel({
@@ -375,78 +413,26 @@ function TypewriterTextContent({
   className,
   onAnimationComplete
 }: TypewriterTextContentProps) {
-  const characters = useMemo(
-    () => splitTypewriterCharacters(content),
-    [content]
-  );
-  const totalLength = characters.length;
+  const totalLength = Array.from(content).length;
   const hasVisibleContent = content.trim().length > 0;
-  const [visibleLength, setVisibleLength] = useState(() =>
-    animate ? 0 : totalLength
-  );
-  const previousAnimationStateRef = useRef({
-    itemKey,
-    animate,
-    totalLength
-  });
 
   useEffect(() => {
-    const previous = previousAnimationStateRef.current;
-    setVisibleLength((current) =>
-      getTypewriterVisibleLengthOnChange({
-        animate,
-        itemChanged: previous.itemKey !== itemKey,
-        animationStarted: !previous.animate && animate,
-        totalLength,
-        previousTotalLength: previous.totalLength,
-        currentVisibleLength: current
-      })
-    );
-    previousAnimationStateRef.current = {
-      itemKey,
-      animate,
-      totalLength
-    };
-  }, [animate, itemKey, totalLength]);
-
-  useEffect(() => {
-    if (!animate || visibleLength >= totalLength) {
-      return undefined;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      setVisibleLength((current) =>
-        getNextTypewriterLength(current, totalLength)
-      );
-    }, TYPEWRITER_FRAME_MS);
-
-    return () => window.clearTimeout(timeoutId);
-  }, [animate, totalLength, visibleLength]);
-
-  useEffect(() => {
-    if (!animate || visibleLength < totalLength) {
+    if (!animate || streaming) {
       return;
     }
 
     onAnimationComplete?.(itemKey);
-  }, [animate, itemKey, onAnimationComplete, totalLength, visibleLength]);
+  }, [animate, itemKey, onAnimationComplete, streaming]);
 
   const renderMode = getAssistantTextRenderMode({
     animate,
     streaming,
     totalLength,
-    visibleLength
+    visibleLength: totalLength
   });
   const showPlainText =
     !renderMarkdownWhenSettled || renderMode === "plaintext";
-  const visibleContent = showPlainText
-    ? characters.slice(0, visibleLength).join("")
-    : content;
-  const showCursor = getAssistantTextCursorVisible({
-    animate,
-    totalLength,
-    visibleLength
-  });
+  const visibleContent = content;
 
   if (!hasVisibleContent) {
     return null;
@@ -457,12 +443,6 @@ function TypewriterTextContent({
       {showPlainText ? (
         <div className="min-w-0 whitespace-pre-wrap text-sm leading-7 text-inherit [overflow-wrap:anywhere]">
           {visibleContent}
-          {showCursor ? (
-            <span
-              aria-hidden
-              className="ml-1 inline-block h-[1em] w-[0.55ch] translate-y-[0.12em] animate-pulse rounded-[2px] bg-[var(--app-accent)] align-baseline"
-            />
-          ) : null}
         </div>
       ) : (
         <MessageMarkdown content={visibleContent} />
@@ -488,7 +468,7 @@ function AssistantTextBubble({
         animate={animate}
         streaming={streaming}
         className={`${getBubbleClass("assistant")} min-w-0 ${
-          animate ? "[overflow-anchor:none]" : ""
+          streaming ? "[overflow-anchor:none]" : ""
         }`}
         {...(onAnimationComplete ? { onAnimationComplete } : {})}
       />
@@ -804,6 +784,82 @@ function renderExecutionEvent(
         <pre className={getDebugPreClass("surface").replace("mt-2 ", "mt-3 ")}>
           {event.displayText ?? event.output}
         </pre>
+      </article>
+    );
+  }
+
+  if (
+    event.kind === "background_notification" ||
+    event.kind === "background_notification_consumed"
+  ) {
+    const isConsumed = event.kind === "background_notification_consumed";
+    const { summaryText, contentText } = buildBackgroundNotificationCopy(
+      event.notification
+    );
+    const childSessionId = event.notification.childSessionId ?? null;
+    const consumedIdLabel = childSessionId ? "Session ID" : "Task ID";
+    const toneClass = isConsumed
+      ? "text-[var(--app-text-muted)]"
+      : event.notification.kind === "delegate_failed" ||
+          event.notification.kind === "delegate_timeout"
+        ? "text-[var(--app-status-danger)]"
+        : event.notification.kind === "delegate_needs_main_agent"
+          ? "text-[var(--app-status-warning)]"
+          : "text-[var(--app-text-secondary)]";
+    const title = isConsumed ? "子代理反馈" : "后台更新";
+    const cardClass = getInspectorCardClass(
+      isConsumed
+        ? "border-[color:color-mix(in_srgb,var(--app-text-muted)_18%,var(--app-border-subtle)_82%)] bg-[color:color-mix(in_srgb,var(--app-bg-elevated)_54%,var(--app-bg-surface)_46%)]"
+        : ""
+    );
+
+    return (
+      <article key={getTimelineEventKey(event)} className={cardClass}>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="font-mono text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
+              {title}
+            </div>
+            <div className="mt-2 text-sm font-medium text-[var(--app-text-primary)]">
+              {isConsumed
+                ? "主代理接受了子代理的反馈"
+                : event.notification.title}
+            </div>
+          </div>
+          <div
+            className={`shrink-0 rounded-full px-2 py-1 text-[0.72rem] ${
+              isConsumed
+                ? "bg-[color:color-mix(in_srgb,var(--app-bg-muted)_76%,transparent)] text-[var(--app-text-secondary)]"
+                : toneClass
+            }`}
+          >
+            {isConsumed
+              ? "已处理"
+              : event.notification.kind.replace("delegate_", "")}
+          </div>
+        </div>
+        <div className="mt-3 grid gap-2 text-sm leading-6 text-[var(--app-text-secondary)]">
+          {isConsumed ? (
+            <div className="flex min-w-0 flex-wrap items-center gap-2 rounded-[var(--app-radius-sm)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_70%,transparent)] px-3 py-2 text-xs text-[var(--app-text-secondary)]">
+              <span className="font-mono uppercase tracking-[0.16em] text-[var(--app-text-muted)]">
+                {consumedIdLabel}
+              </span>
+              <span className="min-w-0 break-all font-mono text-[var(--app-text-primary)]">
+                {childSessionId ?? event.notification.taskId}
+              </span>
+            </div>
+          ) : summaryText ? (
+            <div>{summaryText}</div>
+          ) : null}
+          {!isConsumed && contentText ? (
+            <div className="text-[var(--app-text-muted)]">{contentText}</div>
+          ) : null}
+          {event.notification.requiresMainAgentReply ? (
+            <div className="text-[var(--app-status-warning)]">
+              需要主代理继续处理
+            </div>
+          ) : null}
+        </div>
       </article>
     );
   }
@@ -1625,7 +1681,8 @@ export function SessionWorkbenchConversationPanel({
   }, [currentSession?.sessionId]);
 
   useEffect(() => {
-    const lastKey = conversationProjection.newlyCollapsedFlowKeys.at(-1) ?? null;
+    const lastKey =
+      conversationProjection.newlyCollapsedFlowKeys.at(-1) ?? null;
     if (!lastKey) {
       return;
     }
@@ -1635,7 +1692,10 @@ export function SessionWorkbenchConversationPanel({
     if (scrollTargetKey) {
       pendingCollapsedFlowScrollTargetRef.current = scrollTargetKey;
     }
-  }, [collapsedFlowAnchorsByKey, conversationProjection.newlyCollapsedFlowKeys]);
+  }, [
+    collapsedFlowAnchorsByKey,
+    conversationProjection.newlyCollapsedFlowKeys
+  ]);
 
   useEffect(() => {
     previousScrollSnapshotRef.current = buildConversationScrollSnapshot([]);

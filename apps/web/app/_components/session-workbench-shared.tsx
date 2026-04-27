@@ -5,6 +5,7 @@ import type { SessionSnapshot, SessionSummary } from "@ai-app-template/sdk";
 import {
   getSessionDisplayState,
   parseDateString,
+  buildSessionSidebarRows,
   type SessionDisplayState
 } from "./session-workbench-state";
 import {
@@ -492,6 +493,8 @@ export function SessionWorkbenchSidebar({
     );
   }
 
+  const sidebarRows = buildSessionSidebarRows(sessions);
+
   return (
     <aside
       className={`w-full shrink-0 lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)] ${railWidthClass}`}
@@ -526,7 +529,7 @@ export function SessionWorkbenchSidebar({
           className={`flex-1 overflow-y-auto ${collapsed ? "px-3 py-3" : "px-4 py-4"}`}
         >
           <div className={`grid ${collapsed ? "gap-2" : "gap-3"}`}>
-            {sessions.map((session) => {
+            {sidebarRows.map(({ session, depth, childCount }) => {
               const isActive = session.sessionId === selectedSessionId;
               const isDeleting = deletingSessionId === session.sessionId;
               const displayState = getSessionDisplayState(session);
@@ -536,13 +539,29 @@ export function SessionWorkbenchSidebar({
               const stateBadgeClass = getSidebarStateBadgeClass(
                 displayState.tone
               );
+              const relationLabel =
+                depth > 0
+                  ? session.parentSessionId
+                    ? `子代理 · 父会话 ${session.parentSessionId.slice(0, 8)}`
+                    : "子代理"
+                  : childCount > 0
+                    ? `主会话 · ${childCount} 个子代理`
+                    : null;
+              const relationToneClass =
+                depth > 0
+                  ? "text-[var(--app-status-success)]"
+                  : "text-[var(--app-text-secondary)]";
+              const rowStyle =
+                depth > 0
+                  ? { marginLeft: `${depth * 0.75}rem` }
+                  : undefined;
 
               if (collapsed) {
                 return (
                   <button
                     key={session.sessionId}
                     type="button"
-                    title={`${session.sessionId.slice(0, 8)} · ${displayState.label}`}
+                    title={`${relationLabel} · ${session.sessionId.slice(0, 8)} · ${displayState.label}`}
                     aria-label={`切换到会话 ${session.sessionId.slice(0, 8)}`}
                     onClick={() => onSelectSession(session.sessionId)}
                     className={`grid h-14 w-full place-items-center rounded-[var(--app-radius-lg)] border text-center transition ${
@@ -563,7 +582,12 @@ export function SessionWorkbenchSidebar({
               return (
                 <article
                   key={session.sessionId}
+                  style={rowStyle}
                   className={`rounded-[var(--app-radius-lg)] px-3 py-3 transition ${
+                    depth > 0
+                      ? "border-l border-[color:color-mix(in_srgb,var(--app-border-subtle)_42%,transparent)]"
+                      : ""
+                  } ${
                     isActive
                       ? "bg-[color:color-mix(in_srgb,var(--app-bg-elevated)_88%,transparent)] ring-1 ring-inset ring-[color:color-mix(in_srgb,var(--app-border-accent)_68%,transparent)]"
                       : "bg-transparent hover:bg-[color:color-mix(in_srgb,var(--app-bg-surface)_94%,transparent)]"
@@ -585,6 +609,13 @@ export function SessionWorkbenchSidebar({
                         >
                           {displayState.label}
                         </span>
+                        {relationLabel ? (
+                          <span
+                            className={`text-[0.72rem] ${relationToneClass}`}
+                          >
+                            {relationLabel}
+                          </span>
+                        ) : null}
                       </div>
                     </button>
                     <button
@@ -618,6 +649,16 @@ export function SessionWorkbenchSidebar({
                         {session.pendingUserQuestion ? (
                           <span className="text-[var(--app-status-warning)]">
                             澄清
+                          </span>
+                        ) : null}
+                        {session.pendingBackgroundNotificationCount > 0 ? (
+                          <span className="text-[var(--app-status-warning)]">
+                            后台更新 {session.pendingBackgroundNotificationCount}
+                          </span>
+                        ) : null}
+                        {session.activeBackgroundTaskCount > 0 ? (
+                          <span className="text-[var(--app-status-success)]">
+                            后台中 {session.activeBackgroundTaskCount}
                           </span>
                         ) : null}
                         {session.yoloMode ? (

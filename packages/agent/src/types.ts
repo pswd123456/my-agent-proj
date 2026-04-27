@@ -94,6 +94,7 @@ export interface SessionState {
 
 export interface SessionSnapshot {
   sessionId: string;
+  parentSessionId?: string | null;
   workingDirectory: string;
   model: string;
   contextWindow: number;

@@ -78,6 +78,20 @@
       "when": 1777802100000,
       "tag": "0010_delegate_task_card",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1777852800000,
+      "tag": "0011_background_notifications_and_wakeup",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1777856400000,
+      "tag": "0012_background_task_available_at",
+      "breakpoints": true
     }
   ]
 }

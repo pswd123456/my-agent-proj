@@ -73,6 +73,10 @@ describe("delegate agent service", () => {
     expect(child?.context.userId).toBe("user-a");
     expect(child?.context.yoloMode).toBe(false);
     expect(child?.context.toolAllowList).toEqual([]);
+    expect(
+      (await sessionManager.getSession(parent.sessionId))?.context
+        .activeBackgroundTaskCount
+    ).toBe(1);
 
     const claim = await taskManager.claimNextTask("worker-a");
     expect(claim?.task.taskId).toBe(started.delegateId);
@@ -105,6 +109,10 @@ describe("delegate agent service", () => {
       "Now inspect the related tests."
     );
     expect(requeued?.childSessionId).toBe(task?.childSessionId);
+    expect(
+      (await sessionManager.getSession(parent.sessionId))?.context
+        .activeBackgroundTaskCount
+    ).toBe(2);
 
     const parentAfter = await sessionManager.getSession(parent.sessionId);
     expect(parentAfter?.messages).toHaveLength(0);
@@ -112,6 +120,62 @@ describe("delegate agent service", () => {
 });
 
 describe("delegate agent tool", () => {
+  test("describes explicit actions and rejects mixed start inputs with a clear fix", async () => {
+    const registry = new ToolRegistry().register(createDelegateAgentTool());
+    const anthropicTool = registry.toAnthropicTools()[0];
+
+    expect(anthropicTool.description).toContain("Examples:");
+    expect(anthropicTool.description).toContain('"action":"start"');
+    expect(anthropicTool.description).toContain('"action":"permission"');
+
+    const sessionManager = createMemorySessionManager();
+    const repository = createMemoryBackgroundTaskRepository();
+    const routineRepository = createMemoryRoutineRepository();
+    const taskManager = createBackgroundTaskManager({
+      sessionManager,
+      repository
+    });
+    const service = createDelegateAgentService({
+      sessionManager,
+      taskManager
+    });
+    const parent = await sessionManager.createSession({
+      workingDirectory: "/tmp/parent",
+      userId: "user-a"
+    });
+
+    const result = await executeToolAction({
+      sessionManager,
+      routineRepository,
+      toolRegistry: registry,
+      delegateAgentService: service,
+      traceManager: undefined,
+      session: parent,
+      turnCount: 1,
+      toolCallId: "delegate-invalid-start",
+      toolName: "delegate_agent",
+      toolInput: {
+        action: "start",
+        delegate_id: "delegate-1",
+        title: "Inspect parser",
+        objective: "Read the parser code path.",
+        parent_task_summary: "Parent needs a parser summary."
+      },
+      eventSink: undefined
+    });
+
+    expect(result.kind).toBe("completed");
+    if (result.kind !== "completed") {
+      throw new Error("Expected invalid input to complete with an error.");
+    }
+
+    const output = JSON.parse(result.output.content) as { message: string };
+    expect(output.message).toContain(
+      "To create a new delegate, remove delegate_id and provide title, objective, and parent_task_summary."
+    );
+    expect(result.output.displayText).toContain("invalid input");
+  });
+
   test("returns delegate views without exposing child session ids and resolves permission decisions", async () => {
     const sessionManager = createMemorySessionManager();
     const repository = createMemoryBackgroundTaskRepository();
@@ -142,6 +206,7 @@ describe("delegate agent tool", () => {
       toolCallId: "delegate-start",
       toolName: "delegate_agent",
       toolInput: {
+        action: "start",
         title: "Inspect parser",
         objective: "Read the parser code path.",
         parent_task_summary: "Parent needs a parser summary."
@@ -199,6 +264,7 @@ describe("delegate agent tool", () => {
       toolCallId: "delegate-approve",
       toolName: "delegate_agent",
       toolInput: {
+        action: "permission",
         delegate_id: output.data.delegate_id,
         permission_decision: "approve"
       },
@@ -220,5 +286,86 @@ describe("delegate agent tool", () => {
     const requeued = await taskManager.getTask(output.data.delegate_id);
     expect(requeued?.payload.permissionReply).toBe(true);
     expect(requeued?.payload.message).toBe("yes");
+    expect(
+      (await sessionManager.getSession(parent.sessionId))?.context
+        .activeBackgroundTaskCount
+    ).toBe(2);
+  });
+
+  test("normalizes unblocking wait options and rejects them for get", async () => {
+    const sessionManager = createMemorySessionManager();
+    const repository = createMemoryBackgroundTaskRepository();
+    const routineRepository = createMemoryRoutineRepository();
+    const taskManager = createBackgroundTaskManager({
+      sessionManager,
+      repository
+    });
+    const service = createDelegateAgentService({
+      sessionManager,
+      taskManager
+    });
+    const parent = await sessionManager.createSession({
+      workingDirectory: "/tmp/parent",
+      userId: "user-a"
+    });
+    const toolRegistry = new ToolRegistry().register(createDelegateAgentTool());
+
+    const started = await executeToolAction({
+      sessionManager,
+      routineRepository,
+      toolRegistry,
+      delegateAgentService: service,
+      traceManager: undefined,
+      session: parent,
+      turnCount: 1,
+      toolCallId: "delegate-start-unblocking",
+      toolName: "delegate_agent",
+      toolInput: {
+        action: "start",
+        title: "Inspect parser",
+        objective: "Read the parser code path.",
+        parent_task_summary: "Parent needs a parser summary.",
+        wait_mode: "unblocking",
+        initial_check_after_ms: 999_999
+      },
+      eventSink: undefined
+    });
+    expect(started.kind).toBe("completed");
+    if (started.kind !== "completed") {
+      throw new Error("Expected delegate start to complete.");
+    }
+    const startedOutput = JSON.parse(started.output.content) as {
+      data: {
+        delegate_id: string;
+        wait_mode: string;
+        initial_check_after_ms: number;
+      };
+    };
+    expect(startedOutput.data.wait_mode).toBe("unblocking");
+    expect(startedOutput.data.initial_check_after_ms).toBe(120_000);
+
+    const invalidGet = await executeToolAction({
+      sessionManager,
+      routineRepository,
+      toolRegistry,
+      delegateAgentService: service,
+      traceManager: undefined,
+      session: parent,
+      turnCount: 2,
+      toolCallId: "delegate-get-invalid",
+      toolName: "delegate_agent",
+      toolInput: {
+        action: "get",
+        delegate_id: startedOutput.data.delegate_id,
+        wait_mode: "unblocking"
+      },
+      eventSink: undefined
+    });
+    expect(invalidGet.kind).toBe("completed");
+    if (invalidGet.kind !== "completed") {
+      throw new Error("Expected invalid get to complete with an error.");
+    }
+    expect(invalidGet.output.displayText).toContain("invalid input");
+    expect(invalidGet.output.displayText).toContain("wait options");
   });
 });

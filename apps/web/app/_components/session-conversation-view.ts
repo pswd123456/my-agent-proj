@@ -223,7 +223,10 @@ function getFileChanges(
     | Extract<ToolMessageBlock, { kind: "tool result" }>["details"]
     | undefined
 ): CompactToolViewItem["fileChanges"] {
-  if (details?.kind !== "workspace_file_changes" || details.files.length === 0) {
+  if (
+    details?.kind !== "workspace_file_changes" ||
+    details.files.length === 0
+  ) {
     return null;
   }
 
@@ -509,6 +512,12 @@ function isRunCompleteItem(item: ConversationViewItem): boolean {
   );
 }
 
+function hideCompactMetaItems(
+  items: ConversationViewItem[]
+): ConversationViewItem[] {
+  return items.filter((item) => !isRunCompleteItem(item));
+}
+
 function compactFinalFlowSegment(
   items: ConversationViewItem[],
   streamEventKeys: Set<string>
@@ -517,12 +526,10 @@ function compactFinalFlowSegment(
     return items;
   }
 
-  const finalAssistantIndex = [...items.keys()]
-    .reverse()
-    .find((index) => {
-      const text = getAssistantOutputText(items[index]!);
-      return Boolean(text && text.trim().length > 0);
-    });
+  const finalAssistantIndex = [...items.keys()].reverse().find((index) => {
+    const text = getAssistantOutputText(items[index]!);
+    return Boolean(text && text.trim().length > 0);
+  });
 
   if (finalAssistantIndex === undefined || finalAssistantIndex < 1) {
     return items;
@@ -615,7 +622,9 @@ export function buildConversationViewItems(input: {
   }
 
   return compactFinalFlow(
-    compactReadSearchRuns(compactToolEvents(input.timelineItems)),
+    hideCompactMetaItems(
+      compactReadSearchRuns(compactToolEvents(input.timelineItems))
+    ),
     input.streamEventKeys ?? new Set()
   );
 }

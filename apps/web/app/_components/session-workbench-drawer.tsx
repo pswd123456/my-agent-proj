@@ -3,10 +3,7 @@
 import type { ReactNode } from "react";
 
 import { WorkbenchPanel } from "@ai-app-template/ui-patterns";
-import type {
-  RoutineRecord,
-  SessionSnapshot
-} from "@ai-app-template/sdk";
+import type { RoutineRecord, SessionSnapshot } from "@ai-app-template/sdk";
 
 import {
   capabilityPackOptions,
@@ -43,25 +40,47 @@ function formatCapabilityPackDescription(packName: string): string {
     : "日程创建、编辑、查询与冲突确认相关能力。";
 }
 
+const schedulePermissionTools = new Set([
+  "create_routine",
+  "edit_routine",
+  "delete_routine",
+  "search_routine_by_oclock",
+  "list_routine_by_week",
+  "list_routine_by_date",
+  "ask_for_confirmation"
+]);
+
+const workspacePermissionTools = new Set([
+  "apply_patch",
+  "read_file",
+  "list_directory",
+  "find_files",
+  "search_text",
+  "create_directory",
+  "write_file",
+  "copy_path",
+  "move_path",
+  "delete_path",
+  "git_status",
+  "git_diff",
+  "git_diff_cached",
+  "run_shell_command",
+  "make_http_request"
+]);
+
 function getVisiblePermissionTools(enabledCapabilityPacks: string[]): string[] {
   const enabled = new Set(enabledCapabilityPacks);
 
   return permissionToolOptions.filter((tool) => {
-    if (
-      [
-        "create_routine",
-        "edit_routine",
-        "delete_routine",
-        "search_routine_by_oclock",
-        "list_routine_by_week",
-        "list_routine_by_date",
-        "ask_for_confirmation"
-      ].includes(tool)
-    ) {
+    if (schedulePermissionTools.has(tool)) {
       return enabled.has("schedule");
     }
 
-    return enabled.has("workspace");
+    if (workspacePermissionTools.has(tool)) {
+      return enabled.has("workspace");
+    }
+
+    return true;
   });
 }
 

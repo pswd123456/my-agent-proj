@@ -27,6 +27,7 @@ interface ApiErrorPayload {
 
 export interface SessionSummary {
   sessionId: string;
+  parentSessionId?: string | null;
   updatedAt: string;
   workingDirectory: string;
   yoloMode: boolean;
@@ -38,6 +39,8 @@ export interface SessionSummary {
   pendingPermission: boolean;
   pendingConfirmation: boolean;
   pendingUserQuestion: boolean;
+  pendingBackgroundNotificationCount: number;
+  activeBackgroundTaskCount: number;
   status: SessionSnapshot["context"]["status"];
   lastUserMessage: string | null;
 }
@@ -203,6 +206,7 @@ function appendCacheBust(url: string): string {
 function toSessionSummary(session: SessionSnapshot): SessionSummary {
   return {
     sessionId: session.sessionId,
+    parentSessionId: session.parentSessionId ?? null,
     updatedAt: session.updatedAt,
     workingDirectory: session.workingDirectory,
     yoloMode: session.context.yoloMode,
@@ -214,9 +218,22 @@ function toSessionSummary(session: SessionSnapshot): SessionSummary {
     pendingPermission: Boolean(session.context.pendingPermissionRequest),
     pendingConfirmation: Boolean(session.context.pendingConfirmationPayload),
     pendingUserQuestion: Boolean(session.context.pendingUserQuestionPayload),
+    pendingBackgroundNotificationCount:
+      session.context.pendingBackgroundNotifications.length,
+    activeBackgroundTaskCount: session.context.activeBackgroundTaskCount,
     status: session.context.status,
     lastUserMessage: session.context.lastUserMessage
   };
+}
+
+function isProgressiveTextEvent(event: RunStreamEvent): boolean {
+  return event.kind === "assistant_text" || event.kind === "thinking";
+}
+
+async function yieldForBrowserPaint(): Promise<void> {
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, 0);
+  });
 }
 
 async function readEventStream(
@@ -265,7 +282,11 @@ async function readEventStream(
         continue;
       }
 
-      await onEvent(JSON.parse(dataLines.join("\n")) as RunStreamEvent);
+      const event = JSON.parse(dataLines.join("\n")) as RunStreamEvent;
+      await onEvent(event);
+      if (isProgressiveTextEvent(event)) {
+        await yieldForBrowserPaint();
+      }
     }
   }
 }

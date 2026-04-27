@@ -20,6 +20,37 @@ async function createWorkspaceRoot(): Promise<string> {
   return mkdtemp(path.join(tmpdir(), "agent-stage4-"));
 }
 
+async function readFileIntoSession(input: {
+  sessionManager: ReturnType<typeof createMemorySessionManager>;
+  routineRepository: ReturnType<typeof createMemoryRoutineRepository>;
+  toolRegistry: ReturnType<typeof createWorkspaceToolRegistry>;
+  session: Awaited<
+    ReturnType<ReturnType<typeof createMemorySessionManager>["createSession"]>
+  >;
+  path: string;
+}) {
+  const result = await executeToolAction({
+    sessionManager: input.sessionManager,
+    routineRepository: input.routineRepository,
+    toolRegistry: input.toolRegistry,
+    traceManager: undefined,
+    session: input.session,
+    turnCount: 0,
+    toolCallId: `read-${input.path}`,
+    toolName: "read_file",
+    toolInput: { path: input.path },
+    eventSink: undefined
+  });
+
+  expect(result.kind).toBe("completed");
+  if (result.kind !== "completed") {
+    throw new Error("expected read_file to complete");
+  }
+  expect(result.output.isError).toBe(false);
+
+  return result.session;
+}
+
 describe("Stage 4 permission flow", () => {
   test("pauses for permission without writing an assistant guidance block", async () => {
     const workspaceRoot = await createWorkspaceRoot();
@@ -398,10 +429,17 @@ describe("Stage 4 permission flow", () => {
         "before-2",
         "utf8"
       );
-      const session = await sessionManager.createSession({
+      const createdSession = await sessionManager.createSession({
         workingDirectory: workspaceRoot,
         model: "MiniMax-M2.7",
         userId: "stage4-user"
+      });
+      const session = await readFileIntoSession({
+        sessionManager,
+        routineRepository,
+        toolRegistry,
+        session: createdSession,
+        path: "existing.txt"
       });
 
       const permissionRequest = await executeToolAction({
@@ -488,12 +526,12 @@ describe("Stage 4 permission flow", () => {
         sessionAfterApproval?.messages.filter(
           (block) => block.kind === "tool call"
         ).length
-      ).toBe(1);
+      ).toBe(2);
       expect(
         sessionAfterApproval?.messages.filter(
           (block) => block.kind === "tool result"
         ).length
-      ).toBe(1);
+      ).toBe(2);
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true });
     }
@@ -951,11 +989,18 @@ describe("Stage 4 permission flow", () => {
         "utf8"
       );
       await writeFile(outsidePath, "outside", "utf8");
-      const session = await sessionManager.createSession({
+      const createdSession = await sessionManager.createSession({
         workingDirectory: workspaceRoot,
         model: "MiniMax-M2.7",
         userId: "stage4-user",
         yoloMode: true
+      });
+      const session = await readFileIntoSession({
+        sessionManager,
+        routineRepository,
+        toolRegistry,
+        session: createdSession,
+        path: "existing.txt"
       });
 
       const executed = await executeToolAction({
@@ -1061,10 +1106,17 @@ describe("Stage 4 permission flow", () => {
         model: "MiniMax-M2.7",
         userId: "stage4-user"
       });
-      const session = await sessionManager.setTurnCount(
+      const sessionWithTurnCount = await sessionManager.setTurnCount(
         createdSession.sessionId,
         1
       );
+      const session = await readFileIntoSession({
+        sessionManager,
+        routineRepository,
+        toolRegistry,
+        session: sessionWithTurnCount,
+        path: "existing.txt"
+      });
 
       const permissionRequest = await executeToolAction({
         sessionManager,

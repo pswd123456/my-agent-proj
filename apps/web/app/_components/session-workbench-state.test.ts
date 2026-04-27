@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import type { SessionSnapshot } from "@ai-app-template/sdk";
+import type { SessionSnapshot, SessionSummary } from "@ai-app-template/sdk";
 
 import {
+  buildSessionSidebarRows,
   applyStreamEventToSession,
   canInterruptSessionExecution,
   getSessionDisplayState
@@ -42,6 +43,32 @@ function createSessionSnapshot(): SessionSnapshot {
     inputTokensCount: 0,
     promptCacheKey: "",
     updatedAt: "2026-04-24T00:00:00.000Z"
+  };
+}
+
+function createSessionSummary(
+  sessionId: string,
+  updatedAt: string,
+  parentSessionId?: string | null
+): SessionSummary {
+  return {
+    sessionId,
+    parentSessionId: parentSessionId ?? null,
+    updatedAt,
+    workingDirectory: "/tmp/workspace",
+    yoloMode: false,
+    model: "MiniMax-M2.7",
+    loopState: "waiting for input",
+    turnCount: 0,
+    pendingToolCallIds: [],
+    interruptRequested: false,
+    pendingPermission: false,
+    pendingConfirmation: false,
+    pendingUserQuestion: false,
+    pendingBackgroundNotificationCount: 0,
+    activeBackgroundTaskCount: 0,
+    status: "waiting_for_user_input",
+    lastUserMessage: null
   };
 }
 
@@ -321,5 +348,28 @@ describe("applyStreamEventToSession", () => {
       "先做 CLI 还是 Web？"
     );
     expect(next.sessionState.loopState).toBe("waiting for input");
+  });
+});
+
+describe("buildSessionSidebarRows", () => {
+  test("nests child sessions under their parent session", () => {
+    const rows = buildSessionSidebarRows([
+      createSessionSummary("parent", "2026-04-24T02:00:00.000Z"),
+      createSessionSummary(
+        "child",
+        "2026-04-24T03:00:00.000Z",
+        "parent"
+      ),
+      createSessionSummary("sibling", "2026-04-24T01:00:00.000Z")
+    ]);
+
+    expect(rows.map((row) => row.session.sessionId)).toEqual([
+      "parent",
+      "child",
+      "sibling"
+    ]);
+    expect(rows[0]?.childCount).toBe(1);
+    expect(rows[1]?.depth).toBe(1);
+    expect(rows[2]?.depth).toBe(0);
   });
 });

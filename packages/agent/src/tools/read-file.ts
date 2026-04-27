@@ -6,7 +6,6 @@ import type { RuntimeTool, ToolExecutionContext } from "./runtime-tool.js";
 import {
   assessRepeatedWorkspaceActivity,
   normalizeWorkspacePath,
-  normalizeReadFileActivityIdentity,
   toRelativeWorkspacePath
 } from "./workspace.js";
 import {
@@ -15,6 +14,7 @@ import {
   successResult
 } from "./tool-result.js";
 import { estimateTextTokens } from "../runtime/token-budget.js";
+import { findPreviousReadMetadata } from "./read-file-metadata.js";
 
 const MAX_SAFE_READ_FILE_BYTES = 2_000_000;
 const MAX_SAFE_OUTPUT_CHARACTERS = 200_000;
@@ -50,16 +50,6 @@ interface ReadWindowResult {
   truncated: boolean;
 }
 
-interface StoredReadFileMetadata extends ReadWindowResult {
-  path: string;
-  offset: number;
-  limit: number | null;
-  sizeBytes: number;
-  modifiedAt: string;
-  modifiedAtMs: number;
-  deduplicated?: boolean;
-}
-
 function normalizeReadWindowRequest(
   input: Record<string, JsonValue>
 ): ReadWindowRequest {
@@ -76,17 +66,14 @@ function normalizeReadWindowRequest(
       limit: normalizedLimit,
       startLine: normalizedOffset + 1,
       endLine:
-        normalizedLimit === null
-          ? null
-          : normalizedOffset + normalizedLimit
+        normalizedLimit === null ? null : normalizedOffset + normalizedLimit
     };
   }
 
   const startLine = legacyStartLine ?? 1;
   return {
     offset: startLine - 1,
-    limit:
-      legacyEndLine === null ? null : legacyEndLine - startLine + 1,
+    limit: legacyEndLine === null ? null : legacyEndLine - startLine + 1,
     startLine,
     endLine: legacyEndLine
   };
@@ -193,104 +180,6 @@ function readFileVersion(stat: Awaited<ReturnType<typeof fs.stat>>): {
     modifiedAt: stat.mtime.toISOString(),
     modifiedAtMs
   };
-}
-
-function isStoredReadFileMetadata(
-  value: unknown
-): value is StoredReadFileMetadata {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return false;
-  }
-
-  const candidate = value as Record<string, unknown>;
-  return (
-    typeof candidate.path === "string" &&
-    typeof candidate.offset === "number" &&
-    (candidate.limit === null || typeof candidate.limit === "number") &&
-    typeof candidate.startLine === "number" &&
-    typeof candidate.endLine === "number" &&
-    typeof candidate.totalLines === "number" &&
-    typeof candidate.truncated === "boolean" &&
-    typeof candidate.sizeBytes === "number" &&
-    typeof candidate.modifiedAt === "string" &&
-    typeof candidate.modifiedAtMs === "number"
-  );
-}
-
-function parseStoredReadFileMetadata(
-  output: string
-): StoredReadFileMetadata | null {
-  try {
-    const parsed = JSON.parse(output) as {
-      ok?: unknown;
-      data?: unknown;
-    };
-    if (parsed.ok !== true || !isStoredReadFileMetadata(parsed.data)) {
-      return null;
-    }
-    return parsed.data;
-  } catch {
-    return null;
-  }
-}
-
-function findPreviousReadMetadata(input: {
-  sessionMessages: ToolExecutionContext["sessionMessages"];
-  workingDirectory: string;
-  currentInput: Record<string, JsonValue>;
-}): StoredReadFileMetadata | null {
-  const callBlocks = new Map<
-    string,
-    ToolExecutionContext["sessionMessages"][number]
-  >();
-  for (const block of input.sessionMessages) {
-    if (block.kind === "tool call" && block.toolName === "read_file") {
-      callBlocks.set(block.toolCallId, block);
-    }
-  }
-
-  const currentIdentity = normalizeReadFileActivityIdentity({
-    toolInput: input.currentInput,
-    workingDirectory: input.workingDirectory
-  });
-
-  for (let index = input.sessionMessages.length - 1; index >= 0; index -= 1) {
-    const block = input.sessionMessages[index];
-    if (
-      !block ||
-      block.kind !== "tool result" ||
-      block.toolName !== "read_file" ||
-      block.isError
-    ) {
-      continue;
-    }
-
-    const matchingCall = callBlocks.get(block.toolCallId);
-    if (!matchingCall || matchingCall.kind !== "tool call") {
-      continue;
-    }
-
-    const blockIdentity = normalizeReadFileActivityIdentity({
-      toolInput: matchingCall.input,
-      workingDirectory: input.workingDirectory
-    });
-    if (
-      blockIdentity.path !== currentIdentity.path ||
-      blockIdentity.offset !== currentIdentity.offset ||
-      blockIdentity.limit !== currentIdentity.limit
-    ) {
-      continue;
-    }
-
-    const metadata = parseStoredReadFileMetadata(block.output);
-    if (!metadata || metadata.deduplicated || metadata.truncated) {
-      continue;
-    }
-
-    return metadata;
-  }
-
-  return null;
 }
 
 function isProbablyBinary(sample: Buffer): boolean {
@@ -417,8 +306,7 @@ export function createReadFileTool(workingDirectory: string): RuntimeTool {
       ) {
         issues.push({
           field: "offset",
-          issue:
-            "Use either offset/limit or startLine/endLine, but not both."
+          issue: "Use either offset/limit or startLine/endLine, but not both."
         });
       }
       if (startLine !== null && endLine !== null && endLine < startLine) {
@@ -553,10 +441,7 @@ export function createReadFileTool(workingDirectory: string): RuntimeTool {
           );
         }
 
-        if (
-          stat.size > MAX_SAFE_READ_FILE_BYTES &&
-          readWindow.limit === null
-        ) {
+        if (stat.size > MAX_SAFE_READ_FILE_BYTES && readWindow.limit === null) {
           return failureResult(
             createToolResult({
               ok: false,
@@ -654,10 +539,7 @@ export function createReadFileTool(workingDirectory: string): RuntimeTool {
           );
         }
 
-        if (
-          maxCharacters === null &&
-          lineRange.truncated
-        ) {
+        if (maxCharacters === null && lineRange.truncated) {
           return failureResult(
             createToolResult({
               ok: false,

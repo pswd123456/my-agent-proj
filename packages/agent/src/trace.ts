@@ -3,6 +3,7 @@ import path from "node:path";
 
 import type {
   PendingPermissionRequest,
+  SessionBackgroundNotification,
   PendingUserQuestionPayload
 } from "@ai-app-template/domain";
 
@@ -150,6 +151,18 @@ export interface TraceUserQuestionRequestEvent {
   question: PendingUserQuestionPayload;
 }
 
+export interface TraceBackgroundNotificationEvent {
+  kind: "background_notification";
+  turnCount: number;
+  notification: SessionBackgroundNotification;
+}
+
+export interface TraceBackgroundNotificationConsumedEvent {
+  kind: "background_notification_consumed";
+  turnCount: number;
+  notification: SessionBackgroundNotification;
+}
+
 export interface TraceInterruptRequestedEvent {
   kind: "interrupt_requested";
   turnCount: number;
@@ -222,6 +235,8 @@ export type TraceEvent =
   | TracePermissionRejectedEvent
   | TracePermissionBlockedEvent
   | TraceUserQuestionRequestEvent
+  | TraceBackgroundNotificationEvent
+  | TraceBackgroundNotificationConsumedEvent
   | TraceInterruptRequestedEvent
   | TraceInterruptedEvent
   | TraceFallbackEvent

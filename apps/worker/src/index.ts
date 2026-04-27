@@ -4,6 +4,7 @@ import {
   createAgentRuntime,
   createBackgroundTaskManager,
   createDefaultToolRegistry,
+  enqueueBackgroundNotification,
   createFileSystemLogManager,
   createFileTraceManager,
   createLogger,
@@ -105,10 +106,51 @@ async function createRuntimeHandle(
   };
 }
 
-async function drainQueuedTasks(): Promise<void> {
-  await backgroundTaskManager.requeueStaleClaims(
+async function reconcileStaleTasks(): Promise<void> {
+  const staleTasks = await backgroundTaskManager.requeueStaleClaims(
     new Date(Date.now() - staleTaskMs).toISOString()
   );
+
+  for (const task of staleTasks) {
+    if (task.status !== "failed") {
+      continue;
+    }
+
+    if (task.kind === "subagent") {
+      await enqueueBackgroundNotification({
+        sessionManager,
+        traceManager,
+        taskManager: backgroundTaskManager,
+        task,
+        kind: "delegate_timeout",
+        summary: task.resultSummary ?? "后台子任务超时。",
+        content: task.lastError ?? "Worker claim expired before completion.",
+        expectedParentReply: task.taskCard?.expectedParentReply ?? "none",
+        request: task.taskCard?.latestResponse?.request ?? null,
+        decrementActiveTaskCount: true
+      });
+      continue;
+    }
+
+    if (task.kind === "session_wakeup") {
+      await enqueueBackgroundNotification({
+        sessionManager,
+        traceManager,
+        taskManager: backgroundTaskManager,
+        task,
+        kind: "delegate_timeout",
+        title: "主会话后台续跑",
+        summary: "主会话后台续跑超时。",
+        content: task.lastError ?? "Worker claim expired before completion.",
+        expectedParentReply: "none",
+        autoWake: false
+      });
+    }
+  }
+}
+
+async function drainQueuedTasks(): Promise<void> {
+  await reconcileStaleTasks();
 
   while (true) {
     const claim = await backgroundTaskManager.claimNextTask(workerId);

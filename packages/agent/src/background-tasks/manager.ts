@@ -9,6 +9,15 @@ import type { BackgroundTaskRepository } from "@ai-app-template/db";
 
 import type { SessionManager } from "../session/contracts.js";
 
+function resolveDefaultDeadline(input: {
+  kind: EnqueueBackgroundTaskInput["kind"];
+  now?: number;
+}): string {
+  const base = input.now ?? Date.now();
+  const durationMs = input.kind === "session_wakeup" ? 2 * 60_000 : 10 * 60_000;
+  return new Date(base + durationMs).toISOString();
+}
+
 export interface BackgroundTaskManagerOptions {
   sessionManager: SessionManager;
   repository: BackgroundTaskRepository;
@@ -24,18 +33,23 @@ export class DefaultBackgroundTaskManager implements BackgroundTaskManager {
     const enabledCapabilityPacks = normalizeCapabilityPacks(
       input.enabledCapabilityPacks ?? input.sessionSeed?.enabledCapabilityPacks
     );
-    const createSessionInput = {
-      ...(input.sessionSeed ?? {}),
-      workingDirectory: input.workingDirectory,
-      model: input.model,
-      maxTurns,
-      enabledCapabilityPacks,
-      ...(typeof input.userId === "string" ? { userId: input.userId } : {})
-    };
+    const existingChildSessionId = input.childSessionId?.trim() || null;
+    const childSession = existingChildSessionId
+      ? await this.options.sessionManager.getSession(existingChildSessionId)
+      : await this.options.sessionManager.createSession({
+          ...(input.sessionSeed ?? {}),
+          workingDirectory: input.workingDirectory,
+          model: input.model,
+          maxTurns,
+          enabledCapabilityPacks,
+          ...(typeof input.userId === "string" ? { userId: input.userId } : {})
+        });
 
-    const childSession = await this.options.sessionManager.createSession(
-      createSessionInput
-    );
+    if (!childSession) {
+      throw new Error(
+        `Child session not found for background task: ${existingChildSessionId}`
+      );
+    }
 
     const payload: BackgroundTaskPayload = {
       executor: "agent_session",
@@ -56,10 +70,15 @@ export class DefaultBackgroundTaskManager implements BackgroundTaskManager {
         parentSessionId: input.parentSessionId ?? null,
         childSessionId: childSession.sessionId,
         payload,
-        taskCard: input.taskCard ?? null
+        taskCard: input.taskCard ?? null,
+        availableAt: input.availableAt ?? null,
+        deadlineAt: input.deadlineAt ?? resolveDefaultDeadline({ kind: input.kind }),
+        maxAttempts: Math.max(1, Math.floor(input.maxAttempts ?? 1))
       });
     } catch (error) {
-      await this.options.sessionManager.deleteSession(childSession.sessionId);
+      if (!existingChildSessionId) {
+        await this.options.sessionManager.deleteSession(childSession.sessionId);
+      }
       throw error;
     }
   }
@@ -70,6 +89,21 @@ export class DefaultBackgroundTaskManager implements BackgroundTaskManager {
 
   async getTask(taskId: string) {
     return this.options.repository.getTask(taskId);
+  }
+
+  async getWakeupTaskBySessionId(sessionId: string) {
+    return this.options.repository.getWakeupTaskBySessionId(sessionId);
+  }
+
+  async rescheduleQueuedTask(input: {
+    taskId: string;
+    payload?: BackgroundTaskPayload;
+    resultSummary?: string | null;
+    lastError?: string | null;
+    availableAt?: string | null;
+    deadlineAt?: string | null;
+  }) {
+    return this.options.repository.rescheduleQueuedTask(input);
   }
 
   async heartbeatTask(input: {
@@ -149,8 +183,21 @@ export class DefaultBackgroundTaskManager implements BackgroundTaskManager {
     taskCard?: import("@ai-app-template/domain").DelegateTaskCard | null;
     resultSummary?: string | null;
     lastError?: string | null;
+    availableAt?: string | null;
+    deadlineAt?: string | null;
+    maxAttempts?: number;
   }) {
-    return this.options.repository.requeueTask(input);
+    return this.options.repository.requeueTask({
+      ...input,
+      availableAt: input.availableAt ?? null,
+      deadlineAt:
+        input.deadlineAt ??
+        resolveDefaultDeadline({
+          kind:
+            (await this.options.repository.getTask(input.taskId))?.kind ??
+            "subagent"
+        })
+    });
   }
 
   async requeueStaleClaims(staleBefore: string) {

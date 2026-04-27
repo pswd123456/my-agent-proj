@@ -25,6 +25,30 @@ interface PendingUserMessage {
   createdAt: string;
 }
 
+function hasPersistedMatchForPendingUser(input: {
+  messages: SessionSnapshot["messages"];
+  pendingUserMessage: PendingUserMessage | null | undefined;
+}): boolean {
+  const { messages, pendingUserMessage } = input;
+  if (!pendingUserMessage) {
+    return false;
+  }
+
+  const pendingText = pendingUserMessage.text.trim();
+  if (pendingText.length === 0) {
+    return false;
+  }
+
+  return messages.some(
+    (
+      block
+    ): block is Extract<SessionSnapshot["messages"][number], { kind: "user" }> =>
+      block.kind === "user" &&
+      block.createdAt >= pendingUserMessage.createdAt &&
+      block.content.trim() === pendingText
+  );
+}
+
 function isVisibleTimelineEvent(event: RunStreamEvent): boolean {
   if (event.kind === "assistant_text" && event.text.trim().length === 0) {
     return false;
@@ -74,57 +98,76 @@ function getEventSortOrder(event: RunStreamEvent): number {
       return 6;
     case "tool_result":
       return 7;
-    case "assistant_text":
+    case "background_notification":
       return 8;
-    case "user_question_request":
+    case "background_notification_consumed":
       return 9;
-    case "interrupt_requested":
+    case "assistant_text":
       return 10;
-    case "interrupted":
+    case "user_question_request":
       return 11;
-    case "fallback":
+    case "interrupt_requested":
       return 12;
-    case "run_error":
+    case "interrupted":
       return 13;
-    case "run_complete":
+    case "fallback":
       return 14;
-    case "turn_end":
+    case "run_error":
       return 15;
+    case "run_complete":
+      return 16;
+    case "turn_end":
+      return 17;
     default:
-      return 13;
+      return 15;
   }
 }
 
-function getNarrativePhaseOrder(event: RunStreamEvent): number {
+function isToolFlowEvent(event: RunStreamEvent): boolean {
+  return (
+    event.kind === "tool_call" ||
+    event.kind === "permission_request" ||
+    event.kind === "permission_approved" ||
+    event.kind === "permission_rejected" ||
+    event.kind === "permission_blocked" ||
+    event.kind === "tool_result" ||
+    event.kind === "background_notification" ||
+    event.kind === "background_notification_consumed"
+  );
+}
+
+function getDefaultNarrativePhaseOrder(event: RunStreamEvent): number {
   switch (event.kind) {
     case "turn_start":
       return 0;
     case "thinking":
       return 1;
+    case "assistant_text":
+      return 4;
     case "tool_call":
     case "permission_request":
     case "permission_approved":
     case "permission_rejected":
     case "permission_blocked":
     case "tool_result":
-      return 2;
-    case "assistant_text":
+    case "background_notification":
+    case "background_notification_consumed":
       return 3;
     case "user_question_request":
-      return 4;
+      return 5;
     case "interrupt_requested":
     case "interrupted":
-      return 5;
-    case "fallback":
       return 6;
-    case "run_error":
+    case "fallback":
       return 7;
+    case "run_error":
+      return 8;
     case "run_complete":
-      return 8;
-    case "turn_end":
       return 9;
+    case "turn_end":
+      return 10;
     default:
-      return 8;
+      return 9;
   }
 }
 
@@ -187,10 +230,63 @@ function buildEventTurnSequenceByKey(
   return turnSequenceByKey;
 }
 
+function buildNarrativePhaseByKey(
+  events: RunStreamEvent[],
+  turnSequenceByKey: Map<string, number>
+): Map<string, number> {
+  const phaseByKey = new Map<string, number>();
+  const seenToolFlowByTurn = new Map<number, boolean>();
+  const hasLaterToolCallByKey = new Map<string, boolean>();
+  const seenFutureToolCallByTurn = new Map<number, boolean>();
+
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index]!;
+    const eventKey = getTimelineEventKey(event);
+    const turnSequence =
+      turnSequenceByKey.get(eventKey) ?? Number.MAX_SAFE_INTEGER;
+
+    if (event.kind === "assistant_text") {
+      hasLaterToolCallByKey.set(
+        eventKey,
+        seenFutureToolCallByTurn.get(turnSequence) ?? false
+      );
+    }
+
+    if (event.kind === "tool_call") {
+      seenFutureToolCallByTurn.set(turnSequence, true);
+    }
+  }
+
+  for (const event of events) {
+    const eventKey = getTimelineEventKey(event);
+    const turnSequence =
+      turnSequenceByKey.get(eventKey) ?? Number.MAX_SAFE_INTEGER;
+
+    if (event.kind === "assistant_text") {
+      const seenToolFlow = seenToolFlowByTurn.get(turnSequence) ?? false;
+      const hasLaterToolCall = hasLaterToolCallByKey.get(eventKey) ?? false;
+      phaseByKey.set(
+        eventKey,
+        !seenToolFlow && hasLaterToolCall ? 2 : 4
+      );
+      continue;
+    }
+
+    phaseByKey.set(eventKey, getDefaultNarrativePhaseOrder(event));
+
+    if (isToolFlowEvent(event)) {
+      seenToolFlowByTurn.set(turnSequence, true);
+    }
+  }
+
+  return phaseByKey;
+}
+
 function compareEventsForTimeline(
   left: RunStreamEvent,
   right: RunStreamEvent,
-  turnSequenceByKey: Map<string, number>
+  turnSequenceByKey: Map<string, number>,
+  narrativePhaseByKey: Map<string, number>
 ): number {
   const leftTurnSequence =
     turnSequenceByKey.get(getTimelineEventKey(left)) ?? Number.MAX_SAFE_INTEGER;
@@ -198,8 +294,12 @@ function compareEventsForTimeline(
     turnSequenceByKey.get(getTimelineEventKey(right)) ?? Number.MAX_SAFE_INTEGER;
 
   if (leftTurnSequence === rightTurnSequence) {
-    const leftNarrativePhase = getNarrativePhaseOrder(left);
-    const rightNarrativePhase = getNarrativePhaseOrder(right);
+    const leftNarrativePhase =
+      narrativePhaseByKey.get(getTimelineEventKey(left)) ??
+      getDefaultNarrativePhaseOrder(left);
+    const rightNarrativePhase =
+      narrativePhaseByKey.get(getTimelineEventKey(right)) ??
+      getDefaultNarrativePhaseOrder(right);
     if (leftNarrativePhase !== rightNarrativePhase) {
       return leftNarrativePhase - rightNarrativePhase;
     }
@@ -223,7 +323,10 @@ function buildMessageTimeline(
     block
   }));
 
-  if (pendingUserMessage) {
+  if (
+    pendingUserMessage &&
+    !hasPersistedMatchForPendingUser({ messages, pendingUserMessage })
+  ) {
     items.push({
       type: "pending-user",
       key: `pending-user-${pendingUserMessage.createdAt}`,
@@ -282,6 +385,13 @@ export function getTimelineEventKey(event: RunStreamEvent): string {
     event.kind === "permission_blocked"
   ) {
     return `${event.kind}-${event.toolCallId}-${event.createdAt}`;
+  }
+
+  if (
+    event.kind === "background_notification" ||
+    event.kind === "background_notification_consumed"
+  ) {
+    return `${event.kind}-${event.notification.id}`;
   }
 
   if (event.kind === "run_complete" || event.kind === "run_error") {
@@ -347,8 +457,17 @@ export function buildTimelineItems(input: {
     compareEventsChronologically
   );
   const turnSequenceByKey = buildEventTurnSequenceByKey(chronologicalEvents);
+  const narrativePhaseByKey = buildNarrativePhaseByKey(
+    chronologicalEvents,
+    turnSequenceByKey
+  );
   const visibleEvents = [...chronologicalEvents].sort((left, right) =>
-    compareEventsForTimeline(left, right, turnSequenceByKey)
+    compareEventsForTimeline(
+      left,
+      right,
+      turnSequenceByKey,
+      narrativePhaseByKey
+    )
   );
 
   if (visibleEvents.length === 0) {
@@ -384,7 +503,13 @@ export function buildTimelineItems(input: {
       block
     }));
 
-  if (input.pendingUserMessage) {
+  if (
+    input.pendingUserMessage &&
+    !hasPersistedMatchForPendingUser({
+      messages: input.messages,
+      pendingUserMessage: input.pendingUserMessage
+    })
+  ) {
     userItems.push({
       type: "pending-user",
       key: `pending-user-${input.pendingUserMessage.createdAt}`,

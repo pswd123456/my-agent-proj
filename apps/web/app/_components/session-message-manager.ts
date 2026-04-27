@@ -1,11 +1,19 @@
-import type { RunStreamEvent, SessionSnapshot, TraceRecord } from "@ai-app-template/sdk";
+import type {
+  RunStreamEvent,
+  SessionSnapshot,
+  TraceRecord
+} from "@ai-app-template/sdk";
 
 import {
   buildConversationViewItems,
   getCompactCollapsedFlowAnchors,
   type ConversationViewItem
 } from "./session-conversation-view";
-import { buildTimelineItems, getTimelineEventKey, type TimelineItem } from "./session-timeline";
+import {
+  buildTimelineItems,
+  getTimelineEventKey,
+  type TimelineItem
+} from "./session-timeline";
 import {
   collectToolRows,
   collectTurnUsage,
@@ -253,7 +261,10 @@ function toMessageLedgerEntries(
       };
     }
 
-    if (item.type === "event" && streamEventKeys.has(getTimelineEventKey(item.event))) {
+    if (
+      item.type === "event" &&
+      streamEventKeys.has(getTimelineEventKey(item.event))
+    ) {
       return {
         source: "stream-event",
         item
@@ -444,8 +455,12 @@ function getNewlyCollapsedFlowKeys(input: {
 }): string[] {
   return input.conversationItems
     .filter(
-      (item): item is Extract<ConversationViewItem, { type: "compact-collapsed-flow" }> =>
-        item.type === "compact-collapsed-flow"
+      (
+        item
+      ): item is Extract<
+        ConversationViewItem,
+        { type: "compact-collapsed-flow" }
+      > => item.type === "compact-collapsed-flow"
     )
     .map((item) => item.key)
     .filter((key) => !input.seenCollapsedFlowKeys.has(key));
@@ -498,11 +513,17 @@ export function buildMessageManagerProjection(input: {
   const visibleItems = conversationItems.filter(
     (item) => !hiddenAssistantItemKeys.has(item.key)
   );
-  const timestampedAssistantKeys = getTimestampedAssistantKeys(conversationItems);
-  const newlyCollapsedFlowKeys = getNewlyCollapsedFlowKeys({
-    conversationItems,
-    seenCollapsedFlowKeys: input.state.seenCollapsedFlowKeys
-  });
+  const timestampedAssistantKeys =
+    getTimestampedAssistantKeys(conversationItems);
+  const hasLiveOverlay =
+    input.state.streamEvents.length > 0 ||
+    input.state.pendingUserMessage !== null;
+  const newlyCollapsedFlowKeys = hasLiveOverlay
+    ? getNewlyCollapsedFlowKeys({
+        conversationItems,
+        seenCollapsedFlowKeys: input.state.seenCollapsedFlowKeys
+      })
+    : [];
 
   return {
     historyEvents,

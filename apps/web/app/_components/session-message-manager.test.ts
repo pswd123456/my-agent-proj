@@ -1,9 +1,14 @@
 import { describe, expect, test } from "bun:test";
 
-import type { RunStreamEvent, SessionSnapshot } from "@ai-app-template/sdk";
+import type {
+  RunStreamEvent,
+  SessionSnapshot,
+  TraceRecord
+} from "@ai-app-template/sdk";
 
 import {
   appendMessageManagerEvent,
+  beginMessageManagerRun,
   buildMessageManagerProjection,
   createMessageManagerState,
   registerMessageManagerCollapsedFlows
@@ -68,11 +73,16 @@ function thinkingBlock(
   content: string,
   signature: string,
   createdAt: string
-): Extract<SessionSnapshot["messages"][number], { kind: "assistant thinking" }> {
+): Extract<
+  SessionSnapshot["messages"][number],
+  { kind: "assistant thinking" }
+> {
   return { id, kind: "assistant thinking", content, signature, createdAt };
 }
 
-function compactKinds(projection: ReturnType<typeof buildMessageManagerProjection>) {
+function compactKinds(
+  projection: ReturnType<typeof buildMessageManagerProjection>
+) {
   return projection.conversation.visibleItems.map((item) => {
     if (item.type !== "timeline") {
       return item.type;
@@ -148,6 +158,43 @@ describe("session-message-manager", () => {
     });
 
     expect(compactKinds(projection)).toEqual(["user", "thinking"]);
+  });
+
+  test("hides pending user echo once the submitted user message is persisted", () => {
+    let state = createMessageManagerState();
+    state = beginMessageManagerRun(state, {
+      createdAt: "2026-04-27T00:00:01.000Z",
+      text: "今天要花两个小时开会"
+    });
+    state = appendMessageManagerEvent(state, {
+      kind: "turn_start",
+      sessionId: "session-1",
+      createdAt: "2026-04-27T00:00:02.000Z",
+      turnCount: 2,
+      session: {
+        sessionId: "session-1",
+        workingDirectory: "/tmp/workspace",
+        model: "MiniMax-M2.7",
+        sessionState: {
+          loopState: "running",
+          turnCount: 2,
+          lastError: null,
+          pendingToolCallIds: [],
+          interruptRequested: false
+        }
+      }
+    });
+
+    const projection = buildMessageManagerProjection({
+      session: createSession([
+        userBlock("user-2", "今天要花两个小时开会", "2026-04-27T00:00:01.500Z")
+      ]),
+      traceRecords: [],
+      debugConversationView: false,
+      state
+    });
+
+    expect(compactKinds(projection)).toEqual(["user"]);
   });
 
   test("merges tool call, permission, and tool result into one compact execution item", () => {
@@ -264,61 +311,7 @@ describe("session-message-manager", () => {
     ]);
   });
 
-  test("surfaces collapsed flow metadata and hides the assistant during auto-collapse", () => {
-    let state = createMessageManagerState();
-    state = appendMessageManagerEvent(state, {
-      kind: "thinking",
-      sessionId: "session-1",
-      createdAt: "2026-04-27T00:00:02.000Z",
-      turnCount: 1,
-      thinkingMessageId: "thinking-1",
-      text: "先检查文件。",
-      signature: "sig-1"
-    });
-    state = appendMessageManagerEvent(state, {
-      kind: "tool_call",
-      sessionId: "session-1",
-      createdAt: "2026-04-27T00:00:03.000Z",
-      turnCount: 1,
-      toolCallId: "tool-1",
-      toolName: "read_file",
-      input: { path: "apps/web/app/page.tsx" }
-    });
-    state = appendMessageManagerEvent(state, {
-      kind: "tool_result",
-      sessionId: "session-1",
-      createdAt: "2026-04-27T00:00:04.000Z",
-      turnCount: 1,
-      toolCallId: "tool-1",
-      toolName: "read_file",
-      output: "done",
-      isError: false
-    });
-    state = appendMessageManagerEvent(state, {
-      kind: "assistant_text",
-      sessionId: "session-1",
-      createdAt: "2026-04-27T00:00:05.000Z",
-      turnCount: 1,
-      assistantMessageId: "assistant-1",
-      text: "我已经看完并总结好了。",
-      snapshot: "我已经看完并总结好了。"
-    });
-    state = appendMessageManagerEvent(state, {
-      kind: "run_complete",
-      sessionId: "session-1",
-      createdAt: "2026-04-27T00:00:06.000Z",
-      status: "completed",
-      stopReason: "end_turn",
-      session: createSession([
-        userBlock("user-1", "总结一下", "2026-04-27T00:00:01.000Z"),
-        assistantBlock(
-          "assistant-1",
-          "我已经看完并总结好了。",
-          "2026-04-27T00:00:05.000Z"
-        )
-      ])
-    });
-
+  test("surfaces collapsed flow metadata without auto-expanding hydrated history", () => {
     const session = createSession([
       userBlock("user-1", "总结一下", "2026-04-27T00:00:01.000Z"),
       assistantBlock(
@@ -327,38 +320,107 @@ describe("session-message-manager", () => {
         "2026-04-27T00:00:05.000Z"
       )
     ]);
+    const traceRecords: TraceRecord[] = [
+      {
+        sessionId: "session-1",
+        createdAt: "2026-04-27T00:00:02.000Z",
+        event: {
+          kind: "thinking",
+          turnCount: 1,
+          thinkingMessageId: "thinking-1",
+          text: "先检查文件。",
+          signature: "sig-1"
+        }
+      },
+      {
+        sessionId: "session-1",
+        createdAt: "2026-04-27T00:00:03.000Z",
+        event: {
+          kind: "tool_call",
+          turnCount: 1,
+          toolCallId: "tool-1",
+          toolName: "read_file",
+          input: { path: "apps/web/app/page.tsx" }
+        }
+      },
+      {
+        sessionId: "session-1",
+        createdAt: "2026-04-27T00:00:04.000Z",
+        event: {
+          kind: "tool_result",
+          turnCount: 1,
+          toolCallId: "tool-1",
+          toolName: "read_file",
+          output: "done",
+          isError: false
+        }
+      },
+      {
+        sessionId: "session-1",
+        createdAt: "2026-04-27T00:00:05.000Z",
+        event: {
+          kind: "assistant_text",
+          turnCount: 1,
+          assistantMessageId: "assistant-1",
+          text: "我已经看完并总结好了。",
+          snapshot: "我已经看完并总结好了。"
+        }
+      },
+      {
+        sessionId: "session-1",
+        createdAt: "2026-04-27T00:00:06.000Z",
+        event: {
+          kind: "run_complete",
+          turnCount: 1,
+          status: "completed",
+          stopReason: "end_turn",
+          session
+        }
+      }
+    ];
+
     const firstProjection = buildMessageManagerProjection({
       session,
-      traceRecords: [],
+      traceRecords,
       debugConversationView: false,
-      state
+      state: createMessageManagerState()
     });
 
-    expect(firstProjection.conversation.newlyCollapsedFlowKeys).toHaveLength(1);
+    const collapsedFlowKey =
+      firstProjection.conversation.conversationItems.find(
+        (
+          item
+        ): item is Extract<typeof item, { type: "compact-collapsed-flow" }> =>
+          item.type === "compact-collapsed-flow"
+      )?.key;
+
+    expect(firstProjection.conversation.newlyCollapsedFlowKeys).toHaveLength(0);
     expect(compactKinds(firstProjection)).toEqual([
       "user",
       "compact-collapsed-flow",
-      "assistant_text",
-      "run_complete"
+      "assistant_text"
     ]);
 
-    state = registerMessageManagerCollapsedFlows(
-      state,
-      firstProjection.conversation.newlyCollapsedFlowKeys
+    if (!collapsedFlowKey) {
+      throw new Error("Expected collapsed flow item");
+    }
+
+    const collapsedState = registerMessageManagerCollapsedFlows(
+      createMessageManagerState(),
+      [collapsedFlowKey]
     );
 
     const secondProjection = buildMessageManagerProjection({
       session,
-      traceRecords: [],
+      traceRecords,
       debugConversationView: false,
-      state
+      state: collapsedState
     });
 
     expect(secondProjection.conversation.hiddenAssistantItemKeys.size).toBe(1);
     expect(compactKinds(secondProjection)).toEqual([
       "user",
-      "compact-collapsed-flow",
-      "run_complete"
+      "compact-collapsed-flow"
     ]);
   });
 });

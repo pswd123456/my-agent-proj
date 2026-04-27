@@ -5,10 +5,12 @@ import type {
   DelegateExpectedParentReply,
   DelegatePermissionDecision,
   DelegateResponseEnvelope,
-  DelegateTaskCard
+  DelegateTaskCard,
+  DomainJsonValue
 } from "@ai-app-template/domain";
 
 import type { BackgroundTaskManager } from "../background-tasks/contracts.js";
+import { incrementSessionBackgroundTaskCount } from "../background-tasks/notifications.js";
 import type { SessionManager } from "../session/contracts.js";
 
 export interface DelegateAgentView {
@@ -17,6 +19,12 @@ export interface DelegateAgentView {
   latestResponse: DelegateResponseEnvelope | null;
   expectedParentReply: DelegateExpectedParentReply;
   round: number;
+}
+
+export interface ScheduleDelegatePollInput {
+  parentSessionId: string;
+  delegateIds: string[];
+  initialCheckAfterMs: number;
 }
 
 export interface StartDelegateInput {
@@ -40,6 +48,7 @@ export interface DelegateAgentService {
     delegateId: string,
     decision: DelegatePermissionDecision
   ): Promise<DelegateAgentView>;
+  scheduleDelegatePollWakeup(input: ScheduleDelegatePollInput): Promise<void>;
 }
 
 export interface DelegateAgentServiceOptions {
@@ -66,7 +75,9 @@ function toDelegateView(task: BackgroundTaskRecord): DelegateAgentView {
   };
 }
 
-function requireSubagentTask(task: BackgroundTaskRecord | null): BackgroundTaskRecord {
+function requireSubagentTask(
+  task: BackgroundTaskRecord | null
+): BackgroundTaskRecord {
   if (!task) {
     throw new Error("Delegate not found.");
   }
@@ -183,6 +194,36 @@ function buildNextCard(
   };
 }
 
+function isActiveWakeupStatus(status: BackgroundTaskStatus): boolean {
+  return (
+    status === "queued" ||
+    status === "claimed" ||
+    status === "running" ||
+    status === "cancelling"
+  );
+}
+
+function buildDelegatePollMetadata(input: {
+  delegateIds: string[];
+  nextIntervalMs: number;
+}): Record<string, DomainJsonValue> {
+  return {
+    reason: "delegate_poll",
+    delegateTaskIds: input.delegateIds,
+    nextIntervalMs: input.nextIntervalMs
+  };
+}
+
+function shouldMoveWakeupEarlier(input: {
+  currentAvailableAt: string | null;
+  nextAvailableAt: string;
+}): boolean {
+  return (
+    typeof input.currentAvailableAt === "string" &&
+    input.nextAvailableAt < input.currentAvailableAt
+  );
+}
+
 export class DefaultDelegateAgentService implements DelegateAgentService {
   constructor(private readonly options: DelegateAgentServiceOptions) {}
 
@@ -203,6 +244,11 @@ export class DefaultDelegateAgentService implements DelegateAgentService {
       userId: parentSession.context.userId,
       message: buildDelegateStartMessage(taskCard),
       taskCard
+    });
+    await incrementSessionBackgroundTaskCount({
+      sessionManager: this.options.sessionManager,
+      sessionId: parentSession.sessionId,
+      delta: 1
     });
     return toDelegateView(task);
   }
@@ -245,6 +291,11 @@ export class DefaultDelegateAgentService implements DelegateAgentService {
       taskCard: buildNextCard(card, latestParentMessage),
       lastError: null
     });
+    await incrementSessionBackgroundTaskCount({
+      sessionManager: this.options.sessionManager,
+      sessionId: task.parentSessionId!,
+      delta: 1
+    });
     return toDelegateView(nextTask);
   }
 
@@ -281,7 +332,98 @@ export class DefaultDelegateAgentService implements DelegateAgentService {
       taskCard: buildNextCard(card, parentMessage),
       lastError: null
     });
+    await incrementSessionBackgroundTaskCount({
+      sessionManager: this.options.sessionManager,
+      sessionId: task.parentSessionId!,
+      delta: 1
+    });
     return toDelegateView(nextTask);
+  }
+
+  async scheduleDelegatePollWakeup(
+    input: ScheduleDelegatePollInput
+  ): Promise<void> {
+    const delegateIds = [...new Set(input.delegateIds.filter(Boolean))];
+    if (delegateIds.length === 0) {
+      return;
+    }
+
+    const parentSession = await this.options.sessionManager.getSession(
+      input.parentSessionId
+    );
+    if (!parentSession) {
+      return;
+    }
+
+    const intervalMs = Math.max(
+      1_000,
+      Math.min(120_000, Math.floor(input.initialCheckAfterMs))
+    );
+    const availableAt = new Date(Date.now() + intervalMs).toISOString();
+    const existingWakeup =
+      await this.options.taskManager.getWakeupTaskBySessionId(
+        parentSession.sessionId
+      );
+    const metadata = buildDelegatePollMetadata({
+      delegateIds,
+      nextIntervalMs: intervalMs
+    });
+
+    if (existingWakeup && isActiveWakeupStatus(existingWakeup.status)) {
+      if (
+        existingWakeup.status === "queued" &&
+        shouldMoveWakeupEarlier({
+          currentAvailableAt: existingWakeup.availableAt,
+          nextAvailableAt: availableAt
+        })
+      ) {
+        await this.options.taskManager.rescheduleQueuedTask({
+          taskId: existingWakeup.taskId,
+          payload: {
+            ...existingWakeup.payload,
+            message: "",
+            permissionReply: false,
+            metadata
+          },
+          availableAt,
+          resultSummary: null,
+          lastError: null
+        });
+      }
+      return;
+    }
+
+    if (existingWakeup) {
+      await this.options.taskManager.requeueTask({
+        taskId: existingWakeup.taskId,
+        payload: {
+          ...existingWakeup.payload,
+          message: "",
+          permissionReply: false,
+          metadata
+        },
+        availableAt,
+        resultSummary: null,
+        lastError: null,
+        maxAttempts: 1
+      });
+      return;
+    }
+
+    await this.options.taskManager.enqueueTask({
+      kind: "session_wakeup",
+      parentSessionId: parentSession.sessionId,
+      childSessionId: parentSession.sessionId,
+      message: "",
+      workingDirectory: parentSession.workingDirectory,
+      model: parentSession.model,
+      maxTurns: Math.min(parentSession.maxTurns, 8),
+      userId: parentSession.context.userId,
+      enabledCapabilityPacks: parentSession.context.enabledCapabilityPacks,
+      metadata,
+      availableAt,
+      maxAttempts: 1
+    });
   }
 }
 

@@ -1,7 +1,11 @@
 import type { CapabilityPackName } from "./session-settings.js";
 import type { DomainJsonValue } from "./json.js";
 
-export const BACKGROUND_TASK_KIND_OPTIONS = ["cron_job", "subagent"] as const;
+export const BACKGROUND_TASK_KIND_OPTIONS = [
+  "cron_job",
+  "subagent",
+  "session_wakeup"
+] as const;
 export type BackgroundTaskKind =
   (typeof BACKGROUND_TASK_KIND_OPTIONS)[number];
 
@@ -97,6 +101,10 @@ export interface BackgroundTaskRecord {
   taskCard: DelegateTaskCard | null;
   resultSummary: string | null;
   lastError: string | null;
+  availableAt: string | null;
+  deadlineAt: string | null;
+  attemptCount: number;
+  maxAttempts: number;
   cancelRequested: boolean;
   activeRunId: string | null;
   claimedBy: string | null;

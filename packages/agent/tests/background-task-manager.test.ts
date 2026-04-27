@@ -140,6 +140,30 @@ describe("background task runner", () => {
     const completedRecord = await repository.getTask(completedTask.taskId);
     expect(completedRecord?.status).toBe("completed");
     expect(completedRecord?.taskCard?.latestResponse?.kind).toBe("message");
+    const wakeupClaim = await manager.claimNextTask("worker-a");
+    expect(wakeupClaim?.task.kind).toBe("session_wakeup");
+    await runBackgroundTask({
+      claim: wakeupClaim!,
+      workerId: "worker-a",
+      heartbeatIntervalMs: 10_000,
+      sessionManager,
+      taskManager: manager,
+      async createRuntimeHandle(session) {
+        return {
+          runtime: {
+            async run() {
+              return {
+                session: structuredClone(session!),
+                finalAnswer: null,
+                status: "completed",
+                stopReason: "end_turn"
+              };
+            }
+          },
+          async dispose() {}
+        };
+      }
+    });
 
     const waitingTask = await manager.enqueueTask({
       kind: "subagent",
@@ -188,6 +212,30 @@ describe("background task runner", () => {
       "needs_main_agent"
     );
     expect(waitingRecord?.taskCard?.expectedParentReply).toBe("message");
+    const waitingWakeupClaim = await manager.claimNextTask("worker-a");
+    expect(waitingWakeupClaim?.task.kind).toBe("session_wakeup");
+    await runBackgroundTask({
+      claim: waitingWakeupClaim!,
+      workerId: "worker-a",
+      heartbeatIntervalMs: 10_000,
+      sessionManager,
+      taskManager: manager,
+      async createRuntimeHandle(session) {
+        return {
+          runtime: {
+            async run() {
+              return {
+                session: structuredClone(session!),
+                finalAnswer: null,
+                status: "completed",
+                stopReason: "end_turn"
+              };
+            }
+          },
+          async dispose() {}
+        };
+      }
+    });
 
     const cancelledTask = await manager.enqueueTask({
       kind: "subagent",
@@ -230,5 +278,285 @@ describe("background task runner", () => {
 
     const parentAfter = await sessionManager.getSession(parent.sessionId);
     expect(parentAfter?.messages).toHaveLength(0);
+  });
+
+  test("injects a parent-session notification and queues a reusable wakeup after subagent completion", async () => {
+    const sessionManager = createMemorySessionManager();
+    const repository = createMemoryBackgroundTaskRepository();
+    const manager = createBackgroundTaskManager({
+      sessionManager,
+      repository
+    });
+    const parent = await sessionManager.createSession({
+      workingDirectory: "/tmp/parent"
+    });
+    await sessionManager.updateContext(parent.sessionId, {
+      activeBackgroundTaskCount: 1
+    });
+
+    const task = await manager.enqueueTask({
+      kind: "subagent",
+      parentSessionId: parent.sessionId,
+      message: "complete",
+      workingDirectory: "/tmp/child-complete",
+      model: "MiniMax-M2.7",
+      maxTurns: 4,
+      enabledCapabilityPacks: ["workspace"],
+      taskCard: createDelegateTaskCard()
+    });
+    const claim = await manager.claimNextTask("worker-a");
+
+    await runBackgroundTask({
+      claim: claim!,
+      workerId: "worker-a",
+      heartbeatIntervalMs: 10_000,
+      sessionManager,
+      taskManager: manager,
+      async createRuntimeHandle(session) {
+        return {
+          runtime: {
+            async run() {
+              return {
+                session: structuredClone(session!),
+                finalAnswer: "done",
+                status: "completed",
+                stopReason: "end_turn"
+              };
+            }
+          },
+          async dispose() {}
+        };
+      }
+    });
+
+    const parentAfter = await sessionManager.getSession(parent.sessionId);
+    expect(parentAfter?.context.activeBackgroundTaskCount).toBe(0);
+    expect(parentAfter?.context.pendingBackgroundNotifications).toHaveLength(1);
+    expect(parentAfter?.context.pendingBackgroundNotifications[0]?.kind).toBe(
+      "delegate_completed"
+    );
+    expect(
+      parentAfter?.context.pendingBackgroundNotifications[0]?.childSessionId
+    ).toBe(task.childSessionId);
+    expect(parentAfter?.messages).toHaveLength(0);
+
+    const wakeupTask = await repository.getWakeupTaskBySessionId(
+      parent.sessionId
+    );
+    expect(wakeupTask?.kind).toBe("session_wakeup");
+    expect(wakeupTask?.status).toBe("queued");
+    expect(wakeupTask?.childSessionId).toBe(parent.sessionId);
+    expect(task.childSessionId).not.toBe(parent.sessionId);
+  });
+
+  test("backs off delegate poll wakeups without running the parent model", async () => {
+    const sessionManager = createMemorySessionManager();
+    const repository = createMemoryBackgroundTaskRepository();
+    const manager = createBackgroundTaskManager({
+      sessionManager,
+      repository
+    });
+    const parent = await sessionManager.createSession({
+      workingDirectory: "/tmp/parent"
+    });
+
+    const delegateTask = await manager.enqueueTask({
+      kind: "subagent",
+      parentSessionId: parent.sessionId,
+      message: "complete",
+      workingDirectory: "/tmp/child-complete",
+      model: "MiniMax-M2.7",
+      maxTurns: 4,
+      enabledCapabilityPacks: ["workspace"],
+      taskCard: createDelegateTaskCard()
+    });
+    const delegateClaim = await manager.claimNextTask("worker-a");
+    expect(delegateClaim?.task.taskId).toBe(delegateTask.taskId);
+
+    await manager.enqueueTask({
+      kind: "session_wakeup",
+      parentSessionId: parent.sessionId,
+      childSessionId: parent.sessionId,
+      message: "",
+      workingDirectory: parent.workingDirectory,
+      model: parent.model,
+      maxTurns: 4,
+      enabledCapabilityPacks: ["workspace"],
+      metadata: {
+        reason: "delegate_poll",
+        delegateTaskIds: [delegateTask.taskId],
+        nextIntervalMs: 70_000
+      },
+      maxAttempts: 1
+    });
+    const pollClaim = await manager.claimNextTask("worker-a");
+    expect(pollClaim?.task.kind).toBe("session_wakeup");
+
+    let runtimeCalled = false;
+    await runBackgroundTask({
+      claim: pollClaim!,
+      workerId: "worker-a",
+      heartbeatIntervalMs: 10_000,
+      sessionManager,
+      taskManager: manager,
+      async createRuntimeHandle() {
+        runtimeCalled = true;
+        throw new Error("delegate poll should not run the parent model");
+      }
+    });
+
+    expect(runtimeCalled).toBe(false);
+    const requeuedPoll = await repository.getWakeupTaskBySessionId(parent.sessionId);
+    expect(requeuedPoll?.status).toBe("queued");
+    expect(requeuedPoll?.availableAt).not.toBeNull();
+    expect(requeuedPoll?.payload.metadata).toMatchObject({
+      reason: "delegate_poll",
+      delegateTaskIds: [delegateTask.taskId],
+      nextIntervalMs: 120_000
+    });
+    expect(await manager.claimNextTask("worker-a")).toBeNull();
+  });
+
+  test("expedites a future delegate poll wakeup when the subagent completes", async () => {
+    const sessionManager = createMemorySessionManager();
+    const repository = createMemoryBackgroundTaskRepository();
+    const manager = createBackgroundTaskManager({
+      sessionManager,
+      repository
+    });
+    const parent = await sessionManager.createSession({
+      workingDirectory: "/tmp/parent"
+    });
+    await sessionManager.updateContext(parent.sessionId, {
+      activeBackgroundTaskCount: 1
+    });
+
+    const delegateTask = await manager.enqueueTask({
+      kind: "subagent",
+      parentSessionId: parent.sessionId,
+      message: "complete",
+      workingDirectory: "/tmp/child-complete",
+      model: "MiniMax-M2.7",
+      maxTurns: 4,
+      enabledCapabilityPacks: ["workspace"],
+      taskCard: createDelegateTaskCard()
+    });
+    const delegateClaim = await manager.claimNextTask("worker-a");
+    const futureAvailableAt = new Date(Date.now() + 60_000).toISOString();
+    await manager.enqueueTask({
+      kind: "session_wakeup",
+      parentSessionId: parent.sessionId,
+      childSessionId: parent.sessionId,
+      message: "",
+      workingDirectory: parent.workingDirectory,
+      model: parent.model,
+      maxTurns: 4,
+      enabledCapabilityPacks: ["workspace"],
+      metadata: {
+        reason: "delegate_poll",
+        delegateTaskIds: [delegateTask.taskId],
+        nextIntervalMs: 60_000
+      },
+      availableAt: futureAvailableAt,
+      maxAttempts: 1
+    });
+
+    await runBackgroundTask({
+      claim: delegateClaim!,
+      workerId: "worker-a",
+      heartbeatIntervalMs: 10_000,
+      sessionManager,
+      taskManager: manager,
+      async createRuntimeHandle(session) {
+        return {
+          runtime: {
+            async run() {
+              return {
+                session: structuredClone(session!),
+                finalAnswer: "done",
+                status: "completed",
+                stopReason: "end_turn"
+              };
+            }
+          },
+          async dispose() {}
+        };
+      }
+    });
+
+    const wakeupTask = await repository.getWakeupTaskBySessionId(parent.sessionId);
+    expect(wakeupTask?.status).toBe("queued");
+    expect(wakeupTask?.availableAt).toBeNull();
+    expect(wakeupTask?.payload.metadata).toMatchObject({
+      reason: "background_notification"
+    });
+  });
+
+  test("keeps notifications queued without wakeup when the parent is waiting for user input", async () => {
+    const sessionManager = createMemorySessionManager();
+    const repository = createMemoryBackgroundTaskRepository();
+    const manager = createBackgroundTaskManager({
+      sessionManager,
+      repository
+    });
+    const parent = await sessionManager.createSession({
+      workingDirectory: "/tmp/parent"
+    });
+    await sessionManager.updateContext(parent.sessionId, {
+      activeBackgroundTaskCount: 1,
+      status: "waiting_for_user_question"
+    });
+
+    await manager.enqueueTask({
+      kind: "subagent",
+      parentSessionId: parent.sessionId,
+      message: "wait",
+      workingDirectory: "/tmp/child-wait",
+      model: "MiniMax-M2.7",
+      maxTurns: 4,
+      enabledCapabilityPacks: ["workspace"],
+      taskCard: createDelegateTaskCard()
+    });
+    const claim = await manager.claimNextTask("worker-a");
+
+    await runBackgroundTask({
+      claim: claim!,
+      workerId: "worker-a",
+      heartbeatIntervalMs: 10_000,
+      sessionManager,
+      taskManager: manager,
+      async createRuntimeHandle(session) {
+        const waitingSession = structuredClone(session!);
+        waitingSession.context.status = "waiting_for_user_question";
+        waitingSession.context.pendingUserQuestionPayload = {
+          questionText: "Which file should I inspect first?",
+          options: [],
+          createdAt: new Date().toISOString()
+        };
+        waitingSession.sessionState.loopState = "waiting for input";
+        return {
+          runtime: {
+            async run() {
+              return {
+                session: waitingSession,
+                finalAnswer: null,
+                status: "waiting for input",
+                stopReason: "tool_use"
+              };
+            }
+          },
+          async dispose() {}
+        };
+      }
+    });
+
+    const parentAfter = await sessionManager.getSession(parent.sessionId);
+    expect(parentAfter?.context.pendingBackgroundNotifications).toHaveLength(1);
+    expect(parentAfter?.context.pendingBackgroundNotifications[0]?.kind).toBe(
+      "delegate_needs_main_agent"
+    );
+    expect(
+      await repository.getWakeupTaskBySessionId(parent.sessionId)
+    ).toBeNull();
   });
 });

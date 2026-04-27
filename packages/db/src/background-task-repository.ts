@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { and, asc, eq, inArray, lte } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lte, or, sql } from "drizzle-orm";
 
 import type {
   BackgroundTaskClaim,
@@ -23,6 +23,9 @@ export interface EnqueueBackgroundTaskInput {
   childSessionId: string;
   payload: BackgroundTaskPayload;
   taskCard?: DelegateTaskCard | null;
+  availableAt?: string | null;
+  deadlineAt?: string | null;
+  maxAttempts?: number;
 }
 
 export interface TaskClaimInput {
@@ -63,10 +66,24 @@ export interface RequeueExistingTaskInput {
   taskCard?: DelegateTaskCard | null;
   resultSummary?: string | null;
   lastError?: string | null;
+  availableAt?: string | null;
+  deadlineAt?: string | null;
+  maxAttempts?: number;
+}
+
+export interface RescheduleQueuedTaskInput {
+  taskId: string;
+  payload?: BackgroundTaskPayload;
+  resultSummary?: string | null;
+  lastError?: string | null;
+  availableAt?: string | null;
+  deadlineAt?: string | null;
 }
 
 export interface BackgroundTaskRepository {
   getTask(taskId: string): Promise<BackgroundTaskRecord | null>;
+  listTasks(): Promise<BackgroundTaskRecord[]>;
+  getWakeupTaskBySessionId(sessionId: string): Promise<BackgroundTaskRecord | null>;
   getRun(runId: string): Promise<BackgroundTaskRunRecord | null>;
   enqueueTask(input: EnqueueBackgroundTaskInput): Promise<BackgroundTaskRecord>;
   claimNextTask(workerId: string): Promise<BackgroundTaskClaim | null>;
@@ -82,8 +99,9 @@ export interface BackgroundTaskRepository {
   failTask(input: FailTaskInput): Promise<BackgroundTaskClaim>;
   requestCancel(taskId: string): Promise<BackgroundTaskRecord | null>;
   cancelTask(input: CancelTaskInput): Promise<BackgroundTaskClaim>;
+  rescheduleQueuedTask(input: RescheduleQueuedTaskInput): Promise<BackgroundTaskRecord>;
   requeueTask(input: RequeueExistingTaskInput): Promise<BackgroundTaskRecord>;
-  requeueStaleClaims(staleBefore: string): Promise<number>;
+  requeueStaleClaims(staleBefore: string): Promise<BackgroundTaskRecord[]>;
 }
 
 function toIsoString(value: string): string {
@@ -127,6 +145,10 @@ function mapTaskRow(row: BackgroundTaskRow): BackgroundTaskRecord {
     taskCard: parseJsonValue(row.taskCard) as DelegateTaskCard | null,
     resultSummary: row.resultSummary,
     lastError: row.lastError,
+    availableAt: row.availableAt ? toIsoString(row.availableAt) : null,
+    deadlineAt: row.deadlineAt ? toIsoString(row.deadlineAt) : null,
+    attemptCount: row.attemptCount,
+    maxAttempts: row.maxAttempts,
     cancelRequested: row.cancelRequested,
     activeRunId: row.activeRunId,
     claimedBy: row.claimedBy,
@@ -236,12 +258,47 @@ function resolveTaskResultSummary(input: {
   return input.taskCard?.latestResponse?.summary ?? input.fallback ?? null;
 }
 
+function isTaskAvailable(task: BackgroundTaskRecord, now: string): boolean {
+  return !task.availableAt || task.availableAt <= now;
+}
+
+function compareAvailableTasks(
+  left: BackgroundTaskRecord,
+  right: BackgroundTaskRecord
+): number {
+  const leftAvailableAt = left.availableAt ?? left.createdAt;
+  const rightAvailableAt = right.availableAt ?? right.createdAt;
+  const availableCompare = leftAvailableAt.localeCompare(rightAvailableAt);
+  return availableCompare === 0
+    ? left.createdAt.localeCompare(right.createdAt)
+    : availableCompare;
+}
+
 export class MemoryBackgroundTaskRepository implements BackgroundTaskRepository {
   private readonly tasks = new Map<string, BackgroundTaskRecord>();
   private readonly runs = new Map<string, BackgroundTaskRunRecord>();
 
   async getTask(taskId: string): Promise<BackgroundTaskRecord | null> {
     const task = this.tasks.get(taskId);
+    return task ? cloneTask(task) : null;
+  }
+
+  async listTasks(): Promise<BackgroundTaskRecord[]> {
+    return [...this.tasks.values()]
+      .map((task) => cloneTask(task))
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  }
+
+  async getWakeupTaskBySessionId(
+    sessionId: string
+  ): Promise<BackgroundTaskRecord | null> {
+    const task = [...this.tasks.values()]
+      .filter(
+        (candidate) =>
+          candidate.kind === "session_wakeup" &&
+          candidate.childSessionId === sessionId
+      )
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
     return task ? cloneTask(task) : null;
   }
 
@@ -268,6 +325,10 @@ export class MemoryBackgroundTaskRepository implements BackgroundTaskRepository 
         fallback: null
       }),
       lastError: null,
+      availableAt: input.availableAt ?? null,
+      deadlineAt: input.deadlineAt ?? null,
+      attemptCount: 0,
+      maxAttempts: Math.max(1, Math.floor(input.maxAttempts ?? 1)),
       cancelRequested: false,
       activeRunId: null,
       claimedBy: null,
@@ -282,23 +343,25 @@ export class MemoryBackgroundTaskRepository implements BackgroundTaskRepository 
   }
 
   async claimNextTask(workerId: string): Promise<BackgroundTaskClaim | null> {
+    const now = new Date().toISOString();
     const nextTask = [...this.tasks.values()]
-      .filter((task) => task.status === "queued")
-      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))[0];
+      .filter((task) => task.status === "queued" && isTaskAvailable(task, now))
+      .sort(compareAvailableTasks)[0];
 
     if (!nextTask) {
       return null;
     }
 
-    const now = new Date().toISOString();
     const runId = randomUUID();
     const claimedTask: BackgroundTaskRecord = {
       ...nextTask,
       status: "claimed",
       activeRunId: runId,
+      attemptCount: nextTask.attemptCount + 1,
       claimedBy: workerId,
       claimedAt: now,
       lastHeartbeatAt: now,
+      availableAt: null,
       updatedAt: now
     };
     const run: BackgroundTaskRunRecord = {
@@ -596,6 +659,41 @@ export class MemoryBackgroundTaskRepository implements BackgroundTaskRepository 
     return buildClaim(nextTask, nextRun);
   }
 
+  async rescheduleQueuedTask(
+    input: RescheduleQueuedTaskInput
+  ): Promise<BackgroundTaskRecord> {
+    const task = this.tasks.get(input.taskId);
+    if (!task) {
+      throw new Error(`Unknown task: ${input.taskId}`);
+    }
+    requireActiveTaskStatus(task, ["queued"], "reschedule queued");
+
+    const now = new Date().toISOString();
+    const nextTask: BackgroundTaskRecord = {
+      ...task,
+      payload: structuredClone(input.payload ?? task.payload) as BackgroundTaskPayload,
+      resultSummary:
+        typeof input.resultSummary === "string" || input.resultSummary === null
+          ? input.resultSummary
+          : task.resultSummary,
+      lastError:
+        typeof input.lastError === "string" || input.lastError === null
+          ? input.lastError
+          : task.lastError,
+      availableAt:
+        typeof input.availableAt === "string" || input.availableAt === null
+          ? input.availableAt
+          : task.availableAt,
+      deadlineAt:
+        typeof input.deadlineAt === "string" || input.deadlineAt === null
+          ? input.deadlineAt
+          : task.deadlineAt,
+      updatedAt: now
+    };
+    this.tasks.set(task.taskId, nextTask);
+    return cloneTask(nextTask);
+  }
+
   async requeueTask(
     input: RequeueExistingTaskInput
   ): Promise<BackgroundTaskRecord> {
@@ -626,6 +724,16 @@ export class MemoryBackgroundTaskRepository implements BackgroundTaskRepository 
         typeof input.lastError === "string" || input.lastError === null
           ? input.lastError
           : task.lastError,
+      availableAt:
+        typeof input.availableAt === "string" || input.availableAt === null
+          ? input.availableAt
+          : null,
+      deadlineAt:
+        typeof input.deadlineAt === "string" || input.deadlineAt === null
+          ? input.deadlineAt
+          : task.deadlineAt,
+      attemptCount: 0,
+      maxAttempts: Math.max(1, Math.floor(input.maxAttempts ?? task.maxAttempts)),
       cancelRequested: false,
       activeRunId: null,
       claimedBy: null,
@@ -638,8 +746,10 @@ export class MemoryBackgroundTaskRepository implements BackgroundTaskRepository 
     return cloneTask(nextTask);
   }
 
-  async requeueStaleClaims(staleBefore: string): Promise<number> {
-    let changedCount = 0;
+  async requeueStaleClaims(
+    staleBefore: string
+  ): Promise<BackgroundTaskRecord[]> {
+    const changedTasks: BackgroundTaskRecord[] = [];
     const now = new Date().toISOString();
     for (const task of this.tasks.values()) {
       if (
@@ -654,14 +764,19 @@ export class MemoryBackgroundTaskRepository implements BackgroundTaskRepository 
         continue;
       }
 
+      const shouldRetry = task.attemptCount < task.maxAttempts;
       const nextTask: BackgroundTaskRecord = {
         ...task,
-        status: "queued",
+        status: shouldRetry ? "queued" : "failed",
         cancelRequested: false,
         activeRunId: null,
         claimedBy: null,
         claimedAt: null,
         lastHeartbeatAt: null,
+        lastError: shouldRetry
+          ? task.lastError
+          : "Worker claim expired before completion.",
+        completedAt: shouldRetry ? null : now,
         updatedAt: now
       };
       this.tasks.set(task.taskId, nextTask);
@@ -676,9 +791,9 @@ export class MemoryBackgroundTaskRepository implements BackgroundTaskRepository 
           );
         }
       }
-      changedCount += 1;
+      changedTasks.push(cloneTask(nextTask));
     }
-    return changedCount;
+    return changedTasks;
   }
 }
 
@@ -692,6 +807,31 @@ export class PostgresBackgroundTaskRepository
       .select()
       .from(backgroundTasks)
       .where(eq(backgroundTasks.id, taskId))
+      .limit(1);
+    return rows[0] ? mapTaskRow(rows[0]) : null;
+  }
+
+  async listTasks(): Promise<BackgroundTaskRecord[]> {
+    const rows = await this.db
+      .select()
+      .from(backgroundTasks)
+      .orderBy(desc(backgroundTasks.updatedAt));
+    return rows.map(mapTaskRow);
+  }
+
+  async getWakeupTaskBySessionId(
+    sessionId: string
+  ): Promise<BackgroundTaskRecord | null> {
+    const rows = await this.db
+      .select()
+      .from(backgroundTasks)
+      .where(
+        and(
+          eq(backgroundTasks.kind, "session_wakeup"),
+          eq(backgroundTasks.childSessionId, sessionId)
+        )
+      )
+      .orderBy(desc(backgroundTasks.updatedAt))
       .limit(1);
     return rows[0] ? mapTaskRow(rows[0]) : null;
   }
@@ -725,6 +865,10 @@ export class PostgresBackgroundTaskRepository
           fallback: null
         }),
         lastError: null,
+        availableAt: input.availableAt ?? null,
+        deadlineAt: input.deadlineAt ?? null,
+        attemptCount: 0,
+        maxAttempts: Math.max(1, Math.floor(input.maxAttempts ?? 1)),
         cancelRequested: false,
         activeRunId: null,
         claimedBy: null,
@@ -740,27 +884,37 @@ export class PostgresBackgroundTaskRepository
 
   async claimNextTask(workerId: string): Promise<BackgroundTaskClaim | null> {
     for (let attempt = 0; attempt < 5; attempt += 1) {
+      const now = new Date().toISOString();
       const candidateRows = await this.db
         .select()
         .from(backgroundTasks)
-        .where(eq(backgroundTasks.status, "queued"))
-        .orderBy(asc(backgroundTasks.createdAt))
+        .where(
+          and(
+            eq(backgroundTasks.status, "queued"),
+            or(isNull(backgroundTasks.availableAt), lte(backgroundTasks.availableAt, now))
+          )
+        )
+        .orderBy(
+          asc(sql`coalesce(${backgroundTasks.availableAt}, ${backgroundTasks.createdAt})`),
+          asc(backgroundTasks.createdAt)
+        )
         .limit(1);
       const candidate = candidateRows[0];
       if (!candidate) {
         return null;
       }
 
-      const now = new Date().toISOString();
       const runId = randomUUID();
       const claimedRows = await this.db
         .update(backgroundTasks)
         .set({
           status: "claimed",
           activeRunId: runId,
+          attemptCount: (candidate.attemptCount ?? 0) + 1,
           claimedBy: workerId,
           claimedAt: now,
           lastHeartbeatAt: now,
+          availableAt: null,
           updatedAt: now
         })
         .where(
@@ -1043,6 +1197,46 @@ export class PostgresBackgroundTaskRepository
     );
   }
 
+  async rescheduleQueuedTask(
+    input: RescheduleQueuedTaskInput
+  ): Promise<BackgroundTaskRecord> {
+    const task = await this.getTask(input.taskId);
+    if (!task) {
+      throw new Error(`Unknown task: ${input.taskId}`);
+    }
+    requireActiveTaskStatus(task, ["queued"], "reschedule queued");
+
+    const now = new Date().toISOString();
+    const rows = await this.db
+      .update(backgroundTasks)
+      .set({
+        payload: input.payload ?? task.payload,
+        resultSummary:
+          typeof input.resultSummary === "string" || input.resultSummary === null
+            ? input.resultSummary
+            : task.resultSummary,
+        lastError:
+          typeof input.lastError === "string" || input.lastError === null
+            ? input.lastError
+            : task.lastError,
+        availableAt:
+          typeof input.availableAt === "string" || input.availableAt === null
+            ? input.availableAt
+            : task.availableAt,
+        deadlineAt:
+          typeof input.deadlineAt === "string" || input.deadlineAt === null
+            ? input.deadlineAt
+            : task.deadlineAt,
+        updatedAt: now
+      })
+      .where(and(eq(backgroundTasks.id, task.taskId), eq(backgroundTasks.status, "queued")))
+      .returning();
+    if (!rows[0]) {
+      throw new Error(`Task ${task.taskId} is no longer queued.`);
+    }
+    return mapTaskRow(rows[0]);
+  }
+
   async requeueTask(
     input: RequeueExistingTaskInput
   ): Promise<BackgroundTaskRecord> {
@@ -1074,6 +1268,19 @@ export class PostgresBackgroundTaskRepository
           typeof input.lastError === "string" || input.lastError === null
             ? input.lastError
             : task.lastError,
+        availableAt:
+          typeof input.availableAt === "string" || input.availableAt === null
+            ? input.availableAt
+            : null,
+        deadlineAt:
+          typeof input.deadlineAt === "string" || input.deadlineAt === null
+            ? input.deadlineAt
+            : task.deadlineAt,
+        attemptCount: 0,
+        maxAttempts: Math.max(
+          1,
+          Math.floor(input.maxAttempts ?? task.maxAttempts)
+        ),
         cancelRequested: false,
         activeRunId: null,
         claimedBy: null,
@@ -1087,7 +1294,9 @@ export class PostgresBackgroundTaskRepository
     return mapTaskRow(rows[0]!);
   }
 
-  async requeueStaleClaims(staleBefore: string): Promise<number> {
+  async requeueStaleClaims(
+    staleBefore: string
+  ): Promise<BackgroundTaskRecord[]> {
     const staleRows = await this.db
       .select()
       .from(backgroundTasks)
@@ -1098,22 +1307,28 @@ export class PostgresBackgroundTaskRepository
         )
       );
     const now = new Date().toISOString();
-    let changedCount = 0;
+    const changedTasks: BackgroundTaskRecord[] = [];
 
     for (const row of staleRows) {
       const task = mapTaskRow(row);
-      await this.db
+      const shouldRetry = task.attemptCount < task.maxAttempts;
+      const updatedRows = await this.db
         .update(backgroundTasks)
         .set({
-          status: "queued",
+          status: shouldRetry ? "queued" : "failed",
           cancelRequested: false,
           activeRunId: null,
           claimedBy: null,
           claimedAt: null,
           lastHeartbeatAt: null,
+          lastError: shouldRetry
+            ? task.lastError
+            : "Worker claim expired before completion.",
+          completedAt: shouldRetry ? null : now,
           updatedAt: now
         })
-        .where(eq(backgroundTasks.id, task.taskId));
+        .where(eq(backgroundTasks.id, task.taskId))
+        .returning();
       if (task.activeRunId) {
         await this.db
           .update(backgroundTaskRuns)
@@ -1126,10 +1341,12 @@ export class PostgresBackgroundTaskRepository
           })
           .where(eq(backgroundTaskRuns.runId, task.activeRunId));
       }
-      changedCount += 1;
+      if (updatedRows[0]) {
+        changedTasks.push(mapTaskRow(updatedRows[0]));
+      }
     }
 
-    return changedCount;
+    return changedTasks;
   }
 
   private async loadClaim(
@@ -1161,15 +1378,19 @@ export class PostgresBackgroundTaskRepository
   ): Promise<BackgroundTaskClaim> {
     await this.db.transaction(async (tx) => {
       await tx
-        .update(backgroundTasks)
-        .set({
-          status: task.status,
-          payload: task.payload,
-          taskCard: task.taskCard,
-          resultSummary: task.resultSummary,
-          lastError: task.lastError,
-          cancelRequested: task.cancelRequested,
-          activeRunId: task.activeRunId,
+      .update(backgroundTasks)
+      .set({
+        status: task.status,
+        payload: task.payload,
+        taskCard: task.taskCard,
+        resultSummary: task.resultSummary,
+        lastError: task.lastError,
+        availableAt: task.availableAt,
+        deadlineAt: task.deadlineAt,
+        attemptCount: task.attemptCount,
+        maxAttempts: task.maxAttempts,
+        cancelRequested: task.cancelRequested,
+        activeRunId: task.activeRunId,
           claimedBy: task.claimedBy,
           claimedAt: task.claimedAt,
           lastHeartbeatAt: task.lastHeartbeatAt,

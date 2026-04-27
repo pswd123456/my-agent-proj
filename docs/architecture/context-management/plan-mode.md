@@ -154,7 +154,6 @@
 
 - `create_directory`
 - `write_file`
-- `edit_file`
 - `copy_path`
 - `move_path`
 - `delete_path`

@@ -8,6 +8,7 @@ import {
   type PendingConfirmationPayload,
   type PendingPermissionRequest,
   type PendingUserQuestionPayload,
+  type SessionBackgroundNotification,
   type SessionFullCompactionState,
   type SessionTodoState,
   type ScheduleSessionContext
@@ -236,6 +237,9 @@ export function toSessionContext(row: SessionRow): ScheduleSessionContext {
   const pendingUserQuestionPayload = parseJsonValue(
     row.pendingUserQuestionPayload
   );
+  const pendingBackgroundNotifications = parseJsonValue(
+    row.pendingBackgroundNotifications
+  );
   const todoState = normalizeTodoState(
     parseJsonValue(row.todoState) as SessionTodoState | null | undefined
   );
@@ -262,6 +266,7 @@ export function toSessionContext(row: SessionRow): ScheduleSessionContext {
     enabledCapabilityPacks: normalizeCapabilityPacks(
       toStringArray(row.enabledCapabilityPacks)
     ),
+    activeBackgroundTaskCount: Math.max(0, row.activeBackgroundTaskCount ?? 0),
     pendingPermissionRequest: isRecord(pendingPermissionRequest)
       ? (pendingPermissionRequest as unknown as PendingPermissionRequest)
       : null,
@@ -271,6 +276,11 @@ export function toSessionContext(row: SessionRow): ScheduleSessionContext {
     pendingUserQuestionPayload: isRecord(pendingUserQuestionPayload)
       ? (pendingUserQuestionPayload as unknown as PendingUserQuestionPayload)
       : null,
+    pendingBackgroundNotifications: Array.isArray(
+      pendingBackgroundNotifications
+    )
+      ? (pendingBackgroundNotifications as SessionBackgroundNotification[])
+      : [],
     todoState,
     fullCompactionState: isRecord(fullCompactionState)
       ? (fullCompactionState as unknown as SessionFullCompactionState)
@@ -803,9 +813,12 @@ export class PostgresSessionManager implements SessionManager {
         toolAskList: snapshot.context.toolAskList,
         toolDenyList: snapshot.context.toolDenyList,
         enabledCapabilityPacks: snapshot.context.enabledCapabilityPacks,
+        activeBackgroundTaskCount: snapshot.context.activeBackgroundTaskCount,
         pendingPermissionRequest: snapshot.context.pendingPermissionRequest,
         pendingConfirmationPayload: snapshot.context.pendingConfirmationPayload,
         pendingUserQuestionPayload: snapshot.context.pendingUserQuestionPayload,
+        pendingBackgroundNotifications:
+          snapshot.context.pendingBackgroundNotifications,
         todoState: snapshot.context.todoState ?? null,
         fullCompactionState: snapshot.context.fullCompactionState ?? null,
         pendingConflictSummary: snapshot.context.pendingConflictSummary,
@@ -842,11 +855,14 @@ export class PostgresSessionManager implements SessionManager {
           toolAskList: snapshot.context.toolAskList,
           toolDenyList: snapshot.context.toolDenyList,
           enabledCapabilityPacks: snapshot.context.enabledCapabilityPacks,
+          activeBackgroundTaskCount: snapshot.context.activeBackgroundTaskCount,
           pendingPermissionRequest: snapshot.context.pendingPermissionRequest,
           pendingConfirmationPayload:
             snapshot.context.pendingConfirmationPayload,
           pendingUserQuestionPayload:
             snapshot.context.pendingUserQuestionPayload,
+          pendingBackgroundNotifications:
+            snapshot.context.pendingBackgroundNotifications,
           todoState: snapshot.context.todoState ?? null,
           fullCompactionState: snapshot.context.fullCompactionState ?? null,
           pendingConflictSummary: snapshot.context.pendingConflictSummary,

@@ -5,6 +5,7 @@ import {
   DEFAULT_SESSION_MAX_TURNS,
   createPermissionRuleLists,
   normalizeCapabilityPacks,
+  type SessionBackgroundNotification,
   type ScheduleSessionContext
 } from "@ai-app-template/domain";
 
@@ -143,8 +144,17 @@ export function cloneSnapshot(snapshot: SessionSnapshot): SessionSnapshot {
       enabledCapabilityPacks: normalizeCapabilityPacks(
         cloned.context.enabledCapabilityPacks
       ),
+      activeBackgroundTaskCount: Math.max(
+        0,
+        Math.floor(cloned.context.activeBackgroundTaskCount ?? 0)
+      ),
       pendingUserQuestionPayload:
         cloned.context.pendingUserQuestionPayload ?? null,
+      pendingBackgroundNotifications: Array.isArray(
+        cloned.context.pendingBackgroundNotifications
+      )
+        ? structuredClone(cloned.context.pendingBackgroundNotifications)
+        : [],
       todoState: normalizeTodoState(cloned.context.todoState),
       fullCompactionState: cloned.context.fullCompactionState ?? null
     },
@@ -178,6 +188,8 @@ export function createScheduleSessionContext(
     toolAskList?: string[];
     toolDenyList?: string[];
     enabledCapabilityPacks?: string[];
+    activeBackgroundTaskCount?: number;
+    pendingBackgroundNotifications?: SessionBackgroundNotification[];
   } = {}
 ): ScheduleSessionContext {
   const permissionRules = createPermissionRuleLists();
@@ -199,9 +211,16 @@ export function createScheduleSessionContext(
     enabledCapabilityPacks: normalizeCapabilityPacks(
       input.enabledCapabilityPacks
     ),
+    activeBackgroundTaskCount: Math.max(
+      0,
+      Math.floor(input.activeBackgroundTaskCount ?? 0)
+    ),
     pendingPermissionRequest: null,
     pendingConfirmationPayload: null,
     pendingUserQuestionPayload: null,
+    pendingBackgroundNotifications: structuredClone(
+      input.pendingBackgroundNotifications ?? []
+    ),
     todoState: null,
     fullCompactionState: null,
     pendingConflictSummary: null,
@@ -326,6 +345,10 @@ export function isSessionSnapshot(value: unknown): value is SessionSnapshot {
       Array.isArray(value.context.toolDenyList)) &&
     (typeof value.context.enabledCapabilityPacks === "undefined" ||
       Array.isArray(value.context.enabledCapabilityPacks)) &&
+    (typeof value.context.activeBackgroundTaskCount === "undefined" ||
+      typeof value.context.activeBackgroundTaskCount === "number") &&
+    (typeof value.context.pendingBackgroundNotifications === "undefined" ||
+      Array.isArray(value.context.pendingBackgroundNotifications)) &&
     (typeof value.context.todoState === "undefined" ||
       value.context.todoState === null ||
       (isPlainRecord(value.context.todoState) &&

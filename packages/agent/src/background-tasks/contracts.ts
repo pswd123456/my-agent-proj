@@ -12,16 +12,20 @@ import type { CreateSessionInput, JsonValue, SessionSnapshot } from "../types.js
 export interface EnqueueBackgroundTaskInput {
   kind: BackgroundTaskKind;
   parentSessionId?: string | null;
+  childSessionId?: string;
   message: string;
   workingDirectory: string;
   model: string;
   maxTurns?: number;
+  deadlineAt?: string | null;
+  maxAttempts?: number;
   permissionReply?: boolean;
   userId?: string;
   enabledCapabilityPacks?: CapabilityPackName[];
   metadata?: Record<string, JsonValue>;
   taskCard?: DelegateTaskCard | null;
   sessionSeed?: Partial<CreateSessionInput>;
+  availableAt?: string | null;
 }
 
 export interface BackgroundTaskManager {
@@ -75,14 +79,28 @@ export interface BackgroundTaskManager {
     taskCard?: DelegateTaskCard | null;
   }): Promise<BackgroundTaskClaim>;
   getTask(taskId: string): Promise<BackgroundTaskRecord | null>;
+  getWakeupTaskBySessionId(
+    sessionId: string
+  ): Promise<BackgroundTaskRecord | null>;
+  rescheduleQueuedTask(input: {
+    taskId: string;
+    payload?: BackgroundTaskPayload;
+    resultSummary?: string | null;
+    lastError?: string | null;
+    availableAt?: string | null;
+    deadlineAt?: string | null;
+  }): Promise<BackgroundTaskRecord>;
   requeueTask(input: {
     taskId: string;
     payload?: BackgroundTaskPayload;
     taskCard?: DelegateTaskCard | null;
     resultSummary?: string | null;
     lastError?: string | null;
+    availableAt?: string | null;
+    deadlineAt?: string | null;
+    maxAttempts?: number;
   }): Promise<BackgroundTaskRecord>;
-  requeueStaleClaims(staleBefore: string): Promise<number>;
+  requeueStaleClaims(staleBefore: string): Promise<BackgroundTaskRecord[]>;
 }
 
 export interface BackgroundTaskRuntimeHandle {

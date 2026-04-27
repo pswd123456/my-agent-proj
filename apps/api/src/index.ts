@@ -123,6 +123,7 @@ export const app = createApiApp({
   sessionManager,
   routineRepository,
   settingsRepository,
+  backgroundTaskRepository,
   traceManager,
   systemLogManager,
   apiLogger,

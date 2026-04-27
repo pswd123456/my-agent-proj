@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { createMemoryRoutineRepository } from "@ai-app-template/db";
+import { PERMISSION_TOOL_OPTIONS } from "@ai-app-template/domain";
 
 import {
   createDefaultToolRegistry,
@@ -20,7 +21,6 @@ describe("ToolRegistry stage4 metadata contract", () => {
       "copy_path",
       "create_directory",
       "delete_path",
-      "edit_file",
       "find_files",
       "git_diff",
       "git_diff_cached",
@@ -55,6 +55,17 @@ describe("ToolRegistry stage4 metadata contract", () => {
       "search_task_brief",
       "update_todo_items"
     ]);
+  });
+
+  test("keeps the settings permission list aligned with built-in tools", () => {
+    const registry = createDefaultToolRegistry({
+      workingDirectory: "/tmp/workspace",
+      routineRepository: createMemoryRoutineRepository()
+    });
+
+    expect([...PERMISSION_TOOL_OPTIONS].sort()).toEqual(
+      registry.list().map((tool) => tool.name)
+    );
   });
 
   test("rejects destructive tools that skip permission inspection metadata", () => {

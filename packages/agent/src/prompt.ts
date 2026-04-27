@@ -91,6 +91,7 @@ const DEFAULT_SYSTEM_PROMPT = [
   "If the first read_file window is not enough, continue with the next adjacent window instead of rereading from the beginning or jumping to a full-file read.",
   "Only read an entire file when the tool results already show it is small enough and the whole file is genuinely required for the task.",
   "If read_file reports that a file is unchanged since the last read, reuse the earlier content already in context instead of rereading it.",
+  "Before using write_file on an existing file, you MUST read that file with read_file in the current session. If write_file reports the file changed since the last read, read it again before retrying.",
   "Keep the final text concise and rely on stable tool results for detail."
 ].join("\n");
 
@@ -307,6 +308,12 @@ function createRuntimeContextMessages(
   const permissionText = pendingPermissionRequest
     ? JSON.stringify(pendingPermissionRequest, null, 2)
     : "none";
+  const pendingBackgroundNotifications =
+    session.context.pendingBackgroundNotifications;
+  const backgroundNotificationText =
+    pendingBackgroundNotifications.length > 0
+      ? JSON.stringify(pendingBackgroundNotifications, null, 2)
+      : "none";
   const currentTurnCount =
     typeof runtimeContext.currentTurnCount === "number"
       ? Math.max(0, Math.floor(runtimeContext.currentTurnCount))
@@ -341,6 +348,8 @@ function createRuntimeContextMessages(
     `Task brief path: ${session.context.taskBriefPath ?? "none"}`,
     `Task brief binding: ${taskBriefBinding.state}`,
     `Task brief next write: ${createTaskBriefWriteRule(taskBriefBinding)}`,
+    `Active background task count: ${session.context.activeBackgroundTaskCount}`,
+    `Pending background notifications: ${backgroundNotificationText}`,
     `Pending permission request: ${permissionText}`,
     `Pending confirmation payload: ${pendingText}`,
     `Pending user question payload: ${userQuestionText}`

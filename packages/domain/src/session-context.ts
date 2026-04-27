@@ -70,6 +70,34 @@ export interface PendingPermissionRequest {
   createdAt: string;
 }
 
+export type BackgroundNotificationKind =
+  | "delegate_completed"
+  | "delegate_needs_main_agent"
+  | "delegate_failed"
+  | "delegate_cancelled"
+  | "delegate_timeout";
+
+export interface BackgroundNotificationRequest {
+  kind: "user_question" | "permission_request" | "confirmation_request";
+  summary: string;
+  data: Record<string, DomainJsonValue>;
+}
+
+export interface SessionBackgroundNotification {
+  id: string;
+  kind: BackgroundNotificationKind;
+  taskId: string;
+  childSessionId?: string;
+  title: string;
+  summary: string;
+  content: string;
+  createdAt: string;
+  requiresMainAgentReply: boolean;
+  expectedParentReply: "none" | "message" | "permission_decision";
+  request?: BackgroundNotificationRequest | null;
+  consumedAt?: string | null;
+}
+
 export type TodoItemStatus = "pending" | "in_progress" | "done" | "cancelled";
 
 export interface SessionTodoItem {
@@ -108,9 +136,11 @@ export interface ScheduleSessionContext {
   toolAskList: string[];
   toolDenyList: string[];
   enabledCapabilityPacks: CapabilityPackName[];
+  activeBackgroundTaskCount: number;
   pendingPermissionRequest: PendingPermissionRequest | null;
   pendingConfirmationPayload: PendingConfirmationPayload | null;
   pendingUserQuestionPayload: PendingUserQuestionPayload | null;
+  pendingBackgroundNotifications: SessionBackgroundNotification[];
   todoState?: SessionTodoState | null;
   fullCompactionState?: SessionFullCompactionState | null;
   pendingConflictSummary: string | null;

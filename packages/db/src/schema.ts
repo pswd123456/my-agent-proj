@@ -7,6 +7,7 @@ import type {
   BackgroundTaskStatus,
   BackgroundTaskKind,
   PendingPermissionRequest,
+  SessionBackgroundNotification,
   SessionFullCompactionState,
   PendingUserQuestionPayload,
   SessionTodoState
@@ -33,7 +34,6 @@ const defaultToolAskListJson = JSON.stringify([
   "search_text",
   "create_directory",
   "write_file",
-  "edit_file",
   "copy_path",
   "move_path",
   "delete_path",
@@ -133,6 +133,9 @@ export const agentSessions = pgTable(
       .$type<string[]>()
       .notNull()
       .default(sql.raw(defaultCapabilityPacksJsonLiteral)),
+    activeBackgroundTaskCount: integer("active_background_task_count")
+      .notNull()
+      .default(0),
     pendingPermissionRequest: jsonb(
       "pending_permission_request"
     ).$type<PendingPermissionRequest | null>(),
@@ -142,6 +145,10 @@ export const agentSessions = pgTable(
     pendingUserQuestionPayload: jsonb(
       "pending_user_question_payload"
     ).$type<PendingUserQuestionPayload | null>(),
+    pendingBackgroundNotifications: jsonb("pending_background_notifications")
+      .$type<SessionBackgroundNotification[]>()
+      .notNull()
+      .default(defaultJsonbArray),
     todoState: jsonb("todo_state").$type<SessionTodoState | null>(),
     fullCompactionState: jsonb(
       "full_compaction_state"
@@ -251,6 +258,16 @@ export const backgroundTasks = pgTable(
     taskCard: jsonb("task_card").$type<DelegateTaskCard | null>(),
     resultSummary: text("result_summary"),
     lastError: text("last_error"),
+    availableAt: timestamp("available_at", {
+      mode: "string",
+      withTimezone: true
+    }),
+    deadlineAt: timestamp("deadline_at", {
+      mode: "string",
+      withTimezone: true
+    }),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    maxAttempts: integer("max_attempts").notNull().default(1),
     cancelRequested: boolean("cancel_requested").notNull().default(false),
     activeRunId: text("active_run_id"),
     claimedBy: text("claimed_by"),
@@ -283,6 +300,11 @@ export const backgroundTasks = pgTable(
     statusUpdatedIdx: index("background_tasks_status_updated_at_idx").on(
       table.status,
       table.updatedAt
+    ),
+    statusAvailableIdx: index("background_tasks_status_available_at_idx").on(
+      table.status,
+      table.availableAt,
+      table.createdAt
     ),
     childSessionUnique: uniqueIndex("background_tasks_child_session_id_key").on(
       table.childSessionId
@@ -328,11 +350,9 @@ export const backgroundTaskRuns = pgTable(
       .defaultNow()
   },
   (table) => ({
-    taskStatusUpdatedIdx: index("background_task_runs_task_status_updated_idx").on(
-      table.taskId,
-      table.status,
-      table.updatedAt
-    ),
+    taskStatusUpdatedIdx: index(
+      "background_task_runs_task_status_updated_idx"
+    ).on(table.taskId, table.status, table.updatedAt),
     runUnique: uniqueIndex("background_task_runs_run_id_key").on(table.runId)
   })
 );

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { flushSync } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import {
@@ -31,6 +32,7 @@ import {
   deleteSession as deleteSessionFromRegistry,
   deriveRenderedSessions,
   hydrateSelectedSession,
+  replaceSessions,
   selectSession,
   upsertSession
 } from "./session-registry-manager";
@@ -76,6 +78,7 @@ const apiClient = createApiClient({
 
 const SESSION_RAIL_COLLAPSED_STORAGE_KEY = "workbench-session-rail-collapsed";
 const ACTIVE_SESSION_REFRESH_INTERVAL_MS = 3_000;
+const SESSION_LIST_REFRESH_INTERVAL_MS = 5_000;
 
 type RefreshSelectedSessionOptions = {
   resetRunView?: boolean;
@@ -338,13 +341,7 @@ export function SessionWorkbench() {
   }
 
   useEffect(() => {
-    if (
-      !currentSession ||
-      !canInterruptSessionExecution({
-        session: currentSession,
-        submitting
-      })
-    ) {
+    if (!currentSession) {
       return;
     }
 
@@ -378,6 +375,25 @@ export function SessionWorkbench() {
     currentSession?.sessionState.loopState,
     submitting
   ]);
+
+  useEffect(() => {
+    if (loading) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void apiClient
+        .listSessions()
+        .then((snapshots) => {
+          setSessionRegistry((current) => replaceSessions(current, snapshots));
+        })
+        .catch(() => undefined);
+    }, SESSION_LIST_REFRESH_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [loading]);
 
   async function handleCreateSession() {
     if (creatingSession) {
@@ -515,33 +531,44 @@ export function SessionWorkbench() {
           : {}),
         async onEvent(runEvent: RunStreamEvent) {
           const isActiveSession = isActiveStreamSession();
-
-          if (isActiveSession) {
-            setMessageManagerState((current) =>
-              appendMessageManagerEvent(current, runEvent)
-            );
-            setSessionUiState((current) =>
-              applyStreamEventToSessionState(current, runEvent)
-            );
-          }
-
-          if (
-            (runEvent.kind === "run_complete" ||
-              runEvent.kind === "run_error") &&
-            "session" in runEvent
-          ) {
-            const nextSession = runEvent.session;
-            if (nextSession) {
-              setSessionRegistry((current) =>
-                upsertSession(current, nextSession)
+          const applyStreamEvent = () => {
+            if (isActiveSession) {
+              setMessageManagerState((current) =>
+                appendMessageManagerEvent(current, runEvent)
               );
-              if (isActiveSession) {
-                setSessionUiState((current) =>
-                  setSessionSnapshot(current, nextSession)
+              setSessionUiState((current) =>
+                applyStreamEventToSessionState(current, runEvent)
+              );
+            }
+
+            if (
+              (runEvent.kind === "run_complete" ||
+                runEvent.kind === "run_error") &&
+              "session" in runEvent
+            ) {
+              const nextSession = runEvent.session;
+              if (nextSession) {
+                setSessionRegistry((current) =>
+                  upsertSession(current, nextSession)
                 );
+                if (isActiveSession) {
+                  setSessionUiState((current) =>
+                    setSessionSnapshot(current, nextSession)
+                  );
+                }
               }
             }
+          };
+
+          if (
+            runEvent.kind === "assistant_text" ||
+            runEvent.kind === "thinking"
+          ) {
+            flushSync(applyStreamEvent);
+            return;
           }
+
+          applyStreamEvent();
         }
       });
 
@@ -838,10 +865,7 @@ export function SessionWorkbench() {
     conversation: conversationProjection,
     inspector: inspectorProjection
   } = messageProjection;
-  const {
-    toolRows,
-    turnUsageByTurnCount
-  } = inspectorProjection;
+  const { toolRows, turnUsageByTurnCount } = inspectorProjection;
   const todoUpdating = Boolean(
     currentSession &&
     toolRows.some(
@@ -991,7 +1015,9 @@ export function SessionWorkbench() {
               showInterruptedHint={showInterruptedHint}
               errorText={errorText}
               modelCatalog={modelCatalog}
-              selectedModelId={settingsForm.model || currentSession?.model || ""}
+              selectedModelId={
+                settingsForm.model || currentSession?.model || ""
+              }
               onMessageChange={setMessage}
               onSubmit={(event) => void handleSubmit(event)}
               onInterrupt={() => void handleInterruptSession()}

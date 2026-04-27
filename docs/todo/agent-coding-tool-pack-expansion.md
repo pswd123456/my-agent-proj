@@ -18,7 +18,7 @@
 2. 代码库状态不够“git 化”
 3. 文件发现不够“路径化”
 
-如果只靠现有 `edit_file`、`run_shell_command` 和 `search_text`，agent 也能干活，但会更容易出现：
+如果只靠现有 `write_file` 的行范围编辑、`run_shell_command` 和 `search_text`，agent 也能干活，但会更容易出现：
 
 - 改动不稳
 - 需要手动确认当前工作树状态
@@ -30,7 +30,7 @@
 
 ### 1. 补一个补丁型修改工具
 
-新增一个更适合 coding 场景的补丁工具，作为 `edit_file` 的上层补充，而不是替代。
+新增一个更适合 coding 场景的补丁工具，作为 `write_file` 行范围编辑的上层补充，而不是替代。
 
 建议能力：
 
@@ -145,4 +145,3 @@
 - 不做写 git 工具
 - 不做复杂的 repo 智能索引
 - 不把 shell 包成 git 代理
-

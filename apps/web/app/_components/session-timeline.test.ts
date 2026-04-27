@@ -564,6 +564,37 @@ describe("buildTimelineItems", () => {
     ).toEqual(["turn_start", "thinking", "assistant_text"]);
   });
 
+  test("keeps pre-action assistant text ahead of the tool call it introduces", () => {
+    const preToolAssistantEvent: Extract<
+      RunStreamEvent,
+      { kind: "assistant_text" }
+    > = {
+      kind: "assistant_text",
+      sessionId: "session-1",
+      createdAt: "2026-04-21T18:46:21.705Z",
+      turnCount: 1,
+      assistantMessageId: "assistant-before-tool-1",
+      text: "我先创建一个子代理来验证流程。"
+    };
+
+    const items = buildTimelineItems({
+      messages: [firstUser],
+      historyEvents: [
+        turnStart,
+        thinkingEvent,
+        preToolAssistantEvent,
+        currentToolCall
+      ],
+      streamEvents: []
+    });
+
+    expect(
+      items
+        .filter((item) => item.type === "event")
+        .map((item) => item.event.kind)
+    ).toEqual(["turn_start", "thinking", "assistant_text", "tool_call"]);
+  });
+
   test("keeps later runs separate when the provider reuses turnCount values", () => {
     const secondUser: Extract<
       SessionSnapshot["messages"][number],
@@ -1203,7 +1234,6 @@ describe("buildConversationViewItems compact mode", () => {
     expect(view.map((item) => item.type)).toEqual([
       "timeline",
       "compact-collapsed-flow",
-      "timeline",
       "timeline"
     ]);
     if (view[1]?.type === "compact-collapsed-flow") {
@@ -1316,9 +1346,7 @@ describe("buildConversationViewItems compact mode", () => {
       "compact-collapsed-flow",
       "timeline",
       "timeline",
-      "timeline",
       "compact-collapsed-flow",
-      "timeline",
       "timeline"
     ]);
 
@@ -1439,9 +1467,7 @@ describe("buildConversationViewItems compact mode", () => {
       "compact-collapsed-flow",
       "timeline",
       "timeline",
-      "timeline",
       "compact-collapsed-flow",
-      "timeline",
       "timeline"
     ]);
   });
@@ -1545,9 +1571,7 @@ describe("buildConversationViewItems compact mode", () => {
       "compact-collapsed-flow",
       "timeline",
       "timeline",
-      "timeline",
       "compact-collapsed-flow",
-      "timeline",
       "timeline"
     ]);
 

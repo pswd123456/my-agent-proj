@@ -12,7 +12,6 @@ import { createCreateRoutineTool } from "./create-routine.js";
 import { createDelegateAgentTool } from "./delegate-agent.js";
 import { createDeletePathTool } from "./delete-path.js";
 import { createDeleteRoutineTool } from "./delete-routine.js";
-import { createEditFileTool } from "./edit-file.js";
 import { createEditTaskBriefTool } from "./edit-task-brief.js";
 import { createEditRoutineTool } from "./edit-routine.js";
 import { createGetTodoListTool } from "./get-todo-list.js";
@@ -142,7 +141,6 @@ export function createWorkspaceToolRegistry(options: {
     createFindFilesTool(options.workingDirectory),
     createSearchTextTool(options.workingDirectory),
     createWriteFileTool(options.workingDirectory),
-    createEditFileTool(options.workingDirectory),
     createCreateDirectoryTool(options.workingDirectory),
     createDeletePathTool(options.workingDirectory),
     createMovePathTool(options.workingDirectory),

@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { SessionSnapshot } from "@ai-app-template/sdk";
 
 import {
+  buildBackgroundNotificationCopy,
   buildPermissionQuickReplies,
   buildComposerActionView,
   getCompactToolFileChangeRows,
@@ -212,6 +213,32 @@ describe("compact tool file change rows", () => {
         diff: "--- apps/web/app/page.tsx\n+++ apps/web/app/page.tsx"
       }
     ]);
+  });
+});
+
+describe("background notification copy", () => {
+  test("deduplicates identical summary and content text", () => {
+    expect(
+      buildBackgroundNotificationCopy({
+        summary: "子代理已完成目录检查。",
+        content: "子代理已完成目录检查。"
+      })
+    ).toEqual({
+      summaryText: "子代理已完成目录检查。",
+      contentText: null
+    });
+  });
+
+  test("keeps the detailed child output when it differs from the summary", () => {
+    expect(
+      buildBackgroundNotificationCopy({
+        summary: "子代理已完成目录检查。",
+        content: "子代理已完成目录检查。\n\n发现 apps、packages、docs 三个核心目录。"
+      })
+    ).toEqual({
+      summaryText: "子代理已完成目录检查。",
+      contentText: "子代理已完成目录检查。\n\n发现 apps、packages、docs 三个核心目录。"
+    });
   });
 });
 

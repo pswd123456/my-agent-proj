@@ -30,9 +30,12 @@ import {
 } from "@ai-app-template/domain";
 import type { SessionSettingsRecord } from "@ai-app-template/domain";
 import type {
+  BackgroundTaskRepository,
   RoutineRepository,
   SettingsRepository
 } from "@ai-app-template/db";
+
+import { enrichSessionSnapshotsWithParentRelation } from "./session-relations.js";
 
 export interface ApiAppContext {
   Variables: {
@@ -149,6 +152,7 @@ export interface ApiAppDependencies {
   sessionManager: SessionManager;
   routineRepository: RoutineRepository;
   settingsRepository: SettingsRepository;
+  backgroundTaskRepository?: BackgroundTaskRepository;
   traceManager: TraceManager;
   systemLogManager: SystemLogManager;
   apiLogger?: Logger;
@@ -563,7 +567,11 @@ export function createApiApp(dependencies: ApiAppDependencies) {
 
   app.get("/sessions", async (c) => {
     const sessions = await dependencies.sessionManager.listSessions();
-    return c.json({ sessions });
+    const enrichedSessions = await enrichSessionSnapshotsWithParentRelation({
+      sessions,
+      backgroundTaskRepository: dependencies.backgroundTaskRepository
+    });
+    return c.json({ sessions: enrichedSessions });
   });
 
   app.post("/sessions", async (c) => {
@@ -665,7 +673,13 @@ export function createApiApp(dependencies: ApiAppDependencies) {
       sessionId,
       details: { found: Boolean(session) }
     });
-    return c.json({ session });
+    const enrichedSession = (
+      await enrichSessionSnapshotsWithParentRelation({
+        sessions: [session],
+        backgroundTaskRepository: dependencies.backgroundTaskRepository
+      })
+    )[0];
+    return c.json({ session: enrichedSession ?? session });
   });
 
   app.patch("/sessions/:sessionId/settings", async (c) => {

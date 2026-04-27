@@ -47,7 +47,8 @@ function createSessionSnapshot(): SessionSnapshot {
       planModeEnabled: false,
       taskBriefPath: null,
       workspaceEscapeAllowed: false,
-      enabledCapabilityPacks: ["workspace", "schedule"]
+      enabledCapabilityPacks: ["workspace", "schedule"],
+      pendingBackgroundNotifications: []
     },
     messages: [],
     sessionState: {

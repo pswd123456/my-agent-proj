@@ -25,6 +25,8 @@ type SessionDisplayStateInput = Pick<
   | "pendingPermission"
   | "pendingConfirmation"
   | "pendingUserQuestion"
+  | "pendingBackgroundNotificationCount"
+  | "activeBackgroundTaskCount"
 >;
 
 export interface SessionDisplayState {
@@ -105,6 +107,94 @@ export function mergeSessionSummary(
   return next.sort((left, right) =>
     right.updatedAt.localeCompare(left.updatedAt)
   );
+}
+
+export interface SessionSidebarRow {
+  session: SessionSummary;
+  depth: number;
+  childCount: number;
+}
+
+function sortSessionSummariesByFreshness(
+  sessions: SessionSummary[]
+): SessionSummary[] {
+  return [...sessions].sort((left, right) => {
+    const byUpdatedAt = right.updatedAt.localeCompare(left.updatedAt);
+    if (byUpdatedAt !== 0) {
+      return byUpdatedAt;
+    }
+
+    return right.sessionId.localeCompare(left.sessionId);
+  });
+}
+
+export function buildSessionSidebarRows(
+  sessions: SessionSummary[]
+): SessionSidebarRow[] {
+  const sessionsById = new Map(
+    sessions.map((session) => [session.sessionId, session] as const)
+  );
+  const childrenByParentId = new Map<string, SessionSummary[]>();
+
+  for (const session of sessions) {
+    const parentSessionId = session.parentSessionId?.trim() ?? null;
+    if (
+      !parentSessionId ||
+      parentSessionId === session.sessionId ||
+      !sessionsById.has(parentSessionId)
+    ) {
+      continue;
+    }
+
+    const children = childrenByParentId.get(parentSessionId) ?? [];
+    children.push(session);
+    childrenByParentId.set(parentSessionId, children);
+  }
+
+  const rows: SessionSidebarRow[] = [];
+  const visited = new Set<string>();
+
+  function append(session: SessionSummary, depth: number): void {
+    if (visited.has(session.sessionId)) {
+      return;
+    }
+
+    visited.add(session.sessionId);
+    const children = sortSessionSummariesByFreshness(
+      childrenByParentId.get(session.sessionId) ?? []
+    );
+
+    rows.push({
+      session,
+      depth,
+      childCount: children.length
+    });
+
+    for (const child of children) {
+      append(child, depth + 1);
+    }
+  }
+
+  const rootSessions = sortSessionSummariesByFreshness(
+    sessions.filter((session) => {
+      const parentSessionId = session.parentSessionId?.trim() ?? null;
+      return (
+        !parentSessionId ||
+        parentSessionId === session.sessionId ||
+        !sessionsById.has(parentSessionId)
+      );
+    })
+  );
+
+  for (const session of rootSessions) {
+    append(session, 0);
+  }
+
+  for (const session of sortSessionSummariesByFreshness(sessions)) {
+    append(session, 0);
+  }
+
+  return rows;
 }
 
 export function applyStreamEventToSession(
@@ -293,6 +383,8 @@ export function isReusableNewSessionSummary(session: SessionSummary): boolean {
     !session.pendingPermission &&
     !session.pendingConfirmation &&
     !session.pendingUserQuestion &&
+    session.pendingBackgroundNotificationCount === 0 &&
+    session.activeBackgroundTaskCount === 0 &&
     session.lastUserMessage === null
   );
 }
@@ -361,6 +453,29 @@ export function getSessionDisplayState(
       label: "等待澄清",
       detail: "规划已暂停，正在等待用户补充关键信息。",
       tone: "warning",
+      isWaitingForUser: true,
+      isActiveExecution: false
+    };
+  }
+
+  if (session.pendingBackgroundNotificationCount > 0) {
+    const hasBackgroundFailure = session.status === "failed";
+    return {
+      label: hasBackgroundFailure ? "后台失败待收口" : "有待处理后台更新",
+      detail: hasBackgroundFailure
+        ? "后台任务已失败或超时，主会话仍有待处理的收口通知。"
+        : "后台子任务已有结果回注到当前会话，等待主代理或用户继续处理。",
+      tone: hasBackgroundFailure ? "danger" : "warning",
+      isWaitingForUser: true,
+      isActiveExecution: false
+    };
+  }
+
+  if (session.activeBackgroundTaskCount > 0) {
+    return {
+      label: `后台处理中 · ${session.activeBackgroundTaskCount}`,
+      detail: "已有子任务在后台继续执行，完成后会自动回注到当前会话。",
+      tone: "active",
       isWaitingForUser: true,
       isActiveExecution: false
     };
@@ -450,7 +565,10 @@ export function canInterruptSessionExecution(input: {
     interruptRequested: session.sessionState.interruptRequested,
     pendingPermission: Boolean(session.context.pendingPermissionRequest),
     pendingConfirmation: Boolean(session.context.pendingConfirmationPayload),
-    pendingUserQuestion: Boolean(session.context.pendingUserQuestionPayload)
+    pendingUserQuestion: Boolean(session.context.pendingUserQuestionPayload),
+    pendingBackgroundNotificationCount:
+      session.context.pendingBackgroundNotifications?.length ?? 0,
+    activeBackgroundTaskCount: session.context.activeBackgroundTaskCount ?? 0
   });
 
   if (!displayState.isActiveExecution) {
