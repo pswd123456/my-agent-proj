@@ -167,12 +167,5 @@ function upsertSessionSummary(
   session: SessionSnapshot
 ): SessionSummary[] {
   const next = mergeSessionSummary(sessions, session, toSessionSummary);
-  return [...next].sort((left, right) => {
-    const byUpdatedAt = right.updatedAt.localeCompare(left.updatedAt);
-    if (byUpdatedAt !== 0) {
-      return byUpdatedAt;
-    }
-
-    return right.sessionId.localeCompare(left.sessionId);
-  });
+  return [...next];
 }

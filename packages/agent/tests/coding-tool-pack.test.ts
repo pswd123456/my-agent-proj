@@ -13,6 +13,8 @@ import {
   createGitDiffToolUncached
 } from "../src/tools/git-diff.js";
 import { createGitStatusTool } from "../src/tools/git-status.js";
+import { createReadFileTool } from "../src/tools/read-file.js";
+import type { ConversationBlock } from "../src/types.js";
 
 const execFile = promisify(execFileCallback);
 const cleanupPaths = new Set<string>();
@@ -23,7 +25,44 @@ async function createWorkspace(): Promise<string> {
   return workspace;
 }
 
-function createContext(workingDirectory: string): ToolExecutionContext {
+function createToolCallBlock(input: {
+  toolName: string;
+  toolCallId: string;
+  toolInput: Record<string, string | number | boolean | null>;
+}): ConversationBlock {
+  return {
+    id: input.toolCallId,
+    kind: "tool call",
+    toolCallId: input.toolCallId,
+    toolName: input.toolName,
+    input: input.toolInput,
+    state: "pending",
+    createdAt: new Date().toISOString()
+  };
+}
+
+function createToolResultBlock(input: {
+  toolName: string;
+  toolCallId: string;
+  output: string;
+  isError?: boolean;
+}): ConversationBlock {
+  return {
+    id: `${input.toolCallId}-result`,
+    kind: "tool result",
+    toolCallId: input.toolCallId,
+    toolName: input.toolName,
+    output: input.output,
+    isError: input.isError ?? false,
+    state: input.isError ? "failed" : "success",
+    createdAt: new Date().toISOString()
+  };
+}
+
+function createContext(
+  workingDirectory: string,
+  options: { sessionMessages?: ConversationBlock[] } = {}
+): ToolExecutionContext {
   return {
     sessionId: "session-1",
     userId: "user-1",
@@ -48,8 +87,34 @@ function createContext(workingDirectory: string): ToolExecutionContext {
       toolAskList: [],
       toolDenyList: []
     },
-    sessionMessages: []
+    sessionMessages: options.sessionMessages ?? []
   };
+}
+
+async function createReadMessages(input: {
+  workspace: string;
+  toolCallId: string;
+  path: string;
+}): Promise<ConversationBlock[]> {
+  const toolInput = { path: input.path };
+  const readResult = await createReadFileTool(input.workspace).execute(
+    toolInput,
+    createContext(input.workspace)
+  );
+  expect(readResult.state).toBe("success");
+
+  return [
+    createToolCallBlock({
+      toolName: "read_file",
+      toolCallId: input.toolCallId,
+      toolInput
+    }),
+    createToolResultBlock({
+      toolName: "read_file",
+      toolCallId: input.toolCallId,
+      output: readResult.content
+    })
+  ];
 }
 
 async function runGit(
@@ -82,7 +147,10 @@ describe("find_files", () => {
       path.join(workspace, "src", "nested", "feature.test.ts"),
       "test();\n"
     );
-    await writeFile(path.join(workspace, "src", "nested", "feature.tsx"), "x\n");
+    await writeFile(
+      path.join(workspace, "src", "nested", "feature.tsx"),
+      "x\n"
+    );
 
     const result = await createFindFilesTool(workspace).execute(
       {
@@ -114,7 +182,20 @@ describe("apply_patch", () => {
     const workspace = await createWorkspace();
     await mkdir(path.join(workspace, "nested"), { recursive: true });
     await writeFile(path.join(workspace, "alpha.txt"), "one\ntwo\n");
-    await writeFile(path.join(workspace, "nested", "beta.txt"), "beta\ngamma\n");
+    await writeFile(
+      path.join(workspace, "nested", "beta.txt"),
+      "beta\ngamma\n"
+    );
+    const alphaReadMessages = await createReadMessages({
+      workspace,
+      toolCallId: "read-alpha",
+      path: "alpha.txt"
+    });
+    const betaReadMessages = await createReadMessages({
+      workspace,
+      toolCallId: "read-beta",
+      path: "nested/beta.txt"
+    });
 
     const patch = [
       "--- a/alpha.txt",
@@ -135,7 +216,9 @@ describe("apply_patch", () => {
       {
         patch
       },
-      createContext(workspace)
+      createContext(workspace, {
+        sessionMessages: [...alphaReadMessages, ...betaReadMessages]
+      })
     );
 
     expect(result.state).toBe("success");
@@ -207,9 +290,9 @@ describe("apply_patch", () => {
         }
       ]
     });
-    await expect(readFile(path.join(workspace, "alpha.txt"), "utf8")).resolves.toBe(
-      "one\nTWO\n"
-    );
+    await expect(
+      readFile(path.join(workspace, "alpha.txt"), "utf8")
+    ).resolves.toBe("one\nTWO\n");
     await expect(
       readFile(path.join(workspace, "nested", "beta.txt"), "utf8")
     ).resolves.toBe("beta\ngamma\ndelta\n");
@@ -228,6 +311,83 @@ describe("apply_patch", () => {
     expect(result.state).toBe("failed");
     expect(result.result.code).toBe("INVALID_PATCH");
   });
+
+  test("fails when modifying an existing file without a session read", async () => {
+    const workspace = await createWorkspace();
+    const targetPath = path.join(workspace, "alpha.txt");
+    await writeFile(targetPath, "one\ntwo\n");
+
+    const result = await createApplyPatchTool(workspace).execute(
+      {
+        patch: [
+          "--- a/alpha.txt",
+          "+++ b/alpha.txt",
+          "@@ -1,2 +1,2 @@",
+          " one",
+          "-two",
+          "+TWO"
+        ].join("\n")
+      },
+      createContext(workspace)
+    );
+
+    expect(result.state).toBe("failed");
+    expect(result.result.code).toBe("FILE_WRITE_REQUIRES_READ");
+    await expect(readFile(targetPath, "utf8")).resolves.toBe("one\ntwo\n");
+  });
+
+  test("fails when a patched file changed after the previous session read", async () => {
+    const workspace = await createWorkspace();
+    const targetPath = path.join(workspace, "alpha.txt");
+    await writeFile(targetPath, "one\ntwo\n");
+    const sessionMessages = await createReadMessages({
+      workspace,
+      toolCallId: "read-alpha",
+      path: "alpha.txt"
+    });
+    await writeFile(targetPath, "one\nchanged\n");
+
+    const result = await createApplyPatchTool(workspace).execute(
+      {
+        patch: [
+          "--- a/alpha.txt",
+          "+++ b/alpha.txt",
+          "@@ -1,2 +1,2 @@",
+          " one",
+          "-two",
+          "+TWO"
+        ].join("\n")
+      },
+      createContext(workspace, { sessionMessages })
+    );
+
+    expect(result.state).toBe("failed");
+    expect(result.result.code).toBe("FILE_CHANGED_SINCE_READ");
+    await expect(readFile(targetPath, "utf8")).resolves.toBe("one\nchanged\n");
+  });
+
+  test("creates a new file without a session read", async () => {
+    const workspace = await createWorkspace();
+
+    const result = await createApplyPatchTool(workspace).execute(
+      {
+        patch: [
+          "--- /dev/null",
+          "+++ b/created.txt",
+          "@@ -0,0 +1,2 @@",
+          "+one",
+          "+two"
+        ].join("\n")
+      },
+      createContext(workspace)
+    );
+
+    expect(result.state).toBe("success");
+    expect(result.result.code).toBe("PATCH_APPLIED");
+    await expect(
+      readFile(path.join(workspace, "created.txt"), "utf8")
+    ).resolves.toBe("one\ntwo\n");
+  });
 });
 
 describe("git read-only tools", () => {
@@ -241,7 +401,10 @@ describe("git read-only tools", () => {
     await runGit(workspace, "add", "tracked.txt");
     await runGit(workspace, "commit", "-m", "init");
 
-    await writeFile(path.join(workspace, "tracked.txt"), "one\nstaged change\n");
+    await writeFile(
+      path.join(workspace, "tracked.txt"),
+      "one\nstaged change\n"
+    );
     await runGit(workspace, "add", "tracked.txt");
     await writeFile(
       path.join(workspace, "tracked.txt"),

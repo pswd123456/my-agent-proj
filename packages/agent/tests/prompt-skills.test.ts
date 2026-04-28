@@ -43,6 +43,7 @@ function createSessionSnapshot(): SessionSnapshot {
       fullCompactionState: null,
       pendingConflictSummary: null,
       currentDateContext: "2026-04-22",
+      firstUserMessage: null,
       lastUserMessage: null,
       planModeEnabled: false,
       taskBriefPath: null,

@@ -1,7 +1,10 @@
 import type { AnthropicToolDefinition } from "../model.js";
 
 import type { RoutineRepository } from "@ai-app-template/db";
-import type { CapabilityPackName } from "@ai-app-template/domain";
+import type {
+  CapabilityPackName,
+  SettingsPermissionToolOption
+} from "@ai-app-template/domain";
 
 import { createApplyPatchTool } from "./apply-patch.js";
 import { createAskForConfirmationTool } from "./ask-for-confirmation.js";
@@ -25,6 +28,7 @@ import { createGitStatusTool } from "./git-status.js";
 import { createListRoutineByDateTool } from "./list-routine-by-date.js";
 import { createListRoutineByWeekTool } from "./list-routine-by-week.js";
 import { createListDirectoryTool } from "./list-directory.js";
+import { createLoadSkillTool } from "./load-skill.js";
 import { createManageCapabilityPacksTool } from "./manage-capability-packs.js";
 import { createMakeHttpRequestTool } from "./make-http-request.js";
 import { createMovePathTool } from "./move-path.js";
@@ -34,6 +38,7 @@ import { createReplaceTodoListTool } from "./replace-todo-list.js";
 import { createReplaceTaskBriefTool } from "./replace-task-brief.js";
 import { createRunShellCommandTool } from "./run-shell-command.js";
 import { createSearchRoutineByOclockTool } from "./search-routine-by-oclock.js";
+import { createSearchSkillTool } from "./search-skill.js";
 import { createSearchTaskBriefTool } from "./search-task-brief.js";
 import { createSearchTextTool } from "./search-text.js";
 import { createUpdateTodoItemsTool } from "./update-todo-items.js";
@@ -115,6 +120,24 @@ function registerTools(
   return registry;
 }
 
+function toSettingsPermissionToolOption(
+  tool: RuntimeTool,
+  capabilityPack: CapabilityPackName | null
+): SettingsPermissionToolOption | null {
+  if (
+    tool.family === "workspace-shell" ||
+    tool.family === "workspace-network"
+  ) {
+    return null;
+  }
+
+  return {
+    name: tool.name,
+    family: tool.family,
+    capabilityPack
+  };
+}
+
 export function createPlanningToolRegistry(): ToolRegistry {
   return registerTools(new ToolRegistry(), [
     createAskUserQuestionTool(),
@@ -149,7 +172,9 @@ export function createWorkspaceToolRegistry(options: {
     createGitDiffToolUncached(),
     createGitDiffCachedTool(),
     createRunShellCommandTool(),
-    createMakeHttpRequestTool()
+    createMakeHttpRequestTool(),
+    createSearchSkillTool(options.workingDirectory),
+    createLoadSkillTool(options.workingDirectory)
   ]);
 }
 
@@ -191,4 +216,36 @@ export function createDefaultToolRegistry(options: {
   }
 
   return registry;
+}
+
+export function listSettingsPermissionToolOptions(options: {
+  workingDirectory: string;
+  routineRepository: RoutineRepository;
+}): SettingsPermissionToolOption[] {
+  const tools = new Map<string, SettingsPermissionToolOption>();
+
+  for (const tool of createPlanningToolRegistry().list()) {
+    const option = toSettingsPermissionToolOption(tool, null);
+    if (option) {
+      tools.set(option.name, option);
+    }
+  }
+
+  for (const tool of createWorkspaceToolRegistry(options).list()) {
+    const option = toSettingsPermissionToolOption(tool, "workspace");
+    if (option) {
+      tools.set(option.name, option);
+    }
+  }
+
+  for (const tool of createScheduleToolRegistry(options).list()) {
+    const option = toSettingsPermissionToolOption(tool, "schedule");
+    if (option) {
+      tools.set(option.name, option);
+    }
+  }
+
+  return [...tools.values()].sort((left, right) =>
+    left.name.localeCompare(right.name)
+  );
 }

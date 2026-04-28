@@ -10,6 +10,7 @@ import {
   DEFAULT_MINIMAX_MODEL,
   FileSystemLogManager,
   createLogger,
+  listSettingsPermissionToolOptions,
   createMemorySessionManager
 } from "@ai-app-template/agent";
 import {
@@ -25,7 +26,6 @@ const workspaceRoot = "/Users/boneda/gitrepo/my-agent-proj";
 async function createTestApp() {
   const sessionManager = createMemorySessionManager();
   const routineRepository = createMemoryRoutineRepository();
-  const settingsRepository = createMemorySettingsRepository();
   const logDir = await mkdtemp(path.join(os.tmpdir(), "api-log-"));
   const systemLogManager = new FileSystemLogManager(logDir, {
     maxBytes: 4096,
@@ -34,6 +34,13 @@ async function createTestApp() {
   const apiLogger = createLogger({
     manager: systemLogManager,
     component: "api"
+  });
+  const settingsPermissionToolOptions = listSettingsPermissionToolOptions({
+    workingDirectory: resolveApiWorkingDirectory(workspaceRoot),
+    routineRepository
+  }).map((tool) => tool.name);
+  const settingsRepository = createMemorySettingsRepository({
+    settingsPermissionToolOptions
   });
 
   return {
@@ -164,8 +171,10 @@ describe("createApiApp settings bootstrap", () => {
     expect(updateResponse.status).toBe(200);
     const updatePayload = (await updateResponse.json()) as {
       settings: { debugConversationView: boolean };
+      permissionTools: Array<{ name: string }>;
     };
     expect(updatePayload.settings.debugConversationView).toBe(true);
+    expect(updatePayload.permissionTools.length).toBeGreaterThan(0);
 
     const session = await createSession(app, {
       userId: "stage5-settings-user"
@@ -178,6 +187,37 @@ describe("createApiApp settings bootstrap", () => {
     expect(session.context.yoloMode).toBe(true);
     expect(session.contextWindow).toBe(123_456);
     expect(session.maxTurns).toBe(77);
+  });
+
+  test("updating user default model does not rewrite an existing session model", async () => {
+    const { app } = await createTestApp();
+
+    const session = await createSession(app, {
+      userId: "stage5-existing-session-user"
+    });
+
+    const updateResponse = await app.request(
+      "/users/stage5-existing-session-user/settings",
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: DEFAULT_DEEPSEEK_MODEL
+        })
+      }
+    );
+
+    expect(updateResponse.status).toBe(200);
+
+    const existingSessionResponse = await app.request(
+      `/sessions/${session.sessionId}`
+    );
+    expect(existingSessionResponse.status).toBe(200);
+    const payload = (await existingSessionResponse.json()) as {
+      session: SessionSnapshot;
+    };
+
+    expect(payload.session.model).toBe(DEFAULT_MINIMAX_MODEL);
   });
 
   test("syncs normalized permission rules onto the current session", async () => {
@@ -210,6 +250,30 @@ describe("createApiApp settings bootstrap", () => {
     expect(payload.session.context.toolAllowList).toEqual(["read_file"]);
     expect(payload.session.context.toolAskList).toEqual(["write_file"]);
     expect(payload.session.context.toolDenyList).toEqual(["delete_path"]);
+  });
+
+  test("returns dynamic permission tools with user settings", async () => {
+    const { app } = await createTestApp();
+
+    const response = await app.request("/users/stage5-meta-user/settings");
+
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as {
+      settings: { toolAskList: string[] };
+      permissionTools: Array<{
+        name: string;
+        family: string;
+        capabilityPack: string | null;
+      }>;
+    };
+
+    expect(payload.settings.toolAskList).toContain("read_file");
+    expect(
+      payload.permissionTools.some((tool) => tool.name === "read_file")
+    ).toBe(true);
+    expect(
+      payload.permissionTools.some((tool) => tool.name === "run_shell_command")
+    ).toBe(false);
   });
 
   test("updates the current session model through session settings", async () => {

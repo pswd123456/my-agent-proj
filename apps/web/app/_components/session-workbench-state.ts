@@ -1,6 +1,7 @@
 import type {
   RoutineRecord,
   RunStreamEvent,
+  UpdateSessionSettingsPayload,
   SessionSettingsRecord,
   SessionSnapshot,
   SessionSummary,
@@ -92,9 +93,7 @@ export function sortSessionSummaries(
   snapshots: SessionSnapshot[],
   toSummary: (session: SessionSnapshot) => SessionSummary
 ): SessionSummary[] {
-  return snapshots
-    .map(toSummary)
-    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  return sortSessionSummariesByFreshness(snapshots.map(toSummary));
 }
 
 export function mergeSessionSummary(
@@ -104,9 +103,7 @@ export function mergeSessionSummary(
 ): SessionSummary[] {
   const next = sessions.filter((item) => item.sessionId !== session.sessionId);
   next.unshift(toSummary(session));
-  return next.sort((left, right) =>
-    right.updatedAt.localeCompare(left.updatedAt)
-  );
+  return sortSessionSummariesByFreshness(next);
 }
 
 export interface SessionSidebarRow {
@@ -120,14 +117,9 @@ export const DEFAULT_VISIBLE_SESSION_ROW_COUNT = 20;
 function sortSessionSummariesByFreshness(
   sessions: SessionSummary[]
 ): SessionSummary[] {
-  return [...sessions].sort((left, right) => {
-    const byUpdatedAt = right.updatedAt.localeCompare(left.updatedAt);
-    if (byUpdatedAt !== 0) {
-      return byUpdatedAt;
-    }
-
-    return right.sessionId.localeCompare(left.sessionId);
-  });
+  return [...sessions].sort(
+    (left, right) => right.updatedAt.localeCompare(left.updatedAt)
+  );
 }
 
 export function buildSessionSidebarRows(
@@ -229,6 +221,7 @@ export function getVisibleSessionSidebarRows(
   input: {
     visibleCount?: number;
     pageCount?: number;
+    collapsedSessionIds?: Set<string>;
   }
 ): SessionSidebarRow[] {
   const visibleCountPerPage = Math.max(
@@ -236,7 +229,54 @@ export function getVisibleSessionSidebarRows(
     input.visibleCount ?? DEFAULT_VISIBLE_SESSION_ROW_COUNT
   );
   const pageCount = Math.max(1, input.pageCount ?? 1);
-  return rows.slice(0, visibleCountPerPage * pageCount);
+  const collapsedSessionIds = input.collapsedSessionIds ?? null;
+
+  if (!collapsedSessionIds || collapsedSessionIds.size === 0) {
+    return rows.slice(0, visibleCountPerPage * pageCount);
+  }
+
+  const visibleRows: SessionSidebarRow[] = [];
+  const ancestorStack: Array<{ sessionId: string; collapsed: boolean }> = [];
+
+  for (const row of rows) {
+    while (ancestorStack.length > row.depth) {
+      ancestorStack.pop();
+    }
+
+    const hidden = ancestorStack.some((ancestor) => ancestor.collapsed);
+    ancestorStack[row.depth] = {
+      sessionId: row.session.sessionId,
+      collapsed:
+        row.childCount > 0 && collapsedSessionIds.has(row.session.sessionId)
+    };
+
+    if (!hidden) {
+      visibleRows.push(row);
+    }
+  }
+
+  return visibleRows.slice(0, visibleCountPerPage * pageCount);
+}
+
+export function getAutoCollapsedSessionIds(
+  rows: SessionSidebarRow[]
+): Set<string> {
+  const collapsedSessionIds = new Set<string>();
+
+  for (const row of rows) {
+    if (row.childCount === 0) {
+      continue;
+    }
+
+    if (
+      row.session.loopState === "completed" ||
+      row.session.status === "completed"
+    ) {
+      collapsedSessionIds.add(row.session.sessionId);
+    }
+  }
+
+  return collapsedSessionIds;
 }
 
 export function applyStreamEventToSession(
@@ -841,6 +881,27 @@ export function toSettingsFormState(
     enabledCapabilityPacks: [...(settings?.enabledCapabilityPacks ?? [])],
     debugConversationView: settings?.debugConversationView ?? false
   };
+}
+
+export function buildSessionSettingsPatchFromUserSettings(
+  settings: SessionSettingsRecord
+): UpdateSessionSettingsPayload {
+  return {
+    yoloMode: settings.yoloMode,
+    shellAllowPatterns: settings.shellAllowPatterns,
+    shellDenyPatterns: settings.shellDenyPatterns,
+    toolAllowList: settings.toolAllowList,
+    toolAskList: settings.toolAskList,
+    toolDenyList: settings.toolDenyList,
+    enabledCapabilityPacks: settings.enabledCapabilityPacks
+  };
+}
+
+export function resolveSelectedModelId(input: {
+  session: SessionSnapshot | null;
+  settingsForm: SettingsFormState;
+}): string {
+  return input.session?.model || input.settingsForm.model || "";
 }
 
 export function patchSettingsForm(

@@ -1357,8 +1357,8 @@ describe("buildConversationViewItems compact mode", () => {
     expect(collapsedItems).toHaveLength(2);
     expect(collapsedItems.map((item) => item.hiddenCount)).toEqual([2, 2]);
     expect(collapsedItems.map((item) => item.key)).toEqual([
-      "compact-collapsed-flow-event-assistant_text-assistant-final-1",
-      "compact-collapsed-flow-event-assistant_text-assistant-final-2"
+      "compact-collapsed-flow-assistant-final-1",
+      "compact-collapsed-flow-assistant-final-2"
     ]);
   });
 
@@ -1582,10 +1582,10 @@ describe("buildConversationViewItems compact mode", () => {
     expect(collapsedItems).toHaveLength(2);
     expect(collapsedItems.map((item) => item.hiddenCount)).toEqual([2, 2]);
     expect(collapsedItems[0]?.key).toBe(
-      "compact-collapsed-flow-message-assistant-block-1"
+      "compact-collapsed-flow-assistant-block-1"
     );
     expect(collapsedItems[1]?.key).toBe(
-      "compact-collapsed-flow-event-assistant_text-assistant-final-2"
+      "compact-collapsed-flow-assistant-final-2"
     );
   });
 
@@ -1626,14 +1626,14 @@ describe("buildConversationViewItems compact mode", () => {
       getCompactCollapsedFlowScrollTargetKey({
         items: view,
         collapsedFlowKey:
-          "compact-collapsed-flow-event-assistant_text-assistant-final"
+          "compact-collapsed-flow-assistant-final"
       })
     ).toBe("message-user-1");
     expect(
       getCompactCollapsedFlowAnchors({
         items: view,
         collapsedFlowKey:
-          "compact-collapsed-flow-event-assistant_text-assistant-final"
+          "compact-collapsed-flow-assistant-final"
       }).assistantItemKey
     ).toBe("event-assistant_text-assistant-final");
   });

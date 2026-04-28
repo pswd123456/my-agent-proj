@@ -191,6 +191,7 @@ describe("toIsoString", () => {
         retainedTailCount: 6
       },
       pendingConflictSummary: null,
+      firstUserMessage: null,
       lastUserMessage: null,
       workingDirectory: "/tmp/workspace",
       model: "MiniMax-M2.7",

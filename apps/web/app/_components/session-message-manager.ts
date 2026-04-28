@@ -449,9 +449,32 @@ function getHiddenAssistantItemKeys(input: {
   return next;
 }
 
+function itemContainsStreamEvent(
+  item: ConversationViewItem,
+  streamEventKeys: Set<string>
+): boolean {
+  const event = getConversationViewEvent(item);
+  if (event) {
+    return streamEventKeys.has(getTimelineEventKey(event));
+  }
+
+  if (
+    item.type === "compact-tool" ||
+    item.type === "compact-file-batch" ||
+    item.type === "compact-collapsed-flow"
+  ) {
+    return item.originalItems.some((nestedItem) =>
+      itemContainsStreamEvent(nestedItem, streamEventKeys)
+    );
+  }
+
+  return false;
+}
+
 function getNewlyCollapsedFlowKeys(input: {
   conversationItems: ConversationViewItem[];
   seenCollapsedFlowKeys: Set<string>;
+  streamEventKeys: Set<string>;
 }): string[] {
   return input.conversationItems
     .filter(
@@ -462,6 +485,7 @@ function getNewlyCollapsedFlowKeys(input: {
         { type: "compact-collapsed-flow" }
       > => item.type === "compact-collapsed-flow"
     )
+    .filter((item) => itemContainsStreamEvent(item, input.streamEventKeys))
     .map((item) => item.key)
     .filter((key) => !input.seenCollapsedFlowKeys.has(key));
 }
@@ -515,13 +539,12 @@ export function buildMessageManagerProjection(input: {
   );
   const timestampedAssistantKeys =
     getTimestampedAssistantKeys(conversationItems);
-  const hasLiveOverlay =
-    input.state.streamEvents.length > 0 ||
-    input.state.pendingUserMessage !== null;
+  const hasLiveOverlay = input.state.streamEvents.length > 0;
   const newlyCollapsedFlowKeys = hasLiveOverlay
     ? getNewlyCollapsedFlowKeys({
         conversationItems,
-        seenCollapsedFlowKeys: input.state.seenCollapsedFlowKeys
+        seenCollapsedFlowKeys: input.state.seenCollapsedFlowKeys,
+        streamEventKeys
       })
     : [];
 

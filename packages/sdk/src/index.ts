@@ -6,7 +6,8 @@ export type {
 } from "@ai-app-template/agent";
 export type {
   RoutineRecord,
-  SessionSettingsRecord
+  SessionSettingsRecord,
+  SettingsPermissionToolOption
 } from "@ai-app-template/domain";
 export {
   CAPABILITY_PACK_OPTIONS,
@@ -24,6 +25,7 @@ export type {
   ResetSessionRoutinesResult,
   SessionSummary,
   StreamSessionExecutionInput,
+  UserSettingsPayload,
   UpdateSessionSettingsPayload,
   UpdateUserSettingsPayload
 } from "./client.js";

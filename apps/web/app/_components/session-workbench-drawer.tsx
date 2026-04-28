@@ -3,15 +3,15 @@
 import type { ReactNode } from "react";
 
 import { WorkbenchPanel } from "@ai-app-template/ui-patterns";
-import type { RoutineRecord, SessionSnapshot } from "@ai-app-template/sdk";
+import type {
+  RoutineRecord,
+  SessionSnapshot,
+  SettingsPermissionToolOption
+} from "@ai-app-template/sdk";
 
 import {
   capabilityPackOptions,
   MAX_TURNS_LIMIT,
-  permissionToolOptions,
-  isYoloPinnedPermissionTool,
-  schedulePermissionTools,
-  workspacePermissionTools,
   type InspectorTabId,
   type SettingsFormState,
   type SidebarPanelId
@@ -44,20 +44,15 @@ function formatCapabilityPackDescription(packName: string): string {
     : "日程创建、编辑、查询与冲突确认相关能力。";
 }
 
-function getVisiblePermissionTools(enabledCapabilityPacks: string[]): string[] {
+function getVisiblePermissionTools(
+  permissionTools: SettingsPermissionToolOption[],
+  enabledCapabilityPacks: string[]
+): SettingsPermissionToolOption[] {
   const enabled = new Set(enabledCapabilityPacks);
 
-  return permissionToolOptions.filter((tool) => {
-    if (schedulePermissionTools.has(tool)) {
-      return enabled.has("schedule");
-    }
-
-    if (workspacePermissionTools.has(tool)) {
-      return enabled.has("workspace");
-    }
-
-    return true;
-  });
+  return permissionTools.filter((tool) =>
+    tool.capabilityPack ? enabled.has(tool.capabilityPack) : true
+  );
 }
 
 interface SessionWorkbenchDrawerProps {
@@ -69,6 +64,7 @@ interface SessionWorkbenchDrawerProps {
   settingsMeta: string;
   settingsStatusText: string;
   settingsForm: SettingsFormState;
+  permissionTools: SettingsPermissionToolOption[];
   loadingSettings: boolean;
   savingSettings: boolean;
   pendingPermissionToolName: string | null;
@@ -99,6 +95,7 @@ export function SessionWorkbenchDrawer({
   settingsMeta,
   settingsStatusText,
   settingsForm,
+  permissionTools,
   loadingSettings,
   savingSettings,
   pendingPermissionToolName,
@@ -121,6 +118,7 @@ export function SessionWorkbenchDrawer({
   }
 
   const visiblePermissionTools = getVisiblePermissionTools(
+    permissionTools,
     settingsForm.enabledCapabilityPacks
   );
 
@@ -350,28 +348,27 @@ export function SessionWorkbenchDrawer({
                     不在这里配置。它们会在运行时按命令或请求单独确认。
                   </div>
                   {visiblePermissionTools.map((tool) => {
-                    const pinnedByYolo =
-                      settingsForm.yoloMode && isYoloPinnedPermissionTool(tool);
+                    const pinnedByYolo = settingsForm.yoloMode;
                     const decision = pinnedByYolo
                       ? "allow"
-                      : settingsForm.toolDenyList.includes(tool)
+                      : settingsForm.toolDenyList.includes(tool.name)
                         ? "deny"
-                        : settingsForm.toolAllowList.includes(tool)
+                        : settingsForm.toolAllowList.includes(tool.name)
                           ? "allow"
                           : "ask";
                     return (
                       <div
-                        key={tool}
+                        key={tool.name}
                         className="flex items-center justify-between gap-3 rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3"
                       >
                         <div>
                           <div className="text-sm text-[var(--app-text-primary)]">
-                            {formatToolOptionLabel(tool)}
+                            {formatToolOptionLabel(tool.name)}
                           </div>
                           <div className="mt-1 text-xs leading-5 text-[var(--app-text-muted)]">
                             {pinnedByYolo
                               ? "YOLO 已启用，当前会话内固定允许。"
-                              : tool}
+                              : tool.name}
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
@@ -381,7 +378,7 @@ export function SessionWorkbenchDrawer({
                               type="button"
                               disabled={pinnedByYolo}
                               onClick={() =>
-                                onSettingsPermissionToolToggle(tool, target)
+                                onSettingsPermissionToolToggle(tool.name, target)
                               }
                               className={`rounded-[var(--app-radius-pill)] border px-3 py-1 text-xs transition ${
                                 decision === target

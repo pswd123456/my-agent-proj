@@ -88,13 +88,14 @@ prefix message 带 `cache_control: { type: "ephemeral" }`，并参与当前 `cac
    - working directory
    - session status
    - YOLO mode
-    - pending permission request
-    - pending confirmation payload
-    - pending user question payload
+   - pending permission request
+   - pending confirmation payload
+   - pending user question payload
 
 3. workspace skills
    - 从 `session.workingDirectory/.agent/skills/` 发现的 skill metadata
-   - 当前只暴露模型需要选择技能的元信息
+   - prompt 当前只暴露模型做技能选择需要的元信息
+   - 具体 skill 正文通过 `search_skill` / `load_skill` 按需读取，而不是整篇预注入
 
 这层不参与 `cacheKey`。如果新增信息会随执行变化，优先放这里。
 

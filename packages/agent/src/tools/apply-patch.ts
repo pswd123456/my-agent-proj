@@ -1,11 +1,26 @@
 import type { RuntimeTool } from "./runtime-tool.js";
 import {
+  freshSessionReadFailureResult,
+  requireFreshSessionRead
+} from "./fresh-session-read.js";
+import {
   applyUnifiedPatch,
   listPatchTargets,
-  parseUnifiedPatch
+  parseUnifiedPatch,
+  type ParsedUnifiedPatch
 } from "./unified-patch.js";
-import { createToolResult, failureResult, successResult } from "./tool-result.js";
+import {
+  createToolResult,
+  failureResult,
+  successResult
+} from "./tool-result.js";
 import type { ToolResultDetails } from "../types.js";
+import {
+  getPathKind,
+  normalizeWorkspacePath,
+  toRelativeWorkspacePath
+} from "./workspace.js";
+import type { ToolExecutionContext } from "./runtime-tool.js";
 
 function summarizeTargetPaths(targets: string[]): string {
   if (targets.length === 0) {
@@ -18,11 +33,57 @@ function summarizeTargetPaths(targets: string[]): string {
   return `${targets.slice(0, 3).join(", ")} +${targets.length - 3} more`;
 }
 
+async function requirePatchFreshSessionReads(input: {
+  workingDirectory: string;
+  patch: ParsedUnifiedPatch;
+  context: ToolExecutionContext;
+}): Promise<
+  | { ok: true }
+  | {
+      ok: false;
+      code: "FILE_WRITE_REQUIRES_READ" | "FILE_CHANGED_SINCE_READ";
+      path: string;
+    }
+> {
+  for (const filePatch of input.patch.files) {
+    if (filePatch.action === "create") {
+      continue;
+    }
+
+    const absoluteTargetPath = normalizeWorkspacePath(
+      input.workingDirectory,
+      filePatch.targetPath,
+      input.context.allowWorkspaceEscape
+    );
+    if ((await getPathKind(absoluteTargetPath)) !== "file") {
+      continue;
+    }
+
+    const readPrecondition = await requireFreshSessionRead({
+      workingDirectory: input.workingDirectory,
+      absolutePath: absoluteTargetPath,
+      sessionMessages: input.context.sessionMessages
+    });
+    if (!readPrecondition.ok) {
+      return {
+        ok: false,
+        code: readPrecondition.code,
+        path: toRelativeWorkspacePath(
+          input.workingDirectory,
+          absoluteTargetPath
+        )
+      };
+    }
+  }
+
+  return { ok: true };
+}
+
 export function createApplyPatchTool(workingDirectory: string): RuntimeTool {
   return {
     name: "apply_patch",
     description:
-      "Apply a unified diff patch to one or more workspace files after approval.",
+      "Apply a unified diff patch to one or more workspace files after approval. Existing files MUST be read with read_file in this session before modification or deletion.",
     family: "workspace-file",
     isReadOnly: false,
     hasExternalSideEffect: true,
@@ -56,7 +117,8 @@ export function createApplyPatchTool(workingDirectory: string): RuntimeTool {
       const targets = listPatchTargets(input.patch);
       return {
         summaryText: `需要你的确认后才能应用补丁：${summarizeTargetPaths(targets)}`,
-        contextNote: "补丁会按 diff 语义修改工作区文件，属于高风险写入。"
+        contextNote:
+          "补丁会按 diff 语义修改工作区文件；已有文件修改会先校验本 session 内最近一次 read_file 的文件版本。"
       };
     },
     validate(input) {
@@ -121,6 +183,19 @@ export function createApplyPatchTool(workingDirectory: string): RuntimeTool {
       }
 
       try {
+        const readPrecondition = await requirePatchFreshSessionReads({
+          workingDirectory,
+          patch: parsedPatch.value,
+          context
+        });
+        if (!readPrecondition.ok) {
+          return freshSessionReadFailureResult({
+            toolName: "apply_patch",
+            code: readPrecondition.code,
+            path: readPrecondition.path
+          });
+        }
+
         const summaries = await applyUnifiedPatch({
           workingDirectory,
           patch: parsedPatch.value,

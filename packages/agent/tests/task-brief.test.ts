@@ -21,6 +21,7 @@ describe("task brief path helpers", () => {
       workingDirectory: "/tmp/workspace",
       sessionId: "session-1",
       planModeEnabled: true,
+      firstUserMessage: null,
       lastUserMessage: "Build a jump joy web game"
     });
 

@@ -3,13 +3,19 @@ import { describe, expect, test } from "bun:test";
 import type { SessionSnapshot, SessionSummary } from "@ai-app-template/sdk";
 
 import {
+  buildSessionSettingsPatchFromUserSettings,
   buildSessionSidebarRows,
   applyStreamEventToSession,
   canInterruptSessionExecution,
+  getAutoCollapsedSessionIds,
   getSessionSidebarPageIndex,
   getVisibleSessionSidebarRows,
-  getSessionDisplayState
+  getSessionDisplayState,
+  mergeSessionSummary,
+  resolveSelectedModelId,
+  toSettingsFormState
 } from "./session-workbench-state";
+import { toSessionSummary } from "@ai-app-template/sdk";
 
 function createSessionSnapshot(): SessionSnapshot {
   return {
@@ -23,15 +29,22 @@ function createSessionSnapshot(): SessionSnapshot {
       status: "waiting_for_user_input",
       currentDateContext: "2026-04-24",
       yoloMode: false,
+      planModeEnabled: false,
+      taskBriefPath: null,
+      workspaceEscapeAllowed: false,
       shellAllowPatterns: [],
       shellDenyPatterns: [],
       toolAllowList: [],
       toolAskList: [],
       toolDenyList: [],
+      enabledCapabilityPacks: [],
+      activeBackgroundTaskCount: 0,
       pendingPermissionRequest: null,
       pendingConfirmationPayload: null,
       pendingUserQuestionPayload: null,
+      pendingBackgroundNotifications: [],
       pendingConflictSummary: null,
+      firstUserMessage: null,
       lastUserMessage: null
     },
     messages: [],
@@ -40,7 +53,8 @@ function createSessionSnapshot(): SessionSnapshot {
       turnCount: 0,
       lastError: null,
       pendingToolCallIds: [],
-      interruptRequested: false
+      interruptRequested: false,
+      historyCompactionsSinceFullCompaction: 0
     },
     inputTokensCount: 0,
     promptCacheKey: "",
@@ -70,6 +84,7 @@ function createSessionSummary(
     pendingBackgroundNotificationCount: 0,
     activeBackgroundTaskCount: 0,
     status: "waiting_for_user_input",
+    firstUserMessage: null,
     lastUserMessage: null
   };
 }
@@ -107,6 +122,67 @@ describe("canInterruptSessionExecution", () => {
         submitting: false
       })
     ).toBe(false);
+  });
+});
+
+describe("model selection state", () => {
+  test("prefers the persisted session model over current user defaults", () => {
+    const session = createSessionSnapshot();
+    session.model = "deepseek-v4-pro";
+    const settingsForm = toSettingsFormState({
+      userId: "user-1",
+      workingDirectory: "agent-workspace",
+      model: "MiniMax-M2.7",
+      yoloMode: false,
+      contextWindow: 200_000,
+      maxTurns: 50,
+      shellAllowPatterns: [],
+      shellDenyPatterns: [],
+      toolAllowList: [],
+      toolAskList: [],
+      toolDenyList: [],
+      enabledCapabilityPacks: [],
+      debugConversationView: false,
+      createdAt: "2026-04-24T00:00:00.000Z",
+      updatedAt: "2026-04-24T00:00:00.000Z"
+    });
+
+    expect(
+      resolveSelectedModelId({
+        session,
+        settingsForm
+      })
+    ).toBe("deepseek-v4-pro");
+  });
+
+  test("syncing user settings into a session does not include model", () => {
+    expect(
+      buildSessionSettingsPatchFromUserSettings({
+        userId: "user-1",
+        workingDirectory: "agent-workspace",
+        model: "deepseek-v4-pro",
+        yoloMode: true,
+        contextWindow: 123_456,
+        maxTurns: 77,
+        shellAllowPatterns: ["git *"],
+        shellDenyPatterns: ["rm *"],
+        toolAllowList: ["read_file"],
+        toolAskList: ["write_file"],
+        toolDenyList: ["delete_path"],
+        enabledCapabilityPacks: ["workspace"],
+        debugConversationView: true,
+        createdAt: "2026-04-24T00:00:00.000Z",
+        updatedAt: "2026-04-24T00:00:00.000Z"
+      })
+    ).toEqual({
+      yoloMode: true,
+      shellAllowPatterns: ["git *"],
+      shellDenyPatterns: ["rm *"],
+      toolAllowList: ["read_file"],
+      toolAskList: ["write_file"],
+      toolDenyList: ["delete_path"],
+      enabledCapabilityPacks: ["workspace"]
+    });
   });
 });
 
@@ -374,6 +450,42 @@ describe("buildSessionSidebarRows", () => {
     expect(rows[1]?.depth).toBe(1);
     expect(rows[2]?.depth).toBe(0);
   });
+
+  test("keeps a newly inserted root session first when timestamps tie", () => {
+    const existing = createSessionSnapshot();
+    existing.sessionId = "session-old";
+    existing.updatedAt = "2026-04-24T02:00:00.000Z";
+
+    const created = createSessionSnapshot();
+    created.sessionId = "session-new";
+    created.updatedAt = "2026-04-24T02:00:00.000Z";
+
+    const sessions = mergeSessionSummary(
+      [toSessionSummary(existing)],
+      created,
+      toSessionSummary
+    );
+    const rows = buildSessionSidebarRows(sessions);
+
+    expect(rows.map((row) => row.session.sessionId)).toEqual([
+      "session-new",
+      "session-old"
+    ]);
+  });
+
+  test("auto-collapses completed parent sessions with children", () => {
+    const rows = buildSessionSidebarRows([
+      {
+        ...createSessionSummary("parent", "2026-04-24T02:00:00.000Z"),
+        loopState: "completed",
+        status: "completed"
+      },
+      createSessionSummary("child", "2026-04-24T03:00:00.000Z", "parent"),
+      createSessionSummary("sibling", "2026-04-24T01:00:00.000Z")
+    ]);
+
+    expect([...getAutoCollapsedSessionIds(rows)]).toEqual(["parent"]);
+  });
 });
 
 describe("getVisibleSessionSidebarRows", () => {
@@ -415,6 +527,29 @@ describe("getVisibleSessionSidebarRows", () => {
     expect(visibleRows).toHaveLength(40);
     expect(visibleRows[0]?.session.sessionId).toBe("session-1");
     expect(visibleRows.at(-1)?.session.sessionId).toBe("session-40");
+  });
+
+  test("hides child rows when the parent session group is collapsed", () => {
+    const rows = buildSessionSidebarRows([
+      {
+        ...createSessionSummary("parent", "2026-04-24T02:00:00.000Z"),
+        loopState: "completed",
+        status: "completed"
+      },
+      createSessionSummary("child", "2026-04-24T03:00:00.000Z", "parent"),
+      createSessionSummary("sibling", "2026-04-24T01:00:00.000Z")
+    ]);
+
+    const visibleRows = getVisibleSessionSidebarRows(rows, {
+      pageCount: 1,
+      visibleCount: 20,
+      collapsedSessionIds: new Set(["parent"])
+    });
+
+    expect(visibleRows.map((row) => row.session.sessionId)).toEqual([
+      "parent",
+      "sibling"
+    ]);
   });
 });
 

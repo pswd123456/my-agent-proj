@@ -97,4 +97,80 @@ describe("session relation responses", () => {
     };
     expect(getPayload.session.parentSessionId).toBe(parent.sessionId);
   });
+
+  test("deletes a parent session together with its child sessions", async () => {
+    const sessionManager = createMemorySessionManager();
+    const backgroundTaskRepository = createMemoryBackgroundTaskRepository();
+    const routineRepository = createMemoryRoutineRepository();
+    const settingsRepository = createMemorySettingsRepository();
+    const logDir = await mkdtemp(path.join(os.tmpdir(), "api-session-rel-"));
+    const systemLogManager = new FileSystemLogManager(logDir, {
+      maxBytes: 4096,
+      maxFiles: 2
+    });
+    const apiLogger = createLogger({
+      manager: systemLogManager,
+      component: "api"
+    });
+    const deletedTraceSessionIds: string[] = [];
+    const app = createApiApp({
+      sessionManager,
+      routineRepository,
+      settingsRepository,
+      backgroundTaskRepository,
+      traceManager: {
+        async appendEvent() {},
+        async readEvents() {
+          return [];
+        },
+        async deleteEvents(sessionId: string) {
+          deletedTraceSessionIds.push(sessionId);
+        }
+      },
+      systemLogManager,
+      apiLogger,
+      buildWorkingDirectory(input) {
+        return input ?? process.cwd();
+      }
+    });
+
+    const parent = await sessionManager.createSession({
+      workingDirectory: "/tmp/parent",
+      userId: "user-a"
+    });
+    const child = await sessionManager.createSession({
+      workingDirectory: "/tmp/child",
+      userId: "user-a"
+    });
+    await backgroundTaskRepository.enqueueTask({
+      kind: "subagent",
+      parentSessionId: parent.sessionId,
+      childSessionId: child.sessionId,
+      payload: {
+        executor: "agent_session",
+        message: "Inspect the parent-child relation.",
+        workingDirectory: "/tmp/child",
+        model: "MiniMax-M2.7",
+        maxTurns: 6,
+        enabledCapabilityPacks: ["workspace"],
+        metadata: {}
+      }
+    });
+
+    const deleteResponse = await app.request(`/sessions/${parent.sessionId}`, {
+      method: "DELETE"
+    });
+
+    expect(deleteResponse.status).toBe(204);
+    expect(await sessionManager.getSession(parent.sessionId)).toBeNull();
+    expect(await sessionManager.getSession(child.sessionId)).toBeNull();
+    expect(deletedTraceSessionIds).toEqual([child.sessionId, parent.sessionId]);
+
+    const listResponse = await app.request("/sessions");
+    expect(listResponse.status).toBe(200);
+    const listPayload = (await listResponse.json()) as {
+      sessions: SessionSnapshot[];
+    };
+    expect(listPayload.sessions).toHaveLength(0);
+  });
 });

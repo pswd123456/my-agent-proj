@@ -40,6 +40,7 @@ function createSessionSnapshot(): SessionSnapshot {
       pendingConfirmationPayload: null,
       pendingUserQuestionPayload: null,
       pendingConflictSummary: null,
+      firstUserMessage: null,
       lastUserMessage: null
     },
     messages: [],
@@ -196,6 +197,38 @@ describe("session-state-manager", () => {
       "先做 CLI 还是 Web？"
     );
     expect(next.session?.sessionState.loopState).toBe("waiting for input");
+  });
+
+  test("keeps the composer locked after run_complete until final refresh finishes", () => {
+    const session = createSessionSnapshot();
+    session.context.pendingPermissionRequest = null;
+    session.context.status = "running";
+    session.sessionState.loopState = "running";
+    const base = beginSessionSubmission(createSessionUiState(session));
+    const completedSession = {
+      ...session,
+      context: {
+        ...session.context,
+        status: "completed" as const
+      },
+      sessionState: {
+        ...session.sessionState,
+        loopState: "completed" as const
+      }
+    };
+
+    const next = applyStreamEventToSessionState(base, {
+      kind: "run_complete",
+      sessionId: session.sessionId,
+      createdAt: "2026-04-26T00:00:02.000Z",
+      turnCount: 1,
+      status: "completed",
+      stopReason: "end_turn",
+      session: completedSession
+    });
+
+    expect(next.submitting).toBe(true);
+    expect(next.session).toBe(completedSession);
   });
 
   test("restores the previous interrupt flag when interrupt fails", () => {

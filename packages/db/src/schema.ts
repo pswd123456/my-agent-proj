@@ -154,6 +154,7 @@ export const agentSessions = pgTable(
       "full_compaction_state"
     ).$type<SessionFullCompactionState | null>(),
     pendingConflictSummary: text("pending_conflict_summary"),
+    firstUserMessage: text("first_user_message"),
     lastUserMessage: text("last_user_message"),
     workingDirectory: text("working_directory").notNull(),
     model: text("model").notNull(),

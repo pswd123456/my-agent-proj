@@ -5,6 +5,7 @@ import type {
   TraceRecord
 } from "@ai-app-template/agent";
 import type {
+  SettingsPermissionToolOption,
   RoutineRecord,
   SessionSettingsRecord
 } from "@ai-app-template/domain";
@@ -42,6 +43,7 @@ export interface SessionSummary {
   pendingBackgroundNotificationCount: number;
   activeBackgroundTaskCount: number;
   status: SessionSnapshot["context"]["status"];
+  firstUserMessage: string | null;
   lastUserMessage: string | null;
 }
 
@@ -103,6 +105,11 @@ export interface UpdateUserSettingsPayload {
   toolDenyList?: string[];
   enabledCapabilityPacks?: string[];
   debugConversationView?: boolean;
+}
+
+export interface UserSettingsPayload {
+  settings: SessionSettingsRecord;
+  permissionTools: SettingsPermissionToolOption[];
 }
 
 export interface ListSessionRoutinesResult {
@@ -203,6 +210,19 @@ function appendCacheBust(url: string): string {
   return `${url}${separator}_ts=${Date.now()}`;
 }
 
+function getFirstUserMessage(session: SessionSnapshot): string | null {
+  if (session.context.firstUserMessage) {
+    return session.context.firstUserMessage;
+  }
+
+  const firstUserBlock = session.messages.find(
+    (block): block is Extract<SessionSnapshot["messages"][number], { kind: "user" }> =>
+      block.kind === "user" && block.content.trim().length > 0
+  );
+
+  return firstUserBlock?.content ?? null;
+}
+
 function toSessionSummary(session: SessionSnapshot): SessionSummary {
   return {
     sessionId: session.sessionId,
@@ -222,6 +242,7 @@ function toSessionSummary(session: SessionSnapshot): SessionSummary {
       session.context.pendingBackgroundNotifications.length,
     activeBackgroundTaskCount: session.context.activeBackgroundTaskCount,
     status: session.context.status,
+    firstUserMessage: getFirstUserMessage(session),
     lastUserMessage: session.context.lastUserMessage
   };
 }
@@ -384,25 +405,27 @@ export class ApiClient {
     return payload.session;
   }
 
-  async getUserSettings(userId: string): Promise<SessionSettingsRecord> {
+  async getUserSettingsPayload(userId: string): Promise<UserSettingsPayload> {
     const response = await this.fetchImpl(
       appendCacheBust(buildUrl(this.baseUrl, `/users/${userId}/settings`)),
       {
         cache: "no-store"
       }
     );
-    const payload = (await ensureOk(response).then((result) =>
+    return (await ensureOk(response).then((result) =>
       result.json()
-    )) as {
-      settings: SessionSettingsRecord;
-    };
+    )) as UserSettingsPayload;
+  }
+
+  async getUserSettings(userId: string): Promise<SessionSettingsRecord> {
+    const payload = await this.getUserSettingsPayload(userId);
     return payload.settings;
   }
 
-  async updateUserSettings(
+  async updateUserSettingsPayload(
     userId: string,
     input: UpdateUserSettingsPayload
-  ): Promise<SessionSettingsRecord> {
+  ): Promise<UserSettingsPayload> {
     const response = await this.fetchImpl(
       buildUrl(this.baseUrl, `/users/${userId}/settings`),
       {
@@ -411,11 +434,16 @@ export class ApiClient {
         body: JSON.stringify(input)
       }
     );
-    const payload = (await ensureOk(response).then((result) =>
+    return (await ensureOk(response).then((result) =>
       result.json()
-    )) as {
-      settings: SessionSettingsRecord;
-    };
+    )) as UserSettingsPayload;
+  }
+
+  async updateUserSettings(
+    userId: string,
+    input: UpdateUserSettingsPayload
+  ): Promise<SessionSettingsRecord> {
+    const payload = await this.updateUserSettingsPayload(userId, input);
     return payload.settings;
   }
 

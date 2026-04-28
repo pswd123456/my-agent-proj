@@ -496,6 +496,7 @@ export async function runSessionLoop(input: {
         buildUserBlockContent(input.message)
       );
       session = await input.sessionManager.updateContext(session.sessionId, {
+        firstUserMessage: session.context.firstUserMessage ?? input.message,
         lastUserMessage: input.message,
         status: "running"
       });

@@ -26,7 +26,7 @@ export type ExecuteToolActionResult =
     };
 
 function isYoloAutoAllowTool(
-  tool: ReturnType<ToolRegistry["get"]>,
+  tool: NonNullable<ReturnType<ToolRegistry["get"]>>,
   session: SessionSnapshot
 ): boolean {
   return (
@@ -41,7 +41,7 @@ function createToolExecutionContext(input: {
   routineRepository: RoutineRepository;
   sessionManager: SessionManager;
   delegateAgentService?: DelegateAgentService;
-  tool: ReturnType<ToolRegistry["get"]>;
+  tool: NonNullable<ReturnType<ToolRegistry["get"]>>;
   abortSignal?: AbortSignal;
   allowWorkspaceEscape?: boolean;
 }): ToolExecutionContext {

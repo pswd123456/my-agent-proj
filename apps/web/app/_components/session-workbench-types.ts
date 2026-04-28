@@ -1,7 +1,4 @@
-import {
-  CAPABILITY_PACK_OPTIONS,
-  SETTINGS_PERMISSION_TOOL_OPTIONS
-} from "@ai-app-template/sdk";
+import { CAPABILITY_PACK_OPTIONS } from "@ai-app-template/sdk";
 
 export const inspectorTabs = [
   { id: "prompt", label: "Prompt" },
@@ -49,35 +46,4 @@ export interface SettingsFormState {
   debugConversationView: boolean;
 }
 
-export const permissionToolOptions = SETTINGS_PERMISSION_TOOL_OPTIONS;
 export const capabilityPackOptions = CAPABILITY_PACK_OPTIONS;
-
-export const schedulePermissionTools = new Set([
-  "create_routine",
-  "edit_routine",
-  "delete_routine",
-  "search_routine_by_oclock",
-  "list_routine_by_week",
-  "list_routine_by_date",
-  "ask_for_confirmation"
-]);
-
-export const workspacePermissionTools = new Set([
-  "apply_patch",
-  "read_file",
-  "list_directory",
-  "find_files",
-  "search_text",
-  "create_directory",
-  "write_file",
-  "copy_path",
-  "move_path",
-  "delete_path",
-  "git_status",
-  "git_diff",
-  "git_diff_cached"
-]);
-
-export function isYoloPinnedPermissionTool(toolName: string): boolean {
-  return toolName !== "run_shell_command" && toolName !== "make_http_request";
-}

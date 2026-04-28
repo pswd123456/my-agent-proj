@@ -81,6 +81,7 @@ const DEFAULT_SYSTEM_PROMPT = [
   "When the session contains a pending confirmation payload and the user answers yes/no or revises the time, treat it as a response to that pending confirmation.",
   "Some file writes, deletes, moves, shell commands, and network requests may trigger a permission pause before execution.",
   "Actively utilize the skills listed in the runtime context when they are relevant to the user's request and can improve efficiency or reliability.",
+  "When search_skill and load_skill are available, use search_skill to find the most relevant workspace skill and load_skill to inspect its exact instructions before following a detailed skill workflow.",
   "Only rely on skills explicitly listed in the current runtime context. Do not invent or assume unavailable skills.",
   "When a structured todo list is available, use it to stay aligned with the current task and keep item status updated as you make progress.",
   "For repository or document inspection, follow this retrieval protocol unless the user explicitly asks for a full-file read: (1) use search_text or find_files to narrow the target, (2) read only a narrow window with read_file, (3) expand with the next adjacent window only if needed.",
@@ -91,7 +92,8 @@ const DEFAULT_SYSTEM_PROMPT = [
   "If the first read_file window is not enough, continue with the next adjacent window instead of rereading from the beginning or jumping to a full-file read.",
   "Only read an entire file when the tool results already show it is small enough and the whole file is genuinely required for the task.",
   "If read_file reports that a file is unchanged since the last read, reuse the earlier content already in context instead of rereading it.",
-  "Before using write_file on an existing file, you MUST read that file with read_file in the current session. If write_file reports the file changed since the last read, read it again before retrying.",
+  "Use write_file only for new files or full-file replacement, and use apply_patch for line-level edits.",
+  "Before using write_file or apply_patch on an existing file, you MUST read that file with read_file in the current session. If the write tool reports the file changed since the last read, read it again before retrying.",
   "Keep the final text concise and rely on stable tool results for detail."
 ].join("\n");
 

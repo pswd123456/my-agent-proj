@@ -4,7 +4,7 @@
 
 工作区级 agent 配置统一来自当前 `session.workingDirectory` 下的 `.agent/` 目录，`apps/api` 和 `apps/worker` 都会读取同一份工作区输入，但不同子路径承担不同职责：
 
-- `.agent/skills/`：给 runtime 提供 workspace skill metadata
+- `.agent/skills/`：给 runtime 提供 workspace skill metadata，并作为 `search_skill` / `load_skill` 的只读来源
 - `.agent/.config.toml`：给 runtime 提供 workspace MCP server 配置
 - `.agent/plans/`：承载 session 级 task brief artifact
 
@@ -17,8 +17,9 @@
 ## `.agent/skills/`
 
 - runtime 每次执行前扫描 `workingDirectory/.agent/skills/`
-- 当前只读取 skill metadata，不执行 skill 文件中的脚本
-- skill 列表进入 prompt 的 `runtimeContextMessages`
+- 发现到的 skill metadata 会进入 prompt 的 `runtimeContextMessages`
+- runtime 同时暴露 `search_skill` / `load_skill`，让模型按需检索和读取具体 `SKILL.md`
+- runtime 不执行 skill 文件中的脚本
 
 更细规则见 `docs/plan/stage3.md` 和 `packages/agent/src/skills/`
 

@@ -1,0 +1,335 @@
+import { promises as fs } from "node:fs";
+
+import { z } from "zod";
+
+import type { SkillDescriptor } from "../skills/index.js";
+import { discoverWorkspaceSkills } from "../skills/index.js";
+import { normalizeWorkspacePath } from "./workspace.js";
+import {
+  createToolResult,
+  failureResult,
+  successResult,
+  validateWithSchema
+} from "./tool-result.js";
+import type { RuntimeTool } from "./runtime-tool.js";
+
+const MAX_SKILL_CHARACTERS = 25_000;
+
+const schema = z
+  .object({
+    skillName: z.string().trim().min(1).optional(),
+    path: z.string().trim().min(1).optional(),
+    offset: z.number().int().min(0).optional(),
+    limit: z.number().int().positive().optional(),
+    startLine: z.number().int().positive().optional(),
+    endLine: z.number().int().positive().optional()
+  })
+  .superRefine((value, context) => {
+    if (!value.skillName && !value.path) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["skillName"],
+        message: "Provide skillName or path."
+      });
+    }
+
+    if (
+      typeof value.startLine === "number" &&
+      typeof value.endLine === "number" &&
+      value.endLine < value.startLine
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["endLine"],
+        message: "endLine must be greater than or equal to startLine."
+      });
+    }
+  });
+
+interface ReadWindowRequest {
+  startLine: number;
+  endLine: number | null;
+}
+
+function toSkillJson(skill: SkillDescriptor): Record<string, string> {
+  return {
+    name: skill.name,
+    description: skill.description,
+    relativePath: skill.relativePath
+  };
+}
+
+function toDiagnosticJson(diagnostic: {
+  relativePath: string;
+  reason: string;
+  message: string;
+}): Record<string, string> {
+  return {
+    relativePath: diagnostic.relativePath,
+    reason: diagnostic.reason,
+    message: diagnostic.message
+  };
+}
+
+function normalizeReadWindowRequest(
+  input: z.infer<typeof schema>
+): ReadWindowRequest {
+  if (typeof input.offset === "number" || typeof input.limit === "number") {
+    const offset = input.offset ?? 0;
+    const limit = input.limit ?? null;
+    return {
+      startLine: offset + 1,
+      endLine: limit === null ? null : offset + limit
+    };
+  }
+
+  return {
+    startLine: input.startLine ?? 1,
+    endLine: input.endLine ?? null
+  };
+}
+
+function splitLines(content: string): string[] {
+  if (content.length === 0) {
+    return [];
+  }
+
+  return content.replace(/\r\n/g, "\n").replace(/\n$/, "").split("\n");
+}
+
+function readLineRange(input: {
+  content: string;
+  startLine: number;
+  endLine: number | null;
+  maxCharacters: number;
+}): {
+  content: string;
+  startLine: number;
+  endLine: number;
+  totalLines: number;
+  truncated: boolean;
+} {
+  const lines = splitLines(input.content);
+  const totalLines = lines.length;
+  const normalizedEndLine = input.endLine ?? totalLines;
+  const selectedLines = lines.slice(input.startLine - 1, normalizedEndLine);
+  const selectedContent = selectedLines.join("\n");
+
+  if (selectedContent.length <= input.maxCharacters) {
+    return {
+      content: selectedContent,
+      startLine: input.startLine,
+      endLine: Math.min(normalizedEndLine, totalLines),
+      totalLines,
+      truncated: false
+    };
+  }
+
+  return {
+    content: selectedContent.slice(0, input.maxCharacters),
+    startLine: input.startLine,
+    endLine: Math.min(normalizedEndLine, totalLines),
+    totalLines,
+    truncated: true
+  };
+}
+
+function resolveRequestedSkill(
+  skills: SkillDescriptor[],
+  input: z.infer<typeof schema>
+): SkillDescriptor | null {
+  const normalizedName = input.skillName?.toLowerCase() ?? null;
+  const normalizedPath = input.path?.toLowerCase() ?? null;
+
+  if (input.skillName) {
+    const exact = skills.find((skill) => skill.name === input.skillName);
+    if (exact) {
+      return exact;
+    }
+
+    const caseInsensitive = skills.filter(
+      (skill) => skill.name.toLowerCase() === normalizedName
+    );
+    if (caseInsensitive.length === 1) {
+      return caseInsensitive[0] ?? null;
+    }
+  }
+
+  if (input.path) {
+    const exact = skills.find((skill) => skill.relativePath === input.path);
+    if (exact) {
+      return exact;
+    }
+
+    const caseInsensitive = skills.filter(
+      (skill) => skill.relativePath.toLowerCase() === normalizedPath
+    );
+    if (caseInsensitive.length === 1) {
+      return caseInsensitive[0] ?? null;
+    }
+  }
+
+  return null;
+}
+
+function formatSuccessDisplayText(input: {
+  name: string;
+  path: string;
+  startLine: number;
+  endLine: number;
+  totalLines: number;
+  truncated: boolean;
+}): string {
+  return [
+    "[load_skill] success",
+    `- name: ${input.name}`,
+    `- path: ${input.path}`,
+    `- lines: ${input.startLine}-${input.endLine}`,
+    `- total lines: ${input.totalLines}`,
+    `- truncated: ${input.truncated ? "yes" : "no"}`
+  ].join("\n");
+}
+
+function formatFailureDisplayText(input: {
+  skillName: string | undefined;
+  path: string | undefined;
+  reason: string;
+}): string {
+  return [
+    "[load_skill] failed",
+    `- skillName: ${input.skillName ?? "none"}`,
+    `- path: ${input.path ?? "none"}`,
+    `- reason: ${input.reason}`
+  ].join("\n");
+}
+
+export function createLoadSkillTool(workingDirectory: string): RuntimeTool {
+  return {
+    name: "load_skill",
+    description:
+      "Load a workspace skill file from .agent/skills by skill name or relative path. Use this after search_skill when you need the exact skill instructions.",
+    family: "workspace-file",
+    isReadOnly: true,
+    hasExternalSideEffect: false,
+    permissionProfile: "allow",
+    sandboxProfile: "workspace-rooted",
+    inputSchema: {
+      type: "object",
+      properties: {
+        skillName: {
+          type: "string",
+          description:
+            "Optional exact skill name from the runtime skill list or search_skill results."
+        },
+        path: {
+          type: "string",
+          description:
+            "Optional exact relativePath from search_skill results, for example '.agent/skills/repo-reader/SKILL.md'."
+        },
+        offset: { type: "number" },
+        limit: { type: "number" },
+        startLine: { type: "number" },
+        endLine: { type: "number" }
+      },
+      additionalProperties: false
+    },
+    getSandboxTargets(input) {
+      return [
+        typeof input.path === "string" && input.path.trim().length > 0
+          ? input.path.trim()
+          : ".agent/skills"
+      ];
+    },
+    validate(input) {
+      return validateWithSchema(schema, input);
+    },
+    async execute(input, context) {
+      const parsed = schema.parse(input);
+      const discovery = await discoverWorkspaceSkills(workingDirectory);
+      const skill = resolveRequestedSkill(discovery.skills, parsed);
+
+      if (!skill) {
+        return failureResult(
+          createToolResult({
+            ok: false,
+            code: "SKILL_NOT_FOUND",
+            message:
+              "No loaded workspace skill matched the requested name or path.",
+            data: {
+              requestedSkillName: parsed.skillName ?? null,
+              requestedPath: parsed.path ?? null,
+              availableSkills: discovery.skills.map((item) => ({
+                name: item.name,
+                relativePath: item.relativePath
+              })),
+              diagnostics: discovery.diagnostics.map(toDiagnosticJson)
+            }
+          }),
+          formatFailureDisplayText({
+            skillName: parsed.skillName,
+            path: parsed.path,
+            reason: "skill not found"
+          })
+        );
+      }
+
+      try {
+        const absolutePath = normalizeWorkspacePath(
+          workingDirectory,
+          skill.relativePath,
+          context.allowWorkspaceEscape
+        );
+        const content = await fs.readFile(absolutePath, "utf8");
+        const range = readLineRange({
+          content,
+          startLine: normalizeReadWindowRequest(parsed).startLine,
+          endLine: normalizeReadWindowRequest(parsed).endLine,
+          maxCharacters: MAX_SKILL_CHARACTERS
+        });
+
+        return successResult(
+          createToolResult({
+            ok: true,
+            code: "LOAD_SKILL_OK",
+            message: "Loaded the requested workspace skill.",
+            data: {
+              skill: toSkillJson(skill),
+              content: range.content,
+              startLine: range.startLine,
+              endLine: range.endLine,
+              totalLines: range.totalLines,
+              truncated: range.truncated
+            }
+          }),
+          formatSuccessDisplayText({
+            name: skill.name,
+            path: skill.relativePath,
+            startLine: range.startLine,
+            endLine: range.endLine,
+            totalLines: range.totalLines,
+            truncated: range.truncated
+          })
+        );
+      } catch (error) {
+        return failureResult(
+          createToolResult({
+            ok: false,
+            code: "SKILL_READ_FAILED",
+            message:
+              error instanceof Error
+                ? error.message
+                : "Failed to read the requested workspace skill.",
+            data: {
+              skill: toSkillJson(skill)
+            }
+          }),
+          formatFailureDisplayText({
+            skillName: skill.name,
+            path: skill.relativePath,
+            reason: "read failed"
+          })
+        );
+      }
+    }
+  };
+}

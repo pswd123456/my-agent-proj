@@ -92,6 +92,13 @@
       "when": 1777856400000,
       "tag": "0012_background_task_available_at",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1777334400000,
+      "tag": "0013_session_first_user_message",
+      "breakpoints": true
     }
   ]
 }

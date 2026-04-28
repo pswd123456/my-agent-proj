@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { SessionSummary } from "@ai-app-template/sdk";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -11,6 +12,7 @@ import {
   getSidebarStateBadgeClass,
   formatContextWindowUsage,
   getWorkbenchSwitchState,
+  SessionWorkbenchSidebar,
   stringifyPromptDebugValue,
   WorkbenchSwitch
 } from "./session-workbench-shared";
@@ -28,6 +30,100 @@ describe("sidebar state tone", () => {
     expect(warningBadge).toContain("app-status-warning");
     expect(activeBadge).not.toContain("border-[");
     expect(activeBadge).not.toContain("bg-[");
+  });
+});
+
+describe("session sidebar prompt preview", () => {
+  function createSessionSummary(
+    firstUserMessage: string | null
+  ): SessionSummary {
+    return {
+      sessionId: "session-1",
+      parentSessionId: null,
+      updatedAt: "2026-04-28T00:00:00.000Z",
+      workingDirectory: "/tmp/workspace",
+      yoloMode: false,
+      model: "MiniMax-M2.7",
+      loopState: "waiting for input",
+      turnCount: 1,
+      pendingToolCallIds: [],
+      interruptRequested: false,
+      pendingPermission: false,
+      pendingConfirmation: false,
+      pendingUserQuestion: false,
+      pendingBackgroundNotificationCount: 0,
+      activeBackgroundTaskCount: 0,
+      status: "waiting_for_user_input",
+      firstUserMessage,
+      lastUserMessage: firstUserMessage
+    };
+  }
+
+  test("renders a truncated first user prompt in the sidebar row", () => {
+    const markup = renderToStaticMarkup(
+      createElement(SessionWorkbenchSidebar, {
+        sessions: [createSessionSummary("请帮我检查 runtime 的循环退出条件")],
+        selectedSessionId: "session-1",
+        activeSidebarPanel: null,
+        collapsed: false,
+        deletingSessionId: null,
+        loading: false,
+        creatingSession: false,
+        onCreateSession: () => {},
+        onSelectSession: () => {},
+        onDeleteSession: () => {},
+        onToggleSidebarPanel: () => {}
+      })
+    );
+
+    expect(markup).toContain("请帮我检查 runtim...");
+    expect(markup).toContain('title="请帮我检查 runtime 的循环退出条件"');
+  });
+
+  test("falls back to a new-session label when no prompt exists yet", () => {
+    const markup = renderToStaticMarkup(
+      createElement(SessionWorkbenchSidebar, {
+        sessions: [createSessionSummary(null)],
+        selectedSessionId: "session-1",
+        activeSidebarPanel: null,
+        collapsed: false,
+        deletingSessionId: null,
+        loading: false,
+        creatingSession: false,
+        onCreateSession: () => {},
+        onSelectSession: () => {},
+        onDeleteSession: () => {},
+        onToggleSidebarPanel: () => {}
+      })
+    );
+
+    expect(markup).toContain("新会话");
+  });
+
+  test("shows the persisted model label in the sidebar row", () => {
+    const markup = renderToStaticMarkup(
+      createElement(SessionWorkbenchSidebar, {
+        sessions: [
+          {
+            ...createSessionSummary("请帮我检查 runtime 的循环退出条件"),
+            model: "MiniMax-M2.7"
+          }
+        ],
+        selectedSessionId: "session-1",
+        activeSidebarPanel: null,
+        collapsed: false,
+        deletingSessionId: null,
+        loading: false,
+        creatingSession: false,
+        onCreateSession: () => {},
+        onSelectSession: () => {},
+        onDeleteSession: () => {},
+        onToggleSidebarPanel: () => {}
+      })
+    );
+
+    expect(markup).toContain("MiniMax-M2.7");
+    expect(markup).not.toContain("yolo on");
   });
 });
 

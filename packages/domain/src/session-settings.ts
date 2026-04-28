@@ -53,9 +53,17 @@ export interface SessionSettingsInput {
 }
 
 export function resolveSessionSettingsDefaults(
-  userId = DEFAULT_SESSION_SETTINGS_USER_ID
+  userId = DEFAULT_SESSION_SETTINGS_USER_ID,
+  options?: {
+    settingsPermissionToolOptions?: readonly string[];
+  }
 ): SessionSettingsRecord {
   const timestamp = new Date().toISOString();
+  const toolAskList = [
+    ...new Set(
+      options?.settingsPermissionToolOptions ?? SETTINGS_PERMISSION_TOOL_OPTIONS
+    )
+  ];
   return {
     userId,
     workingDirectory: DEFAULT_SESSION_WORKING_DIRECTORY,
@@ -66,7 +74,7 @@ export function resolveSessionSettingsDefaults(
     shellAllowPatterns: [],
     shellDenyPatterns: [],
     toolAllowList: [],
-    toolAskList: [...SETTINGS_PERMISSION_TOOL_OPTIONS],
+    toolAskList,
     toolDenyList: [],
     enabledCapabilityPacks: [...DEFAULT_CAPABILITY_PACKS],
     debugConversationView: false,
@@ -97,9 +105,10 @@ export function normalizeSessionPermissionRules(
 }
 
 export function normalizeSettingsPermissionRules(
-  input?: PermissionRuleInput | null
+  input?: PermissionRuleInput | null,
+  allowedToolNames?: readonly string[]
 ): PermissionRuleLists {
-  return normalizeSettingsPermissionRuleLists(input);
+  return normalizeSettingsPermissionRuleLists(input, allowedToolNames);
 }
 
 export function sanitizeContextWindow(value: number | undefined): number {

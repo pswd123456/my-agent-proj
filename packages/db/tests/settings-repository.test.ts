@@ -29,6 +29,25 @@ describe("MemorySettingsRepository", () => {
     expect(settings.debugConversationView).toBe(false);
   });
 
+  test("uses injected settings permission tools for defaults and normalization", async () => {
+    const repository = createMemorySettingsRepository({
+      settingsPermissionToolOptions: ["read_file", "new_tool"]
+    });
+
+    const seeded = await repository.getOrCreate("user-dynamic");
+    expect(seeded.toolAskList).toEqual(["read_file", "new_tool"]);
+
+    const updated = await repository.update("user-dynamic", {
+      toolAllowList: ["read_file", "new_tool", "write_file"],
+      toolAskList: ["new_tool"],
+      toolDenyList: ["write_file"]
+    });
+
+    expect(updated.toolAllowList).toEqual(["read_file", "new_tool"]);
+    expect(updated.toolAskList).toEqual([]);
+    expect(updated.toolDenyList).toEqual([]);
+  });
+
   test("updates one user's settings without affecting another user", async () => {
     const repository = createMemorySettingsRepository();
 

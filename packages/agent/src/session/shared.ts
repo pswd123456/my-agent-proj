@@ -40,6 +40,7 @@ export function createSnapshot(input: {
   yoloMode?: boolean;
   planModeEnabled?: boolean;
   taskBriefPath?: string | null;
+  firstUserMessage?: string | null;
   lastUserMessage?: string | null;
   workspaceEscapeAllowed?: boolean;
   contextWindow?: number;
@@ -61,6 +62,10 @@ export function createSnapshot(input: {
       : {}),
     ...(typeof input.taskBriefPath === "string" || input.taskBriefPath === null
       ? { taskBriefPath: input.taskBriefPath }
+      : {}),
+    ...(typeof input.firstUserMessage === "string" ||
+    input.firstUserMessage === null
+      ? { firstUserMessage: input.firstUserMessage }
       : {}),
     ...(typeof input.lastUserMessage === "string" ||
     input.lastUserMessage === null
@@ -105,6 +110,10 @@ export function createSnapshot(input: {
         ...(typeof contextInput.taskBriefPath === "string" ||
         contextInput.taskBriefPath === null
           ? { taskBriefPath: contextInput.taskBriefPath }
+          : {}),
+        ...(typeof contextInput.firstUserMessage === "string" ||
+        contextInput.firstUserMessage === null
+          ? { firstUserMessage: contextInput.firstUserMessage }
           : {}),
         ...(typeof contextInput.lastUserMessage === "string" ||
         contextInput.lastUserMessage === null
@@ -156,7 +165,10 @@ export function cloneSnapshot(snapshot: SessionSnapshot): SessionSnapshot {
         ? structuredClone(cloned.context.pendingBackgroundNotifications)
         : [],
       todoState: normalizeTodoState(cloned.context.todoState),
-      fullCompactionState: cloned.context.fullCompactionState ?? null
+      fullCompactionState: cloned.context.fullCompactionState ?? null,
+      pendingConflictSummary: cloned.context.pendingConflictSummary ?? null,
+      firstUserMessage: cloned.context.firstUserMessage ?? null,
+      lastUserMessage: cloned.context.lastUserMessage ?? null
     },
     sessionState: {
       ...cloned.sessionState,
@@ -180,6 +192,7 @@ export function createScheduleSessionContext(
     yoloMode?: boolean;
     planModeEnabled?: boolean;
     taskBriefPath?: string | null;
+    firstUserMessage?: string | null;
     lastUserMessage?: string | null;
     workspaceEscapeAllowed?: boolean;
     shellAllowPatterns?: string[];
@@ -224,6 +237,7 @@ export function createScheduleSessionContext(
     todoState: null,
     fullCompactionState: null,
     pendingConflictSummary: null,
+    firstUserMessage: input.firstUserMessage ?? null,
     lastUserMessage: input.lastUserMessage ?? null
   };
 }
@@ -394,6 +408,9 @@ export function isSessionSnapshot(value: unknown): value is SessionSnapshot {
       value.context,
       "pendingConflictSummary"
     ) &&
+    (typeof value.context.firstUserMessage === "string" ||
+      value.context.firstUserMessage === null ||
+      typeof value.context.firstUserMessage === "undefined") &&
     Object.prototype.hasOwnProperty.call(value.context, "lastUserMessage") &&
     Array.isArray(value.messages) &&
     value.messages.every(isConversationBlock) &&

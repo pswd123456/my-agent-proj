@@ -5,6 +5,7 @@ import { PERMISSION_TOOL_OPTIONS } from "@ai-app-template/domain";
 
 import {
   createDefaultToolRegistry,
+  listSettingsPermissionToolOptions,
   ToolRegistry,
   createWorkspaceToolRegistry
 } from "../src/tools/registry.js";
@@ -26,10 +27,12 @@ describe("ToolRegistry stage4 metadata contract", () => {
       "git_diff_cached",
       "git_status",
       "list_directory",
+      "load_skill",
       "make_http_request",
       "move_path",
       "read_file",
       "run_shell_command",
+      "search_skill",
       "search_text",
       "write_file"
     ]);
@@ -68,6 +71,32 @@ describe("ToolRegistry stage4 metadata contract", () => {
     );
   });
 
+  test("derives settings permission tools from the runtime registry surface", () => {
+    const options = listSettingsPermissionToolOptions({
+      workingDirectory: "/tmp/workspace",
+      routineRepository: createMemoryRoutineRepository()
+    });
+
+    expect(options.map((tool) => tool.name)).toEqual(
+      registryNamesWithoutShellOrNetwork()
+    );
+    expect(options.find((tool) => tool.name === "read_file")).toEqual({
+      name: "read_file",
+      family: "workspace-file",
+      capabilityPack: "workspace"
+    });
+    expect(options.find((tool) => tool.name === "create_routine")).toEqual({
+      name: "create_routine",
+      family: "schedule",
+      capabilityPack: "schedule"
+    });
+    expect(options.find((tool) => tool.name === "delegate_agent")).toEqual({
+      name: "delegate_agent",
+      family: "delegation",
+      capabilityPack: null
+    });
+  });
+
   test("rejects destructive tools that skip permission inspection metadata", () => {
     const registry = new ToolRegistry();
     const badTool = {
@@ -95,3 +124,16 @@ describe("ToolRegistry stage4 metadata contract", () => {
     );
   });
 });
+
+function registryNamesWithoutShellOrNetwork(): string[] {
+  return createDefaultToolRegistry({
+    workingDirectory: "/tmp/workspace",
+    routineRepository: createMemoryRoutineRepository()
+  })
+    .list()
+    .filter(
+      (tool) =>
+        tool.family !== "workspace-shell" && tool.family !== "workspace-network"
+    )
+    .map((tool) => tool.name);
+}

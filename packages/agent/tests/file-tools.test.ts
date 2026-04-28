@@ -534,89 +534,23 @@ describe("read_file", () => {
 });
 
 describe("write_file", () => {
-  test("replaces an inclusive line range after reading the file in the session", async () => {
+  test("rejects line edit fields", async () => {
     const workspace = await createWorkspace();
-    const targetPath = path.join(workspace, "notes.txt");
-    await writeFile(targetPath, "one\ntwo\nthree\nfour\n");
-    const sessionMessages = await createReadMessages({
-      workspace,
-      toolInput: { path: "notes.txt", startLine: 2, endLine: 3 }
-    });
 
     const result = await createWriteFileTool(workspace).execute(
       {
         path: "notes.txt",
         mode: "edit_lines",
-        startLine: 2,
-        endLine: 3,
-        content: "TWO\nTHREE"
-      },
-      createContext(workspace, { sessionMessages })
-    );
-
-    expect(result.state).toBe("success");
-    expect(result.result.data).toMatchObject({
-      path: "notes.txt",
-      startLine: 2,
-      endLine: 3,
-      replacedLineCount: 2,
-      newLineCount: 2,
-      diff: [
-        "--- notes.txt",
-        "+++ notes.txt",
-        "@@ -2,2 +2,2 @@",
-        "- two",
-        "- three",
-        "+ TWO",
-        "+ THREE"
-      ].join("\n")
-    });
-    expect(result.details).toEqual({
-      kind: "workspace_file_changes",
-      files: [
-        {
-          path: "notes.txt",
-          action: "modify",
-          addedLineCount: 2,
-          removedLineCount: 2,
-          diff: [
-            "--- notes.txt",
-            "+++ notes.txt",
-            "@@ -2,2 +2,2 @@",
-            "- two",
-            "- three",
-            "+ TWO",
-            "+ THREE"
-          ].join("\n")
-        }
-      ]
-    });
-    await expect(readFile(targetPath, "utf8")).resolves.toBe(
-      "one\nTWO\nTHREE\nfour\n"
-    );
-  });
-
-  test("rejects ranges outside the file", async () => {
-    const workspace = await createWorkspace();
-    await writeFile(path.join(workspace, "notes.txt"), "one\ntwo\n");
-    const sessionMessages = await createReadMessages({
-      workspace,
-      toolInput: { path: "notes.txt" }
-    });
-
-    const result = await createWriteFileTool(workspace).execute(
-      {
-        path: "notes.txt",
-        mode: "edit_lines",
-        startLine: 2,
-        endLine: 3,
+        startLine: 1,
+        endLine: 1,
         content: "replacement"
       },
-      createContext(workspace, { sessionMessages })
+      createContext(workspace)
     );
 
     expect(result.state).toBe("failed");
-    expect(result.result.code).toBe("LINE_RANGE_OUT_OF_BOUNDS");
+    expect(result.result.code).toBe("INVALID_TOOL_INPUT");
+    expect(result.content).toContain("Use apply_patch for line edits.");
   });
 
   test("declares a destructive permission request for existing files", async () => {
@@ -626,10 +560,7 @@ describe("write_file", () => {
     const request = await createWriteFileTool(workspace).getPermissionRequest?.(
       {
         path: "notes.txt",
-        mode: "edit_lines",
-        startLine: 1,
-        endLine: 1,
-        content: "two"
+        content: "two\n"
       },
       createContext(workspace)
     );
@@ -720,53 +651,6 @@ describe("write_file", () => {
 
     expect(freshResult.state).toBe("success");
     await expect(readFile(targetPath, "utf8")).resolves.toBe("new content\n");
-  });
-
-  test("fails line edits without a session read", async () => {
-    const workspace = await createWorkspace();
-    const targetPath = path.join(workspace, "notes.txt");
-    await writeFile(targetPath, "one\ntwo\n");
-
-    const result = await createWriteFileTool(workspace).execute(
-      {
-        path: "notes.txt",
-        mode: "edit_lines",
-        startLine: 1,
-        endLine: 1,
-        content: "ONE"
-      },
-      createContext(workspace)
-    );
-
-    expect(result.state).toBe("failed");
-    expect(result.result.code).toBe("FILE_WRITE_REQUIRES_READ");
-    await expect(readFile(targetPath, "utf8")).resolves.toBe("one\ntwo\n");
-  });
-
-  test("fails line edits when the file changed after the previous session read", async () => {
-    const workspace = await createWorkspace();
-    const targetPath = path.join(workspace, "notes.txt");
-    await writeFile(targetPath, "one\ntwo\n");
-    const sessionMessages = await createReadMessages({
-      workspace,
-      toolInput: { path: "notes.txt" }
-    });
-    await writeFile(targetPath, "one\nTWO\n");
-
-    const result = await createWriteFileTool(workspace).execute(
-      {
-        path: "notes.txt",
-        mode: "edit_lines",
-        startLine: 1,
-        endLine: 1,
-        content: "ONE"
-      },
-      createContext(workspace, { sessionMessages })
-    );
-
-    expect(result.state).toBe("failed");
-    expect(result.result.code).toBe("FILE_CHANGED_SINCE_READ");
-    await expect(readFile(targetPath, "utf8")).resolves.toBe("one\nTWO\n");
   });
 
   test("fails write_file when the parent directory is missing", async () => {

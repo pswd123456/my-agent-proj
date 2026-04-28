@@ -53,12 +53,10 @@ export function buildConversationScrollSnapshot(
   const latestItem = timelineItems.at(-1) ?? null;
   const latestTurnStartKey =
     [...timelineItems].reverse().find(isTurnStartItem)?.key ?? null;
-  const latestTurnAnchorKey =
-    latestItem?.type === "pending-user" ? latestItem.key : latestTurnStartKey;
 
   return {
     latestItemKey: latestItem?.key ?? null,
-    latestTurnAnchorKey,
+    latestTurnAnchorKey: latestTurnStartKey,
     latestTurnStartKey
   };
 }

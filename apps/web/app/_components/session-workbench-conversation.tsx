@@ -42,6 +42,7 @@ import {
   formatTokenCount,
   formatWorkingDirectory,
   getPeakTurnContextTokens,
+  CopyTextButton,
   getBubbleClass,
   getDebugPreClass,
   getInspectorCardClass,
@@ -1017,11 +1018,23 @@ function renderExecutionEvent(
           <div className="font-mono text-[0.72rem] uppercase tracking-[0.18em]">
             Run Error
           </div>
-          <div className="text-[0.72rem] text-[var(--app-text-muted)]">
-            {formatTimestamp(event.createdAt)}
+          <div className="flex items-center gap-2">
+            <CopyTextButton
+              text={event.error}
+              label="复制"
+              copiedLabel="已复制"
+              failedLabel="复制失败"
+              title="复制报错"
+              ariaLabel="复制报错"
+            />
+            <div className="text-[0.72rem] text-[var(--app-text-muted)]">
+              {formatTimestamp(event.createdAt)}
+            </div>
           </div>
         </div>
-        <div className="mt-3">{event.error}</div>
+        <div className="mt-3 whitespace-pre-wrap break-words">
+          {event.error}
+        </div>
       </article>
     );
   }
@@ -1436,7 +1449,6 @@ export function SessionWorkbenchConversationPanel({
   onAutoCollapseComplete,
   headerActions
 }: SessionWorkbenchConversationPanelProps) {
-  const [copyButtonLabel, setCopyButtonLabel] = useState("复制");
   const [quickActionsOpen, setQuickActionsOpen] = useState(false);
   const [permissionCardFeedback, setPermissionCardFeedback] =
     useState<PermissionCardFeedback | null>(null);
@@ -1670,18 +1682,6 @@ export function SessionWorkbenchConversationPanel({
   });
 
   useEffect(() => {
-    if (copyButtonLabel === "复制") {
-      return undefined;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      setCopyButtonLabel("复制");
-    }, 1800);
-
-    return () => window.clearTimeout(timeoutId);
-  }, [copyButtonLabel]);
-
-  useEffect(() => {
     if (!permissionCardFeedback) {
       return;
     }
@@ -1769,23 +1769,6 @@ export function SessionWorkbenchConversationPanel({
   useEffect(() => {
     setQuickActionsOpen(false);
   }, [currentSession?.sessionId]);
-
-  useEffect(() => {
-    const lastKey =
-      conversationProjection.newlyCollapsedFlowKeys.at(-1) ?? null;
-    if (!lastKey) {
-      return;
-    }
-
-    const scrollTargetKey =
-      collapsedFlowAnchorsByKey.get(lastKey)?.scrollTargetKey ?? null;
-    if (scrollTargetKey) {
-      pendingCollapsedFlowScrollTargetRef.current = scrollTargetKey;
-    }
-  }, [
-    collapsedFlowAnchorsByKey,
-    conversationProjection.newlyCollapsedFlowKeys
-  ]);
 
   useEffect(() => {
     previousScrollSnapshotRef.current = buildConversationScrollSnapshot([]);
@@ -1886,20 +1869,6 @@ export function SessionWorkbenchConversationPanel({
     return () => resizeObserver.disconnect();
   }, [scrollSnapshot.latestItemKey]);
 
-  async function handleCopySessionId() {
-    const sessionId = currentSession?.sessionId;
-    if (!sessionId) {
-      return;
-    }
-
-    try {
-      await navigator.clipboard.writeText(sessionId);
-      setCopyButtonLabel("已复制");
-    } catch {
-      setCopyButtonLabel("复制失败");
-    }
-  }
-
   return (
     <section className="rounded-[var(--app-radius-xl)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_96%,transparent)] shadow-none lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:overflow-hidden">
       <header className="flex items-start justify-between gap-3 px-4 pb-3 pt-4">
@@ -1912,14 +1881,14 @@ export function SessionWorkbenchConversationPanel({
           </h2>
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
-          <button
-            type="button"
-            onClick={() => void handleCopySessionId()}
-            disabled={!currentSession?.sessionId}
-            className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-3 py-1 text-[0.72rem] uppercase tracking-[0.14em] text-[var(--app-text-muted)] transition hover:border-[var(--app-border-accent)] hover:text-[var(--app-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {copyButtonLabel}
-          </button>
+          <CopyTextButton
+            text={currentSession?.sessionId ?? ""}
+            label="复制"
+            copiedLabel="已复制"
+            failedLabel="复制失败"
+            title="复制会话 ID"
+            ariaLabel="复制会话 ID"
+          />
           {headerActions}
         </div>
       </header>

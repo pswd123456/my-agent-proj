@@ -41,3 +41,53 @@ export async function enrichSessionSnapshotsWithParentRelation(input: {
       parentSessionIdByChildSessionId.get(session.sessionId) ?? null
   }));
 }
+
+export function collectSessionTreeSessionIds(input: {
+  sessions: SessionSnapshot[];
+  rootSessionId: string;
+}): string[] {
+  const sessionsById = new Map(
+    input.sessions.map((session) => [session.sessionId, session] as const)
+  );
+  if (!sessionsById.has(input.rootSessionId)) {
+    return [];
+  }
+
+  const childrenByParentId = new Map<string, SessionSnapshot[]>();
+  for (const session of input.sessions) {
+    const parentSessionId = session.parentSessionId?.trim() ?? null;
+    if (
+      !parentSessionId ||
+      parentSessionId === session.sessionId ||
+      !sessionsById.has(parentSessionId)
+    ) {
+      continue;
+    }
+
+    const children = childrenByParentId.get(parentSessionId) ?? [];
+    children.push(session);
+    childrenByParentId.set(parentSessionId, children);
+  }
+
+  const visited = new Set<string>();
+  const collected: string[] = [];
+
+  function append(sessionId: string): void {
+    if (visited.has(sessionId)) {
+      return;
+    }
+
+    visited.add(sessionId);
+    collected.push(sessionId);
+
+    const children = [...(childrenByParentId.get(sessionId) ?? [])].sort(
+      (left, right) => right.updatedAt.localeCompare(left.updatedAt)
+    );
+    for (const child of children) {
+      append(child.sessionId);
+    }
+  }
+
+  append(input.rootSessionId);
+  return collected;
+}

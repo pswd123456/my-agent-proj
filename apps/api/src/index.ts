@@ -11,6 +11,7 @@ import {
   createFileTraceManager,
   createFileSystemLogManager,
   createLogger,
+  listSettingsPermissionToolOptions,
   loadWorkspaceMcpTools,
   resolveMaxTokens,
   resolveToolChoice,
@@ -56,7 +57,6 @@ const database = createPostgresDatabase(databaseUrl);
 await ensureProductSchema(database);
 await ensureApiWorkingDirectory(workspaceRoot);
 const routineRepository = createPostgresRoutineRepository(database);
-const settingsRepository = createPostgresSettingsRepository(database);
 const sessionManager = createPostgresSessionManager(database);
 const backgroundTaskRepository = createPostgresBackgroundTaskRepository(database);
 const backgroundTaskManager = createBackgroundTaskManager({
@@ -71,6 +71,14 @@ const delegateAgentService = createDelegateAgentService({
 function buildWorkingDirectory(input?: string): string {
   return resolveApiWorkingDirectory(workspaceRoot, input);
 }
+
+const settingsPermissionToolOptions = listSettingsPermissionToolOptions({
+  workingDirectory: buildWorkingDirectory(),
+  routineRepository
+}).map((tool) => tool.name);
+const settingsRepository = createPostgresSettingsRepository(database, {
+  settingsPermissionToolOptions
+});
 
 async function createRuntime(session: SessionSnapshot) {
   if (!modelService.getDefaultModel()) {

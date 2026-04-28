@@ -310,6 +310,7 @@ export function toSessionContext(row: SessionRow): ScheduleSessionContext {
       ? (fullCompactionState as unknown as SessionFullCompactionState)
       : null,
     pendingConflictSummary: row.pendingConflictSummary,
+    firstUserMessage: row.firstUserMessage,
     lastUserMessage: row.lastUserMessage
   };
 }
@@ -846,6 +847,7 @@ export class PostgresSessionManager implements SessionManager {
         todoState: snapshot.context.todoState ?? null,
         fullCompactionState: snapshot.context.fullCompactionState ?? null,
         pendingConflictSummary: snapshot.context.pendingConflictSummary,
+        firstUserMessage: snapshot.context.firstUserMessage,
         lastUserMessage: snapshot.context.lastUserMessage,
         workingDirectory: snapshot.workingDirectory,
         model: snapshot.model,
@@ -890,6 +892,7 @@ export class PostgresSessionManager implements SessionManager {
           todoState: snapshot.context.todoState ?? null,
           fullCompactionState: snapshot.context.fullCompactionState ?? null,
           pendingConflictSummary: snapshot.context.pendingConflictSummary,
+          firstUserMessage: snapshot.context.firstUserMessage,
           lastUserMessage: snapshot.context.lastUserMessage,
           workingDirectory: snapshot.workingDirectory,
           model: snapshot.model,

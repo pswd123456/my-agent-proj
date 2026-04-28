@@ -9,6 +9,7 @@ import { getTimelineEventRenderKey } from "./session-timeline";
 import type { InspectorProjection } from "./session-message-manager";
 import { type InspectorTabId, inspectorTabs } from "./session-workbench-types";
 import {
+  CopyTextButton,
   buildPromptMessageSections,
   extractDynamicPromptMessages,
   formatTimestamp,
@@ -503,12 +504,24 @@ function TraceTabPanel({
 
             return (
               <PlainCard>
-                <SectionTitle
-                  label="Latest Run Error"
-                  meta={`${formatTimestamp(latestRunError.createdAt)} · Turn ${latestRunErrorTurnCount ?? "--"}`}
-                />
+                <div className="flex items-start justify-between gap-3">
+                  <SectionTitle
+                    label="Latest Run Error"
+                    meta={`${formatTimestamp(latestRunError.createdAt)} · Turn ${latestRunErrorTurnCount ?? "--"}`}
+                  />
+                  <CopyTextButton
+                    text={latestRunError.error}
+                    label="复制"
+                    copiedLabel="已复制"
+                    failedLabel="复制失败"
+                    title="复制报错"
+                    ariaLabel="复制报错"
+                  />
+                </div>
                 <div className="mt-3 text-sm leading-6 text-[var(--app-text-primary)]">
-                  {latestRunError.error}
+                  <span className="whitespace-pre-wrap break-words">
+                    {latestRunError.error}
+                  </span>
                 </div>
                 <div className="mt-3 grid gap-3 xl:grid-cols-2">
                   <FlatBlock

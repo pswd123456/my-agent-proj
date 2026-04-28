@@ -9,12 +9,14 @@ import {
   type ModelCatalogEntry,
   type RoutineRecord,
   type RunStreamEvent,
+  type SettingsPermissionToolOption,
   type SessionSettingsRecord,
   type TraceRecord
 } from "@ai-app-template/sdk";
 
 import {
   buildWeekRange,
+  buildSessionSettingsPatchFromUserSettings,
   canInterruptSessionExecution,
   findReusableNewSessionSummary,
   groupRoutinesByDate,
@@ -22,6 +24,7 @@ import {
   normalizeMaxTurns,
   normalizeSettingsFormState,
   patchSettingsForm,
+  resolveSelectedModelId,
   splitPatternLines,
   toSettingsFormState
 } from "./session-workbench-state";
@@ -29,7 +32,6 @@ import {
   bootstrapSessions,
   clearCurrentSession,
   createSessionRegistryState,
-  deleteSession as deleteSessionFromRegistry,
   deriveRenderedSessions,
   hydrateSelectedSession,
   replaceSessions,
@@ -71,7 +73,6 @@ import {
 import {
   DEFAULT_MAX_TURNS,
   clearActiveSidebarPanel,
-  isYoloPinnedPermissionTool,
   type InspectorTabId,
   type SettingsFormState,
   type SidebarPanelId
@@ -147,6 +148,9 @@ export function SessionWorkbench() {
   const [userSettings, setUserSettings] =
     useState<SessionSettingsRecord | null>(null);
   const [modelCatalog, setModelCatalog] = useState<ModelCatalogEntry[]>([]);
+  const [permissionTools, setPermissionTools] = useState<
+    SettingsPermissionToolOption[]
+  >([]);
   const [settingsForm, setSettingsForm] = useState<SettingsFormState>(
     toSettingsFormState(null)
   );
@@ -274,13 +278,13 @@ export function SessionWorkbench() {
       try {
         const session = await apiClient.getSession(sessionId);
         const week = buildWeekRange(session.context.currentDateContext);
-        const [trace, routinesResult, settings] = await Promise.all([
+        const [trace, routinesResult, settingsPayload] = await Promise.all([
           apiClient.getSessionTrace(sessionId),
           apiClient.listSessionRoutines(sessionId, {
             startDate: week.startDate,
             endDate: week.endDate
           }),
-          apiClient.getUserSettings(session.context.userId)
+          apiClient.getUserSettingsPayload(session.context.userId)
         ]);
 
         if (cancelled) {
@@ -290,8 +294,9 @@ export function SessionWorkbench() {
         setSessionUiState((current) => setSessionSnapshot(current, session));
         setTraceRecords(trace);
         setRoutines(routinesResult.routines);
-        setUserSettings(settings);
-        setSettingsForm(toSettingsFormState(settings));
+        setUserSettings(settingsPayload.settings);
+        setPermissionTools(settingsPayload.permissionTools);
+        setSettingsForm(toSettingsFormState(settingsPayload.settings));
         setMaxTurns(String(session.maxTurns));
         setSessionRegistry((current) =>
           hydrateSelectedSession(current, session)
@@ -332,15 +337,18 @@ export function SessionWorkbench() {
     try {
       const session = await apiClient.getSession(sessionId);
       const week = buildWeekRange(session.context.currentDateContext);
-      const [trace, routinesResult, settings] = await Promise.all([
+      const [trace, routinesResult, settingsPayload] = await Promise.all([
         apiClient.getSessionTrace(sessionId),
         apiClient.listSessionRoutines(sessionId, {
           startDate: week.startDate,
           endDate: week.endDate
         }),
         syncSettings
-          ? apiClient.getUserSettings(session.context.userId)
-          : Promise.resolve<SessionSettingsRecord | null>(null)
+          ? apiClient.getUserSettingsPayload(session.context.userId)
+          : Promise.resolve<{
+              settings: SessionSettingsRecord;
+              permissionTools: SettingsPermissionToolOption[];
+            } | null>(null)
       ]);
 
       if (selectedSessionIdRef.current !== sessionId) {
@@ -350,9 +358,10 @@ export function SessionWorkbench() {
       setSessionUiState((current) => setSessionSnapshot(current, session));
       setTraceRecords(trace);
       setRoutines(routinesResult.routines);
-      if (settings) {
-        setUserSettings(settings);
-        setSettingsForm(toSettingsFormState(settings));
+      if (settingsPayload) {
+        setUserSettings(settingsPayload.settings);
+        setPermissionTools(settingsPayload.permissionTools);
+        setSettingsForm(toSettingsFormState(settingsPayload.settings));
       }
       setMaxTurns(String(session.maxTurns));
       setSessionRegistry((current) => hydrateSelectedSession(current, session));
@@ -480,18 +489,14 @@ export function SessionWorkbench() {
 
     try {
       await apiClient.deleteSession(sessionId);
-      const remaining = sessions.filter(
-        (session) => session.sessionId !== sessionId
-      );
-      setSessionRegistry((current) =>
-        deleteSessionFromRegistry(current, sessionId)
-      );
+      const refreshedSessions = await apiClient.listSessions();
+      setSessionRegistry((current) => replaceSessions(current, refreshedSessions));
 
       if (selectedSessionId !== sessionId) {
         return;
       }
 
-      const nextSessionId = remaining[0]?.sessionId ?? null;
+      const nextSessionId = refreshedSessions[0]?.sessionId ?? null;
       setSessionRegistry((current) => clearCurrentSession(current));
       setSessionUiState((current) => setSessionSnapshot(current, null));
       setTraceRecords([]);
@@ -680,38 +685,36 @@ export function SessionWorkbench() {
     setSettingsForm(normalizedForm);
 
     try {
-      const updated = await apiClient.updateUserSettings(targetUserId, {
-        workingDirectory: normalizedForm.workingDirectory,
-        model: normalizedForm.model,
-        yoloMode: normalizedForm.yoloMode,
-        contextWindow: normalizeContextWindow(normalizedForm.contextWindow),
-        maxTurns: normalizeMaxTurns(normalizedForm.maxTurns),
-        shellAllowPatterns: splitPatternLines(
-          normalizedForm.shellAllowPatterns
-        ),
-        shellDenyPatterns: splitPatternLines(normalizedForm.shellDenyPatterns),
-        toolAllowList: normalizedForm.toolAllowList,
-        toolAskList: normalizedForm.toolAskList,
-        toolDenyList: normalizedForm.toolDenyList,
-        enabledCapabilityPacks: normalizedForm.enabledCapabilityPacks,
-        debugConversationView: normalizedForm.debugConversationView
-      });
+      const updatedPayload = await apiClient.updateUserSettingsPayload(
+        targetUserId,
+        {
+          workingDirectory: normalizedForm.workingDirectory,
+          model: normalizedForm.model,
+          yoloMode: normalizedForm.yoloMode,
+          contextWindow: normalizeContextWindow(normalizedForm.contextWindow),
+          maxTurns: normalizeMaxTurns(normalizedForm.maxTurns),
+          shellAllowPatterns: splitPatternLines(
+            normalizedForm.shellAllowPatterns
+          ),
+          shellDenyPatterns: splitPatternLines(
+            normalizedForm.shellDenyPatterns
+          ),
+          toolAllowList: normalizedForm.toolAllowList,
+          toolAskList: normalizedForm.toolAskList,
+          toolDenyList: normalizedForm.toolDenyList,
+          enabledCapabilityPacks: normalizedForm.enabledCapabilityPacks,
+          debugConversationView: normalizedForm.debugConversationView
+        }
+      );
+      const updated = updatedPayload.settings;
       setUserSettings(updated);
+      setPermissionTools(updatedPayload.permissionTools);
       setSettingsForm(toSettingsFormState(updated));
 
       if (currentSession && currentSession.context.userId === targetUserId) {
         const syncedSession = await apiClient.updateSessionSettings(
           currentSession.sessionId,
-          {
-            model: updated.model,
-            yoloMode: updated.yoloMode,
-            shellAllowPatterns: updated.shellAllowPatterns,
-            shellDenyPatterns: updated.shellDenyPatterns,
-            toolAllowList: updated.toolAllowList,
-            toolAskList: updated.toolAskList,
-            toolDenyList: updated.toolDenyList,
-            enabledCapabilityPacks: updated.enabledCapabilityPacks
-          }
+          buildSessionSettingsPatchFromUserSettings(updated)
         );
         setSessionUiState((current) =>
           setSessionSnapshot(current, syncedSession)
@@ -737,7 +740,7 @@ export function SessionWorkbench() {
   ) {
     if (
       savingSettings ||
-      (settingsForm.yoloMode && isYoloPinnedPermissionTool(toolName))
+      settingsForm.yoloMode
     ) {
       return;
     }
@@ -802,11 +805,32 @@ export function SessionWorkbench() {
   }
 
   async function handleSettingsModelChange(model: string) {
-    const nextForm = patchSettingsForm(settingsForm, {
-      model
-    });
-    setSettingsForm(nextForm);
-    await handleSaveUserSettings(nextForm);
+    if (!currentSession) {
+      return;
+    }
+
+    setErrorText(null);
+
+    try {
+      const updatedSession = await apiClient.updateSessionSettings(
+        currentSession.sessionId,
+        {
+          model
+        }
+      );
+      setSessionUiState((current) => setSessionSnapshot(current, updatedSession));
+      setSessionRegistry((current) => upsertSession(current, updatedSession));
+
+      const settingsPayload = await apiClient.updateUserSettingsPayload(
+        currentSession.context.userId,
+        { model }
+      );
+      setUserSettings(settingsPayload.settings);
+      setPermissionTools(settingsPayload.permissionTools);
+      setSettingsForm(toSettingsFormState(settingsPayload.settings));
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : String(error));
+    }
   }
 
   async function handleSessionPlanModeChange(checked: boolean) {
@@ -1030,6 +1054,7 @@ export function SessionWorkbench() {
               settingsMeta={settingsMeta}
               settingsStatusText={settingsStatusText}
               settingsForm={settingsForm}
+              permissionTools={permissionTools}
               loadingSettings={loadingSettings}
               savingSettings={savingSettings}
               pendingPermissionToolName={pendingPermissionToolName}
@@ -1077,9 +1102,10 @@ export function SessionWorkbench() {
               showInterruptedHint={showInterruptedHint}
               errorText={errorText}
               modelCatalog={modelCatalog}
-              selectedModelId={
-                settingsForm.model || currentSession?.model || ""
-              }
+              selectedModelId={resolveSelectedModelId({
+                session: currentSession,
+                settingsForm
+              })}
               onMessageChange={setMessage}
               onSubmit={(event) => void handleSubmit(event)}
               onInterrupt={() => void handleInterruptSession()}

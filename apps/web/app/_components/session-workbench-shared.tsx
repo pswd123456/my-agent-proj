@@ -2,10 +2,11 @@
 
 import * as Select from "@radix-ui/react-select";
 import type { SessionSnapshot, SessionSummary } from "@ai-app-template/sdk";
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   DEFAULT_VISIBLE_SESSION_ROW_COUNT,
+  getAutoCollapsedSessionIds,
   getSessionDisplayState,
   getSessionSidebarPageIndex,
   getVisibleSessionSidebarRows,
@@ -61,6 +62,17 @@ interface WorkbenchSelectProps {
   onValueChange: (value: string) => void;
 }
 
+interface CopyTextButtonProps {
+  text: string;
+  label?: string;
+  copiedLabel?: string;
+  failedLabel?: string;
+  disabled?: boolean;
+  title?: string;
+  ariaLabel?: string;
+  className?: string;
+}
+
 function ChevronDownIcon() {
   return (
     <svg
@@ -92,6 +104,57 @@ function CheckIcon() {
     >
       <path d="m3.75 8.25 2.5 2.5 6-6" />
     </svg>
+  );
+}
+
+export function CopyTextButton({
+  text,
+  label = "复制",
+  copiedLabel = "已复制",
+  failedLabel = "复制失败",
+  disabled = false,
+  title,
+  ariaLabel,
+  className = ""
+}: CopyTextButtonProps) {
+  const [buttonLabel, setButtonLabel] = useState(label);
+
+  useEffect(() => {
+    setButtonLabel(label);
+  }, [label, text]);
+
+  useEffect(() => {
+    if (buttonLabel === label) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setButtonLabel(label);
+    }, 1800);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [buttonLabel, label]);
+
+  async function handleClick() {
+    try {
+      await navigator.clipboard.writeText(text);
+      setButtonLabel(copiedLabel);
+    } catch {
+      setButtonLabel(failedLabel);
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => void handleClick()}
+      disabled={disabled || text.trim().length === 0}
+      title={title}
+      aria-label={ariaLabel ?? title ?? label}
+      className={`rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-3 py-1 text-[0.72rem] uppercase tracking-[0.14em] text-[var(--app-text-muted)] transition hover:border-[var(--app-border-accent)] hover:text-[var(--app-text-primary)] disabled:cursor-not-allowed disabled:opacity-50 ${className}`.trim()}
+    >
+      {buttonLabel}
+    </button>
   );
 }
 
@@ -134,6 +197,27 @@ export function stringifyPromptDebugValue(value: unknown): string {
   }
 
   return expandEscapedLineBreaks(JSON.stringify(value, null, 2) ?? "");
+}
+
+function normalizeSessionPromptPreview(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function truncateSessionPromptPreview(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+
+  if (value.length <= 15) {
+    return value;
+  }
+
+  return `${value.slice(0, 12)}...`;
 }
 
 export interface PromptMessageSection {
@@ -571,7 +655,74 @@ export function SessionWorkbenchSidebar({
   onToggleSidebarPanel
 }: SessionWorkbenchSidebarProps) {
   const [visiblePageCount, setVisiblePageCount] = useState(1);
+  const [collapsedSessionIds, setCollapsedSessionIds] = useState<Set<string>>(
+    () => new Set()
+  );
+  const previousAutoCollapsedSessionIdsRef = useRef<Set<string>>(new Set());
   const railWidthClass = collapsed ? "lg:w-[92px]" : "lg:w-[320px]";
+  const sidebarRows = useMemo(() => buildSessionSidebarRows(sessions), [
+    sessions
+  ]);
+  const sessionById = useMemo(
+    () => new Map(sessions.map((session) => [session.sessionId, session] as const)),
+    [sessions]
+  );
+  const selectedSessionAncestorIds = useMemo(() => {
+    const ancestorIds = new Set<string>();
+    const seen = new Set<string>();
+    let current = selectedSessionId
+      ? sessionById.get(selectedSessionId) ?? null
+      : null;
+
+    while (current?.parentSessionId) {
+      const parentSessionId = current.parentSessionId.trim();
+      if (
+        !parentSessionId ||
+        parentSessionId === current.sessionId ||
+        seen.has(parentSessionId)
+      ) {
+        break;
+      }
+
+      ancestorIds.add(parentSessionId);
+      seen.add(parentSessionId);
+      current = sessionById.get(parentSessionId) ?? null;
+    }
+
+    return ancestorIds;
+  }, [selectedSessionId, sessionById]);
+  const autoCollapsedSessionIds = useMemo(
+    () => getAutoCollapsedSessionIds(sidebarRows),
+    [sidebarRows]
+  );
+  const effectiveCollapsedSessionIds = useMemo(() => {
+    const next = new Set(collapsedSessionIds);
+    for (const ancestorId of selectedSessionAncestorIds) {
+      next.delete(ancestorId);
+    }
+
+    return next;
+  }, [collapsedSessionIds, selectedSessionAncestorIds]);
+
+  useEffect(() => {
+    const previousAutoCollapsedSessionIds =
+      previousAutoCollapsedSessionIdsRef.current;
+    const newlyCollapsedSessionIds = [...autoCollapsedSessionIds].filter(
+      (sessionId) => !previousAutoCollapsedSessionIds.has(sessionId)
+    );
+
+    if (newlyCollapsedSessionIds.length > 0) {
+      setCollapsedSessionIds((current) => {
+        const next = new Set(current);
+        for (const sessionId of newlyCollapsedSessionIds) {
+          next.add(sessionId);
+        }
+        return next;
+      });
+    }
+
+    previousAutoCollapsedSessionIdsRef.current = autoCollapsedSessionIds;
+  }, [autoCollapsedSessionIds]);
 
   function getPanelShortLabel(panelId: SidebarPanelId): string {
     switch (panelId) {
@@ -627,7 +778,6 @@ export function SessionWorkbenchSidebar({
     );
   }
 
-  const sidebarRows = buildSessionSidebarRows(sessions);
   const selectedPageCount =
     getSessionSidebarPageIndex(sidebarRows, {
       selectedSessionId,
@@ -635,9 +785,29 @@ export function SessionWorkbenchSidebar({
     }) + 1;
   const visibleSidebarRows = getVisibleSessionSidebarRows(sidebarRows, {
     pageCount: Math.max(visiblePageCount, selectedPageCount),
-    visibleCount: DEFAULT_VISIBLE_SESSION_ROW_COUNT
+    visibleCount: DEFAULT_VISIBLE_SESSION_ROW_COUNT,
+    collapsedSessionIds: effectiveCollapsedSessionIds
   });
-  const hiddenSessionCount = sidebarRows.length - visibleSidebarRows.length;
+  const collapsedVisibleSidebarRows = getVisibleSessionSidebarRows(sidebarRows, {
+    pageCount: 1,
+    visibleCount: sidebarRows.length,
+    collapsedSessionIds: effectiveCollapsedSessionIds
+  });
+  const hiddenSessionCount =
+    collapsedVisibleSidebarRows.length - visibleSidebarRows.length;
+
+  function toggleSessionGroup(sessionId: string) {
+    setCollapsedSessionIds((current) => {
+      const next = new Set(current);
+      if (effectiveCollapsedSessionIds.has(sessionId)) {
+        next.delete(sessionId);
+      } else {
+        next.add(sessionId);
+      }
+
+      return next;
+    });
+  }
 
   return (
     <aside
@@ -676,6 +846,9 @@ export function SessionWorkbenchSidebar({
             {visibleSidebarRows.map(({ session, depth, childCount }) => {
               const isActive = session.sessionId === selectedSessionId;
               const isDeleting = deletingSessionId === session.sessionId;
+              const isGroupCollapsed =
+                childCount > 0 &&
+                effectiveCollapsedSessionIds.has(session.sessionId);
               const displayState = getSessionDisplayState(session);
               const stateToneClass = getDisplayStateToneClass(
                 displayState.tone
@@ -697,6 +870,7 @@ export function SessionWorkbenchSidebar({
                   : "text-[var(--app-text-secondary)]";
               const rowStyle =
                 depth > 0 ? { marginLeft: `${depth * 0.75}rem` } : undefined;
+              const canToggleChildren = childCount > 0;
 
               if (collapsed) {
                 return (
@@ -744,6 +918,20 @@ export function SessionWorkbenchSidebar({
                       <div className="font-mono text-[0.72rem] text-[var(--app-text-muted)]">
                         {session.sessionId.slice(0, 8)}
                       </div>
+                      <div
+                        className="mt-2 truncate text-sm font-medium leading-5 text-[var(--app-text-primary)]"
+                        title={
+                          normalizeSessionPromptPreview(
+                            session.firstUserMessage
+                          ) ?? "新会话"
+                        }
+                      >
+                        {truncateSessionPromptPreview(
+                          normalizeSessionPromptPreview(
+                            session.firstUserMessage
+                          )
+                        ) ?? "新会话"}
+                      </div>
                       <div className="mt-2 flex flex-wrap items-center gap-2">
                         <span
                           className={`inline-flex items-center px-0 py-0 text-[0.72rem] font-medium ${stateBadgeClass}`}
@@ -760,6 +948,25 @@ export function SessionWorkbenchSidebar({
                         ) : null}
                       </div>
                     </button>
+                    {canToggleChildren ? (
+                      <button
+                        type="button"
+                        onClick={() => toggleSessionGroup(session.sessionId)}
+                        aria-label={
+                          isGroupCollapsed
+                            ? `展开子代理 ${session.sessionId.slice(0, 8)}`
+                            : `折叠子代理 ${session.sessionId.slice(0, 8)}`
+                        }
+                        title={
+                          isGroupCollapsed
+                            ? `展开子代理 · ${childCount}`
+                            : `折叠子代理 · ${childCount}`
+                        }
+                        className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-2.5 py-1 text-[0.72rem] text-[var(--app-text-muted)] transition hover:border-[var(--app-border-strong)] hover:text-[var(--app-text-primary)]"
+                      >
+                        {isGroupCollapsed ? "展开" : "折叠"}
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => onDeleteSession(session.sessionId)}
@@ -804,11 +1011,9 @@ export function SessionWorkbenchSidebar({
                             后台中 {session.activeBackgroundTaskCount}
                           </span>
                         ) : null}
-                        {session.yoloMode ? (
-                          <span className="text-[var(--app-status-success)]">
-                            yolo on
-                          </span>
-                        ) : null}
+                        <span className="text-[var(--app-text-muted)]">
+                          {session.model}
+                        </span>
                         {isActive ? <span>当前</span> : null}
                       </div>
                     </div>

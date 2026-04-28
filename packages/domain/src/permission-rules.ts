@@ -14,6 +14,12 @@ export interface PermissionRuleInput {
   toolDenyList?: unknown;
 }
 
+export interface SettingsPermissionToolOption {
+  name: string;
+  family: string;
+  capabilityPack: string | null;
+}
+
 export const PERMISSION_TOOL_OPTIONS = [
   "ask_user_question",
   "delegate_agent",
@@ -24,7 +30,9 @@ export const PERMISSION_TOOL_OPTIONS = [
   "read_task_brief",
   "replace_task_brief",
   "replace_todo_list",
+  "load_skill",
   "search_task_brief",
+  "search_skill",
   "update_todo_items",
   "apply_patch",
   "read_file",
@@ -126,9 +134,10 @@ export function normalizePermissionRuleLists(
 }
 
 export function normalizeSettingsPermissionRuleLists(
-  input?: PermissionRuleInput | null
+  input?: PermissionRuleInput | null,
+  allowedToolNames: readonly string[] = SETTINGS_PERMISSION_TOOL_OPTIONS
 ): PermissionRuleLists {
-  const allowedTools = new Set<string>(SETTINGS_PERMISSION_TOOL_OPTIONS);
+  const allowedTools = new Set<string>(allowedToolNames);
   const toolDenyList = normalizeToolList(input?.toolDenyList, allowedTools);
   const deniedTools = new Set(toolDenyList);
 

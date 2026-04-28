@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 import {
+  listSettingsPermissionToolOptions,
   createRunTraceEvent,
   ModelUnavailableError,
   UnsupportedModelError,
@@ -26,7 +27,8 @@ import {
   normalizeCapabilityPacks,
   normalizeSettingsPermissionRules,
   sanitizeContextWindow,
-  sanitizeSessionMaxTurns
+  sanitizeSessionMaxTurns,
+  type SettingsPermissionToolOption
 } from "@ai-app-template/domain";
 import type { SessionSettingsRecord } from "@ai-app-template/domain";
 import type {
@@ -35,7 +37,10 @@ import type {
   SettingsRepository
 } from "@ai-app-template/db";
 
-import { enrichSessionSnapshotsWithParentRelation } from "./session-relations.js";
+import {
+  collectSessionTreeSessionIds,
+  enrichSessionSnapshotsWithParentRelation
+} from "./session-relations.js";
 
 export interface ApiAppContext {
   Variables: {
@@ -166,6 +171,15 @@ export interface ApiAppDependencies {
   defaultModel?: string;
   defaultUserId?: string;
   runtimeUnavailableMessage?: string;
+}
+
+function buildSettingsPermissionMetadata(
+  dependencies: ApiAppDependencies
+): SettingsPermissionToolOption[] {
+  return listSettingsPermissionToolOptions({
+    workingDirectory: dependencies.buildWorkingDirectory(),
+    routineRepository: dependencies.routineRepository
+  });
 }
 
 function resolveDefaultModel(
@@ -520,6 +534,10 @@ async function emitPreRunTraceEvent(input: {
 
 export function createApiApp(dependencies: ApiAppDependencies) {
   const app = new Hono<ApiAppContext>();
+  const settingsPermissionTools = buildSettingsPermissionMetadata(dependencies);
+  const settingsPermissionToolNames = settingsPermissionTools.map(
+    (tool) => tool.name
+  );
 
   app.use("*", async (c, next) => {
     const requestId = c.req.header("x-request-id")?.trim() || randomUUID();
@@ -613,7 +631,7 @@ export function createApiApp(dependencies: ApiAppDependencies) {
     const settings = await dependencies.settingsRepository.getOrCreate(
       resolveUserId(dependencies, c.req.param("userId"))
     );
-    return c.json({ settings });
+    return c.json({ settings, permissionTools: settingsPermissionTools });
   });
 
   app.patch("/users/:userId/settings", async (c) => {
@@ -658,7 +676,7 @@ export function createApiApp(dependencies: ApiAppDependencies) {
         ? { debugConversationView: body.debugConversationView }
         : {})
     });
-    return c.json({ settings });
+    return c.json({ settings, permissionTools: settingsPermissionTools });
   });
 
   app.get("/sessions/:sessionId", async (c) => {
@@ -702,7 +720,7 @@ export function createApiApp(dependencies: ApiAppDependencies) {
       toolAllowList: body.toolAllowList ?? session.context.toolAllowList,
       toolAskList: body.toolAskList ?? session.context.toolAskList,
       toolDenyList: body.toolDenyList ?? session.context.toolDenyList
-    });
+    }, settingsPermissionToolNames);
     let updated = await dependencies.sessionManager.updateContext(sessionId, {
       ...(typeof body.yoloMode === "boolean"
         ? { yoloMode: body.yoloMode }
@@ -735,24 +753,35 @@ export function createApiApp(dependencies: ApiAppDependencies) {
   app.delete("/sessions/:sessionId", async (c) => {
     const requestId = getRequestId(c);
     const sessionId = c.req.param("sessionId");
-    const isExecutionActive =
-      await dependencies.sessionManager.isExecutionActive(sessionId);
-    if (isExecutionActive) {
+    const sessions = await enrichSessionSnapshotsWithParentRelation({
+      sessions: await dependencies.sessionManager.listSessions(),
+      backgroundTaskRepository: dependencies.backgroundTaskRepository
+    });
+    const sessionIdsToDelete = collectSessionTreeSessionIds({
+      sessions,
+      rootSessionId: sessionId
+    });
+    if (sessionIdsToDelete.length === 0) {
+      return c.json({ error: "Session not found." }, 404);
+    }
+
+    const isAnyExecutionActive = await Promise.all(
+      sessionIdsToDelete.map((id) => dependencies.sessionManager.isExecutionActive(id))
+    );
+    if (isAnyExecutionActive.some(Boolean)) {
       return c.json(
         {
           error:
-            "Session is currently running. Wait for the active run to finish before deleting it."
+            "Session or one of its child sessions is currently running. Wait for active runs to finish before deleting it."
         },
         409
       );
     }
 
-    const deleted = await dependencies.sessionManager.deleteSession(sessionId);
-    if (!deleted) {
-      return c.json({ error: "Session not found." }, 404);
+    for (const currentSessionId of [...sessionIdsToDelete].reverse()) {
+      await dependencies.sessionManager.deleteSession(currentSessionId);
+      await dependencies.traceManager.deleteEvents(currentSessionId);
     }
-
-    await dependencies.traceManager.deleteEvents(sessionId);
     return c.body(null, 204);
   });
 

@@ -6,6 +6,7 @@ import type {
 } from "@ai-app-template/domain";
 import {
   DEFAULT_SESSION_MODEL,
+  SETTINGS_PERMISSION_TOOL_OPTIONS,
   normalizeCapabilityPacks,
   normalizeSettingsPermissionRules,
   resolveSessionSettingsDefaults,
@@ -64,14 +65,18 @@ function toStringArray(value: unknown): string[] {
   return parsed.filter((item): item is string => typeof item === "string");
 }
 
-export function mapSettingsRow(row: SettingsRow): SessionSettingsRecord {
+export function mapSettingsRow(
+  row: SettingsRow,
+  settingsPermissionToolOptions: readonly string[] =
+    SETTINGS_PERMISSION_TOOL_OPTIONS
+): SessionSettingsRecord {
   const permissionRules = normalizeSettingsPermissionRules({
     shellAllowPatterns: toStringArray(row.shellAllowPatterns),
     shellDenyPatterns: toStringArray(row.shellDenyPatterns),
     toolAllowList: toStringArray(row.toolAllowList),
     toolAskList: toStringArray(row.toolAskList),
     toolDenyList: toStringArray(row.toolDenyList)
-  });
+  }, settingsPermissionToolOptions);
 
   return {
     userId: row.userId,
@@ -102,7 +107,9 @@ export function mapSettingsRow(row: SettingsRow): SessionSettingsRecord {
 
 function buildPatchedSettings(
   current: SessionSettingsRecord,
-  patch: SessionSettingsInput
+  patch: SessionSettingsInput,
+  settingsPermissionToolOptions: readonly string[] =
+    SETTINGS_PERMISSION_TOOL_OPTIONS
 ): SessionSettingsRecord {
   const permissionRules = normalizeSettingsPermissionRules({
     shellAllowPatterns: patch.shellAllowPatterns ?? current.shellAllowPatterns,
@@ -110,7 +117,7 @@ function buildPatchedSettings(
     toolAllowList: patch.toolAllowList ?? current.toolAllowList,
     toolAskList: patch.toolAskList ?? current.toolAskList,
     toolDenyList: patch.toolDenyList ?? current.toolDenyList
-  });
+  }, settingsPermissionToolOptions);
 
   return {
     ...current,
@@ -148,7 +155,11 @@ function buildPatchedSettings(
 }
 
 export class PostgresSettingsRepository implements SettingsRepository {
-  constructor(private readonly db: ProductDatabaseClient) {}
+  constructor(
+    private readonly db: ProductDatabaseClient,
+    private readonly settingsPermissionToolOptions: readonly string[] =
+      SETTINGS_PERMISSION_TOOL_OPTIONS
+  ) {}
 
   async getOrCreate(userId: string): Promise<SessionSettingsRecord> {
     const existing = await this.getByUserId(userId);
@@ -156,7 +167,9 @@ export class PostgresSettingsRepository implements SettingsRepository {
       return existing;
     }
 
-    const defaults = resolveSessionSettingsDefaults(userId);
+    const defaults = resolveSessionSettingsDefaults(userId, {
+      settingsPermissionToolOptions: this.settingsPermissionToolOptions
+    });
     const rows = await this.db
       .insert(agentSettings)
       .values({
@@ -184,7 +197,7 @@ export class PostgresSettingsRepository implements SettingsRepository {
       })
       .returning();
 
-    return mapSettingsRow(rows[0]!);
+    return mapSettingsRow(rows[0]!, this.settingsPermissionToolOptions);
   }
 
   async update(
@@ -192,7 +205,11 @@ export class PostgresSettingsRepository implements SettingsRepository {
     patch: SessionSettingsInput
   ): Promise<SessionSettingsRecord> {
     const current = await this.getOrCreate(userId);
-    const next = buildPatchedSettings(current, patch);
+    const next = buildPatchedSettings(
+      current,
+      patch,
+      this.settingsPermissionToolOptions
+    );
 
     const rows = await this.db
       .insert(agentSettings)
@@ -233,7 +250,7 @@ export class PostgresSettingsRepository implements SettingsRepository {
       })
       .returning();
 
-    return mapSettingsRow(rows[0]!);
+    return mapSettingsRow(rows[0]!, this.settingsPermissionToolOptions);
   }
 
   private async getByUserId(
@@ -245,12 +262,19 @@ export class PostgresSettingsRepository implements SettingsRepository {
       .where(eq(agentSettings.userId, userId))
       .limit(1);
 
-    return rows[0] ? mapSettingsRow(rows[0]) : null;
+    return rows[0]
+      ? mapSettingsRow(rows[0], this.settingsPermissionToolOptions)
+      : null;
   }
 }
 
 export class MemorySettingsRepository implements SettingsRepository {
   private readonly settings = new Map<string, SessionSettingsRecord>();
+
+  constructor(
+    private readonly settingsPermissionToolOptions: readonly string[] =
+      SETTINGS_PERMISSION_TOOL_OPTIONS
+  ) {}
 
   async getOrCreate(userId: string): Promise<SessionSettingsRecord> {
     const current = this.settings.get(userId);
@@ -258,7 +282,9 @@ export class MemorySettingsRepository implements SettingsRepository {
       return structuredClone(current) as SessionSettingsRecord;
     }
 
-    const defaults = resolveSessionSettingsDefaults(userId);
+    const defaults = resolveSessionSettingsDefaults(userId, {
+      settingsPermissionToolOptions: this.settingsPermissionToolOptions
+    });
     this.settings.set(userId, defaults);
     return structuredClone(defaults) as SessionSettingsRecord;
   }
@@ -268,18 +294,30 @@ export class MemorySettingsRepository implements SettingsRepository {
     patch: SessionSettingsInput
   ): Promise<SessionSettingsRecord> {
     const current = await this.getOrCreate(userId);
-    const next = buildPatchedSettings(current, patch);
+    const next = buildPatchedSettings(
+      current,
+      patch,
+      this.settingsPermissionToolOptions
+    );
     this.settings.set(userId, next);
     return structuredClone(next) as SessionSettingsRecord;
   }
 }
 
 export function createPostgresSettingsRepository(
-  db: ProductDatabaseClient
+  db: ProductDatabaseClient,
+  options?: {
+    settingsPermissionToolOptions?: readonly string[];
+  }
 ): PostgresSettingsRepository {
-  return new PostgresSettingsRepository(db);
+  return new PostgresSettingsRepository(
+    db,
+    options?.settingsPermissionToolOptions
+  );
 }
 
-export function createMemorySettingsRepository(): MemorySettingsRepository {
-  return new MemorySettingsRepository();
+export function createMemorySettingsRepository(options?: {
+  settingsPermissionToolOptions?: readonly string[];
+}): MemorySettingsRepository {
+  return new MemorySettingsRepository(options?.settingsPermissionToolOptions);
 }

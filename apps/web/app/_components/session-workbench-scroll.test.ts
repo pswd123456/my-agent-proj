@@ -71,7 +71,7 @@ describe("conversation scroll helpers", () => {
     });
   });
 
-  test("treats a pending user message as the next turn anchor before trace events arrive", () => {
+  test("does not treat a pending user message as a new turn anchor before trace events arrive", () => {
     const snapshot = buildConversationScrollSnapshot([
       {
         type: "pending-user",
@@ -83,9 +83,27 @@ describe("conversation scroll helpers", () => {
 
     expect(snapshot).toEqual({
       latestItemKey: "pending-user-2",
-      latestTurnAnchorKey: "pending-user-2",
+      latestTurnAnchorKey: null,
       latestTurnStartKey: null
     });
+  });
+
+  test("follows the pending user message instead of aligning it to the top", () => {
+    const intent = getConversationScrollIntent({
+      previous: {
+        latestItemKey: "event-assistant-1",
+        latestTurnAnchorKey: null,
+        latestTurnStartKey: null
+      },
+      next: {
+        latestItemKey: "pending-user-2",
+        latestTurnAnchorKey: null,
+        latestTurnStartKey: null
+      },
+      followLatest: true
+    });
+
+    expect(intent).toBe("follow-latest-item");
   });
 
   test("aligns the newest turn to the top when a fresh turn arrives", () => {

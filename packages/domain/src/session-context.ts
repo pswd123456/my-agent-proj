@@ -145,6 +145,7 @@ export interface ScheduleSessionContext {
   todoState?: SessionTodoState | null;
   fullCompactionState?: SessionFullCompactionState | null;
   pendingConflictSummary: string | null;
+  firstUserMessage: string | null;
   lastUserMessage: string | null;
 }
 

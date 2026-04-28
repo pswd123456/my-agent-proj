@@ -524,6 +524,25 @@ function getAssistantOutputText(item: ConversationViewItem): string | null {
   return null;
 }
 
+function getCollapsedFlowAssistantAnchorKey(
+  item: ConversationViewItem
+): string | null {
+  const assistantEvent = getAssistantEvent(item);
+  if (assistantEvent) {
+    return assistantEvent.assistantMessageId;
+  }
+
+  if (
+    item.type === "timeline" &&
+    item.item.type === "message" &&
+    item.item.block.kind === "assistant"
+  ) {
+    return item.item.block.id;
+  }
+
+  return null;
+}
+
 function isAssistantMessageItem(item: ConversationViewItem): boolean {
   return (
     item.type === "timeline" &&
@@ -589,6 +608,9 @@ function compactFinalFlowSegment(
 
   const trailingItems = items.slice(finalAssistantIndex + 1);
   const finalAssistantItem = items[finalAssistantIndex]!;
+  const collapsedFlowAssistantAnchorKey =
+    getCollapsedFlowAssistantAnchorKey(finalAssistantItem) ??
+    finalAssistantItem.key;
   const hasOnlyTerminalTrailingItems =
     trailingItems.length > 0 &&
     trailingItems.some(isRunCompleteItem) &&
@@ -625,8 +647,8 @@ function compactFinalFlowSegment(
     compactedHiddenItems.push({
       type: "compact-collapsed-flow",
       key: usesSegmentedCollapsedKeys
-        ? `compact-collapsed-flow-${items[finalAssistantIndex]!.key}-${collapsedSegmentIndex}`
-        : `compact-collapsed-flow-${items[finalAssistantIndex]!.key}`,
+        ? `compact-collapsed-flow-${collapsedFlowAssistantAnchorKey}-${collapsedSegmentIndex}`
+        : `compact-collapsed-flow-${collapsedFlowAssistantAnchorKey}`,
       createdAt: bufferedItems[0]!.createdAt,
       hiddenCount: bufferedItems.length,
       originalItems: bufferedItems

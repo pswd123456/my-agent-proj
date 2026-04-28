@@ -314,7 +314,8 @@ export function applyStreamEventToSessionState(
     case "turn_end":
       return {
         ...nextBaseState,
-        submitting: false,
+        submitting:
+          event.loopState === "completed" ? state.submitting : false,
         session: {
           ...current,
           sessionState: {
@@ -350,7 +351,6 @@ export function applyStreamEventToSessionState(
     case "run_complete":
       return {
         ...nextBaseState,
-        submitting: false,
         interruptingSessionId: null,
         session: event.session
       };

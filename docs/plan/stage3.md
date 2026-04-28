@@ -3,12 +3,12 @@
 ## 目标
 
 - 为 runtime 增加一层轻量级 `skill system`，让 agent 能感知当前工作区内可用的技能说明。
-- 第一版只做 `skill metadata discovery + dynamic context injection`，不做 skill executor。
+- 第一版先落地 `skill metadata discovery + dynamic context injection`；当前实现已补上 `search_skill` / `load_skill` 作为按需读取入口，但仍不做 skill executor。
 - skill 只向模型暴露 `name` 和 `description`，用于帮助模型更高效地选择已有能力、组织步骤和减少无效探索。
 
 ## 一句话定义
 
-当 session 绑定某个 `workingDirectory` 时，runtime 会自动扫描该目录下的 `.agent/skills/`，读取每个 skill 的 `name` 和 `description`，并将这些信息注入到本轮动态上下文中；prompt 明确要求模型在需要时主动利用这些 skills，但不得编造未加载的 skill。
+当 session 绑定某个 `workingDirectory` 时，runtime 会自动扫描该目录下的 `.agent/skills/`，读取每个 skill 的 `name` 和 `description`，并将这些信息注入到本轮动态上下文中；prompt 明确要求模型在需要时主动利用这些 skills，但不得编造未加载的 skill。若需要查看具体指令，模型再通过 `search_skill` / `load_skill` 按需读取，而不是把全部 skill 正文直接塞进上下文。
 
 ## 第一版边界
 
@@ -19,11 +19,12 @@
 - 从 skill 文件中提取稳定的 `name` 和 `description`
 - 将 skill 列表作为本轮 `runtime context` 注入 prompt
 - 在 prompt 中加入“必要时主动利用 skills”的指令
+- 提供 `search_skill` / `load_skill` 让模型按需读取 skill 正文
 - 在 trace 中保留本轮实际注入过的 skills 信息，便于调试
 
 ### v1 不做什么
 
-- 不加载 skill 正文全文到模型上下文
+- 不把全部 skill 正文全文预加载到模型上下文
 - 不执行 skill 内的脚本、命令或工具
 - 不做远程 skill、marketplace、安装系统
 - 不做多层级 `.agent/` 继承或 merge
@@ -105,7 +106,7 @@ export interface SkillDescriptor {
 
 说明：
 
-- `relativePath` 不需要注入给模型，但建议保留在内部和 trace 中，便于调试
+- `relativePath` 不进入 prompt 注入文本，但会保留在内部、trace 以及 `search_skill` / `load_skill` 结果里，便于调试和精确读取
 
 ### 2. prompt 注入位置
 
@@ -168,7 +169,7 @@ Only rely on skills explicitly listed in the current runtime context. Do not inv
 
 ### `packages/agent/src/skills/`
 
-新增 skill 相关实现，避免塞进 `tools/`：
+新增 skill 相关实现，负责 discovery 和 metadata 解析：
 
 - `types.ts`
   - `SkillDescriptor`
@@ -178,6 +179,13 @@ Only rely on skills explicitly listed in the current runtime context. Do not inv
   - 负责解析 frontmatter
 - `index.ts`
   - 对外导出
+
+### `packages/agent/src/tools/`
+
+- `search-skill.ts`
+  - 负责按 `name` / `description` / `relativePath` 搜索已发现的 workspace skills
+- `load-skill.ts`
+  - 负责按 skill name 或 relative path 读取具体 `SKILL.md`
 
 ### `packages/agent/src/prompt.ts`
 
@@ -212,12 +220,19 @@ Only rely on skills explicitly listed in the current runtime context. Do not inv
 - 新增 `createSkillsContextMessage(...)`
 - 将 skills 作为 `runtimeContextMessages` 的一部分注入
 
-4. 更新默认 prompt
+4. 暴露按需读取工具
+
+- 在 workspace tool pack 中注册 `search_skill`
+- 在 workspace tool pack 中注册 `load_skill`
+- 让模型先基于 metadata 选 skill，再按需读取 skill 正文
+
+5. 更新默认 prompt
 
 - 加入“主动利用 skills”的指令
 - 加入“不得编造未加载 skill”的防幻觉约束
+- 当工具存在时，引导模型用 `search_skill` / `load_skill` 读取具体指令
 
-5. 更新 trace
+6. 更新 trace
 
 - 确认 `prompt` trace 中能看到 skills context
 - 如有必要，再补独立 event

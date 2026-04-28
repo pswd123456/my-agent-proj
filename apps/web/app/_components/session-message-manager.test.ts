@@ -10,6 +10,7 @@ import {
   appendMessageManagerEvent,
   beginMessageManagerRun,
   buildMessageManagerProjection,
+  completeMessageManagerAutoCollapse,
   createMessageManagerState,
   registerMessageManagerCollapsedFlows
 } from "./session-message-manager";
@@ -36,6 +37,7 @@ function createSession(messages: SessionSnapshot["messages"]): SessionSnapshot {
       pendingConfirmationPayload: null,
       pendingUserQuestionPayload: null,
       pendingConflictSummary: null,
+      firstUserMessage: null,
       lastUserMessage: null
     },
     messages,
@@ -421,6 +423,244 @@ describe("session-message-manager", () => {
     expect(compactKinds(secondProjection)).toEqual([
       "user",
       "compact-collapsed-flow"
+    ]);
+  });
+
+  test("does not replay collapse animation for a settled turn when the next run begins", () => {
+    let state = registerMessageManagerCollapsedFlows(
+      createMessageManagerState(),
+      ["compact-collapsed-flow-assistant-1"]
+    );
+    state = completeMessageManagerAutoCollapse(
+      state,
+      "compact-collapsed-flow-assistant-1"
+    );
+
+    const nextRunState = beginMessageManagerRun(state, {
+      createdAt: "2026-04-27T00:00:10.000Z",
+      text: "再看一下明天"
+    });
+
+    const nextRunProjection = buildMessageManagerProjection({
+      session: createSession([
+        userBlock("user-1", "先总结一下", "2026-04-27T00:00:01.500Z"),
+        assistantBlock(
+          "assistant-1",
+          "我已经看完了。",
+          "2026-04-27T00:00:05.000Z"
+        )
+      ]),
+      traceRecords: [
+        {
+          sessionId: "session-1",
+          createdAt: "2026-04-27T00:00:02.000Z",
+          event: {
+            kind: "tool_call",
+            turnCount: 1,
+            toolCallId: "tool-1",
+            toolName: "read_file",
+            input: { path: "apps/web/app/page.tsx" }
+          }
+        },
+        {
+          sessionId: "session-1",
+          createdAt: "2026-04-27T00:00:03.000Z",
+          event: {
+            kind: "tool_result",
+            turnCount: 1,
+            toolCallId: "tool-1",
+            toolName: "read_file",
+            output: "done",
+            isError: false
+          }
+        },
+        {
+          sessionId: "session-1",
+          createdAt: "2026-04-27T00:00:05.100Z",
+          event: {
+            kind: "run_complete",
+            turnCount: 1,
+            status: "completed",
+            stopReason: "end_turn",
+            session: createSession([
+              userBlock("user-1", "先总结一下", "2026-04-27T00:00:01.500Z"),
+              assistantBlock(
+                "assistant-1",
+                "我已经看完了。",
+                "2026-04-27T00:00:05.000Z"
+              )
+            ])
+          }
+        }
+      ],
+      debugConversationView: false,
+      state: nextRunState
+    });
+
+    expect(nextRunProjection.conversation.newlyCollapsedFlowKeys).toHaveLength(
+      0
+    );
+    expect(compactKinds(nextRunProjection)).toEqual([
+      "user",
+      "compact-collapsed-flow",
+      "assistant",
+      "pending-user"
+    ]);
+  });
+
+  test("does not treat unregistered tool-heavy history as newly collapsed during the next run", () => {
+    let state = beginMessageManagerRun(createMessageManagerState(), {
+      createdAt: "2026-04-27T00:00:10.000Z",
+      text: "继续看一下"
+    });
+    const session = createSession([
+      userBlock("user-1", "先读几个文件", "2026-04-27T00:00:01.000Z"),
+      assistantBlock(
+        "assistant-1",
+        "这几个文件我已经看完了。",
+        "2026-04-27T00:00:08.000Z"
+      )
+    ]);
+    const traceRecords: TraceRecord[] = [
+      {
+        sessionId: "session-1",
+        createdAt: "2026-04-27T00:00:02.000Z",
+        event: {
+          kind: "turn_start",
+          turnCount: 1,
+          session: {
+            sessionId: "session-1",
+            workingDirectory: "/tmp/workspace",
+            model: "MiniMax-M2.7",
+            sessionState: {
+              loopState: "running",
+              turnCount: 1,
+              lastError: null,
+              pendingToolCallIds: [],
+              interruptRequested: false
+            }
+          }
+        }
+      },
+      {
+        sessionId: "session-1",
+        createdAt: "2026-04-27T00:00:03.000Z",
+        event: {
+          kind: "tool_call",
+          turnCount: 1,
+          toolCallId: "tool-1",
+          toolName: "read_file",
+          input: { path: "package.json" }
+        }
+      },
+      {
+        sessionId: "session-1",
+        createdAt: "2026-04-27T00:00:04.000Z",
+        event: {
+          kind: "tool_result",
+          turnCount: 1,
+          toolCallId: "tool-1",
+          toolName: "read_file",
+          output: "package",
+          isError: false
+        }
+      },
+      {
+        sessionId: "session-1",
+        createdAt: "2026-04-27T00:00:05.000Z",
+        event: {
+          kind: "tool_call",
+          turnCount: 1,
+          toolCallId: "tool-2",
+          toolName: "read_file",
+          input: { path: "AGENTS.md" }
+        }
+      },
+      {
+        sessionId: "session-1",
+        createdAt: "2026-04-27T00:00:06.000Z",
+        event: {
+          kind: "tool_result",
+          turnCount: 1,
+          toolCallId: "tool-2",
+          toolName: "read_file",
+          output: "agents",
+          isError: false
+        }
+      },
+      {
+        sessionId: "session-1",
+        createdAt: "2026-04-27T00:00:08.000Z",
+        event: {
+          kind: "assistant_text",
+          turnCount: 1,
+          assistantMessageId: "assistant-1",
+          text: "这几个文件我已经看完了。",
+          snapshot: "这几个文件我已经看完了。"
+        }
+      },
+      {
+        sessionId: "session-1",
+        createdAt: "2026-04-27T00:00:09.000Z",
+        event: {
+          kind: "run_complete",
+          turnCount: 1,
+          status: "completed",
+          stopReason: "end_turn",
+          session
+        }
+      }
+    ];
+
+    let projection = buildMessageManagerProjection({
+      session,
+      traceRecords,
+      debugConversationView: false,
+      state
+    });
+
+    expect(projection.conversation.newlyCollapsedFlowKeys).toHaveLength(0);
+    expect(projection.conversation.hiddenAssistantItemKeys.size).toBe(0);
+    expect(compactKinds(projection)).toEqual([
+      "user",
+      "compact-collapsed-flow",
+      "assistant_text",
+      "pending-user"
+    ]);
+
+    state = appendMessageManagerEvent(state, {
+      kind: "turn_start",
+      sessionId: "session-1",
+      createdAt: "2026-04-27T00:00:11.000Z",
+      turnCount: 2,
+      session: {
+        sessionId: "session-1",
+        workingDirectory: "/tmp/workspace",
+        model: "MiniMax-M2.7",
+        sessionState: {
+          loopState: "running",
+          turnCount: 2,
+          lastError: null,
+          pendingToolCallIds: [],
+          interruptRequested: false
+        }
+      }
+    });
+
+    projection = buildMessageManagerProjection({
+      session,
+      traceRecords,
+      debugConversationView: false,
+      state
+    });
+
+    expect(projection.conversation.newlyCollapsedFlowKeys).toHaveLength(0);
+    expect(projection.conversation.hiddenAssistantItemKeys.size).toBe(0);
+    expect(compactKinds(projection)).toEqual([
+      "user",
+      "compact-collapsed-flow",
+      "assistant_text",
+      "pending-user"
     ]);
   });
 });
