@@ -11,6 +11,7 @@ import {
   buildPermissionCardView,
   buildUserQuestionCardView,
   getConfirmationKey,
+  getWorkspaceFileChangeRows,
   createPermissionCardFeedback,
   getPermissionRequestKey,
   getUserQuestionKey
@@ -127,6 +128,26 @@ describe("permission card feedback", () => {
     expect(view?.title).toBe("Permission Request");
   });
 
+  test("moves long shell commands into detail text instead of stretching the summary", () => {
+    const command =
+      "cd /Users/boneda/gitrepo/my-agent-proj/apps && pwd && ls -la && git status --short";
+
+    const view = buildPermissionCardView({
+      pendingPermissionRequest: {
+        ...pendingPermissionRequest,
+        toolName: "run_shell_command",
+        toolInput: { command },
+        summaryText: `需要你的确认后才能执行 shell 命令：${command}`
+      },
+      feedback: null,
+      submitting: false
+    });
+
+    expect(view?.summaryText).toBe("需要你的确认后才能执行 shell 命令");
+    expect(view?.detailText).toBe(command);
+    expect(view?.showActions).toBe(true);
+  });
+
   test("shows immediate approved feedback after allow is clicked", () => {
     const feedback = createPermissionCardFeedback(
       pendingPermissionRequest,
@@ -201,6 +222,32 @@ describe("permission card feedback", () => {
     expect(view?.tone).toBe("rejected");
     expect(view?.title).toBe("已取消");
     expect(view?.detailText).toBeUndefined();
+  });
+
+  test("keeps shell command detail text in feedback state", () => {
+    const command =
+      "cd /Users/boneda/gitrepo/my-agent-proj/apps && pwd && ls -la && git status --short";
+    const request = {
+      ...pendingPermissionRequest,
+      toolName: "run_shell_command" as const,
+      toolInput: { command },
+      summaryText: `需要你的确认后才能执行 shell 命令：${command}`
+    };
+
+    const feedback = createPermissionCardFeedback(
+      request,
+      "本会话允许 shell:cd /Users/boneda/gitrepo/my-agent-proj/apps *"
+    );
+    const view = buildPermissionCardView({
+      pendingPermissionRequest: request,
+      feedback,
+      submitting: true
+    });
+
+    expect(feedback?.summaryText).toBe("需要你的确认后才能执行 shell 命令");
+    expect(feedback?.detailText).toBe(command);
+    expect(view?.detailText).toBe(command);
+    expect(view?.tone).toBe("approved");
   });
 });
 
@@ -292,6 +339,29 @@ describe("background notification copy", () => {
       contentText:
         "子代理已完成目录检查。\n\n发现 apps、packages、docs 三个核心目录。"
     });
+  });
+});
+
+describe("workspace file change rows", () => {
+  test("formats line deltas and preserves diff text", () => {
+    expect(
+      getWorkspaceFileChangeRows([
+        {
+          path: "apps/web/app/page.tsx",
+          action: "modify",
+          addedLineCount: 7,
+          removedLineCount: 5,
+          diff: "--- a/apps/web/app/page.tsx\n+++ b/apps/web/app/page.tsx"
+        }
+      ])
+    ).toEqual([
+      {
+        path: "apps/web/app/page.tsx",
+        action: "modify",
+        countsLabel: "+7 / -5",
+        diff: "--- a/apps/web/app/page.tsx\n+++ b/apps/web/app/page.tsx"
+      }
+    ]);
   });
 });
 

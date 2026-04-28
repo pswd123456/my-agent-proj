@@ -1,8 +1,9 @@
 import { promises as fs } from "node:fs";
 
 import type { ToolExecutionContext } from "./runtime-tool.js";
-import { findLatestReadMetadataForPath } from "./read-file-metadata.js";
+import { parseStoredReadFileMetadata } from "./read-file-metadata.js";
 import { createToolResult, failureResult } from "./tool-result.js";
+import { toRelativeWorkspacePath } from "./workspace.js";
 
 export type FreshSessionReadFailureCode =
   | "FILE_WRITE_REQUIRES_READ"
@@ -39,6 +40,125 @@ export function fileVersionsMatch(
   );
 }
 
+type SessionFileState =
+  | {
+      exists: true;
+      version: FileVersion;
+    }
+  | {
+      exists: false;
+    };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function parseSessionFileState(value: unknown): SessionFileState | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  if (value.exists === false) {
+    return { exists: false };
+  }
+
+  if (
+    (value.exists === true || value.exists === undefined) &&
+    typeof value.sizeBytes === "number" &&
+    typeof value.modifiedAtMs === "number"
+  ) {
+    return {
+      exists: true,
+      version: {
+        sizeBytes: value.sizeBytes,
+        modifiedAtMs: value.modifiedAtMs
+      }
+    };
+  }
+
+  return null;
+}
+
+function findLatestSessionFileStateForPath(input: {
+  sessionMessages: ToolExecutionContext["sessionMessages"];
+  workingDirectory: string;
+  absolutePath: string;
+}): SessionFileState | null {
+  const expectedPath = toRelativeWorkspacePath(
+    input.workingDirectory,
+    input.absolutePath
+  );
+
+  for (let index = input.sessionMessages.length - 1; index >= 0; index -= 1) {
+    const block = input.sessionMessages[index];
+    if (!block || block.kind !== "tool result" || block.isError) {
+      continue;
+    }
+
+    if (block.toolName === "read_file") {
+      const metadata = parseStoredReadFileMetadata(block.output);
+      if (!metadata || metadata.path !== expectedPath) {
+        continue;
+      }
+
+      return {
+        exists: true,
+        version: {
+          sizeBytes: metadata.sizeBytes,
+          modifiedAtMs: metadata.modifiedAtMs
+        }
+      };
+    }
+
+    if (
+      block.toolName !== "write_file" &&
+      block.toolName !== "apply_patch" &&
+      block.toolName !== "delete_file"
+    ) {
+      continue;
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(block.output);
+    } catch {
+      continue;
+    }
+
+    if (!isRecord(parsed) || parsed.ok !== true || !isRecord(parsed.data)) {
+      continue;
+    }
+
+    if (typeof parsed.data.path === "string") {
+      if (parsed.data.path !== expectedPath) {
+        continue;
+      }
+
+      const state = parseSessionFileState(parsed.data.fileState);
+      if (state) {
+        return state;
+      }
+    }
+
+    if (!Array.isArray(parsed.data.files)) {
+      continue;
+    }
+
+    for (const file of parsed.data.files) {
+      if (!isRecord(file) || file.path !== expectedPath) {
+        continue;
+      }
+
+      const state = parseSessionFileState(file.fileState);
+      if (state) {
+        return state;
+      }
+    }
+  }
+
+  return null;
+}
+
 export async function requireFreshSessionRead(input: {
   workingDirectory: string;
   absolutePath: string;
@@ -53,17 +173,20 @@ export async function requireFreshSessionRead(input: {
 > {
   const currentStat = await fs.stat(input.absolutePath);
   const currentVersion = readFileVersion(currentStat);
-  const previousRead = findLatestReadMetadataForPath({
+  const previousState = findLatestSessionFileStateForPath({
     sessionMessages: input.sessionMessages,
     workingDirectory: input.workingDirectory,
     absolutePath: input.absolutePath
   });
 
-  if (!previousRead) {
+  if (!previousState) {
     return { ok: false, code: "FILE_WRITE_REQUIRES_READ" };
   }
 
-  if (!fileVersionsMatch(previousRead, currentVersion)) {
+  if (
+    !previousState.exists ||
+    !fileVersionsMatch(previousState.version, currentVersion)
+  ) {
     return { ok: false, code: "FILE_CHANGED_SINCE_READ" };
   }
 
@@ -81,7 +204,7 @@ export function freshSessionReadFailureResult(input: {
         ok: false,
         code: "FILE_WRITE_REQUIRES_READ",
         message:
-          "Existing files must be read with read_file in the current session before modifying them.",
+          "Existing files must have a current session file state before modifying them. Read it with read_file first.",
         data: { path: input.path }
       }),
       `[${input.toolName}] failed\n- read_file required before modifying ${input.path}`
@@ -93,9 +216,9 @@ export function freshSessionReadFailureResult(input: {
       ok: false,
       code: "FILE_CHANGED_SINCE_READ",
       message:
-        "The file changed after the last read_file result in this session. Read it again before modifying it.",
+        "The file changed after the last session file state. Read it again before modifying it.",
       data: { path: input.path }
     }),
-    `[${input.toolName}] failed\n- file changed since last read; read_file required before modifying ${input.path}`
+    `[${input.toolName}] failed\n- file changed since last session file state; read_file required before modifying ${input.path}`
   );
 }

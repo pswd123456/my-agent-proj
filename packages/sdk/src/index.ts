@@ -2,7 +2,8 @@ export type {
   RunSessionResult,
   RunStreamEvent,
   SessionSnapshot,
-  TraceRecord
+  TraceRecord,
+  WorkspaceFileChangeSummary
 } from "@ai-app-template/agent";
 export type {
   RoutineRecord,
@@ -23,6 +24,8 @@ export type {
   ListSessionRoutinesResult,
   ModelCatalogEntry,
   ResetSessionRoutinesResult,
+  SessionFileChangeActionInput,
+  SessionFileChangeActionResult,
   SessionSummary,
   StreamSessionExecutionInput,
   UserSettingsPayload,

@@ -370,11 +370,36 @@ type ToolResult<T> = {
 - `user_id`
 - `status`
 - `current_date_context`
+- `working_directory`
+- `model`
+- `yolo_mode`
+- `context_window`
+- `max_turns`
+- `enabled_capability_packs`
+- `active_background_task_count`
+- `pending_permission_request`
 - `pending_confirmation_payload`
+- `pending_user_question_payload`
+- `pending_background_notifications`
+- `todo_state`
+- `full_compaction_state`
 - `pending_conflict_summary`
+- `first_user_message`
 - `last_user_message`
+- `loop_state`
+- `turn_count`
+- `last_error`
+- `pending_tool_call_ids`
+- `interrupt_requested`
+- `history_compactions_since_full_compaction`
+- `prompt_cache_key`
 - `created_at`
 - `updated_at`
+
+说明：
+
+- `current_date_context` 仍是 session 持久化字段，主要供日程默认日期和 UI 使用；它不再默认注入 prompt，模型需要当前日期或时间时应调用 `get_current_time`
+- 当前真实字段以 `packages/db/src/schema.ts` 的 `agent_sessions` 为准
 
 #### session_messages
 

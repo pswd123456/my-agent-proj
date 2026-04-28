@@ -10,6 +10,7 @@
 - [架构文档目录](./architecture/README.md)
 - [后台任务与 delegation](./architecture/background-tasks-and-delegation.md)
 - [MCP 模块落地](./architecture/mcp-module.md)
+- [Trace / Log 排查](./architecture/trace-debugging.md)
 - [阶段文档目录](./plan/README.md)
 - [调查文档目录](./investigation/README.md)
 - [Todo 文档目录](./todo/README.md)
@@ -22,7 +23,8 @@
 - 做 UI、视觉统一、AI 生成页面相关工作时，先看根目录 `DESIGN.md`，再进入 `docs/design-system/`
 - 刚复制模板时，先看 `docs/template/`
 - 做技术栈、工程结构、架构边界相关工作时，从 `docs/architecture/` 开始
-- 做工作区 MCP 配置、挂载、权限或 trace 相关工作时，优先看 `docs/architecture/mcp-module.md`
+- 做工作区 MCP 配置、挂载或权限相关工作时，优先看 `docs/architecture/mcp-module.md`
+- 做 trace / system log 排查、session 级诊断或 prompt/tool/permission 链路定位时，优先看 `docs/architecture/trace-debugging.md`
 - 如果要判断“仓库主线是什么、哪些只是专项能力”，优先看 `docs/architecture/capability-packs.md`
 - 做 messages 管理、compact、tool result 上下文或 prompt 分层时，优先看 `docs/architecture/context-management/`
 - 做前端 workbench 的消息 dedupe、折叠、stream overlay 或 inspector 编排时，也优先看 `docs/architecture/context-management/`

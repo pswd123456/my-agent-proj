@@ -26,3 +26,4 @@ export * from "./skills/index.js";
 export * from "./trace.js";
 export * from "./tools/index.js";
 export * from "./types.js";
+export * from "./workspace-instructions/index.js";

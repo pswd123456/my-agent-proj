@@ -178,6 +178,29 @@ describe("find_files", () => {
 });
 
 describe("apply_patch", () => {
+  test("schema explains exact hunk counts and patch examples", () => {
+    const tool = createApplyPatchTool("/tmp/workspace");
+    expect(tool.description).toContain("hunk counts");
+    expect(tool.description).toContain("blank lines");
+
+    const patchSchema = tool.inputSchema.properties?.patch;
+    if (
+      !patchSchema ||
+      typeof patchSchema !== "object" ||
+      !("description" in patchSchema) ||
+      typeof patchSchema.description !== "string"
+    ) {
+      throw new Error("Expected patch schema description");
+    }
+
+    expect(patchSchema.description).toContain(
+      "@@ -oldStart,oldCount +newStart,newCount @@"
+    );
+    expect(patchSchema.description).toContain("Example modify");
+    expect(patchSchema.description).toContain("Example create");
+    expect(patchSchema.description).toContain("single leading space");
+  });
+
   test("applies a multi-file unified diff patch", async () => {
     const workspace = await createWorkspace();
     await mkdir(path.join(workspace, "nested"), { recursive: true });
@@ -364,6 +387,124 @@ describe("apply_patch", () => {
     expect(result.state).toBe("failed");
     expect(result.result.code).toBe("FILE_CHANGED_SINCE_READ");
     await expect(readFile(targetPath, "utf8")).resolves.toBe("one\nchanged\n");
+  });
+
+  test("allows consecutive patches after the current session patches the file", async () => {
+    const workspace = await createWorkspace();
+    const targetPath = path.join(workspace, "alpha.txt");
+    await writeFile(targetPath, "one\ntwo\n");
+    const sessionMessages = await createReadMessages({
+      workspace,
+      toolCallId: "read-alpha",
+      path: "alpha.txt"
+    });
+    const firstInput = {
+      patch: [
+        "--- a/alpha.txt",
+        "+++ b/alpha.txt",
+        "@@ -1,2 +1,2 @@",
+        " one",
+        "-two",
+        "+TWO"
+      ].join("\n")
+    };
+    const firstResult = await createApplyPatchTool(workspace).execute(
+      firstInput,
+      createContext(workspace, { sessionMessages })
+    );
+    expect(firstResult.state).toBe("success");
+
+    const secondResult = await createApplyPatchTool(workspace).execute(
+      {
+        patch: [
+          "--- a/alpha.txt",
+          "+++ b/alpha.txt",
+          "@@ -1,2 +1,2 @@",
+          " one",
+          "-TWO",
+          "+THREE"
+        ].join("\n")
+      },
+      createContext(workspace, {
+        sessionMessages: [
+          ...sessionMessages,
+          createToolCallBlock({
+            toolName: "apply_patch",
+            toolCallId: "first-patch",
+            toolInput: firstInput
+          }),
+          createToolResultBlock({
+            toolName: "apply_patch",
+            toolCallId: "first-patch",
+            output: firstResult.content
+          })
+        ]
+      })
+    );
+
+    expect(secondResult.state).toBe("success");
+    await expect(readFile(targetPath, "utf8")).resolves.toBe("one\nTHREE\n");
+  });
+
+  test("requires a new read when another writer changes a file after this session patches it", async () => {
+    const workspace = await createWorkspace();
+    const targetPath = path.join(workspace, "alpha.txt");
+    await writeFile(targetPath, "one\ntwo\n");
+    const sessionMessages = await createReadMessages({
+      workspace,
+      toolCallId: "read-alpha",
+      path: "alpha.txt"
+    });
+    const firstInput = {
+      patch: [
+        "--- a/alpha.txt",
+        "+++ b/alpha.txt",
+        "@@ -1,2 +1,2 @@",
+        " one",
+        "-two",
+        "+TWO"
+      ].join("\n")
+    };
+    const firstResult = await createApplyPatchTool(workspace).execute(
+      firstInput,
+      createContext(workspace, { sessionMessages })
+    );
+    expect(firstResult.state).toBe("success");
+    await writeFile(targetPath, "one\nexternal change\n");
+
+    const staleResult = await createApplyPatchTool(workspace).execute(
+      {
+        patch: [
+          "--- a/alpha.txt",
+          "+++ b/alpha.txt",
+          "@@ -1,2 +1,2 @@",
+          " one",
+          "-TWO",
+          "+THREE"
+        ].join("\n")
+      },
+      createContext(workspace, {
+        sessionMessages: [
+          ...sessionMessages,
+          createToolCallBlock({
+            toolName: "apply_patch",
+            toolCallId: "first-patch",
+            toolInput: firstInput
+          }),
+          createToolResultBlock({
+            toolName: "apply_patch",
+            toolCallId: "first-patch",
+            output: firstResult.content
+          })
+        ]
+      })
+    );
+
+    expect(staleResult.state).toBe("failed");
+    expect(staleResult.result.code).toBe("FILE_CHANGED_SINCE_READ");
+    await expect(readFile(targetPath, "utf8")).resolves.toBe(
+      "one\nexternal change\n"
+    );
   });
 
   test("creates a new file without a session read", async () => {

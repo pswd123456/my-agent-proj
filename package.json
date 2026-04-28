@@ -19,6 +19,7 @@
     "stage1:smoke": "bun scripts/stage1-smoke.ts",
     "api:session-smoke": "bun scripts/session-api-smoke.ts",
     "agent:runtime-smoke": "bun scripts/agent-runtime-smoke.ts",
+    "trace:inspect": "bun scripts/trace-log-inspector.ts",
     "db:postgres-session-smoke": "bun scripts/postgres-session-smoke.ts",
     "db:generate": "set -a && . ./.env && set +a && cd packages/db && bun run drizzle:generate",
     "db:migrate": "set -a && . ./.env && set +a && cd packages/db && bun run drizzle:migrate",

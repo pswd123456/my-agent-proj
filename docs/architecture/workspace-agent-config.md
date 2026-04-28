@@ -1,18 +1,29 @@
-# 工作区 `.agent/` 运行配置
+# 工作区运行配置
 
 ## 当前用途边界
 
-工作区级 agent 配置统一来自当前 `session.workingDirectory` 下的 `.agent/` 目录，`apps/api` 和 `apps/worker` 都会读取同一份工作区输入，但不同子路径承担不同职责：
+工作区级 agent 输入来自当前 `session.workingDirectory`，`apps/api` 和 `apps/worker` 都会读取同一份工作区输入：
 
+- `AGENTS.md`：给本轮 prompt 提供工作区根指令
 - `.agent/skills/`：给 runtime 提供 workspace skill metadata，并作为 `search_skill` / `load_skill` 的只读来源
 - `.agent/.config.toml`：给 runtime 提供 workspace MCP server 配置
 - `.agent/plans/`：承载 session 级 task brief artifact
 
-其中前两条是运行时配置输入；`.agent/plans/` 是运行时产物与用户可编辑 artifact。
+其中 `AGENTS.md`、`.agent/skills/` 和 `.agent/.config.toml` 是运行时输入；`.agent/plans/` 是运行时产物与用户可编辑 artifact。
 
-配置输入不进入数据库，也不和 user settings 做 merge；`task brief` 绑定路径会进入 session state，但文件正文仍以工作区里的 markdown 为事实源。
+配置与指令输入不进入数据库，也不和 user settings 做 merge；`task brief` 绑定路径会进入 session state，但文件正文仍以工作区里的 markdown 为事实源。
 
 如果想看 MCP 从配置读取到工具挂载、权限与 trace 的完整链路，继续读 `docs/architecture/mcp-module.md`。
+
+## `AGENTS.md`
+
+- runtime 每次执行前只读取 `workingDirectory/AGENTS.md`
+- 当前不向父目录递归查找，也不合并更深层 `AGENTS.md`
+- 读取到的正文会进入 `runtimeContextMessages`
+- 读取失败只记录诊断，不阻断内置工具运行
+- `AGENTS.md` 不进入 `prefixMessages` 或 `cacheKey`
+
+事实源：`packages/agent/src/workspace-instructions/`
 
 ## `.agent/skills/`
 
@@ -90,4 +101,5 @@ transport 通过字段推断：
 - 配置解析：`packages/agent/src/mcp/config-loader.ts`
 - MCP 连接与工具挂载：`packages/agent/src/mcp/client-manager.ts`
 - API / worker 装配：`apps/api/src/index.ts`、`apps/worker/src/index.ts`
+- workspace instructions：`packages/agent/src/workspace-instructions/`
 - trace 事件结构：`packages/agent/src/trace.ts`

@@ -161,6 +161,10 @@ export interface AnthropicMessageStream
   abort?(): void;
 }
 
+export interface AnthropicRequestOptions {
+  signal?: AbortSignal | null;
+}
+
 export interface AnthropicTextDeltaSnapshot {
   blockIndex: number;
   delta: string;
@@ -176,8 +180,14 @@ export interface AnthropicThinkingDeltaSnapshot {
 
 export interface AnthropicCompatibleClient {
   messages: {
-    create(input: AnthropicMessageRequest): Promise<AnthropicMessageResponse>;
-    stream?(input: AnthropicMessageRequest): AnthropicMessageStream;
+    create(
+      input: AnthropicMessageRequest,
+      options?: AnthropicRequestOptions
+    ): Promise<AnthropicMessageResponse>;
+    stream?(
+      input: AnthropicMessageRequest,
+      options?: AnthropicRequestOptions
+    ): AnthropicMessageStream;
   };
 }
 
@@ -279,11 +289,12 @@ export async function streamAnthropicMessage(input: {
     snapshot: AnthropicThinkingDeltaSnapshot
   ) => void | Promise<void>;
 }): Promise<AnthropicMessageResponse> {
+  const requestOptions = input.signal ? { signal: input.signal } : undefined;
   if (!input.client.messages.stream) {
-    return input.client.messages.create(input.request);
+    return input.client.messages.create(input.request, requestOptions);
   }
 
-  const stream = input.client.messages.stream(input.request);
+  const stream = input.client.messages.stream(input.request, requestOptions);
   const textSnapshots = new Map<number, string>();
   const thinkingSnapshots = new Map<number, { text: string; signature: string }>();
   const abortStream = () => {

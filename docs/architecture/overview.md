@@ -24,10 +24,12 @@
 - 默认启用的 capability packs 是 `workspace` 和 `schedule`
 - session settings 的解析顺序是 `explicit override > user settings > repo default`
 - detached background task 使用独立 child session，不与 parent session 共用消息历史
-- 工作区 runtime 上下文还会按次读取 `session.workingDirectory/.agent/`
+- 工作区 runtime 上下文还会按次读取 `session.workingDirectory` 下的工作区输入：
+  - `AGENTS.md` 提供工作区根指令，进入本轮 runtime context，不进入 cache key
   - `.agent/skills/` 提供 skill metadata
   - `.agent/.config.toml` 提供 MCP server 配置
   - `.agent/plans/` 承载 session 级 task brief artifact
+  - 其中 `.agent/plans/` 是运行时产物与用户可编辑 artifact，其余是运行时输入
 - 用户级 settings 已持久化到 `agent_settings`，当前包含：
   - `model`
   - `workingDirectory`
@@ -37,6 +39,7 @@
   - `shellAllowPatterns` / `shellDenyPatterns`
   - `toolAllowList` / `toolAskList` / `toolDenyList`
   - `enabledCapabilityPacks`
+  - `debugConversationView`
 
 当前权限语义里，`yoloMode` 会自动放行除 `run_shell_command` / `make_http_request` 之外的所有工具；shell / network 不走用户级 tool allow/ask/deny 配置，仍然在运行时单独审批。
 
@@ -51,6 +54,7 @@
 - `POST /sessions/:sessionId/execute`
 - `POST /sessions/:sessionId/execute/stream`
 - `POST /sessions/:sessionId/interrupt`
+- `POST /sessions/:sessionId/file-changes`
 - `POST /sessions/:sessionId/snapshot`
 - `POST /sessions/:sessionId/recover`
 - `GET /sessions/:sessionId/trace`
@@ -79,6 +83,7 @@
 - background task：`packages/agent/src/background-tasks/`
 - delegation：`packages/agent/src/delegation/`
 - 工作区 `.agent/` 配置：`docs/architecture/workspace-agent-config.md`
+- workspace instructions：`packages/agent/src/workspace-instructions/`
 - 数据表：`packages/db/src/schema.ts`
 
 ## 推荐阅读顺序

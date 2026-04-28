@@ -14,7 +14,8 @@ import {
 import type {
   ModelCatalogEntry,
   RunStreamEvent,
-  SessionSnapshot
+  SessionSnapshot,
+  WorkspaceFileChangeSummary
 } from "@ai-app-template/sdk";
 
 import { MessageMarkdown } from "./message-markdown";
@@ -72,6 +73,7 @@ interface SessionWorkbenchConversationPanelProps {
   interrupting: boolean;
   showInterruptedHint: boolean;
   errorText: string | null;
+  runFileChanges: RunFileChangesView | null;
   onMessageChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onInterrupt: () => void;
@@ -84,10 +86,22 @@ interface SessionWorkbenchConversationPanelProps {
   ) => void | Promise<void>;
   onConfirmationQuickReply: (reply: string) => void;
   onUserQuestionQuickReply: (reply: string) => void;
+  onRunFileChangeAction: (action: "undo" | "reapply") => void;
+  onRunFileSelectionChange: (selectedFileIndexes: number[]) => void;
   onAssistantAnimationComplete: (itemKey: string) => void;
   onToggleExpandedItem: (key: string) => void;
   onAutoCollapseComplete: (key: string) => void;
   headerActions?: ReactNode;
+}
+
+export interface RunFileChangesView {
+  key: string;
+  files: WorkspaceFileChangeSummary[];
+  fileStates: Array<"applied" | "undone">;
+  state: "applied" | "undone" | "mixed";
+  selectedFileIndexes: number[];
+  pendingAction: "undo" | "reapply" | null;
+  errorText: string | null;
 }
 
 interface AssistantTextBubbleProps {
@@ -119,7 +133,18 @@ export function getCompactToolFileChangeRows(
   countsLabel: string;
   diff: string;
 }> {
-  return (item.fileChanges ?? []).map((file) => ({
+  return getWorkspaceFileChangeRows(item.fileChanges ?? []);
+}
+
+export function getWorkspaceFileChangeRows(
+  files: WorkspaceFileChangeSummary[]
+): Array<{
+  path: string;
+  action: "modify" | "create" | "delete";
+  countsLabel: string;
+  diff: string;
+}> {
+  return files.map((file) => ({
     path: file.path,
     action: file.action,
     countsLabel: `+${file.addedLineCount} / -${file.removedLineCount}`,
@@ -195,6 +220,7 @@ interface PermissionCardFeedback {
   requestKey: string;
   toolName: string;
   summaryText: string;
+  detailText?: string;
   tone: Exclude<PermissionCardTone, "pending">;
 }
 
@@ -282,6 +308,44 @@ function buildShellApprovalReplies(
   return replies;
 }
 
+function buildPermissionCardText(
+  request: SessionSnapshot["context"]["pendingPermissionRequest"]
+): { summaryText: string; detailText?: string } {
+  if (!request) {
+    return { summaryText: "" };
+  }
+
+  if (request.toolName === "run_shell_command") {
+    const command =
+      typeof request.toolInput.command === "string"
+        ? request.toolInput.command.trim()
+        : "";
+    if (command) {
+      return {
+        summaryText: "需要你的确认后才能执行 shell 命令",
+        detailText: command
+      };
+    }
+  }
+
+  if (request.toolName === "make_http_request") {
+    const url =
+      typeof request.toolInput.url === "string"
+        ? request.toolInput.url.trim()
+        : "";
+    if (url) {
+      return {
+        summaryText: "需要你的确认后才能执行网络请求",
+        detailText: url
+      };
+    }
+  }
+
+  return {
+    summaryText: request.summaryText
+  };
+}
+
 export function getPermissionRequestKey(
   request: SessionSnapshot["context"]["pendingPermissionRequest"]
 ): string | null {
@@ -336,10 +400,13 @@ export function createPermissionCardFeedback(
     return null;
   }
 
+  const cardText = buildPermissionCardText(request);
+
   return {
     requestKey,
     toolName: request.toolName,
-    summaryText: request.summaryText,
+    summaryText: cardText.summaryText,
+    ...(cardText.detailText ? { detailText: cardText.detailText } : {}),
     tone: reply.trim() === "取消" ? "rejected" : "approved"
   };
 }
@@ -356,6 +423,7 @@ export function buildPermissionCardView(input: {
       key: feedback.requestKey,
       toolName: feedback.toolName,
       summaryText: feedback.summaryText,
+      ...(feedback.detailText ? { detailText: feedback.detailText } : {}),
       tone: feedback.tone,
       title: feedback.tone === "approved" ? "已同意" : "已取消",
       showActions: false
@@ -366,10 +434,13 @@ export function buildPermissionCardView(input: {
     return null;
   }
 
+  const cardText = buildPermissionCardText(pendingPermissionRequest);
+
   return {
     key: requestKey,
     toolName: pendingPermissionRequest.toolName,
-    summaryText: pendingPermissionRequest.summaryText,
+    summaryText: cardText.summaryText,
+    ...(cardText.detailText ? { detailText: cardText.detailText } : {}),
     tone: "pending",
     title: "Permission Request",
     showActions: true
@@ -1212,6 +1283,190 @@ function renderCompactToolItem(
   );
 }
 
+function getRunFileChangeTotals(files: WorkspaceFileChangeSummary[]): {
+  addedLineCount: number;
+  removedLineCount: number;
+} {
+  return files.reduce(
+    (totals, file) => ({
+      addedLineCount: totals.addedLineCount + file.addedLineCount,
+      removedLineCount: totals.removedLineCount + file.removedLineCount
+    }),
+    { addedLineCount: 0, removedLineCount: 0 }
+  );
+}
+
+function renderRunFileChangesPanel(input: {
+  view: RunFileChangesView;
+  expandedFileKeys: Set<string>;
+  onToggleFile: (key: string) => void;
+  onSelectionChange: (selectedFileIndexes: number[]) => void;
+  onAction: (action: "undo" | "reapply") => void;
+}) {
+  const { view, expandedFileKeys, onToggleFile, onSelectionChange, onAction } =
+    input;
+  const rows = getWorkspaceFileChangeRows(view.files);
+  const totals = getRunFileChangeTotals(view.files);
+  const isBusy = view.pendingAction !== null;
+  const selectedIndexes = view.selectedFileIndexes.filter(
+    (index) => index >= 0 && index < view.files.length
+  );
+  const selectedIndexSet = new Set(selectedIndexes);
+  const selectedStates = selectedIndexes.map(
+    (index) => view.fileStates[index] ?? "applied"
+  );
+  const selectedCount = selectedIndexes.length;
+  const canUndo =
+    selectedCount > 0 &&
+    selectedStates.every((state) => state === "applied") &&
+    !isBusy;
+  const canReapply =
+    selectedCount > 0 &&
+    selectedStates.every((state) => state === "undone") &&
+    !isBusy;
+  const allSelected = selectedCount === view.files.length;
+
+  return (
+    <article className="rounded-[var(--app-radius-lg)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_78%,var(--app-bg-surface)_22%)] px-4 py-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex min-w-0 flex-wrap items-baseline gap-2 text-sm font-medium text-[var(--app-text-primary)]">
+            <span>{view.files.length} 个文件已更改</span>
+            <span className="font-mono text-[var(--app-status-success)]">
+              +{totals.addedLineCount}
+            </span>
+            <span className="font-mono text-[var(--app-status-danger)]">
+              -{totals.removedLineCount}
+            </span>
+          </div>
+          {view.state === "undone" ? (
+            <div className="mt-1 text-xs text-[var(--app-text-muted)]">
+              已撤销，可重新应用。
+            </div>
+          ) : view.state === "mixed" ? (
+            <div className="mt-1 text-xs text-[var(--app-text-muted)]">
+              部分文件已撤销。
+            </div>
+          ) : null}
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="font-mono text-[0.72rem] text-[var(--app-text-muted)]">
+            已选 {selectedCount}
+          </span>
+          <button
+            type="button"
+            onClick={() =>
+              onSelectionChange(
+                allSelected ? [] : view.files.map((_, index) => index)
+              )
+            }
+            disabled={isBusy}
+            className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-3 py-1.5 text-sm text-[var(--app-text-secondary)] transition hover:border-[var(--app-border-accent)] hover:text-[var(--app-text-primary)] disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            {allSelected ? "清空" : "全选"}
+          </button>
+          <button
+            type="button"
+            onClick={() => onAction("undo")}
+            disabled={!canUndo}
+            className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-3 py-1.5 text-sm text-[var(--app-text-secondary)] transition hover:border-[var(--app-status-warning)] hover:text-[var(--app-text-primary)] disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            {view.pendingAction === "undo" ? "撤销中..." : "撤销"}
+          </button>
+          <button
+            type="button"
+            onClick={() => onAction("reapply")}
+            disabled={!canReapply}
+            className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-accent)] bg-[var(--app-bg-elevated)] px-3 py-1.5 text-sm font-medium text-[var(--app-text-primary)] transition hover:border-[var(--app-status-success)] hover:text-[var(--app-status-success)] disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            {view.pendingAction === "reapply" ? "应用中..." : "重新应用"}
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-3 grid divide-y divide-[color:color-mix(in_srgb,var(--app-border-subtle)_55%,transparent)]">
+        {rows.map((file, index) => {
+          const originalFile = view.files[index]!;
+          const fileKey = `${view.key}:${file.path}`;
+          const expanded = expandedFileKeys.has(fileKey);
+          const checked = selectedIndexSet.has(index);
+          const fileState = view.fileStates[index] ?? "applied";
+          return (
+            <section
+              key={fileKey}
+              className="min-w-0 py-2 first:pt-0 last:pb-0"
+            >
+              <div className="flex w-full min-w-0 items-center gap-3">
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  disabled={isBusy}
+                  onChange={(event) => {
+                    const next = new Set(selectedIndexes);
+                    if (event.currentTarget.checked) {
+                      next.add(index);
+                    } else {
+                      next.delete(index);
+                    }
+                    onSelectionChange(
+                      [...next].sort((left, right) => left - right)
+                    );
+                  }}
+                  className="h-4 w-4 shrink-0 accent-[var(--app-border-accent)]"
+                  aria-label={`选择 ${file.path}`}
+                />
+                <button
+                  type="button"
+                  onClick={() => onToggleFile(fileKey)}
+                  className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                >
+                  <span className="min-w-0 flex-1 text-sm text-[var(--app-text-secondary)] [overflow-wrap:anywhere]">
+                    {file.path}
+                  </span>
+                  <span className="shrink-0 font-mono text-sm text-[var(--app-status-success)]">
+                    +{originalFile.addedLineCount}
+                  </span>
+                  <span className="shrink-0 font-mono text-sm text-[var(--app-status-danger)]">
+                    -{originalFile.removedLineCount}
+                  </span>
+                  <span className="shrink-0 font-mono text-[0.68rem] uppercase text-[var(--app-text-muted)]">
+                    {fileState === "undone" ? "undone" : "applied"}
+                  </span>
+                  <span className="shrink-0 text-[0.72rem] text-[var(--app-text-muted)]">
+                    {expanded ? "收起" : "展开"}
+                  </span>
+                </button>
+              </div>
+              <div
+                aria-hidden={!expanded}
+                className={`grid transition-[grid-template-rows,opacity,margin-top] duration-200 ease-[var(--app-ease-standard)] ${
+                  expanded
+                    ? "mt-2 grid-rows-[1fr] opacity-100"
+                    : "mt-0 grid-rows-[0fr] opacity-0"
+                }`}
+              >
+                <div className="min-h-0 overflow-hidden">
+                  <pre
+                    className={getDebugPreClass("surface").replace("mt-2 ", "")}
+                  >
+                    {file.diff}
+                  </pre>
+                </div>
+              </div>
+            </section>
+          );
+        })}
+      </div>
+
+      {view.errorText ? (
+        <div className="mt-3 rounded-[var(--app-radius-md)] border border-[color:color-mix(in_srgb,var(--app-status-danger)_35%,var(--app-border-subtle)_65%)] bg-[color:color-mix(in_srgb,var(--app-status-danger)_10%,var(--app-bg-surface)_90%)] px-3 py-2 text-sm text-[var(--app-status-danger)]">
+          {view.errorText}
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
 function renderCompactFileBatchItem(
   item: CompactFileBatchViewItem,
   expanded: boolean,
@@ -1435,6 +1690,7 @@ export function SessionWorkbenchConversationPanel({
   interrupting,
   showInterruptedHint,
   errorText,
+  runFileChanges,
   onMessageChange,
   onSubmit,
   onInterrupt,
@@ -1444,6 +1700,8 @@ export function SessionWorkbenchConversationPanel({
   onPermissionQuickReply,
   onConfirmationQuickReply,
   onUserQuestionQuickReply,
+  onRunFileChangeAction,
+  onRunFileSelectionChange,
   onAssistantAnimationComplete,
   onToggleExpandedItem,
   onAutoCollapseComplete,
@@ -1453,6 +1711,9 @@ export function SessionWorkbenchConversationPanel({
   const [permissionCardFeedback, setPermissionCardFeedback] =
     useState<PermissionCardFeedback | null>(null);
   const [persistShellApproval, setPersistShellApproval] = useState(false);
+  const [expandedRunFileKeys, setExpandedRunFileKeys] = useState<Set<string>>(
+    () => new Set()
+  );
   const pendingCollapsedFlowScrollTargetRef = useRef<string | null>(null);
   const pendingAssistantRevealSkipKeyRef = useRef<string | null>(null);
   const quickActionsRef = useRef<HTMLDivElement | null>(null);
@@ -1479,24 +1740,35 @@ export function SessionWorkbenchConversationPanel({
   const visibleConversationViewItems = conversationProjection.visibleItems;
   const collapsedFlowAnchorsByKey =
     conversationProjection.collapsedFlowAnchorsByKey;
-  const scrollItems = useMemo(
-    () =>
-      visibleConversationViewItems.map((item) => {
-        if (item.type === "timeline" && item.item.type === "event") {
-          return {
-            key: item.key,
-            type: "event",
-            event: item.item.event
-          };
-        }
-
+  const scrollItems = useMemo(() => {
+    const items: Array<{
+      key: string;
+      type: string;
+      event?: RunStreamEvent;
+    }> = visibleConversationViewItems.map((item) => {
+      if (item.type === "timeline" && item.item.type === "event") {
         return {
           key: item.key,
-          type: item.type
+          type: "event",
+          event: item.item.event
         };
-      }),
-    [visibleConversationViewItems]
-  );
+      }
+
+      return {
+        key: item.key,
+        type: item.type
+      };
+    });
+
+    if (runFileChanges) {
+      items.push({
+        key: runFileChanges.key,
+        type: "run-file-changes"
+      });
+    }
+
+    return items;
+  }, [visibleConversationViewItems, runFileChanges]);
   const scrollSnapshot = useMemo(
     () => buildConversationScrollSnapshot(scrollItems),
     [scrollItems]
@@ -1771,6 +2043,10 @@ export function SessionWorkbenchConversationPanel({
   }, [currentSession?.sessionId]);
 
   useEffect(() => {
+    setExpandedRunFileKeys(new Set());
+  }, [runFileChanges?.key]);
+
+  useEffect(() => {
     previousScrollSnapshotRef.current = buildConversationScrollSnapshot([]);
     previousViewportScrollTopRef.current = 0;
     autoFollowLatestRef.current = true;
@@ -1946,6 +2222,28 @@ export function SessionWorkbenchConversationPanel({
                   发送请求后，这里会显示当前会话的对话和执行记录。
                 </div>
               )}
+
+              {runFileChanges ? (
+                <div data-timeline-item-key={runFileChanges.key}>
+                  {renderRunFileChangesPanel({
+                    view: runFileChanges,
+                    expandedFileKeys: expandedRunFileKeys,
+                    onToggleFile(fileKey) {
+                      setExpandedRunFileKeys((current) => {
+                        const next = new Set(current);
+                        if (next.has(fileKey)) {
+                          next.delete(fileKey);
+                        } else {
+                          next.add(fileKey);
+                        }
+                        return next;
+                      });
+                    },
+                    onSelectionChange: onRunFileSelectionChange,
+                    onAction: onRunFileChangeAction
+                  })}
+                </div>
+              ) : null}
             </div>
           </div>
 
@@ -1970,7 +2268,7 @@ export function SessionWorkbenchConversationPanel({
                           : "border-[color:color-mix(in_srgb,var(--app-status-warning)_56%,var(--app-border-subtle)_44%)] bg-[color:color-mix(in_srgb,var(--app-status-warning)_14%,var(--app-bg-surface)_86%)]"
                     }`}
                   >
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex min-w-0 flex-col gap-3">
                       <div className="min-w-0">
                         <div
                           className={`font-mono text-[0.65rem] uppercase tracking-[0.16em] ${
@@ -1983,17 +2281,24 @@ export function SessionWorkbenchConversationPanel({
                         >
                           {permissionCardView.title}
                         </div>
-                        <div className="mt-1 text-sm font-medium leading-6 text-[var(--app-text-primary)]">
+                        <div className="mt-1 text-sm font-medium leading-6 text-[var(--app-text-primary)] [overflow-wrap:anywhere]">
                           {permissionCardView.summaryText}
                         </div>
                         {permissionCardView.detailText ? (
                           <div
-                            className={`mt-1 text-xs ${
+                            className={`mt-2 max-w-full rounded-[var(--app-radius-md)] border px-3 py-2 text-xs leading-5 [overflow-wrap:anywhere] ${
+                              permissionCardView.toolName ===
+                                "run_shell_command" ||
+                              permissionCardView.toolName ===
+                                "make_http_request"
+                                ? "font-mono"
+                                : ""
+                            } ${
                               permissionCardView.tone === "approved"
-                                ? "text-[var(--app-status-success)]"
+                                ? "border-[color:color-mix(in_srgb,var(--app-status-success)_30%,var(--app-border-subtle)_70%)] text-[var(--app-status-success)]"
                                 : permissionCardView.tone === "rejected"
-                                  ? "text-[var(--app-status-danger)]"
-                                  : "text-[var(--app-text-muted)]"
+                                  ? "border-[color:color-mix(in_srgb,var(--app-status-danger)_32%,var(--app-border-subtle)_68%)] text-[var(--app-status-danger)]"
+                                  : "border-[color:color-mix(in_srgb,var(--app-border-subtle)_72%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_72%,transparent)] text-[var(--app-text-secondary)]"
                             }`}
                           >
                             {permissionCardView.detailText}
@@ -2002,9 +2307,9 @@ export function SessionWorkbenchConversationPanel({
                       </div>
 
                       {permissionCardView.showActions ? (
-                        <div className="flex shrink-0 flex-col items-start gap-2">
+                        <div className="flex min-w-0 flex-col items-start gap-2">
                           {isShellPermissionRequest ? (
-                            <label className="flex items-center gap-2 text-xs text-[var(--app-text-muted)]">
+                            <label className="flex flex-wrap items-center gap-2 text-xs text-[var(--app-text-muted)]">
                               <input
                                 type="checkbox"
                                 checked={persistShellApproval}
@@ -2017,7 +2322,7 @@ export function SessionWorkbenchConversationPanel({
                               <span>以后不再询问这条规则</span>
                             </label>
                           ) : null}
-                          <div className="flex flex-wrap gap-2">
+                          <div className="flex min-w-0 flex-wrap gap-2">
                             {buildPermissionQuickReplies(
                               pendingPermissionRequest
                             ).map((option) => (
@@ -2038,7 +2343,7 @@ export function SessionWorkbenchConversationPanel({
                                   });
                                 }}
                                 disabled={submitting}
-                                className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-accent)] bg-[var(--app-bg-elevated)] px-3 py-1.5 text-sm font-medium text-[var(--app-text-primary)] transition hover:border-[var(--app-status-success)] hover:text-[var(--app-status-success)] disabled:cursor-not-allowed disabled:opacity-50"
+                                className="max-w-full rounded-[var(--app-radius-pill)] border border-[var(--app-border-accent)] bg-[var(--app-bg-elevated)] px-3 py-1.5 text-left text-sm font-medium whitespace-normal text-[var(--app-text-primary)] transition [overflow-wrap:anywhere] hover:border-[var(--app-status-success)] hover:text-[var(--app-status-success)] disabled:cursor-not-allowed disabled:opacity-50"
                               >
                                 {option.label}
                               </button>

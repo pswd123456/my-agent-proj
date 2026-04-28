@@ -42,7 +42,10 @@ function hasPersistedMatchForPendingUser(input: {
   return messages.some(
     (
       block
-    ): block is Extract<SessionSnapshot["messages"][number], { kind: "user" }> =>
+    ): block is Extract<
+      SessionSnapshot["messages"][number],
+      { kind: "user" }
+    > =>
       block.kind === "user" &&
       block.createdAt >= pendingUserMessage.createdAt &&
       block.content.trim() === pendingText
@@ -58,6 +61,7 @@ function isVisibleTimelineEvent(event: RunStreamEvent): boolean {
     event.kind !== "prompt" &&
     event.kind !== "response" &&
     event.kind !== "skills_loaded" &&
+    event.kind !== "workspace_instructions_loaded" &&
     event.kind !== "mcp_loaded" &&
     event.kind !== "user_question_request" &&
     event.kind !== "interrupt_requested" &&
@@ -265,10 +269,7 @@ function buildNarrativePhaseByKey(
     if (event.kind === "assistant_text") {
       const seenToolFlow = seenToolFlowByTurn.get(turnSequence) ?? false;
       const hasLaterToolCall = hasLaterToolCallByKey.get(eventKey) ?? false;
-      phaseByKey.set(
-        eventKey,
-        !seenToolFlow && hasLaterToolCall ? 2 : 4
-      );
+      phaseByKey.set(eventKey, !seenToolFlow && hasLaterToolCall ? 2 : 4);
       continue;
     }
 
@@ -291,7 +292,8 @@ function compareEventsForTimeline(
   const leftTurnSequence =
     turnSequenceByKey.get(getTimelineEventKey(left)) ?? Number.MAX_SAFE_INTEGER;
   const rightTurnSequence =
-    turnSequenceByKey.get(getTimelineEventKey(right)) ?? Number.MAX_SAFE_INTEGER;
+    turnSequenceByKey.get(getTimelineEventKey(right)) ??
+    Number.MAX_SAFE_INTEGER;
 
   if (leftTurnSequence === rightTurnSequence) {
     const leftNarrativePhase =

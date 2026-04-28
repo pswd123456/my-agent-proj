@@ -11,7 +11,8 @@ import {
   HISTORY_COMPACTION_TRIGGER_RATIO,
   compactHistoryBlocks,
   type PromptBuilder,
-  type PromptEnvelope
+  type PromptEnvelope,
+  type PromptRuntimeContext
 } from "../prompt.js";
 import type { SessionManager } from "../session.js";
 import type { SkillDescriptor } from "../skills/index.js";
@@ -204,12 +205,7 @@ export async function preparePromptWithCompaction(input: {
   session: SessionSnapshot;
   turnCount: number;
   toolChoice: AnthropicToolChoice | undefined;
-  runtimeContext: {
-    currentDateTimeContext: string;
-    currentTimeZone: string;
-    currentTurnCount?: number;
-    maxTurns?: number;
-  };
+  runtimeContext: PromptRuntimeContext;
   skills: SkillDescriptor[];
   maxTokens?: number;
 }): Promise<CompactionPreparationResult> {

@@ -4,8 +4,11 @@ import { z } from "zod";
 
 import {
   listSettingsPermissionToolOptions,
+  applyUnifiedPatch,
   createRunTraceEvent,
+  invertUnifiedPatch,
   ModelUnavailableError,
+  parseUnifiedPatch,
   UnsupportedModelError,
   type ModelCatalogEntry,
   type ModelService,
@@ -125,6 +128,19 @@ const executeSessionBodySchema = z.object({
   message: z.string().min(1),
   maxTurns: z.number().int().min(1).max(SESSION_MAX_TURNS_LIMIT).optional(),
   permissionReply: z.boolean().optional()
+});
+
+const workspaceFileChangeSchema = z.object({
+  path: z.string().min(1),
+  action: z.enum(["modify", "create", "delete"]),
+  addedLineCount: z.number().int().min(0),
+  removedLineCount: z.number().int().min(0),
+  diff: z.string().min(1)
+});
+
+const workspaceFileChangeActionBodySchema = z.object({
+  action: z.enum(["undo", "reapply"]),
+  files: z.array(workspaceFileChangeSchema).min(1)
 });
 
 const recoverSessionBodySchema = z.object({
@@ -532,6 +548,26 @@ async function emitPreRunTraceEvent(input: {
   }
 }
 
+function buildWorkspaceFileChangePatch(input: {
+  action: "undo" | "reapply";
+  files: Array<z.infer<typeof workspaceFileChangeSchema>>;
+}) {
+  const patchFiles = input.files.flatMap((file) => {
+    const parsed = parseUnifiedPatch(file.diff);
+    if (!parsed.ok) {
+      throw new Error(`Invalid diff for ${file.path}: ${parsed.error}`);
+    }
+
+    return parsed.value.files;
+  });
+
+  if (input.action === "undo") {
+    return invertUnifiedPatch({ files: patchFiles });
+  }
+
+  return { files: patchFiles };
+}
+
 export function createApiApp(dependencies: ApiAppDependencies) {
   const app = new Hono<ApiAppContext>();
   const settingsPermissionTools = buildSettingsPermissionMetadata(dependencies);
@@ -712,15 +748,18 @@ export function createApiApp(dependencies: ApiAppDependencies) {
 
     const body = updateSessionSettingsBodySchema.parse(await c.req.json());
     const requestedModel = resolveRequestedModel(dependencies, body.model);
-    const permissionRules = normalizeSettingsPermissionRules({
-      shellAllowPatterns:
-        body.shellAllowPatterns ?? session.context.shellAllowPatterns,
-      shellDenyPatterns:
-        body.shellDenyPatterns ?? session.context.shellDenyPatterns,
-      toolAllowList: body.toolAllowList ?? session.context.toolAllowList,
-      toolAskList: body.toolAskList ?? session.context.toolAskList,
-      toolDenyList: body.toolDenyList ?? session.context.toolDenyList
-    }, settingsPermissionToolNames);
+    const permissionRules = normalizeSettingsPermissionRules(
+      {
+        shellAllowPatterns:
+          body.shellAllowPatterns ?? session.context.shellAllowPatterns,
+        shellDenyPatterns:
+          body.shellDenyPatterns ?? session.context.shellDenyPatterns,
+        toolAllowList: body.toolAllowList ?? session.context.toolAllowList,
+        toolAskList: body.toolAskList ?? session.context.toolAskList,
+        toolDenyList: body.toolDenyList ?? session.context.toolDenyList
+      },
+      settingsPermissionToolNames
+    );
     let updated = await dependencies.sessionManager.updateContext(sessionId, {
       ...(typeof body.yoloMode === "boolean"
         ? { yoloMode: body.yoloMode }
@@ -766,7 +805,9 @@ export function createApiApp(dependencies: ApiAppDependencies) {
     }
 
     const isAnyExecutionActive = await Promise.all(
-      sessionIdsToDelete.map((id) => dependencies.sessionManager.isExecutionActive(id))
+      sessionIdsToDelete.map((id) =>
+        dependencies.sessionManager.isExecutionActive(id)
+      )
     );
     if (isAnyExecutionActive.some(Boolean)) {
       return c.json(
@@ -805,6 +846,37 @@ export function createApiApp(dependencies: ApiAppDependencies) {
       accepted: true,
       session
     });
+  });
+
+  app.post("/sessions/:sessionId/file-changes", async (c) => {
+    const sessionId = c.req.param("sessionId");
+    const session = await dependencies.sessionManager.getSession(sessionId);
+    if (!session) {
+      return c.json({ error: "Session not found." }, 404);
+    }
+
+    const body = workspaceFileChangeActionBodySchema.parse(await c.req.json());
+    const patch = buildWorkspaceFileChangePatch(body);
+    try {
+      await applyUnifiedPatch({
+        workingDirectory: session.workingDirectory,
+        patch,
+        allowWorkspaceEscape: false
+      });
+
+      return c.json({
+        sessionId,
+        action: body.action,
+        files: body.files
+      });
+    } catch (error) {
+      return c.json(
+        {
+          error: error instanceof Error ? error.message : String(error)
+        },
+        409
+      );
+    }
   });
 
   app.post("/sessions/:sessionId/execute", async (c) => {

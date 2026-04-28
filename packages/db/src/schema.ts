@@ -36,6 +36,7 @@ const defaultToolAskListJson = JSON.stringify([
   "write_file",
   "copy_path",
   "move_path",
+  "delete_file",
   "delete_path",
   "run_shell_command",
   "make_http_request",

@@ -36,7 +36,7 @@
 
 ### Agent Runtime
 
-- 核心 loop 在 `packages/agent/src/runtime.ts`
+- runtime 门面在 `packages/agent/src/runtime.ts`，核心执行循环在 `packages/agent/src/runtime/run-loop.ts`
 - prompt 拼装在 `packages/agent/src/prompt.ts`
 - provider 适配在 `packages/agent/src/model.ts`
 - 统一模型服务在 `packages/agent/src/models/`
@@ -65,6 +65,8 @@
   - `agent_sessions`
   - `session_messages`
   - `agent_settings`
+  - `background_tasks`
+  - `background_task_runs`
 
 ## 已安装但不属于当前主链路的项
 

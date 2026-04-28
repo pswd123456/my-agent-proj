@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
+import type { ToolResultDetails } from "../types.js";
 import type { RuntimeTool } from "./runtime-tool.js";
 import {
   fileVersionsMatch,
@@ -20,6 +21,52 @@ import {
   failureResult,
   successResult
 } from "./tool-result.js";
+
+function normalizeDiffLines(content: string): string[] {
+  if (content.length === 0) {
+    return [];
+  }
+
+  return content.replace(/\r\n/g, "\n").replace(/\n$/, "").split("\n");
+}
+
+function buildWholeFileDiff(input: {
+  path: string;
+  originalContent: string | null;
+  nextContent: string;
+}): {
+  action: "create" | "modify";
+  addedLineCount: number;
+  removedLineCount: number;
+  diff: string;
+} {
+  const originalLines = normalizeDiffLines(input.originalContent ?? "");
+  const nextLines = normalizeDiffLines(input.nextContent);
+  const action = input.originalContent === null ? "create" : "modify";
+  const oldPath = action === "create" ? "/dev/null" : `a/${input.path}`;
+  const newPath = `b/${input.path}`;
+  const oldCount = originalLines.length;
+  const newCount = nextLines.length;
+  const oldStart = oldCount === 0 ? 0 : 1;
+  const newStart = newCount === 0 ? 0 : 1;
+
+  return {
+    action,
+    addedLineCount: nextCount(nextLines),
+    removedLineCount: nextCount(originalLines),
+    diff: [
+      `--- ${oldPath}`,
+      `+++ ${newPath}`,
+      `@@ -${oldStart},${oldCount} +${newStart},${newCount} @@`,
+      ...originalLines.map((line) => `-${line}`),
+      ...nextLines.map((line) => `+${line}`)
+    ].join("\n")
+  };
+}
+
+function nextCount(lines: string[]): number {
+  return lines.length;
+}
 
 export function createWriteFileTool(workingDirectory: string): RuntimeTool {
   return {
@@ -158,6 +205,9 @@ export function createWriteFileTool(workingDirectory: string): RuntimeTool {
         }
 
         const existed = pathKind === "file";
+        const originalContent = existed
+          ? await fs.readFile(absolutePath, "utf8")
+          : null;
         const readPrecondition = existed
           ? await requireFreshSessionRead({
               workingDirectory,
@@ -189,11 +239,29 @@ export function createWriteFileTool(workingDirectory: string): RuntimeTool {
           }
         }
 
+        const fileChange = buildWholeFileDiff({
+          path: relativePath,
+          originalContent,
+          nextContent: content
+        });
         await writeTextFileAtomic(absolutePath, content, {
           ...(readPrecondition?.ok
             ? { mode: readFileMode(readPrecondition.stat) }
             : {})
         });
+        const writtenVersion = readFileVersion(await fs.stat(absolutePath));
+        const details: ToolResultDetails = {
+          kind: "workspace_file_changes",
+          files: [
+            {
+              path: relativePath,
+              action: fileChange.action,
+              addedLineCount: fileChange.addedLineCount,
+              removedLineCount: fileChange.removedLineCount,
+              diff: fileChange.diff
+            }
+          ]
+        };
 
         return successResult(
           createToolResult({
@@ -204,10 +272,15 @@ export function createWriteFileTool(workingDirectory: string): RuntimeTool {
               : "File created successfully.",
             data: {
               path: relativePath,
-              existed
+              existed,
+              fileState: {
+                exists: true,
+                ...writtenVersion
+              }
             }
           }),
-          `[write_file] success\n- ${relativePath}`
+          `[write_file] success\n- ${relativePath}`,
+          details
         );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

@@ -132,10 +132,7 @@ describe("PromptBuilder skill context", () => {
     const promptEnvelope = promptBuilder.build(
       session,
       toolRegistry,
-      {
-        currentDateTimeContext: "2026-04-22 10:00",
-        currentTimeZone: "Asia/Shanghai"
-      },
+      undefined,
       [
         {
           name: "repo_reader",
@@ -163,6 +160,67 @@ describe("PromptBuilder skill context", () => {
     ).not.toContain(".agent/skills/repo-reader/SKILL.md");
   });
 
+  test("injects root AGENTS.md instructions into runtime context when provided", () => {
+    const promptBuilder = createPromptBuilder();
+    const session = createSessionSnapshot();
+    const toolRegistry = new ToolRegistry();
+
+    const promptEnvelope = promptBuilder.build(
+      session,
+      toolRegistry,
+      {
+        workspaceInstructions: {
+          relativePath: "AGENTS.md",
+          content: "# AGENTS.md\n\n- Read scoped instructions first.\n"
+        }
+      },
+      []
+    );
+
+    expect(promptEnvelope.system).toContain(
+      "Follow workspace instructions listed in the runtime context"
+    );
+    expect(promptEnvelope.runtimeContextMessages).toHaveLength(3);
+    expect(JSON.stringify(promptEnvelope.runtimeContextMessages[1])).toContain(
+      "Workspace instructions from AGENTS.md:"
+    );
+    expect(JSON.stringify(promptEnvelope.runtimeContextMessages[1])).toContain(
+      "Read scoped instructions first."
+    );
+    expect(JSON.stringify(promptEnvelope.runtimeContextMessages[2])).toContain(
+      "Runtime skills for this workspace:"
+    );
+    expect(promptEnvelope.cacheKey).toBe(
+      promptBuilder.build(session, toolRegistry, {
+        workspaceInstructions: {
+          relativePath: "AGENTS.md",
+          content: "# AGENTS.md\n\n- Different runtime instruction.\n"
+        }
+      }).cacheKey
+    );
+  });
+
+  test("does not inject current date or time into prompt context", () => {
+    const promptBuilder = createPromptBuilder();
+    const session = createSessionSnapshot();
+    const toolRegistry = new ToolRegistry();
+
+    const promptEnvelope = promptBuilder.build(session, toolRegistry);
+
+    expect(JSON.stringify(promptEnvelope.prefixMessages[0])).not.toContain(
+      "Current date context:"
+    );
+    expect(
+      JSON.stringify(promptEnvelope.runtimeContextMessages[0])
+    ).not.toContain("Current date context:");
+    expect(
+      JSON.stringify(promptEnvelope.runtimeContextMessages[0])
+    ).not.toContain("Current local datetime:");
+    expect(
+      JSON.stringify(promptEnvelope.runtimeContextMessages[0])
+    ).not.toContain("Current timezone:");
+  });
+
   test("injects task brief binding context without replaying brief content", async () => {
     const workspaceRoot = await mkdtemp(path.join(tmpdir(), "prompt-brief-"));
 
@@ -187,20 +245,14 @@ describe("PromptBuilder skill context", () => {
       session.context.planModeEnabled = true;
       session.context.taskBriefPath = taskBriefPath;
 
-      const first = promptBuilder.build(session, new ToolRegistry(), {
-        currentDateTimeContext: "2026-04-26 10:00",
-        currentTimeZone: "Asia/Shanghai"
-      });
+      const first = promptBuilder.build(session, new ToolRegistry());
 
       await writeFile(
         taskBriefPath,
         "# Task Brief\n\n## Goal\nSecond draft\n",
         "utf8"
       );
-      const second = promptBuilder.build(session, new ToolRegistry(), {
-        currentDateTimeContext: "2026-04-26 10:00",
-        currentTimeZone: "Asia/Shanghai"
-      });
+      const second = promptBuilder.build(session, new ToolRegistry());
 
       expect(JSON.stringify(first.runtimeContextMessages[0])).toContain(
         "Plan mode prompt for this run:"
@@ -254,10 +306,7 @@ describe("PromptBuilder skill context", () => {
         .register(createReplaceTaskBriefTool())
         .register(createSearchTaskBriefTool());
 
-      const promptEnvelope = promptBuilder.build(session, toolRegistry, {
-        currentDateTimeContext: "2026-04-26 10:00",
-        currentTimeZone: "Asia/Shanghai"
-      });
+      const promptEnvelope = promptBuilder.build(session, toolRegistry);
 
       expect(promptEnvelope.tools.map((tool) => tool.name)).toEqual([
         "edit_task_brief",
@@ -294,16 +343,10 @@ describe("PromptBuilder skill context", () => {
         createAskUserQuestionTool()
       );
 
-      const before = promptBuilder.build(session, toolRegistry, {
-        currentDateTimeContext: "2026-04-26 10:00",
-        currentTimeZone: "Asia/Shanghai"
-      });
+      const before = promptBuilder.build(session, toolRegistry);
 
       session.context.planModeEnabled = true;
-      const after = promptBuilder.build(session, toolRegistry, {
-        currentDateTimeContext: "2026-04-26 10:00",
-        currentTimeZone: "Asia/Shanghai"
-      });
+      const after = promptBuilder.build(session, toolRegistry);
 
       expect(before.tools).toEqual([]);
       expect(JSON.stringify(before.prefixMessages[0])).toContain(
@@ -337,10 +380,7 @@ describe("PromptBuilder skill context", () => {
         createReadFileTool(workspaceRoot)
       );
 
-      const promptEnvelope = promptBuilder.build(session, toolRegistry, {
-        currentDateTimeContext: "2026-04-26 10:00",
-        currentTimeZone: "Asia/Shanghai"
-      });
+      const promptEnvelope = promptBuilder.build(session, toolRegistry);
       const readFileTool = promptEnvelope.tools.find(
         (tool) => tool.name === "read_file"
       );
@@ -445,8 +485,6 @@ describe("PromptBuilder skill context", () => {
     const promptBuilder = createPromptBuilder();
     const session = createSessionSnapshot();
     const promptEnvelope = promptBuilder.build(session, new ToolRegistry(), {
-      currentDateTimeContext: "2026-04-26 10:00",
-      currentTimeZone: "Asia/Shanghai",
       currentTurnCount: 9,
       maxTurns: 10
     });
@@ -463,8 +501,6 @@ describe("PromptBuilder skill context", () => {
     const promptBuilder = createPromptBuilder();
     const session = createSessionSnapshot();
     const promptEnvelope = promptBuilder.build(session, new ToolRegistry(), {
-      currentDateTimeContext: "2026-04-26 10:00",
-      currentTimeZone: "Asia/Shanghai",
       currentTurnCount: 8,
       maxTurns: 10
     });
@@ -536,8 +572,6 @@ describe("PromptBuilder skill context", () => {
     ];
 
     const promptEnvelope = promptBuilder.build(session, new ToolRegistry(), {
-      currentDateTimeContext: "2026-04-26 10:00",
-      currentTimeZone: "Asia/Shanghai",
       currentTurnCount: 9,
       maxTurns: 10
     });
@@ -804,10 +838,7 @@ describe("PromptBuilder skill context", () => {
   test("injects full compaction continuation summary into runtime context messages without changing the cache key", () => {
     const promptBuilder = createPromptBuilder();
     const session = createSessionSnapshot();
-    const base = promptBuilder.build(session, new ToolRegistry(), {
-      currentDateTimeContext: "2026-04-26 10:00",
-      currentTimeZone: "Asia/Shanghai"
-    });
+    const base = promptBuilder.build(session, new ToolRegistry());
 
     session.context.fullCompactionState = {
       summaryMarkdown: [
@@ -823,10 +854,7 @@ describe("PromptBuilder skill context", () => {
       retainedTailCount: 6
     };
 
-    const withSummary = promptBuilder.build(session, new ToolRegistry(), {
-      currentDateTimeContext: "2026-04-26 10:00",
-      currentTimeZone: "Asia/Shanghai"
-    });
+    const withSummary = promptBuilder.build(session, new ToolRegistry());
 
     expect(withSummary.runtimeContextMessages).toHaveLength(3);
     expect(JSON.stringify(withSummary.runtimeContextMessages[1])).toContain(

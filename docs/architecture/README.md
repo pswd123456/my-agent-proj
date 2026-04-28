@@ -11,6 +11,7 @@
 - [后台任务与 delegation](./background-tasks-and-delegation.md)
 - [工作区 `.agent/` 运行配置](./workspace-agent-config.md)
 - [MCP 模块落地](./mcp-module.md)
+- [Trace / Log 排查](./trace-debugging.md)
 
 ## 阅读建议
 
@@ -25,6 +26,7 @@
 - 做工作区 skills / MCP 配置相关工作时，读 [工作区 `.agent/` 运行配置](./workspace-agent-config.md)
 - 做工作区 MCP 挂载、权限、trace 或模块拆分时，读 [MCP 模块落地](./mcp-module.md)
 - 做后台任务、子代理执行或 worker 轮询链路时，读 [后台任务与 delegation](./background-tasks-and-delegation.md)
+- 做 trace / system log 排查、session 级定位或 prompt/tool/permission 链路诊断时，读 [Trace / Log 排查](./trace-debugging.md)
 
 ## 使用边界
 

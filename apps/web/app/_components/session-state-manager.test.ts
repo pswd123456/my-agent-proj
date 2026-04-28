@@ -7,7 +7,8 @@ import {
   beginSessionInterrupt,
   beginSessionSubmission,
   createSessionUiState,
-  rollbackSessionUiState
+  rollbackSessionUiState,
+  setSessionSnapshot
 } from "./session-state-manager";
 
 function createSessionSnapshot(): SessionSnapshot {
@@ -105,6 +106,25 @@ describe("session-state-manager", () => {
     expect(rolledBack.interruptingSessionId).toBeNull();
     expect(rolledBack.optimisticSessionSnapshot).toBeNull();
     expect(rolledBack.session).toEqual(original);
+  });
+
+  test("clears the interrupting marker when a refreshed snapshot is no longer interrupting", () => {
+    const running = createSessionSnapshot();
+    running.context.status = "running";
+    running.sessionState.loopState = "running";
+    const interrupting = beginSessionInterrupt(
+      createSessionUiState(running),
+      running.sessionId
+    );
+
+    const stopped = createSessionSnapshot();
+    stopped.sessionState.loopState = "interrupted";
+    stopped.sessionState.interruptRequested = false;
+    stopped.context.status = "waiting_for_user_input";
+    const refreshed = setSessionSnapshot(interrupting, stopped);
+
+    expect(refreshed.interruptingSessionId).toBeNull();
+    expect(refreshed.session?.sessionState.interruptRequested).toBe(false);
   });
 
   test("updates todo state from streamed get_todo_list results", () => {

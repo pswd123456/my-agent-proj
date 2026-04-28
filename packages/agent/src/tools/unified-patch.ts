@@ -7,6 +7,7 @@ import {
   toRelativeWorkspacePath,
   writeTextFileAtomic
 } from "./workspace.js";
+import { readFileVersion } from "./fresh-session-read.js";
 
 export type UnifiedPatchAction = "modify" | "create" | "delete";
 
@@ -42,7 +43,18 @@ export interface PatchApplicationSummary {
   addedLineCount: number;
   removedLineCount: number;
   diff: string;
+  fileState:
+    | {
+        exists: true;
+        sizeBytes: number;
+        modifiedAtMs: number;
+      }
+    | {
+        exists: false;
+      };
 }
+
+type PatchChangeSummary = Omit<PatchApplicationSummary, "fileState">;
 
 type PatchParseResult =
   | { ok: true; value: ParsedUnifiedPatch }
@@ -231,7 +243,7 @@ function applyFilePatchToLines(input: {
   };
 }
 
-function summarizeFilePatch(filePatch: UnifiedFilePatch): PatchApplicationSummary {
+function summarizeFilePatch(filePatch: UnifiedFilePatch): PatchChangeSummary {
   const addedLineCount = filePatch.hunks.reduce(
     (count, hunk) => count + hunk.lines.filter((line) => line.kind === "add").length,
     0
@@ -252,7 +264,7 @@ function summarizeFilePatch(filePatch: UnifiedFilePatch): PatchApplicationSummar
   };
 }
 
-function serializeUnifiedFilePatch(filePatch: UnifiedFilePatch): string {
+export function serializeUnifiedFilePatch(filePatch: UnifiedFilePatch): string {
   const oldPath = filePatch.oldPath === null ? "/dev/null" : `a/${filePatch.oldPath}`;
   const newPath = filePatch.newPath === null ? "/dev/null" : `b/${filePatch.newPath}`;
   const lines = [`--- ${oldPath}`, `+++ ${newPath}`];
@@ -269,6 +281,82 @@ function serializeUnifiedFilePatch(filePatch: UnifiedFilePatch): string {
   }
 
   return lines.join("\n");
+}
+
+export function invertUnifiedFilePatch(
+  filePatch: UnifiedFilePatch
+): UnifiedFilePatch {
+  const action: UnifiedPatchAction =
+    filePatch.action === "create"
+      ? "delete"
+      : filePatch.action === "delete"
+        ? "create"
+        : "modify";
+
+  return {
+    action,
+    oldPath: filePatch.newPath,
+    newPath: filePatch.oldPath,
+    targetPath: filePatch.targetPath,
+    hunks: filePatch.hunks.map((hunk) => ({
+      oldStart: hunk.newStart,
+      oldCount: hunk.newCount,
+      newStart: hunk.oldStart,
+      newCount: hunk.oldCount,
+      lines: (() => {
+        const nextLines: UnifiedPatchLine[] = [];
+        let deletedBlock: UnifiedPatchLine[] = [];
+        let addedBlock: UnifiedPatchLine[] = [];
+
+        const flushChangedBlock = () => {
+          if (addedBlock.length > 0) {
+            nextLines.push(
+              ...addedBlock.map((line) => ({
+                kind: "delete" as const,
+                text: line.text
+              }))
+            );
+          }
+          if (deletedBlock.length > 0) {
+            nextLines.push(
+              ...deletedBlock.map((line) => ({
+                kind: "add" as const,
+                text: line.text
+              }))
+            );
+          }
+          deletedBlock = [];
+          addedBlock = [];
+        };
+
+        for (const line of hunk.lines) {
+          if (line.kind === "context") {
+            flushChangedBlock();
+            nextLines.push(line);
+            continue;
+          }
+
+          if (line.kind === "delete") {
+            deletedBlock.push(line);
+            continue;
+          }
+
+          addedBlock.push(line);
+        }
+
+        flushChangedBlock();
+        return nextLines;
+      })()
+    }))
+  };
+}
+
+export function invertUnifiedPatch(
+  patch: ParsedUnifiedPatch
+): ParsedUnifiedPatch {
+  return {
+    files: [...patch.files].reverse().map(invertUnifiedFilePatch)
+  };
 }
 
 export function listPatchTargets(patchText: string): string[] {
@@ -478,7 +566,14 @@ export async function applyUnifiedPatch(input: {
 
     summaries.push({
       ...summarizeFilePatch(filePatch),
-      path: toRelativeWorkspacePath(input.workingDirectory, absoluteTargetPath)
+      path: toRelativeWorkspacePath(input.workingDirectory, absoluteTargetPath),
+      fileState:
+        filePatch.action === "delete"
+          ? { exists: false }
+          : {
+              exists: true,
+              ...readFileVersion(await fs.stat(absoluteTargetPath))
+            }
     });
   }
 

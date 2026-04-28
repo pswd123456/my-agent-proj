@@ -12,6 +12,12 @@ import path from "node:path";
 
 import { createReadFileTool } from "../src/tools/read-file.js";
 import { createWriteFileTool } from "../src/tools/write-file.js";
+import { createDeleteFileTool } from "../src/tools/delete-file.js";
+import {
+  applyUnifiedPatch,
+  invertUnifiedPatch,
+  parseUnifiedPatch
+} from "../src/tools/unified-patch.js";
 import { estimateTextTokens } from "../src/runtime/token-budget.js";
 import type { ToolExecutionContext } from "../src/tools/runtime-tool.js";
 import { preflightWorkspaceSandboxTargets } from "../src/tools/workspace.js";
@@ -605,8 +611,75 @@ describe("write_file", () => {
 
     expect(result.state).toBe("success");
     expect(result.result.code).toBe("FILE_UPDATED");
+    expect(result.details).toEqual({
+      kind: "workspace_file_changes",
+      files: [
+        {
+          path: "notes.txt",
+          action: "modify",
+          addedLineCount: 2,
+          removedLineCount: 1,
+          diff: [
+            "--- a/notes.txt",
+            "+++ b/notes.txt",
+            "@@ -1,1 +1,2 @@",
+            "-old content",
+            "+new content",
+            "+with two lines"
+          ].join("\n")
+        }
+      ]
+    });
     await expect(readFile(targetPath, "utf8")).resolves.toBe(
       "new content\nwith two lines\n"
+    );
+  });
+
+  test("allows consecutive overwrites after the current session writes the file", async () => {
+    const workspace = await createWorkspace();
+    const targetPath = path.join(workspace, "notes.txt");
+    await writeFile(targetPath, "old content\n");
+    const sessionMessages = await createReadMessages({
+      workspace,
+      toolInput: { path: "notes.txt" }
+    });
+
+    const firstInput = {
+      path: "notes.txt",
+      content: "first session write\n"
+    };
+    const firstResult = await createWriteFileTool(workspace).execute(
+      firstInput,
+      createContext(workspace, { sessionMessages })
+    );
+    expect(firstResult.state).toBe("success");
+
+    const secondResult = await createWriteFileTool(workspace).execute(
+      {
+        path: "notes.txt",
+        content: "second session write\n"
+      },
+      createContext(workspace, {
+        sessionMessages: [
+          ...sessionMessages,
+          createToolCallBlock({
+            toolName: "write_file",
+            toolCallId: "first-write",
+            toolInput: firstInput
+          }),
+          createToolResultBlock({
+            toolName: "write_file",
+            toolCallId: "first-write",
+            output: firstResult.content
+          })
+        ]
+      })
+    );
+
+    expect(secondResult.state).toBe("success");
+    expect(secondResult.result.code).toBe("FILE_UPDATED");
+    await expect(readFile(targetPath, "utf8")).resolves.toBe(
+      "second session write\n"
     );
   });
 
@@ -653,6 +726,55 @@ describe("write_file", () => {
     await expect(readFile(targetPath, "utf8")).resolves.toBe("new content\n");
   });
 
+  test("requires a new read when another writer changes a file after this session writes it", async () => {
+    const workspace = await createWorkspace();
+    const targetPath = path.join(workspace, "notes.txt");
+    await writeFile(targetPath, "old content\n");
+    const sessionMessages = await createReadMessages({
+      workspace,
+      toolInput: { path: "notes.txt" }
+    });
+
+    const firstInput = {
+      path: "notes.txt",
+      content: "session write\n"
+    };
+    const firstResult = await createWriteFileTool(workspace).execute(
+      firstInput,
+      createContext(workspace, { sessionMessages })
+    );
+    expect(firstResult.state).toBe("success");
+    await writeFile(targetPath, "external writer changed this file\n");
+
+    const staleResult = await createWriteFileTool(workspace).execute(
+      {
+        path: "notes.txt",
+        content: "second session write\n"
+      },
+      createContext(workspace, {
+        sessionMessages: [
+          ...sessionMessages,
+          createToolCallBlock({
+            toolName: "write_file",
+            toolCallId: "first-write",
+            toolInput: firstInput
+          }),
+          createToolResultBlock({
+            toolName: "write_file",
+            toolCallId: "first-write",
+            output: firstResult.content
+          })
+        ]
+      })
+    );
+
+    expect(staleResult.state).toBe("failed");
+    expect(staleResult.result.code).toBe("FILE_CHANGED_SINCE_READ");
+    await expect(readFile(targetPath, "utf8")).resolves.toBe(
+      "external writer changed this file\n"
+    );
+  });
+
   test("fails write_file when the parent directory is missing", async () => {
     const workspace = await createWorkspace();
 
@@ -682,7 +804,164 @@ describe("write_file", () => {
 
     expect(result.state).toBe("success");
     expect(result.result.code).toBe("FILE_CREATED");
+    expect(result.details).toEqual({
+      kind: "workspace_file_changes",
+      files: [
+        {
+          path: "notes.txt",
+          action: "create",
+          addedLineCount: 1,
+          removedLineCount: 0,
+          diff: [
+            "--- /dev/null",
+            "+++ b/notes.txt",
+            "@@ -0,0 +1,1 @@",
+            "+hello"
+          ].join("\n")
+        }
+      ]
+    });
     await expect(readFile(targetPath, "utf8")).resolves.toBe("hello\n");
+  });
+});
+
+describe("delete_file", () => {
+  test("deletes multiple files and returns undoable diffs", async () => {
+    const workspace = await createWorkspace();
+    await mkdir(path.join(workspace, "nested"), { recursive: true });
+    await writeFile(path.join(workspace, "alpha.txt"), "one\ntwo\n");
+    await writeFile(path.join(workspace, "nested", "beta.txt"), "beta\n");
+    const alphaReadMessages = await createReadMessages({
+      workspace,
+      toolCallId: "read-alpha",
+      toolInput: { path: "alpha.txt" }
+    });
+    const betaReadMessages = await createReadMessages({
+      workspace,
+      toolCallId: "read-beta",
+      toolInput: { path: "nested/beta.txt" }
+    });
+
+    const result = await createDeleteFileTool(workspace).execute(
+      {
+        paths: ["alpha.txt", "nested/beta.txt"]
+      },
+      createContext(workspace, {
+        sessionMessages: [...alphaReadMessages, ...betaReadMessages]
+      })
+    );
+
+    expect(result.state).toBe("success");
+    expect(result.result.data).toMatchObject({
+      fileCount: 2,
+      files: [
+        {
+          path: "alpha.txt",
+          fileState: { exists: false }
+        },
+        {
+          path: "nested/beta.txt",
+          fileState: { exists: false }
+        }
+      ]
+    });
+    expect(result.details).toEqual({
+      kind: "workspace_file_changes",
+      files: [
+        {
+          path: "alpha.txt",
+          action: "delete",
+          addedLineCount: 0,
+          removedLineCount: 2,
+          diff: [
+            "--- a/alpha.txt",
+            "+++ /dev/null",
+            "@@ -1,2 +0,0 @@",
+            "-one",
+            "-two"
+          ].join("\n")
+        },
+        {
+          path: "nested/beta.txt",
+          action: "delete",
+          addedLineCount: 0,
+          removedLineCount: 1,
+          diff: [
+            "--- a/nested/beta.txt",
+            "+++ /dev/null",
+            "@@ -1,1 +0,0 @@",
+            "-beta"
+          ].join("\n")
+        }
+      ]
+    });
+    await expect(
+      readFile(path.join(workspace, "alpha.txt"), "utf8")
+    ).rejects.toThrow();
+    await expect(
+      readFile(path.join(workspace, "nested", "beta.txt"), "utf8")
+    ).rejects.toThrow();
+
+    const patchFiles =
+      result.details?.kind === "workspace_file_changes"
+        ? result.details.files.flatMap((file) => {
+            const parsed = parseUnifiedPatch(file.diff);
+            expect(parsed.ok).toBe(true);
+            return parsed.ok ? parsed.value.files : [];
+          })
+        : [];
+    await applyUnifiedPatch({
+      workingDirectory: workspace,
+      patch: invertUnifiedPatch({ files: patchFiles }),
+      allowWorkspaceEscape: false
+    });
+    await expect(
+      readFile(path.join(workspace, "alpha.txt"), "utf8")
+    ).resolves.toBe("one\ntwo\n");
+    await expect(
+      readFile(path.join(workspace, "nested", "beta.txt"), "utf8")
+    ).resolves.toBe("beta\n");
+  });
+
+  test("fails without deleting any file when a target was not read in the session", async () => {
+    const workspace = await createWorkspace();
+    await writeFile(path.join(workspace, "alpha.txt"), "one\n");
+
+    const result = await createDeleteFileTool(workspace).execute(
+      {
+        paths: ["alpha.txt"]
+      },
+      createContext(workspace)
+    );
+
+    expect(result.state).toBe("failed");
+    expect(result.result.code).toBe("FILE_WRITE_REQUIRES_READ");
+    await expect(
+      readFile(path.join(workspace, "alpha.txt"), "utf8")
+    ).resolves.toBe("one\n");
+  });
+
+  test("rejects directories without deleting valid file siblings", async () => {
+    const workspace = await createWorkspace();
+    await mkdir(path.join(workspace, "nested"), { recursive: true });
+    await writeFile(path.join(workspace, "alpha.txt"), "one\n");
+    const alphaReadMessages = await createReadMessages({
+      workspace,
+      toolInput: { path: "alpha.txt" }
+    });
+
+    const result = await createDeleteFileTool(workspace).execute(
+      {
+        paths: ["alpha.txt", "nested"]
+      },
+      createContext(workspace, { sessionMessages: alphaReadMessages })
+    );
+
+    expect(result.state).toBe("failed");
+    expect(result.result.code).toBe("TARGET_NOT_FILE");
+    await expect(
+      readFile(path.join(workspace, "alpha.txt"), "utf8")
+    ).resolves.toBe("one\n");
   });
 });
 

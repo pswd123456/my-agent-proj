@@ -1,7 +1,7 @@
 # Agent Coding Tool Pack Expansion
 
-更新时间：2026-04-26
-状态：待落地
+更新时间：2026-04-28
+状态：已落地
 范围：`packages/agent` coding-oriented tool pack / runtime tool registry / regression tests
 
 ## 背景
@@ -12,7 +12,7 @@
 - shell / http
 - todo 与日程能力
 
-这些工具足够支撑一般助手任务，但在长任务 coding 场景里还缺几块很关键的能力：
+这些工具已经补齐长任务 coding 场景里的几块关键能力：
 
 1. 代码修改不够“补丁化”
 2. 代码库状态不够“git 化”
@@ -24,13 +24,21 @@
 - 需要手动确认当前工作树状态
 - 文件定位和批量读取来回切换，节奏发散
 
-这份文档把用户建议的第 1 / 2 / 4 类工具补充，收敛成可直接实现的规格。
+这份文档保留当时的规格与当前落地结果，后续复查应以 `packages/agent/src/tools/registry.ts` 和相关测试为准。
+
+## 当前落地结果
+
+- `apply_patch` 已作为补丁型修改工具注册到 `workspace` pack，支持统一 diff、多文件修改、新建文件，以及已有文件修改前的 session 内 `read_file` / stale check
+- `git_status`、`git_diff`、`git_diff_cached` 已作为只读 git 工具注册到 `workspace` pack
+- `find_files` 已作为路径发现工具注册到 `workspace` pack，用于先按路径模式找文件，再进入 `read_file` / `search_text`
+- `write_file` 当前保留为新建文件与整文件替换入口；行级与多文件修改优先走 `apply_patch`
+- `PERMISSION_TOOL_OPTIONS`、settings permission tool options 与 registry 测试已覆盖这些工具
 
 ## 本次决策
 
 ### 1. 补一个补丁型修改工具
 
-新增一个更适合 coding 场景的补丁工具，承接行级和多文件修改；`write_file` 保留为新建文件与整文件替换入口。
+已新增 `apply_patch`，承接行级和多文件修改；`write_file` 保留为新建文件与整文件替换入口。
 
 建议能力：
 
@@ -44,7 +52,7 @@
 
 ### 2. 补只读 git 工具
 
-至少补下面这组只读工具：
+已补下面这组只读工具：
 
 - `git_status`
 - `git_diff`
@@ -66,7 +74,7 @@
 
 ### 3. 补文件发现工具
 
-新增一个轻量路径发现工具，优先覆盖：
+已新增 `find_files` 作为轻量路径发现工具，优先覆盖：
 
 - 按 glob 找文件
 - 按目录 / 后缀 / 文件名模式列出候选文件

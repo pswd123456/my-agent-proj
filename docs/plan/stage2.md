@@ -17,8 +17,8 @@
   - 连续的 `tool result` 合并成一个 user message。
   - 这样一次响应里出现 `text + tool_use` 时，下一轮模型能看到完整同轮上下文。
   - prompt 要显式区分稳定 prefix 和本轮动态 runtime context。
-  - `workspace root`、`current_date_context`、tool schema 继续放稳定 prefix，便于 prefix cache。
-  - `当前本地时间（精确到分钟）`、`timezone`、pending confirmation 等易变信息放到本轮末尾的 runtime context message，不进入 cache key。
+  - 历史草稿曾计划把 `workspace root`、`current_date_context`、tool schema 放进稳定 prefix；当前实现已经移除默认日期注入，只保留工作目录、YOLO mode、capability packs 与 mounted tools summary 等稳定前缀。
+  - 当前日期、当前时间和 timezone 不再自动进入 runtime context；模型需要这些信息时，应显式调用 `get_current_time`。pending confirmation 等易变信息仍放在本轮 runtime context message，不进入 cache key。
 - `packages/agent/src/runtime.ts`
   - 逐块处理模型返回的 content。
   - `text` 追加进 session.messages，并写入 trace。

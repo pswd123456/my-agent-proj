@@ -25,6 +25,6 @@
 
 - `stage1.md`：保留最早的 runtime 拆分草稿，主要用于回看概念起点
 - `stage2.md` 到 `stage5.md`：保留已经落地过的阶段规格，适合核对设计意图和验收边界
-- `task_brief.md`：说明当前已落地的 `task brief` artifact 行为，以及它与未来 `full compaction` 的演进边界
-- `full-compaction.md`：保留未来 full compaction 的实现设计，建立在 `task_brief.md` 之上，不代表当前已落地实现
+- `task_brief.md`：说明当前已落地的 `task brief` artifact 行为，以及它与 `full compaction` 的解耦边界
+- `full-compaction.md`：说明当前已落地的 runtime 第二阶段上下文压缩机制
 - `product1.md`：保留日程管理能力的专项设计与约束

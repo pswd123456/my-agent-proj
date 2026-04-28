@@ -89,6 +89,7 @@ const result = await runtime.run({
 const eventKinds = emittedEvents.map((event) => event.kind);
 assert.deepEqual(eventKinds, [
   "skills_loaded",
+  "workspace_instructions_loaded",
   "turn_start",
   "prompt",
   "response",
@@ -98,6 +99,7 @@ assert.deepEqual(eventKinds, [
   "tool_result",
   "turn_end",
   "skills_loaded",
+  "workspace_instructions_loaded",
   "turn_start",
   "prompt",
   "response",

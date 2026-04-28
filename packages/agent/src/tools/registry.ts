@@ -13,10 +13,12 @@ import { createCopyPathTool } from "./copy-path.js";
 import { createCreateDirectoryTool } from "./create-directory.js";
 import { createCreateRoutineTool } from "./create-routine.js";
 import { createDelegateAgentTool } from "./delegate-agent.js";
+import { createDeleteFileTool } from "./delete-file.js";
 import { createDeletePathTool } from "./delete-path.js";
 import { createDeleteRoutineTool } from "./delete-routine.js";
 import { createEditTaskBriefTool } from "./edit-task-brief.js";
 import { createEditRoutineTool } from "./edit-routine.js";
+import { createGetCurrentTimeTool } from "./get-current-time.js";
 import { createGetTodoListTool } from "./get-todo-list.js";
 import { createGetTaskBriefTool } from "./get-task-brief.js";
 import { createFindFilesTool } from "./find-files.js";
@@ -143,6 +145,7 @@ export function createPlanningToolRegistry(): ToolRegistry {
     createAskUserQuestionTool(),
     createDelegateAgentTool(),
     createEditTaskBriefTool(),
+    createGetCurrentTimeTool(),
     createGetTaskBriefTool(),
     createGetTodoListTool(),
     createManageCapabilityPacksTool(),
@@ -165,6 +168,7 @@ export function createWorkspaceToolRegistry(options: {
     createSearchTextTool(options.workingDirectory),
     createWriteFileTool(options.workingDirectory),
     createCreateDirectoryTool(options.workingDirectory),
+    createDeleteFileTool(options.workingDirectory),
     createDeletePathTool(options.workingDirectory),
     createMovePathTool(options.workingDirectory),
     createCopyPathTool(options.workingDirectory),

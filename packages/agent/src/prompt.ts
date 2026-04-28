@@ -14,6 +14,7 @@ import type {
 import type { SkillDescriptor } from "./skills/index.js";
 import type { RuntimeTool } from "./tools/runtime-tool.js";
 import type { ToolRegistry } from "./tools/registry.js";
+import type { WorkspaceInstructionsDescriptor } from "./workspace-instructions/index.js";
 import { normalizeCapabilityPacks } from "@ai-app-template/domain";
 import {
   describeTaskBriefBinding,
@@ -63,10 +64,9 @@ export interface PromptBuilderOptions {
 }
 
 export interface PromptRuntimeContext {
-  currentDateTimeContext: string;
-  currentTimeZone: string;
   currentTurnCount?: number;
   maxTurns?: number;
+  workspaceInstructions?: WorkspaceInstructionsDescriptor | null;
 }
 
 const DEFAULT_SYSTEM_PROMPT = [
@@ -74,6 +74,7 @@ const DEFAULT_SYSTEM_PROMPT = [
   "Use the available tools directly and adapt to the tools that are actually available in this run.",
   "Adapt to the tools that are actually available in this run instead of assuming a fixed product workflow.",
   "Prefer inspecting the current workspace or persisted state before taking actions that depend on existing context.",
+  "Follow workspace instructions listed in the runtime context when they are present.",
   "When a capability is not exposed in the current tool list, say so briefly instead of inventing hidden tools.",
   "When a tool returns INVALID_TOOL_INPUT or other validation errors, correct the tool call instead of repeating the same mistake.",
   "Before taking an action, you MUST briefly state your immediate intent in one short sentence so the user can follow what you are about to do.",
@@ -92,8 +93,8 @@ const DEFAULT_SYSTEM_PROMPT = [
   "If the first read_file window is not enough, continue with the next adjacent window instead of rereading from the beginning or jumping to a full-file read.",
   "Only read an entire file when the tool results already show it is small enough and the whole file is genuinely required for the task.",
   "If read_file reports that a file is unchanged since the last read, reuse the earlier content already in context instead of rereading it.",
-  "Use write_file only for new files or full-file replacement, and use apply_patch for line-level edits.",
-  "Before using write_file or apply_patch on an existing file, you MUST read that file with read_file in the current session. If the write tool reports the file changed since the last read, read it again before retrying.",
+  "Use write_file only for new files or full-file replacement, use apply_patch for line-level edits, and use delete_file for deleting one or more files. Use delete_path only when the target may be a directory or generic path.",
+  "Before using write_file, apply_patch, or delete_file on an existing file, you MUST have a current session file state for that file: either read it with read_file, or rely on a successful write_file/apply_patch/delete_file from this same session. If the write tool reports the file changed since the last session file state, read it again before retrying.",
   "Keep the final text concise and rely on stable tool results for detail."
 ].join("\n");
 
@@ -176,7 +177,6 @@ function createPrefixMessage(
         cache_control: EPHEMERAL_CACHE_CONTROL,
         text: [
           `Workspace root: ${session.workingDirectory}`,
-          `Current date context: ${session.context.currentDateContext}`,
           `YOLO mode: ${session.context.yoloMode ? "enabled" : "disabled"}`,
           `Enabled capability packs: ${enabledCapabilityPacks.join(", ") || "none"}`,
           `Mounted tools: ${toolSummary(tools) || "none"}`
@@ -341,8 +341,6 @@ function createRuntimeContextMessages(
   });
   const runtimeLines = [
     "Runtime context for this run:",
-    `Current local datetime: ${runtimeContext.currentDateTimeContext}`,
-    `Current timezone: ${runtimeContext.currentTimeZone}`,
     `Working directory: ${session.workingDirectory}`,
     `Session status: ${session.context.status}`,
     `YOLO mode: ${session.context.yoloMode ? "enabled" : "disabled"}`,
@@ -396,6 +394,33 @@ function createSkillsContextMessage(
       {
         type: "text",
         text: ["Runtime skills for this workspace:", ...skillLines].join("\n")
+      }
+    ]
+  };
+}
+
+function createWorkspaceInstructionsContextMessage(
+  instructions: WorkspaceInstructionsDescriptor | null | undefined
+): AnthropicMessage | null {
+  if (!instructions) {
+    return null;
+  }
+
+  const content = instructions.content.trim();
+  if (content.length === 0) {
+    return null;
+  }
+
+  return {
+    role: "user",
+    content: [
+      {
+        type: "text",
+        text: [
+          `Workspace instructions from ${instructions.relativePath}:`,
+          "",
+          content
+        ].join("\n")
       }
     ]
   };
@@ -797,10 +822,7 @@ export class PromptBuilder {
   build(
     session: SessionSnapshot,
     toolRegistry: ToolRegistry,
-    runtimeContext: PromptRuntimeContext = {
-      currentDateTimeContext: formatPromptDateTimeContext(),
-      currentTimeZone: resolvePromptTimeZone()
-    },
+    runtimeContext: PromptRuntimeContext = {},
     skills: SkillDescriptor[] = []
   ): PromptEnvelope {
     const tools = listPromptTools(session, toolRegistry);
@@ -811,6 +833,10 @@ export class PromptBuilder {
     const baseMessages = toAnthropicMessages(session.messages);
     const { messages: runtimeContextMessages, dynamicPromptMessages } =
       createRuntimeContextMessages(session, runtimeContext);
+    const workspaceInstructionsContextMessage =
+      createWorkspaceInstructionsContextMessage(
+        runtimeContext.workspaceInstructions
+      );
     const skillsContextMessage = createSkillsContextMessage(skills);
     const cacheKey = createHash("sha256")
       .update(system)
@@ -828,6 +854,9 @@ export class PromptBuilder {
       runtimeContextMessages: [
         ...(planModePromptMessage ? [planModePromptMessage] : []),
         ...runtimeContextMessages,
+        ...(workspaceInstructionsContextMessage
+          ? [workspaceInstructionsContextMessage]
+          : []),
         skillsContextMessage
       ],
       dynamicPromptMessages,
@@ -842,21 +871,6 @@ export function createPromptBuilder(
 ): PromptBuilder {
   void options.toolChoice;
   return new PromptBuilder(options.systemPrompt);
-}
-
-function pad(value: number): string {
-  return String(value).padStart(2, "0");
-}
-
-export function formatPromptDateTimeContext(now = new Date()): string {
-  return [
-    `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
-    `${pad(now.getHours())}:${pad(now.getMinutes())}`
-  ].join(" ");
-}
-
-export function resolvePromptTimeZone(): string {
-  return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 }
 
 export function summarizeConversationBlocks(

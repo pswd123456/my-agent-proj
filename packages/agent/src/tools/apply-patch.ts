@@ -22,6 +22,19 @@ import {
 } from "./workspace.js";
 import type { ToolExecutionContext } from "./runtime-tool.js";
 
+const APPLY_PATCH_DESCRIPTION = [
+  "Apply a standard unified diff patch to one or more workspace files after approval.",
+  "Existing files MUST be read with read_file in this session before modification or deletion.",
+  "Patch hunks must match the current file exactly, including blank lines; hunk counts must equal context+deleted lines for old and context+added lines for new."
+].join(" ");
+
+const PATCH_INPUT_DESCRIPTION = [
+  "Complete unified diff text. Use --- a/path and +++ b/path, then @@ -oldStart,oldCount +newStart,newCount @@.",
+  "Lines in a hunk start with: space for unchanged context, - for deletion, + for addition. An unchanged blank line is a single leading space.",
+  "Example modify: --- a/file.txt\\n+++ b/file.txt\\n@@ -1,2 +1,3 @@\\n one\\n two\\n+three",
+  "Example create: --- /dev/null\\n+++ b/new.txt\\n@@ -0,0 +1,2 @@\\n+one\\n+two"
+].join(" ");
+
 function summarizeTargetPaths(targets: string[]): string {
   if (targets.length === 0) {
     return "1 patch";
@@ -82,8 +95,7 @@ async function requirePatchFreshSessionReads(input: {
 export function createApplyPatchTool(workingDirectory: string): RuntimeTool {
   return {
     name: "apply_patch",
-    description:
-      "Apply a unified diff patch to one or more workspace files after approval. Existing files MUST be read with read_file in this session before modification or deletion.",
+    description: APPLY_PATCH_DESCRIPTION,
     family: "workspace-file",
     isReadOnly: false,
     hasExternalSideEffect: true,
@@ -94,8 +106,7 @@ export function createApplyPatchTool(workingDirectory: string): RuntimeTool {
       properties: {
         patch: {
           type: "string",
-          description:
-            "Unified diff text that updates one or more workspace files."
+          description: PATCH_INPUT_DESCRIPTION
         }
       },
       required: ["patch"],
@@ -225,7 +236,14 @@ export function createApplyPatchTool(workingDirectory: string): RuntimeTool {
                 hunkCount: summary.hunkCount,
                 addedLineCount: summary.addedLineCount,
                 removedLineCount: summary.removedLineCount,
-                diff: summary.diff
+                diff: summary.diff,
+                fileState: summary.fileState.exists
+                  ? {
+                      exists: true,
+                      sizeBytes: summary.fileState.sizeBytes,
+                      modifiedAtMs: summary.fileState.modifiedAtMs
+                    }
+                  : { exists: false }
               }))
             }
           }),

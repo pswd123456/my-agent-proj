@@ -10,7 +10,7 @@
 
 1. `history compact`
    - 在 `packages/agent/src/prompt.ts`
-   - 当预估 prompt 超过 `contextWindow * 0.6` 时，把较早历史压成一个 summary user block
+   - 当时触发阈值是 `contextWindow * 0.6`；当前实现已调整为 `contextWindow * 0.95`，并作为 full compaction 前的第一阶段压缩
 
 2. `tool output compaction`
    - 在 `packages/agent/src/runtime/tool-output-compaction.ts`
@@ -37,25 +37,26 @@
 - runtime 不再调用统一的 `compactToolResultForContext()`
 - 删除 `packages/agent/src/runtime/tool-output-compaction.ts`
 
-### 2. 保留现有 history compact
+### 2. 保留 history compact
 
-当前 `PromptBuilder.build()` 里的 `history compact` 保留，作为第一阶段、唯一默认启用的上下文压缩机制。
+当前 `history compact` 保留，作为第一阶段上下文压缩机制。
 
 保留范围：
 
-- `estimatePromptTokens(...) > Math.floor(session.contextWindow * 0.6)` 的触发条件
+- `estimatePromptTokens(...) > Math.floor(session.contextWindow * 0.95)` 的触发条件
 - `compactHistoryBlocks(...)` 的 synthetic summary user block 机制
 - 最近 tail 保留策略
 
-### 3. 暂不引入新的 runtime 级 full compact
+### 3. full compaction 已在后续单独落地
 
-这次不新增第二套 compact runtime。
+这次落地当时不新增第二套 compact runtime；后续已经通过 `docs/plan/full-compaction.md` 单独落地 runtime 级 full compaction。
 
-明确约束：
+当前边界：
 
-- 不在本次实现里补一个新的 session-level / trace-level / prompt-level full compact
-- 不把 tool result 持久化引用、附件回指、LLM summary compact 混进这次改动
-- 先把现有 compaction 机制收口到只剩 history compact
+- 不恢复旧的 tool-result-level 统一截断
+- full compaction 写入 `session.context.fullCompactionState`
+- full compaction summary 通过 `runtimeContextMessages` 注入，不进入 stable prefix / cache key
+- 具体触发与恢复边界以 `docs/architecture/context-management/compaction.md` 和 `docs/plan/full-compaction.md` 为准
 
 ### 4. 后续允许的方向
 
@@ -66,8 +67,8 @@
    - 例如 `grep` / `search_text` 只返回命中片段
    - 例如 `shell` 优先保留 stderr / 最后错误段
 
-2. 单独设计 full compact 机制
-   - 独立于当前 `history compact`
+2. 继续演进 full compaction
+   - 独立于 tool-result-level 统一截断
    - 单独定义触发条件、持久化策略、恢复边界和可观测性
    - 不能以“顺手扩展当前 tool-output-compaction”方式演进
 
@@ -91,8 +92,8 @@
 
 ### 不做
 
-- 不修改当前 `history compact` 触发比例和 tail 策略
-- 不在本次加入新的 full compact
+- 不恢复旧的 `history compact` 低阈值
+- 不把 full compaction 和旧 tool output compaction 混为一套机制
 - 不顺手引入 trace 附件、外部文件引用、tool-result placeholder
 - 不因为这个变更去做 prompt builder 或 session schema 重构
 

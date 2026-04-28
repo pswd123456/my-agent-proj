@@ -29,7 +29,9 @@ export function setSessionSnapshot(
     session,
     optimisticSessionSnapshot: null,
     interruptingSessionId:
-      session && state.interruptingSessionId === session.sessionId
+      session &&
+      state.interruptingSessionId === session.sessionId &&
+      session.sessionState.interruptRequested
         ? state.interruptingSessionId
         : null
   };

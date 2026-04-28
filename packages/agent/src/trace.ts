@@ -17,6 +17,10 @@ import type {
   SkillDescriptor,
   SkillDiscoveryDiagnostic
 } from "./skills/index.js";
+import type {
+  WorkspaceInstructionsDescriptor,
+  WorkspaceInstructionsDiagnostic
+} from "./workspace-instructions/index.js";
 import type { JsonValue, SessionSnapshot, ToolResultDetails } from "./types.js";
 
 export interface TracePromptEvent {
@@ -64,6 +68,13 @@ export interface TraceSkillsLoadedEvent {
   turnCount: number;
   skills: SkillDescriptor[];
   diagnostics: SkillDiscoveryDiagnostic[];
+}
+
+export interface TraceWorkspaceInstructionsLoadedEvent {
+  kind: "workspace_instructions_loaded";
+  turnCount: number;
+  instructions: WorkspaceInstructionsDescriptor | null;
+  diagnostics: WorkspaceInstructionsDiagnostic[];
 }
 
 export interface TraceMcpLoadedEvent {
@@ -225,6 +236,7 @@ export type TraceEvent =
   | TraceResponseEvent
   | TraceTurnStartEvent
   | TraceSkillsLoadedEvent
+  | TraceWorkspaceInstructionsLoadedEvent
   | TraceMcpLoadedEvent
   | TraceTextEvent
   | TraceThinkingEvent

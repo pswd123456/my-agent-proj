@@ -38,7 +38,9 @@ runtimeContextMessages
 
 不适合放入 `system`：
 
+- 当前日期
 - 当前分钟级时间
+- timezone
 - pending confirmation payload
 - pending permission request
 - workspace skill 列表
@@ -50,7 +52,6 @@ runtimeContextMessages
 `prefixMessages` 放相对稳定的 session 前缀，当前包括：
 
 - workspace root
-- current date context
 - YOLO mode
 - enabled capability packs
 - mounted tools summary
@@ -75,7 +76,7 @@ prefix message 带 `cache_control: { type: "ephemeral" }`，并参与当前 `cac
 
 ## runtimeContextMessages
 
-`runtimeContextMessages` 放每次执行才需要的易变上下文，当前包括三类：
+`runtimeContextMessages` 放每次执行才需要的易变上下文，当前包括五类：
 
 1. plan mode prompt
    - 只在当前 session 开启 `plan mode` 时注入
@@ -83,21 +84,31 @@ prefix message 带 `cache_control: { type: "ephemeral" }`，并参与当前 `cac
    - 当前会强调：todo 工具不可用、优先通过 `search_task_brief / read_task_brief / edit_task_brief / replace_task_brief` 维护 brief、普通 workspace 文件写工具不可用
 
 2. runtime context
-   - current local datetime
-   - current timezone
    - working directory
    - session status
    - YOLO mode
    - pending permission request
    - pending confirmation payload
    - pending user question payload
+   - active background task count
+   - pending background notifications
 
-3. workspace skills
+3. full compaction continuation summary
+   - 只在 `session.context.fullCompactionState` 存在时注入
+   - 内容来自最近一次 full compaction 生成的 continuation summary
+   - 不进入 `prefixMessages` 或 `cacheKey`
+
+4. workspace instructions
+   - 从 `session.workingDirectory/AGENTS.md` 读取的工作区根指令
+   - 由 workspace instructions manager 负责扫描和诊断，prompt builder 只负责渲染
+   - 不进入 `prefixMessages` 或 `cacheKey`，避免工作区指令变化影响稳定前缀
+
+5. workspace skills
    - 从 `session.workingDirectory/.agent/skills/` 发现的 skill metadata
    - prompt 当前只暴露模型做技能选择需要的元信息
    - 具体 skill 正文通过 `search_skill` / `load_skill` 按需读取，而不是整篇预注入
 
-这层不参与 `cacheKey`。如果新增信息会随执行变化，优先放这里。
+这层不参与 `cacheKey`。如果新增信息会随执行变化，优先放这里。不过当前日期、当前时间和 timezone 不自动注入 runtime context；模型需要时应显式调用 `get_current_time`。
 
 另外还有一组 `dynamicPromptMessages`，当前只用于 turn budget 逼近时的短促提示，例如“尽量收束工作、避免继续探索”。实现上它们会并入本轮 runtime context 的文本层，跟随上下文一起注入，但同样不进入 `cacheKey`，也不应该被提升到稳定前缀。
 
@@ -124,6 +135,7 @@ sha256(system + prefixMessage + tools)
 - `dynamicPromptMessages`
 - 当前 turn 的 pending payload
 - skills diagnostics
+- 当前日期、当前时间和 timezone；这些只能通过 `get_current_time` 工具按需读取
 
 新增 prompt 内容时，需要先判断它是否应该影响 cache key。如果不应该，就不要放入 `system` 或 `prefixMessages`。
 
@@ -141,6 +153,7 @@ sha256(system + prefixMessage + tools)
 ## 常见反模式
 
 - 把当前时间写进 stable prefix
+- 把当前日期、当前时间或 timezone 默认注入 runtime context，导致所有请求都携带易变上下文
 - 把 pending permission 同时写进 messages 和 runtime context，造成双重语义
 - 在通用 system prompt 中保留某个产品能力的长规则
 - 把 UI 展示状态当成模型需要推理的对话历史

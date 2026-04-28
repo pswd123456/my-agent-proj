@@ -240,6 +240,21 @@ const skillsLoadedEvent: Extract<RunStreamEvent, { kind: "skills_loaded" }> = {
   diagnostics: []
 };
 
+const workspaceInstructionsLoadedEvent: Extract<
+  RunStreamEvent,
+  { kind: "workspace_instructions_loaded" }
+> = {
+  kind: "workspace_instructions_loaded",
+  sessionId: "session-1",
+  createdAt: "2026-04-21T18:46:21.740Z",
+  turnCount: 1,
+  instructions: {
+    relativePath: "AGENTS.md",
+    content: "# AGENTS.md\n"
+  },
+  diagnostics: []
+};
+
 describe("buildTimelineItems", () => {
   test("keeps turn boundaries and the current turn's thinking ahead of tool calls", () => {
     const items = buildTimelineItems({
@@ -446,10 +461,15 @@ describe("buildTimelineItems", () => {
     ).toEqual(["turn_start", "run_complete"]);
   });
 
-  test("does not render skills loaded events in the conversation timeline", () => {
+  test("does not render workspace context load events in the conversation timeline", () => {
     const items = buildTimelineItems({
       messages: [firstUser],
-      historyEvents: [turnStart, skillsLoadedEvent, thinkingEvent],
+      historyEvents: [
+        turnStart,
+        skillsLoadedEvent,
+        workspaceInstructionsLoadedEvent,
+        thinkingEvent
+      ],
       streamEvents: []
     });
 
@@ -740,15 +760,16 @@ describe("buildTimelineItems", () => {
   });
 
   test("collapses streamed thinking snapshots by thinking message id", () => {
-    const partialThinkingEvent: Extract<RunStreamEvent, { kind: "thinking" }> = {
-      kind: "thinking",
-      sessionId: "session-1",
-      createdAt: "2026-04-24T08:35:24.100Z",
-      turnCount: 1,
-      thinkingMessageId: "thinking-stream-1",
-      text: "先看",
-      signature: ""
-    };
+    const partialThinkingEvent: Extract<RunStreamEvent, { kind: "thinking" }> =
+      {
+        kind: "thinking",
+        sessionId: "session-1",
+        createdAt: "2026-04-24T08:35:24.100Z",
+        turnCount: 1,
+        thinkingMessageId: "thinking-stream-1",
+        text: "先看",
+        signature: ""
+      };
 
     const finalThinkingEvent: Extract<RunStreamEvent, { kind: "thinking" }> = {
       ...partialThinkingEvent,
@@ -776,15 +797,16 @@ describe("buildTimelineItems", () => {
   });
 
   test("thinking render keys stay unique across streamed snapshots", () => {
-    const partialThinkingEvent: Extract<RunStreamEvent, { kind: "thinking" }> = {
-      kind: "thinking",
-      sessionId: "session-1",
-      createdAt: "2026-04-24T08:35:24.100Z",
-      turnCount: 1,
-      thinkingMessageId: "thinking-stream-dup-1",
-      text: "先看",
-      signature: ""
-    };
+    const partialThinkingEvent: Extract<RunStreamEvent, { kind: "thinking" }> =
+      {
+        kind: "thinking",
+        sessionId: "session-1",
+        createdAt: "2026-04-24T08:35:24.100Z",
+        turnCount: 1,
+        thinkingMessageId: "thinking-stream-dup-1",
+        text: "先看",
+        signature: ""
+      };
 
     const finalThinkingEvent: Extract<RunStreamEvent, { kind: "thinking" }> = {
       ...partialThinkingEvent,
@@ -853,7 +875,11 @@ describe("buildConversationViewItems compact mode", () => {
     };
 
     const view = buildConversationViewItems({
-      timelineItems: [messageItem(firstUser), eventItem(editCall), eventItem(editResult)],
+      timelineItems: [
+        messageItem(firstUser),
+        eventItem(editCall),
+        eventItem(editResult)
+      ],
       mode: "compact"
     });
 
@@ -916,13 +942,15 @@ describe("buildConversationViewItems compact mode", () => {
       toolName: "list_directory",
       input: { path: "apps/web/app" }
     };
-    const listDirectoryResult: Extract<RunStreamEvent, { kind: "tool_result" }> =
-      {
-        ...currentToolResult,
-        createdAt: "2026-04-21T18:46:21.711Z",
-        toolCallId: "call-list-directory",
-        toolName: "list_directory"
-      };
+    const listDirectoryResult: Extract<
+      RunStreamEvent,
+      { kind: "tool_result" }
+    > = {
+      ...currentToolResult,
+      createdAt: "2026-04-21T18:46:21.711Z",
+      toolCallId: "call-list-directory",
+      toolName: "list_directory"
+    };
     const httpCall: Extract<RunStreamEvent, { kind: "tool_call" }> = {
       ...currentToolCall,
       createdAt: "2026-04-21T18:46:21.712Z",
@@ -1117,9 +1145,7 @@ describe("buildConversationViewItems compact mode", () => {
         eventItem(streamingAssistantEvent)
       ],
       mode: "compact",
-      streamEventKeys: new Set([
-        getTimelineEventKey(streamingAssistantEvent)
-      ])
+      streamEventKeys: new Set([getTimelineEventKey(streamingAssistantEvent)])
     });
 
     expect(view.map((item) => item.type)).toEqual([
@@ -1237,7 +1263,7 @@ describe("buildConversationViewItems compact mode", () => {
       "timeline"
     ]);
     if (view[1]?.type === "compact-collapsed-flow") {
-      expect(view[1].hiddenCount).toBe(2);
+      expect(view[1].hiddenCount).toBe(1);
       expect(view[1].originalItems.map((item) => item.type)).toEqual([
         "timeline",
         "compact-tool"
@@ -1351,11 +1377,13 @@ describe("buildConversationViewItems compact mode", () => {
     ]);
 
     const collapsedItems = view.filter(
-      (item): item is Extract<typeof item, { type: "compact-collapsed-flow" }> =>
+      (
+        item
+      ): item is Extract<typeof item, { type: "compact-collapsed-flow" }> =>
         item.type === "compact-collapsed-flow"
     );
     expect(collapsedItems).toHaveLength(2);
-    expect(collapsedItems.map((item) => item.hiddenCount)).toEqual([2, 2]);
+    expect(collapsedItems.map((item) => item.hiddenCount)).toEqual([1, 1]);
     expect(collapsedItems.map((item) => item.key)).toEqual([
       "compact-collapsed-flow-assistant-final-1",
       "compact-collapsed-flow-assistant-final-2"
@@ -1576,17 +1604,100 @@ describe("buildConversationViewItems compact mode", () => {
     ]);
 
     const collapsedItems = view.filter(
-      (item): item is Extract<typeof item, { type: "compact-collapsed-flow" }> =>
+      (
+        item
+      ): item is Extract<typeof item, { type: "compact-collapsed-flow" }> =>
         item.type === "compact-collapsed-flow"
     );
     expect(collapsedItems).toHaveLength(2);
-    expect(collapsedItems.map((item) => item.hiddenCount)).toEqual([2, 2]);
+    expect(collapsedItems.map((item) => item.hiddenCount)).toEqual([1, 1]);
     expect(collapsedItems[0]?.key).toBe(
       "compact-collapsed-flow-assistant-block-1"
     );
     expect(collapsedItems[1]?.key).toBe(
       "compact-collapsed-flow-assistant-final-2"
     );
+  });
+
+  test("counts collapsed flow by hidden turns instead of hidden message blocks", () => {
+    const followUpThinkingEvent: Extract<RunStreamEvent, { kind: "thinking" }> =
+      {
+        ...thinkingEvent,
+        createdAt: "2026-04-21T18:46:31.692Z",
+        turnCount: 2,
+        thinkingMessageId: "thinking-2",
+        signature: "sig-2",
+        text: "继续确认调整后的结果。"
+      };
+    const followUpToolCall: Extract<RunStreamEvent, { kind: "tool_call" }> = {
+      ...currentToolCall,
+      createdAt: "2026-04-21T18:46:31.720Z",
+      turnCount: 2,
+      toolCallId: "call-current-2"
+    };
+    const followUpToolResult: Extract<RunStreamEvent, { kind: "tool_result" }> =
+      {
+        ...currentToolResult,
+        createdAt: "2026-04-21T18:46:31.735Z",
+        turnCount: 2,
+        toolCallId: "call-current-2"
+      };
+    const intermediateAssistantEvent: Extract<
+      RunStreamEvent,
+      { kind: "assistant_text" }
+    > = {
+      kind: "assistant_text",
+      sessionId: "session-1",
+      createdAt: "2026-04-21T18:46:21.800Z",
+      turnCount: 1,
+      assistantMessageId: "assistant-intermediate-1",
+      text: "我先处理第一步。"
+    };
+    const finalAssistantEvent: Extract<
+      RunStreamEvent,
+      { kind: "assistant_text" }
+    > = {
+      kind: "assistant_text",
+      sessionId: "session-1",
+      createdAt: "2026-04-21T18:46:31.800Z",
+      turnCount: 2,
+      assistantMessageId: "assistant-final-2",
+      text: "现在已经全部处理好了。"
+    };
+    const completedRunEvent: Extract<RunStreamEvent, { kind: "run_complete" }> =
+      {
+        ...interruptedRunCompleteEvent,
+        createdAt: "2026-04-21T18:46:31.810Z",
+        status: "completed",
+        stopReason: "end_turn"
+      };
+
+    const view = buildConversationViewItems({
+      timelineItems: [
+        messageItem(firstUser),
+        eventItem(turnStart),
+        eventItem(thinkingEvent),
+        eventItem(currentToolCall),
+        eventItem(currentToolResult),
+        eventItem(intermediateAssistantEvent),
+        eventItem(followUpThinkingEvent),
+        eventItem(followUpToolCall),
+        eventItem(followUpToolResult),
+        eventItem(finalAssistantEvent),
+        eventItem(completedRunEvent)
+      ],
+      mode: "compact"
+    });
+
+    expect(view.map((item) => item.type)).toEqual([
+      "timeline",
+      "compact-collapsed-flow",
+      "timeline"
+    ]);
+    if (view[1]?.type === "compact-collapsed-flow") {
+      expect(view[1].hiddenCount).toBe(2);
+      expect(view[1].originalItems).toHaveLength(5);
+    }
   });
 
   test("anchors collapsed flow scrolling to the turn's user message while keeping the final assistant key", () => {
@@ -1625,15 +1736,13 @@ describe("buildConversationViewItems compact mode", () => {
     expect(
       getCompactCollapsedFlowScrollTargetKey({
         items: view,
-        collapsedFlowKey:
-          "compact-collapsed-flow-assistant-final"
+        collapsedFlowKey: "compact-collapsed-flow-assistant-final"
       })
     ).toBe("message-user-1");
     expect(
       getCompactCollapsedFlowAnchors({
         items: view,
-        collapsedFlowKey:
-          "compact-collapsed-flow-assistant-final"
+        collapsedFlowKey: "compact-collapsed-flow-assistant-final"
       }).assistantItemKey
     ).toBe("event-assistant_text-assistant-final");
   });

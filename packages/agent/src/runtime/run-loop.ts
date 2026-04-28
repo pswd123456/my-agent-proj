@@ -16,13 +16,12 @@ import type {
 } from "../model.js";
 import { streamAnthropicMessage } from "../model.js";
 import {
-  formatPromptDateTimeContext,
-  resolvePromptTimeZone,
   summarizePromptEnvelopeComposition,
   type PromptBuilder
 } from "../prompt.js";
 import type { SessionManager } from "../session.js";
 import { discoverWorkspaceSkills } from "../skills/index.js";
+import { createWorkspaceInstructionsManager } from "../workspace-instructions/index.js";
 import type { TraceManager } from "../trace.js";
 import type { Logger } from "../system-log.js";
 import type { JsonValue, RunSessionResult, SessionSnapshot } from "../types.js";
@@ -225,10 +224,6 @@ export async function runSessionLoop(input: {
   logger?: Logger;
 }): Promise<RunSessionResult> {
   let session = input.session;
-  const runtimeContext = {
-    currentDateTimeContext: formatPromptDateTimeContext(),
-    currentTimeZone: resolvePromptTimeZone()
-  };
   const pendingConfirmationAtStart = session.context.pendingConfirmationPayload
     ? structuredClone(session.context.pendingConfirmationPayload)
     : null;
@@ -243,6 +238,10 @@ export async function runSessionLoop(input: {
       (notification) => notification.id
     );
   const discoveredSkills = await discoverWorkspaceSkills(
+    session.workingDirectory
+  );
+  const workspaceInstructionsManager = createWorkspaceInstructionsManager();
+  const workspaceInstructions = await workspaceInstructionsManager.load(
     session.workingDirectory
   );
 
@@ -333,7 +332,8 @@ export async function runSessionLoop(input: {
       (await input.sessionManager.getSession(session.sessionId)) ?? session;
     const notificationIdsToConsume = new Set(notificationIds);
     if (result.status === "completed") {
-      for (const notification of session.context.pendingBackgroundNotifications) {
+      for (const notification of session.context
+        .pendingBackgroundNotifications) {
         if (!notification.requiresMainAgentReply) {
           notificationIdsToConsume.add(notification.id);
         }
@@ -650,9 +650,9 @@ export async function runSessionLoop(input: {
         turnCount,
         toolChoice: input.toolChoice,
         runtimeContext: {
-          ...runtimeContext,
           currentTurnCount: turnCount,
-          maxTurns: input.maxTurns
+          maxTurns: input.maxTurns,
+          workspaceInstructions: workspaceInstructions.instructions
         },
         skills: discoveredSkills.skills,
         ...(typeof input.maxTokens === "number"
@@ -675,6 +675,17 @@ export async function runSessionLoop(input: {
           turnCount,
           skills: discoveredSkills.skills,
           diagnostics: discoveredSkills.diagnostics
+        }
+      });
+      await emitTraceEvent({
+        traceManager: input.traceManager,
+        eventSink: input.eventSink,
+        sessionId: session.sessionId,
+        event: {
+          kind: "workspace_instructions_loaded",
+          turnCount,
+          instructions: workspaceInstructions.instructions,
+          diagnostics: workspaceInstructions.diagnostics
         }
       });
       await emitTraceEvent({
@@ -1303,10 +1314,11 @@ export async function runSessionLoop(input: {
         );
       }
 
-      const pausedForUnblockingDelegates = await maybePauseForUnblockingDelegates({
-        turnCount,
-        notificationIds: notificationIdsVisibleThisTurn
-      });
+      const pausedForUnblockingDelegates =
+        await maybePauseForUnblockingDelegates({
+          turnCount,
+          notificationIds: notificationIdsVisibleThisTurn
+        });
       if (pausedForUnblockingDelegates) {
         return pausedForUnblockingDelegates;
       }

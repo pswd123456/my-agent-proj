@@ -11,7 +11,8 @@ import {
   type RunStreamEvent,
   type SettingsPermissionToolOption,
   type SessionSettingsRecord,
-  type TraceRecord
+  type TraceRecord,
+  type WorkspaceFileChangeSummary
 } from "@ai-app-template/sdk";
 
 import {
@@ -66,6 +67,7 @@ import {
   SessionWorkbenchDrawer,
   SessionWorkbenchSidebar
 } from "./session-workbench-ui";
+import type { RunFileChangesView } from "./session-workbench-conversation";
 import {
   SESSION_RAIL_COLLAPSE_MEDIA_QUERY,
   resolveSessionRailCollapsedState
@@ -85,6 +87,30 @@ const apiClient = createApiClient({
 const SESSION_RAIL_COLLAPSED_STORAGE_KEY = "workbench-session-rail-collapsed";
 const ACTIVE_SESSION_REFRESH_INTERVAL_MS = 3_000;
 const SESSION_LIST_REFRESH_INTERVAL_MS = 5_000;
+
+export type RunFileChangesState = RunFileChangesView;
+
+export function getRunFileChangesAggregateState(
+  fileStates: Array<"applied" | "undone">
+): RunFileChangesState["state"] {
+  if (fileStates.length === 0) {
+    return "applied";
+  }
+
+  const firstState = fileStates[0] ?? "applied";
+  return fileStates.every((state) => state === firstState)
+    ? firstState
+    : "mixed";
+}
+
+export function getSelectedWorkspaceFileChanges(
+  view: RunFileChangesState
+): WorkspaceFileChangeSummary[] {
+  return view.selectedFileIndexes.flatMap((index) => {
+    const file = view.files[index];
+    return file ? [file] : [];
+  });
+}
 
 function extractShellApprovalPattern(reply: string): string | null {
   const prefix = "本会话允许 shell:";
@@ -106,6 +132,45 @@ function appendShellAllowPattern(
   }
 
   return [...patterns, nextPattern].join("\n");
+}
+
+export function collectWorkspaceFileChangesFromRun(
+  event: Extract<RunStreamEvent, { kind: "run_complete" | "run_error" }>
+): WorkspaceFileChangeSummary[] {
+  if (!("toolOutputs" in event)) {
+    return [];
+  }
+
+  return event.toolOutputs.flatMap((output) => {
+    if (
+      output.isError ||
+      output.details?.kind !== "workspace_file_changes" ||
+      output.details.files.length === 0
+    ) {
+      return [];
+    }
+
+    return output.details.files;
+  });
+}
+
+export function buildRunFileChangesState(
+  event: Extract<RunStreamEvent, { kind: "run_complete" | "run_error" }>
+): RunFileChangesState | null {
+  const files = collectWorkspaceFileChangesFromRun(event);
+  if (files.length === 0) {
+    return null;
+  }
+
+  return {
+    key: `run-file-changes:${event.createdAt}`,
+    files,
+    fileStates: files.map(() => "applied" as const),
+    state: "applied",
+    selectedFileIndexes: files.map((_, index) => index),
+    pendingAction: null,
+    errorText: null
+  };
 }
 
 type RefreshSelectedSessionOptions = {
@@ -133,6 +198,8 @@ export function SessionWorkbench() {
   const [messageManagerState, setMessageManagerState] = useState(() =>
     createMessageManagerState()
   );
+  const [runFileChanges, setRunFileChanges] =
+    useState<RunFileChangesState | null>(null);
   const [message, setMessage] = useState("");
   const [activeTab, setActiveTab] = useState<InspectorTabId>("prompt");
   const [loading, setLoading] = useState(true);
@@ -442,6 +509,7 @@ export function SessionWorkbench() {
       setSessionRegistry((current) =>
         selectSession(current, reusableSession.sessionId)
       );
+      setRunFileChanges(null);
       setMessageManagerState(resetMessageManagerState());
       router.replace(`/?sessionId=${reusableSession.sessionId}`, {
         scroll: false
@@ -460,6 +528,7 @@ export function SessionWorkbench() {
       setSessionUiState((current) => setSessionSnapshot(current, session));
       setTraceRecords([]);
       setRoutines([]);
+      setRunFileChanges(null);
       setMessageManagerState(resetMessageManagerState());
       router.replace(`/?sessionId=${session.sessionId}`, { scroll: false });
     } catch (error) {
@@ -472,6 +541,7 @@ export function SessionWorkbench() {
   function handleSelectSession(sessionId: string) {
     focusConversationView();
     setSessionRegistry((current) => selectSession(current, sessionId));
+    setRunFileChanges(null);
     setMessageManagerState(resetMessageManagerState());
     router.replace(`/?sessionId=${sessionId}`, { scroll: false });
   }
@@ -490,7 +560,9 @@ export function SessionWorkbench() {
     try {
       await apiClient.deleteSession(sessionId);
       const refreshedSessions = await apiClient.listSessions();
-      setSessionRegistry((current) => replaceSessions(current, refreshedSessions));
+      setSessionRegistry((current) =>
+        replaceSessions(current, refreshedSessions)
+      );
 
       if (selectedSessionId !== sessionId) {
         return;
@@ -501,6 +573,7 @@ export function SessionWorkbench() {
       setSessionUiState((current) => setSessionSnapshot(current, null));
       setTraceRecords([]);
       setRoutines([]);
+      setRunFileChanges(null);
       setMessageManagerState(resetMessageManagerState());
 
       if (nextSessionId) {
@@ -548,6 +621,7 @@ export function SessionWorkbench() {
     setSessionUiState((current) => beginSessionSubmission(current));
     setActiveTab("prompt");
     setErrorText(null);
+    setRunFileChanges(null);
 
     try {
       const isActiveStreamSession = () =>
@@ -577,6 +651,9 @@ export function SessionWorkbench() {
                 runEvent.kind === "run_error") &&
               "session" in runEvent
             ) {
+              if (isActiveSession) {
+                setRunFileChanges(buildRunFileChangesState(runEvent));
+              }
               const nextSession = runEvent.session;
               if (nextSession) {
                 setSessionRegistry((current) =>
@@ -670,6 +747,89 @@ export function SessionWorkbench() {
     }
   }
 
+  async function handleRunFileChangeAction(action: "undo" | "reapply") {
+    if (!currentSession || !runFileChanges || runFileChanges.pendingAction) {
+      return;
+    }
+
+    const selectedFileIndexes = runFileChanges.selectedFileIndexes.filter(
+      (index) => index >= 0 && index < runFileChanges.files.length
+    );
+    const selectedFiles = getSelectedWorkspaceFileChanges(runFileChanges);
+    if (selectedFiles.length === 0) {
+      setRunFileChanges((current) =>
+        current
+          ? {
+              ...current,
+              errorText: "至少选择一个文件。"
+            }
+          : current
+      );
+      return;
+    }
+
+    setRunFileChanges((current) =>
+      current
+        ? {
+            ...current,
+            pendingAction: action,
+            errorText: null
+          }
+        : current
+    );
+
+    try {
+      await apiClient.applySessionFileChangeAction({
+        sessionId: currentSession.sessionId,
+        action,
+        files: selectedFiles
+      });
+      setRunFileChanges((current) =>
+        current
+          ? (() => {
+              const selectedIndexes = new Set(selectedFileIndexes);
+              const nextFileStates = current.fileStates.map(
+                (fileState, index) =>
+                  selectedIndexes.has(index)
+                    ? action === "undo"
+                      ? "undone"
+                      : "applied"
+                    : fileState
+              );
+              return {
+                ...current,
+                fileStates: nextFileStates,
+                state: getRunFileChangesAggregateState(nextFileStates),
+                pendingAction: null,
+                errorText: null
+              };
+            })()
+          : current
+      );
+    } catch (error) {
+      setRunFileChanges((current) =>
+        current
+          ? {
+              ...current,
+              pendingAction: null,
+              errorText: error instanceof Error ? error.message : String(error)
+            }
+          : current
+      );
+    }
+  }
+
+  function handleRunFileSelectionChange(selectedFileIndexes: number[]) {
+    setRunFileChanges((current) =>
+      current
+        ? {
+            ...current,
+            selectedFileIndexes
+          }
+        : current
+    );
+  }
+
   async function handleSaveUserSettings(
     nextForm: SettingsFormState = settingsForm
   ): Promise<boolean> {
@@ -738,10 +898,7 @@ export function SessionWorkbench() {
     toolName: string,
     target: "allow" | "ask" | "deny"
   ) {
-    if (
-      savingSettings ||
-      settingsForm.yoloMode
-    ) {
+    if (savingSettings || settingsForm.yoloMode) {
       return;
     }
 
@@ -818,7 +975,9 @@ export function SessionWorkbench() {
           model
         }
       );
-      setSessionUiState((current) => setSessionSnapshot(current, updatedSession));
+      setSessionUiState((current) =>
+        setSessionSnapshot(current, updatedSession)
+      );
       setSessionRegistry((current) => upsertSession(current, updatedSession));
 
       const settingsPayload = await apiClient.updateUserSettingsPayload(
@@ -1101,6 +1260,7 @@ export function SessionWorkbench() {
               interrupting={interrupting}
               showInterruptedHint={showInterruptedHint}
               errorText={errorText}
+              runFileChanges={runFileChanges}
               modelCatalog={modelCatalog}
               selectedModelId={resolveSelectedModelId({
                 session: currentSession,
@@ -1127,6 +1287,10 @@ export function SessionWorkbench() {
               onUserQuestionQuickReply={(reply) =>
                 void submitSessionMessage(reply)
               }
+              onRunFileChangeAction={(action) =>
+                void handleRunFileChangeAction(action)
+              }
+              onRunFileSelectionChange={handleRunFileSelectionChange}
               onAssistantAnimationComplete={handleAssistantAnimationComplete}
               onToggleExpandedItem={(key) =>
                 setMessageManagerState((current) =>

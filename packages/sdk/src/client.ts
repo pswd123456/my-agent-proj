@@ -2,7 +2,8 @@ import type {
   RunSessionResult,
   RunStreamEvent,
   SessionSnapshot,
-  TraceRecord
+  TraceRecord,
+  WorkspaceFileChangeSummary
 } from "@ai-app-template/agent";
 import type {
   SettingsPermissionToolOption,
@@ -131,6 +132,18 @@ export interface StreamSessionExecutionInput {
   permissionReply?: boolean;
   signal?: AbortSignal;
   onEvent: (event: RunStreamEvent) => void | Promise<void>;
+}
+
+export interface SessionFileChangeActionInput {
+  sessionId: string;
+  action: "undo" | "reapply";
+  files: WorkspaceFileChangeSummary[];
+}
+
+export interface SessionFileChangeActionResult {
+  sessionId: string;
+  action: "undo" | "reapply";
+  files: WorkspaceFileChangeSummary[];
 }
 
 function trimTrailingSlash(value: string): string {
@@ -516,6 +529,25 @@ export class ApiClient {
     );
 
     await readEventStream(await ensureOk(response), input.onEvent);
+  }
+
+  async applySessionFileChangeAction(
+    input: SessionFileChangeActionInput
+  ): Promise<SessionFileChangeActionResult> {
+    const response = await this.fetchImpl(
+      buildUrl(this.baseUrl, `/sessions/${input.sessionId}/file-changes`),
+      {
+        method: "POST",
+        headers: toJsonHeaders(),
+        body: JSON.stringify({
+          action: input.action,
+          files: input.files
+        })
+      }
+    );
+    return (await ensureOk(response).then((result) =>
+      result.json()
+    )) as SessionFileChangeActionResult;
   }
 
   async getSessionTrace(sessionId: string): Promise<TraceRecord[]> {

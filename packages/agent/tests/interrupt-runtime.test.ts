@@ -10,6 +10,7 @@ import {
   createAgentRuntime,
   createMemorySessionManager,
   createWorkspaceToolRegistry,
+  type AnthropicRequestOptions,
   type RunStreamEvent
 } from "../src/index.js";
 
@@ -147,12 +148,85 @@ describe("runtime interrupt handling", () => {
       kind: "assistant",
       content: "你好"
     });
-    expect(streamEvents.some((event) => event.kind === "interrupt_requested")).toBe(
-      true
-    );
+    expect(
+      streamEvents.some((event) => event.kind === "interrupt_requested")
+    ).toBe(true);
     expect(streamEvents.some((event) => event.kind === "interrupted")).toBe(
       true
     );
+  });
+
+  test("interrupts a model stream before the first model event arrives", async () => {
+    const sessionManager = createMemorySessionManager();
+    const routineRepository = createMemoryRoutineRepository();
+    let sessionId = "";
+    let requestSignal: AbortSignal | null = null;
+    let streamAbortCalled = false;
+
+    const runtime = createAgentRuntime({
+      client: {
+        messages: {
+          stream(_request, options?: AnthropicRequestOptions) {
+            requestSignal = options?.signal ?? null;
+            void sessionManager.requestInterrupt(sessionId);
+            return {
+              abort() {
+                streamAbortCalled = true;
+              },
+              async finalMessage() {
+                return {
+                  content: [],
+                  stop_reason: "end_turn",
+                  usage: {
+                    input_tokens: 12,
+                    output_tokens: 0,
+                    cache_creation_input_tokens: 0,
+                    cache_read_input_tokens: 0
+                  }
+                };
+              },
+              async *[Symbol.asyncIterator]() {
+                const signal = requestSignal;
+                if (!signal) {
+                  throw new Error("missing abort signal");
+                }
+                if (!signal.aborted) {
+                  await new Promise<void>((resolve) => {
+                    signal.addEventListener("abort", () => resolve(), {
+                      once: true
+                    });
+                  });
+                }
+              }
+            };
+          }
+        }
+      },
+      model: "MiniMax-M2.7",
+      sessionManager,
+      routineRepository,
+      toolRegistry: createWorkspaceToolRegistry({
+        workingDirectory: process.cwd()
+      })
+    });
+
+    const session = await runtime.createSession({
+      workingDirectory: process.cwd(),
+      userId: "interrupt-user"
+    });
+    sessionId = session.sessionId;
+
+    const result = await runtime.run({
+      sessionId: session.sessionId,
+      message: "这次模型服务器还没吐首包就中断"
+    });
+
+    expect(requestSignal).not.toBeNull();
+    expect(requestSignal?.aborted).toBe(true);
+    expect(streamAbortCalled).toBe(true);
+    expect(result.status).toBe("interrupted");
+    expect(result.stopReason).toBe("interrupted_by_user");
+    expect(result.session.sessionState.interruptRequested).toBe(false);
   });
 
   test("marks a long-running tool call as interrupted and clears pending tool ids", async () => {

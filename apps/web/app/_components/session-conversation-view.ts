@@ -137,6 +137,7 @@ function getToolAction(
       "create_directory",
       "copy_path",
       "move_path",
+      "delete_file",
       "delete_path",
       "create_routine",
       "edit_routine",
@@ -289,10 +290,10 @@ function toCompactToolViewItem(group: ToolGroup): CompactToolViewItem {
         : `已编辑 ${group.fileChanges.length} 个文件`
       : group.status === "success" && group.taskBriefPreview
         ? "已更新 task brief"
-      : `${getToolVerb({
-          toolName: group.toolName,
-          status: group.status
-        })} ${target}`;
+        : `${getToolVerb({
+            toolName: group.toolName,
+            status: group.status
+          })} ${target}`;
   return {
     type: "compact-tool",
     key: `compact-tool-${group.toolCallId}`,
@@ -571,6 +572,43 @@ function isExecutionFlowItem(item: ConversationViewItem): boolean {
   );
 }
 
+function collectItemTurnCounts(
+  item: ConversationViewItem,
+  turnCounts: Set<number>
+): void {
+  if (
+    item.type === "timeline" &&
+    item.item.type === "event" &&
+    "turnCount" in item.item.event
+  ) {
+    turnCounts.add(item.item.event.turnCount);
+    return;
+  }
+
+  if (
+    item.type === "compact-tool" ||
+    item.type === "compact-file-batch" ||
+    item.type === "compact-collapsed-flow"
+  ) {
+    for (const originalItem of item.originalItems) {
+      collectItemTurnCounts(originalItem, turnCounts);
+    }
+  }
+}
+
+function getCollapsedFlowHiddenCount(items: ConversationViewItem[]): number {
+  const turnCounts = new Set<number>();
+  for (const item of items) {
+    collectItemTurnCounts(item, turnCounts);
+  }
+
+  if (turnCounts.size > 0) {
+    return turnCounts.size;
+  }
+
+  return items.length > 0 ? 1 : 0;
+}
+
 function shouldPreserveVisibleFlowItem(item: ConversationViewItem): boolean {
   return item.type === "compact-tool" && item.taskBriefPreview !== null;
 }
@@ -650,7 +688,7 @@ function compactFinalFlowSegment(
         ? `compact-collapsed-flow-${collapsedFlowAssistantAnchorKey}-${collapsedSegmentIndex}`
         : `compact-collapsed-flow-${collapsedFlowAssistantAnchorKey}`,
       createdAt: bufferedItems[0]!.createdAt,
-      hiddenCount: bufferedItems.length,
+      hiddenCount: getCollapsedFlowHiddenCount(bufferedItems),
       originalItems: bufferedItems
     });
     collapsedSegmentIndex += 1;

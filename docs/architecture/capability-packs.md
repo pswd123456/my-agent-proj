@@ -21,7 +21,7 @@
 
 当前有几个能力属于 core runtime，而不是 capability pack：
 
-- `planning` 工具面，包括 `ask_user_question`、task brief 读写和 todo 交互
+- `planning` 工具面，包括 `ask_user_question`、task brief 读写、todo 交互和 `get_current_time`
 - `manage_capability_packs`，也就是读取和切换 session capability pack 的 core/planning 工具
 - `delegation`，也就是主 agent 发起和回收 delegated subagent
 - `MCP`，也就是工作区级按次装配的动态工具挂载
@@ -37,7 +37,7 @@
 
 当前仓库里，真正按 pack 装配的是下面两组：
 
-- `workspace`：文件、目录、git、shell、HTTP 和工作区文件写能力
+- `workspace`：`apply_patch`、`read_file`、`list_directory`、`find_files`、`search_text`、`write_file`、`create_directory`、`delete_file`、`delete_path`、`move_path`、`copy_path`、`git_status`、`git_diff`、`git_diff_cached`、`run_shell_command`、`make_http_request`、`search_skill`、`load_skill`
 - `schedule`：`create_routine` / `edit_routine` / `delete_routine` / `search_routine_by_oclock` / `list_routine_by_week` / `list_routine_by_date` / `ask_for_confirmation`
 
 其中 `schedule` 会继续使用当前的：
