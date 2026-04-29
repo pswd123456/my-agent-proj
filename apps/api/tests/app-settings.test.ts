@@ -72,6 +72,7 @@ async function createTestApp() {
               configured: true,
               baseURL: "https://api.minimaxi.com/anthropic",
               supportsThinking: true,
+              thinkingEfforts: [],
               unavailableReason: null
             },
             {
@@ -82,6 +83,7 @@ async function createTestApp() {
               configured: true,
               baseURL: "https://api.deepseek.com/anthropic",
               supportsThinking: true,
+              thinkingEfforts: ["high", "max"],
               unavailableReason: null
             }
           ];
@@ -98,6 +100,12 @@ async function createTestApp() {
           return (
             model === DEFAULT_MINIMAX_MODEL || model === DEFAULT_DEEPSEEK_MODEL
           );
+        },
+        supportsThinking() {
+          return true;
+        },
+        getThinkingEfforts(model) {
+          return model === DEFAULT_DEEPSEEK_MODEL ? ["high", "max"] : [];
         },
         assertModelAvailable(model) {
           if (
@@ -160,6 +168,7 @@ describe("createApiApp settings bootstrap", () => {
         body: JSON.stringify({
           workingDirectory: "apps/web",
           model: DEFAULT_DEEPSEEK_MODEL,
+          thinkingEffort: "max",
           yoloMode: true,
           contextWindow: 123_456,
           maxTurns: 77,
@@ -184,6 +193,7 @@ describe("createApiApp settings bootstrap", () => {
       resolveApiWorkingDirectory(workspaceRoot, "apps/web")
     );
     expect(session.model).toBe(DEFAULT_DEEPSEEK_MODEL);
+    expect(session.context.thinkingEffort).toBe("max");
     expect(session.context.yoloMode).toBe(true);
     expect(session.contextWindow).toBe(123_456);
     expect(session.maxTurns).toBe(77);
@@ -300,6 +310,33 @@ describe("createApiApp settings bootstrap", () => {
     };
 
     expect(payload.session.model).toBe(DEFAULT_DEEPSEEK_MODEL);
+  });
+
+  test("updates the current session thinking effort through session settings", async () => {
+    const { app } = await createTestApp();
+
+    const session = await createSession(app, {
+      userId: "stage5-thinking-effort-user",
+      model: DEFAULT_DEEPSEEK_MODEL
+    });
+
+    const response = await app.request(
+      `/sessions/${session.sessionId}/settings`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          thinkingEffort: "max"
+        })
+      }
+    );
+
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as {
+      session: SessionSnapshot;
+    };
+
+    expect(payload.session.context.thinkingEffort).toBe("max");
   });
 
   test("defers task brief path binding until plan mode has task context", async () => {

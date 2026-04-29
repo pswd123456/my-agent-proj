@@ -117,8 +117,8 @@ export const DEFAULT_VISIBLE_SESSION_ROW_COUNT = 20;
 function sortSessionSummariesByFreshness(
   sessions: SessionSummary[]
 ): SessionSummary[] {
-  return [...sessions].sort(
-    (left, right) => right.updatedAt.localeCompare(left.updatedAt)
+  return [...sessions].sort((left, right) =>
+    right.updatedAt.localeCompare(left.updatedAt)
   );
 }
 
@@ -870,6 +870,7 @@ export function toSettingsFormState(
   return {
     workingDirectory: settings?.workingDirectory ?? "",
     model: settings?.model ?? "",
+    thinkingEffort: settings?.thinkingEffort ?? "high",
     yoloMode: settings?.yoloMode ?? false,
     contextWindow: String(settings?.contextWindow ?? DEFAULT_CONTEXT_WINDOW),
     maxTurns: String(settings?.maxTurns ?? DEFAULT_MAX_TURNS),
@@ -888,6 +889,7 @@ export function buildSessionSettingsPatchFromUserSettings(
 ): UpdateSessionSettingsPayload {
   return {
     yoloMode: settings.yoloMode,
+    thinkingEffort: settings.thinkingEffort,
     shellAllowPatterns: settings.shellAllowPatterns,
     shellDenyPatterns: settings.shellDenyPatterns,
     toolAllowList: settings.toolAllowList,
@@ -902,6 +904,17 @@ export function resolveSelectedModelId(input: {
   settingsForm: SettingsFormState;
 }): string {
   return input.session?.model || input.settingsForm.model || "";
+}
+
+export function resolveSelectedThinkingEffort(input: {
+  session: SessionSnapshot | null;
+  settingsForm: SettingsFormState;
+}): string {
+  return (
+    input.session?.context.thinkingEffort ||
+    input.settingsForm.thinkingEffort ||
+    "high"
+  );
 }
 
 export function patchSettingsForm(
@@ -920,6 +933,7 @@ export function normalizeSettingsFormState(
   return {
     workingDirectory: form.workingDirectory.trim(),
     model: form.model.trim(),
+    thinkingEffort: form.thinkingEffort === "max" ? "max" : "high",
     yoloMode: form.yoloMode,
     contextWindow: String(normalizeContextWindow(form.contextWindow)),
     maxTurns: String(normalizeMaxTurns(form.maxTurns)),

@@ -3,7 +3,10 @@ import { randomUUID } from "node:crypto";
 import type { Logger, SystemLogManager } from "./system-log.js";
 
 import type { RoutineRepository } from "@ai-app-template/db";
-import { DEFAULT_SESSION_MODEL } from "@ai-app-template/domain";
+import {
+  DEFAULT_SESSION_MODEL,
+  normalizeThinkingEffort
+} from "@ai-app-template/domain";
 
 import type {
   AnthropicCompatibleClient,
@@ -19,7 +22,8 @@ import {
 import type {
   ConversationBlock,
   RunSessionInput,
-  RunSessionResult
+  RunSessionResult,
+  SessionSnapshot
 } from "./types.js";
 import type { SessionManager } from "./session.js";
 import type { ToolRegistry } from "./tools/registry.js";
@@ -101,10 +105,25 @@ export class AgentRuntime {
       .filter((message) => message.content.length > 0);
   }
 
+  private resolveRequestOptions(session: SessionSnapshot) {
+    const efforts =
+      this.options.modelService?.getThinkingEfforts(session.model) ?? [];
+    if (efforts.length === 0) {
+      return undefined;
+    }
+
+    return {
+      output_config: {
+        effort: normalizeThinkingEffort(session.context.thinkingEffort)
+      }
+    };
+  }
+
   async createSession(
     input: {
       workingDirectory?: string;
       model?: string;
+      thinkingEffort?: ReturnType<typeof normalizeThinkingEffort>;
       userId?: string;
       yoloMode?: boolean;
       planModeEnabled?: boolean;
@@ -121,6 +140,7 @@ export class AgentRuntime {
     const createInput: {
       workingDirectory?: string;
       model?: string;
+      thinkingEffort?: ReturnType<typeof normalizeThinkingEffort>;
       userId?: string;
       yoloMode?: boolean;
       planModeEnabled?: boolean;
@@ -138,6 +158,11 @@ export class AgentRuntime {
 
     if (typeof input.workingDirectory === "string") {
       createInput.workingDirectory = input.workingDirectory;
+    }
+    if (input.thinkingEffort) {
+      createInput.thinkingEffort = normalizeThinkingEffort(
+        input.thinkingEffort
+      );
     }
     if (typeof input.userId === "string" && input.userId.length > 0) {
       createInput.userId = input.userId;
@@ -236,6 +261,7 @@ export class AgentRuntime {
           });
       }, 150);
 
+      const requestOptions = this.resolveRequestOptions(session);
       const runLoopInput = {
         client: this.resolveClient(session.model),
         prepareMessages: (messages: AnthropicMessage[]) =>
@@ -249,7 +275,10 @@ export class AgentRuntime {
         message: input.message,
         abortSignal: interruptController.signal,
         isInterruptRequested: () =>
-          this.options.sessionManager.isInterruptRequested(input.sessionId, runId),
+          this.options.sessionManager.isInterruptRequested(
+            input.sessionId,
+            runId
+          ),
         ...(typeof input.permissionReply === "boolean"
           ? { permissionReply: input.permissionReply }
           : {}),
@@ -264,6 +293,7 @@ export class AgentRuntime {
         ...(this.options.backgroundTaskManager
           ? { backgroundTaskManager: this.options.backgroundTaskManager }
           : {}),
+        ...(requestOptions ? { requestOptions } : {}),
         ...(runtimeLogger ? { logger: runtimeLogger } : {})
       };
       const result = await runSessionLoop(runLoopInput);
@@ -284,7 +314,9 @@ export class AgentRuntime {
       }
 
       try {
-        await runtimeLogger?.debug("release_execution", { sessionId: input.sessionId });
+        await runtimeLogger?.debug("release_execution", {
+          sessionId: input.sessionId
+        });
         await this.options.sessionManager.releaseExecution(
           input.sessionId,
           runId

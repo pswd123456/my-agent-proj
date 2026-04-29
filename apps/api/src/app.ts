@@ -29,6 +29,8 @@ import type {
 import {
   DEFAULT_SESSION_SETTINGS_USER_ID,
   SESSION_MAX_TURNS_LIMIT,
+  THINKING_EFFORT_OPTIONS,
+  normalizeThinkingEffort,
   normalizeCapabilityPacks,
   normalizeSettingsPermissionRules,
   sanitizeContextWindow,
@@ -56,6 +58,7 @@ export interface ApiAppContext {
 const createSessionBodySchema = z.object({
   workingDirectory: z.string().optional(),
   model: z.string().optional(),
+  thinkingEffort: z.enum(THINKING_EFFORT_OPTIONS).optional(),
   userId: z.string().optional(),
   yoloMode: z.boolean().optional(),
   planModeEnabled: z.boolean().optional(),
@@ -67,6 +70,7 @@ const createSessionBodySchema = z.object({
 const updateSessionSettingsBodySchema = z
   .object({
     model: z.string().optional(),
+    thinkingEffort: z.enum(THINKING_EFFORT_OPTIONS).optional(),
     yoloMode: z.boolean().optional(),
     planModeEnabled: z.boolean().optional(),
     shellAllowPatterns: z.array(z.string()).optional(),
@@ -79,6 +83,7 @@ const updateSessionSettingsBodySchema = z
   .refine(
     (value) =>
       typeof value.model === "string" ||
+      typeof value.thinkingEffort === "string" ||
       typeof value.yoloMode === "boolean" ||
       typeof value.planModeEnabled === "boolean" ||
       Array.isArray(value.shellAllowPatterns) ||
@@ -96,6 +101,7 @@ const updateUserSettingsBodySchema = z
   .object({
     workingDirectory: z.string().optional(),
     model: z.string().optional(),
+    thinkingEffort: z.enum(THINKING_EFFORT_OPTIONS).optional(),
     yoloMode: z.boolean().optional(),
     contextWindow: z.number().int().min(1000).optional(),
     maxTurns: z.number().int().min(1).optional(),
@@ -111,6 +117,7 @@ const updateUserSettingsBodySchema = z
     (value) =>
       typeof value.workingDirectory === "string" ||
       typeof value.model === "string" ||
+      typeof value.thinkingEffort === "string" ||
       typeof value.yoloMode === "boolean" ||
       typeof value.contextWindow === "number" ||
       typeof value.maxTurns === "number" ||
@@ -232,6 +239,7 @@ function buildModelCatalog(dependencies: ApiAppDependencies): {
             configured: true,
             baseURL: "",
             supportsThinking: true,
+            thinkingEfforts: [],
             unavailableReason: null
           }
         ]
@@ -273,6 +281,7 @@ function toCreateSessionInput(input: {
   settings: SessionSettingsRecord;
   defaultModel: string | undefined;
   modelOverride: string | undefined;
+  thinkingEffortOverride: string | undefined;
   userId: string;
   workingDirectoryOverride: string | undefined;
   yoloModeOverride: boolean | undefined;
@@ -284,6 +293,7 @@ function toCreateSessionInput(input: {
 }): {
   workingDirectory: string;
   model?: string;
+  thinkingEffort: ReturnType<typeof normalizeThinkingEffort>;
   userId: string;
   yoloMode: boolean;
   planModeEnabled?: boolean;
@@ -306,6 +316,9 @@ function toCreateSessionInput(input: {
             input.modelOverride ?? input.settings.model ?? input.defaultModel
         }
       : {}),
+    thinkingEffort: normalizeThinkingEffort(
+      input.thinkingEffortOverride ?? input.settings.thinkingEffort
+    ),
     userId: input.userId,
     yoloMode: input.yoloModeOverride ?? input.settings.yoloMode,
     ...(typeof input.planModeEnabledOverride === "boolean"
@@ -674,6 +687,7 @@ export function createApiApp(dependencies: ApiAppDependencies) {
       settings,
       defaultModel: resolveDefaultModel(dependencies),
       modelOverride: requestedModel.model,
+      thinkingEffortOverride: body.thinkingEffort,
       userId,
       workingDirectoryOverride: body.workingDirectory,
       yoloModeOverride: body.yoloMode,
@@ -716,6 +730,9 @@ export function createApiApp(dependencies: ApiAppDependencies) {
           }
         : {}),
       ...(requestedModel.model ? { model: requestedModel.model } : {}),
+      ...(typeof body.thinkingEffort === "string"
+        ? { thinkingEffort: normalizeThinkingEffort(body.thinkingEffort) }
+        : {}),
       ...(typeof body.yoloMode === "boolean"
         ? { yoloMode: body.yoloMode }
         : {}),
@@ -796,6 +813,9 @@ export function createApiApp(dependencies: ApiAppDependencies) {
     let updated = await dependencies.sessionManager.updateContext(sessionId, {
       ...(typeof body.yoloMode === "boolean"
         ? { yoloMode: body.yoloMode }
+        : {}),
+      ...(typeof body.thinkingEffort === "string"
+        ? { thinkingEffort: normalizeThinkingEffort(body.thinkingEffort) }
         : {}),
       ...(typeof body.planModeEnabled === "boolean"
         ? { planModeEnabled: body.planModeEnabled }

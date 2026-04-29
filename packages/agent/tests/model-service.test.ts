@@ -21,15 +21,18 @@ describe("AnthropicCompatibleModelService", () => {
       expect.objectContaining({
         id: DEFAULT_MINIMAX_MODEL,
         configured: true,
-        baseURL: DEFAULT_MINIMAX_BASE_URL
+        baseURL: DEFAULT_MINIMAX_BASE_URL,
+        thinkingEfforts: []
       }),
       expect.objectContaining({
         id: DEFAULT_DEEPSEEK_MODEL,
-        configured: false
+        configured: false,
+        thinkingEfforts: ["high", "max"]
       }),
       expect.objectContaining({
         id: DEFAULT_DEEPSEEK_FLASH_MODEL,
-        configured: false
+        configured: false,
+        thinkingEfforts: ["high", "max"]
       })
     ]);
   });
@@ -46,6 +49,10 @@ describe("AnthropicCompatibleModelService", () => {
       DEFAULT_DEEPSEEK_MODEL
     );
     expect(service.supportsThinking(DEFAULT_DEEPSEEK_MODEL)).toBe(true);
+    expect(service.getThinkingEfforts(DEFAULT_DEEPSEEK_MODEL)).toEqual([
+      "high",
+      "max"
+    ]);
   });
 
   test("throws a provider-specific error for unavailable models", () => {

@@ -28,9 +28,7 @@ import type { Logger } from "../system-log.js";
 import type { JsonValue, RunSessionResult, SessionSnapshot } from "../types.js";
 import type { DelegateAgentService } from "../delegation/index.js";
 import type { BackgroundTaskManager } from "../background-tasks/index.js";
-import {
-  scheduleBackgroundTaskPollWakeup
-} from "../background-tasks/orchestration.js";
+import { scheduleBackgroundTaskPollWakeup } from "../background-tasks/orchestration.js";
 import { consumeBackgroundNotifications } from "../background-tasks/notifications.js";
 import { readAcceptedBackgroundTaskHandle } from "../background-tasks/task-handle.js";
 import type { ToolRegistry } from "../tools/registry.js";
@@ -163,6 +161,7 @@ export async function runSessionLoop(input: {
   maxTurns: number;
   maxTokens: number | undefined;
   toolChoice: AnthropicToolChoice | undefined;
+  requestOptions?: Partial<Pick<AnthropicMessageRequest, "output_config">>;
   eventSink: RunEventSink | undefined;
   logger?: Logger;
 }): Promise<RunSessionResult> {
@@ -545,11 +544,12 @@ export async function runSessionLoop(input: {
         toolResultCount += 1;
         toolOutputs.push(executed.output);
 
-        const pausedForActiveDelegate = await maybePauseForAcceptedBackgroundTask({
-          output: executed.output,
-          turnCount: Math.max(1, carriedTurnCount),
-          notificationIds: visibleBackgroundNotificationIds
-        });
+        const pausedForActiveDelegate =
+          await maybePauseForAcceptedBackgroundTask({
+            output: executed.output,
+            turnCount: Math.max(1, carriedTurnCount),
+            notificationIds: visibleBackgroundNotificationIds
+          });
         if (pausedForActiveDelegate) {
           return pausedForActiveDelegate;
         }
@@ -754,7 +754,8 @@ export async function runSessionLoop(input: {
         ...(typeof input.maxTokens === "number"
           ? { max_tokens: input.maxTokens }
           : {}),
-        ...(input.toolChoice ? { tool_choice: input.toolChoice } : {})
+        ...(input.toolChoice ? { tool_choice: input.toolChoice } : {}),
+        ...(input.requestOptions ?? {})
       };
 
       const streamedAssistantTexts = new Map<
@@ -1090,11 +1091,12 @@ export async function runSessionLoop(input: {
           toolResultCount += 1;
           toolOutputs.push(executed.output);
 
-          const pausedForActiveDelegate = await maybePauseForAcceptedBackgroundTask({
-            output: executed.output,
-            turnCount,
-            notificationIds: notificationIdsVisibleThisTurn
-          });
+          const pausedForActiveDelegate =
+            await maybePauseForAcceptedBackgroundTask({
+              output: executed.output,
+              turnCount,
+              notificationIds: notificationIdsVisibleThisTurn
+            });
           if (pausedForActiveDelegate) {
             return pausedForActiveDelegate;
           }

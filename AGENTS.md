@@ -52,9 +52,20 @@
 
 - 新增后端能力时，优先补领域层、graph 层或接口层测试，不只做手工验证
 - 修改 graph 编排、工具选择或状态字段时，同步检查节点、边条件与持久化结构
-- 只要新增、修改或生成了迁移文件，当场运行仓库标准迁移命令，确认迁移已实际执行，不要只停留在“写出来了”
 - 依赖模型输出时，优先使用结构化输出、schema 校验或防御式解析
 - 前端若只是配合后端能力，尽量小步修改，避免顺手做无关 UI 重构
+
+## 数据库迁移工作流
+
+- 只要新增、修改或生成了迁移文件，必须在同一轮工作里完成“生成/检查 -> 执行 -> 验证 live DB -> 测试”的闭环；不能只写迁移，也不能只相信 CLI 成功提示
+- schema 变更优先通过 `packages/db/src/schema.ts` 和仓库标准命令生成迁移；手写迁移时必须说明原因，并同时检查 SQL、`packages/db/migrations/meta/_journal.json`、快照文件是否一致
+- 执行迁移前，先检查新迁移 SQL 是否符合预期：列的 `NULL/NOT NULL`、默认值、数据回填、索引/约束、可重复执行风险，以及是否会破坏现有数据
+- 执行迁移前，必须确认 `packages/db/migrations/meta/_journal.json` 中新增条目的 `idx`、`tag` 和 `when` 与迁移文件顺序一致；`when` 不能早于已经存在的后续迁移，避免 Drizzle 漏跑新迁移
+- 当场从仓库根目录运行标准命令：`bun run db:migrate`
+- 迁移命令完成后，必须用真实数据库验证效果，不要只看 `migrations applied successfully`：检查 `drizzle.__drizzle_migrations` 账本，并用 `information_schema` 或 `pg_catalog` 验证新增/修改的表、列、索引、约束、nullable/default 等真实状态
+- 迁移后运行 `bun run db:check`，并补跑与变更相关的最小测试集合；涉及 repository、API、worker 或 agent runtime 的 schema 变更，要跑对应包的定向测试
+- 如果 `bun run db:migrate` 显示成功但 live schema、迁移账本或 `_journal.json` 不一致，必须立即停下来修复迁移链路；不能继续把问题归因到业务代码、模型或前端
+- 最终回复里要说明：改了哪些迁移文件、实际执行了哪个数据库命令、live DB 验证了哪些字段/约束、跑了哪些测试；如有未验证项必须明确写出
 
 ## 删除操作
 

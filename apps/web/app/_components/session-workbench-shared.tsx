@@ -32,6 +32,7 @@ interface SessionWorkbenchSidebarProps {
   selectedSessionId: string | null;
   activeSidebarPanel: SidebarPanelId | null;
   collapsed: boolean;
+  overlay?: boolean;
   deletingSessionId: string | null;
   loading: boolean;
   creatingSession: boolean;
@@ -646,6 +647,7 @@ export function SessionWorkbenchSidebar({
   selectedSessionId,
   activeSidebarPanel,
   collapsed,
+  overlay = false,
   deletingSessionId,
   loading,
   creatingSession,
@@ -659,19 +661,25 @@ export function SessionWorkbenchSidebar({
     () => new Set()
   );
   const previousAutoCollapsedSessionIdsRef = useRef<Set<string>>(new Set());
-  const railWidthClass = collapsed ? "lg:w-[92px]" : "lg:w-[320px]";
-  const sidebarRows = useMemo(() => buildSessionSidebarRows(sessions), [
-    sessions
-  ]);
+  const railWidthClass = collapsed
+    ? "lg:w-[92px]"
+    : overlay
+      ? "w-full max-w-[320px]"
+      : "lg:w-[320px]";
+  const sidebarRows = useMemo(
+    () => buildSessionSidebarRows(sessions),
+    [sessions]
+  );
   const sessionById = useMemo(
-    () => new Map(sessions.map((session) => [session.sessionId, session] as const)),
+    () =>
+      new Map(sessions.map((session) => [session.sessionId, session] as const)),
     [sessions]
   );
   const selectedSessionAncestorIds = useMemo(() => {
     const ancestorIds = new Set<string>();
     const seen = new Set<string>();
     let current = selectedSessionId
-      ? sessionById.get(selectedSessionId) ?? null
+      ? (sessionById.get(selectedSessionId) ?? null)
       : null;
 
     while (current?.parentSessionId) {
@@ -788,11 +796,14 @@ export function SessionWorkbenchSidebar({
     visibleCount: DEFAULT_VISIBLE_SESSION_ROW_COUNT,
     collapsedSessionIds: effectiveCollapsedSessionIds
   });
-  const collapsedVisibleSidebarRows = getVisibleSessionSidebarRows(sidebarRows, {
-    pageCount: 1,
-    visibleCount: sidebarRows.length,
-    collapsedSessionIds: effectiveCollapsedSessionIds
-  });
+  const collapsedVisibleSidebarRows = getVisibleSessionSidebarRows(
+    sidebarRows,
+    {
+      pageCount: 1,
+      visibleCount: sidebarRows.length,
+      collapsedSessionIds: effectiveCollapsedSessionIds
+    }
+  );
   const hiddenSessionCount =
     collapsedVisibleSidebarRows.length - visibleSidebarRows.length;
 
@@ -811,7 +822,7 @@ export function SessionWorkbenchSidebar({
 
   return (
     <aside
-      className={`w-full shrink-0 lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)] ${railWidthClass}`}
+      className={`w-full shrink-0 ${overlay ? "h-full" : "lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)]"} ${railWidthClass}`}
     >
       <div className="flex h-full min-h-[20rem] flex-col rounded-[var(--app-radius-xl)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_96%,transparent)] shadow-none">
         <div

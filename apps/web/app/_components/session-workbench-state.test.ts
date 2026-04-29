@@ -133,6 +133,7 @@ describe("model selection state", () => {
       userId: "user-1",
       workingDirectory: "agent-workspace",
       model: "MiniMax-M2.7",
+      thinkingEffort: "high",
       yoloMode: false,
       contextWindow: 200_000,
       maxTurns: 50,
@@ -161,6 +162,7 @@ describe("model selection state", () => {
         userId: "user-1",
         workingDirectory: "agent-workspace",
         model: "deepseek-v4-pro",
+        thinkingEffort: "max",
         yoloMode: true,
         contextWindow: 123_456,
         maxTurns: 77,
@@ -176,6 +178,7 @@ describe("model selection state", () => {
       })
     ).toEqual({
       yoloMode: true,
+      thinkingEffort: "max",
       shellAllowPatterns: ["git *"],
       shellDenyPatterns: ["rm *"],
       toolAllowList: ["read_file"],
@@ -433,11 +436,7 @@ describe("buildSessionSidebarRows", () => {
   test("nests child sessions under their parent session", () => {
     const rows = buildSessionSidebarRows([
       createSessionSummary("parent", "2026-04-24T02:00:00.000Z"),
-      createSessionSummary(
-        "child",
-        "2026-04-24T03:00:00.000Z",
-        "parent"
-      ),
+      createSessionSummary("child", "2026-04-24T03:00:00.000Z", "parent"),
       createSessionSummary("sibling", "2026-04-24T01:00:00.000Z")
     ]);
 

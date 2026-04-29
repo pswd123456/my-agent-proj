@@ -9,6 +9,7 @@ import {
   type ModelCatalogEntry,
   type RoutineRecord,
   type RunStreamEvent,
+  type SessionSnapshot,
   type SettingsPermissionToolOption,
   type SessionSettingsRecord,
   type TraceRecord,
@@ -26,6 +27,7 @@ import {
   normalizeSettingsFormState,
   patchSettingsForm,
   resolveSelectedModelId,
+  resolveSelectedThinkingEffort,
   splitPatternLines,
   toSettingsFormState
 } from "./session-workbench-state";
@@ -112,6 +114,124 @@ export function getSelectedWorkspaceFileChanges(
   });
 }
 
+function buildRunFileChangesStateFromFiles(input: {
+  key: string;
+  createdAt: string;
+  files: WorkspaceFileChangeSummary[];
+}): RunFileChangesState {
+  return {
+    key: input.key,
+    createdAt: input.createdAt,
+    files: input.files,
+    fileStates: input.files.map(() => "applied" as const),
+    state: "applied",
+    selectedFileIndexes: input.files.map((_, index) => index),
+    pendingAction: null,
+    errorText: null
+  };
+}
+
+export function buildRunFileChangesStatesFromSession(
+  session: SessionSnapshot | null
+): RunFileChangesState[] {
+  if (!session) {
+    return [];
+  }
+
+  const views: RunFileChangesState[] = [];
+  let runIndex = 0;
+  let runKey = `run-file-changes:${session.sessionId}:prelude`;
+  let runCreatedAt = "";
+  let files: WorkspaceFileChangeSummary[] = [];
+
+  function flushRun() {
+    if (files.length === 0) {
+      return;
+    }
+
+    views.push(
+      buildRunFileChangesStateFromFiles({
+        key: runKey,
+        createdAt: runCreatedAt,
+        files
+      })
+    );
+    files = [];
+    runCreatedAt = "";
+  }
+
+  for (const block of session.messages) {
+    if (block.kind === "user") {
+      flushRun();
+      runIndex += 1;
+      runKey = `run-file-changes:${session.sessionId}:${block.id}`;
+      runCreatedAt = block.createdAt;
+      continue;
+    }
+
+    if (
+      block.kind !== "tool result" ||
+      block.isError ||
+      block.details?.kind !== "workspace_file_changes" ||
+      block.details.files.length === 0
+    ) {
+      continue;
+    }
+
+    files = [...files, ...block.details.files];
+    runCreatedAt =
+      runCreatedAt && runCreatedAt > block.createdAt
+        ? runCreatedAt
+        : block.createdAt;
+
+    if (runKey.endsWith(":prelude")) {
+      runKey = `run-file-changes:${session.sessionId}:prelude-${runIndex}`;
+    }
+  }
+
+  flushRun();
+  return views;
+}
+
+export function mergeRunFileChangesStates(
+  current: RunFileChangesState[],
+  next: RunFileChangesState[]
+): RunFileChangesState[] {
+  const currentByKey = new Map(current.map((view) => [view.key, view]));
+
+  return next.map((view) => {
+    const existing = currentByKey.get(view.key);
+    if (!existing) {
+      return view;
+    }
+
+    const filesStillMatch =
+      existing.files.length === view.files.length &&
+      existing.files.every(
+        (file, index) => file.path === view.files[index]?.path
+      );
+    if (!filesStillMatch) {
+      return view;
+    }
+
+    const fileStates = view.files.map(
+      (_, index) => existing.fileStates[index] ?? "applied"
+    );
+    const selectedFileIndexes = existing.selectedFileIndexes.filter(
+      (index) => index >= 0 && index < view.files.length
+    );
+
+    return {
+      ...view,
+      fileStates,
+      state: getRunFileChangesAggregateState(fileStates),
+      selectedFileIndexes,
+      pendingAction: existing.pendingAction,
+      errorText: existing.errorText
+    };
+  });
+}
+
 function extractShellApprovalPattern(reply: string): string | null {
   const prefix = "本会话允许 shell:";
   if (!reply.startsWith(prefix)) {
@@ -164,6 +284,7 @@ export function buildRunFileChangesState(
 
   return {
     key: `run-file-changes:${event.createdAt}`,
+    createdAt: event.createdAt,
     files,
     fileStates: files.map(() => "applied" as const),
     state: "applied",
@@ -198,8 +319,9 @@ export function SessionWorkbench() {
   const [messageManagerState, setMessageManagerState] = useState(() =>
     createMessageManagerState()
   );
-  const [runFileChanges, setRunFileChanges] =
-    useState<RunFileChangesState | null>(null);
+  const [runFileChanges, setRunFileChanges] = useState<RunFileChangesState[]>(
+    []
+  );
   const [message, setMessage] = useState("");
   const [activeTab, setActiveTab] = useState<InspectorTabId>("prompt");
   const [loading, setLoading] = useState(true);
@@ -207,6 +329,8 @@ export function SessionWorkbench() {
   const [activeSidebarPanel, setActiveSidebarPanel] =
     useState<SidebarPanelId | null>(null);
   const [isSessionRailCollapsed, setIsSessionRailCollapsed] = useState(false);
+  const [isSessionRailNarrowViewport, setIsSessionRailNarrowViewport] =
+    useState(false);
   const [creatingSession, setCreatingSession] = useState(false);
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(
     null
@@ -244,6 +368,7 @@ export function SessionWorkbench() {
 
     const mediaQuery = window.matchMedia(SESSION_RAIL_COLLAPSE_MEDIA_QUERY);
     const syncSessionRailState = () => {
+      setIsSessionRailNarrowViewport(mediaQuery.matches);
       const storedValue = window.localStorage.getItem(
         SESSION_RAIL_COLLAPSED_STORAGE_KEY
       );
@@ -368,6 +493,12 @@ export function SessionWorkbench() {
         setSessionRegistry((current) =>
           hydrateSelectedSession(current, session)
         );
+        setRunFileChanges((current) =>
+          mergeRunFileChangesStates(
+            current,
+            buildRunFileChangesStatesFromSession(session)
+          )
+        );
       } catch (error) {
         if (!cancelled) {
           setErrorText(error instanceof Error ? error.message : String(error));
@@ -432,6 +563,12 @@ export function SessionWorkbench() {
       }
       setMaxTurns(String(session.maxTurns));
       setSessionRegistry((current) => hydrateSelectedSession(current, session));
+      setRunFileChanges((current) =>
+        mergeRunFileChangesStates(
+          current,
+          buildRunFileChangesStatesFromSession(session)
+        )
+      );
       if (shouldResetRunView) {
         setMessageManagerState(resetMessageManagerState());
       }
@@ -509,7 +646,7 @@ export function SessionWorkbench() {
       setSessionRegistry((current) =>
         selectSession(current, reusableSession.sessionId)
       );
-      setRunFileChanges(null);
+      setRunFileChanges([]);
       setMessageManagerState(resetMessageManagerState());
       router.replace(`/?sessionId=${reusableSession.sessionId}`, {
         scroll: false
@@ -528,7 +665,7 @@ export function SessionWorkbench() {
       setSessionUiState((current) => setSessionSnapshot(current, session));
       setTraceRecords([]);
       setRoutines([]);
-      setRunFileChanges(null);
+      setRunFileChanges(buildRunFileChangesStatesFromSession(session));
       setMessageManagerState(resetMessageManagerState());
       router.replace(`/?sessionId=${session.sessionId}`, { scroll: false });
     } catch (error) {
@@ -541,7 +678,7 @@ export function SessionWorkbench() {
   function handleSelectSession(sessionId: string) {
     focusConversationView();
     setSessionRegistry((current) => selectSession(current, sessionId));
-    setRunFileChanges(null);
+    setRunFileChanges([]);
     setMessageManagerState(resetMessageManagerState());
     router.replace(`/?sessionId=${sessionId}`, { scroll: false });
   }
@@ -573,7 +710,7 @@ export function SessionWorkbench() {
       setSessionUiState((current) => setSessionSnapshot(current, null));
       setTraceRecords([]);
       setRoutines([]);
-      setRunFileChanges(null);
+      setRunFileChanges([]);
       setMessageManagerState(resetMessageManagerState());
 
       if (nextSessionId) {
@@ -621,7 +758,6 @@ export function SessionWorkbench() {
     setSessionUiState((current) => beginSessionSubmission(current));
     setActiveTab("prompt");
     setErrorText(null);
-    setRunFileChanges(null);
 
     try {
       const isActiveStreamSession = () =>
@@ -651,9 +787,6 @@ export function SessionWorkbench() {
                 runEvent.kind === "run_error") &&
               "session" in runEvent
             ) {
-              if (isActiveSession) {
-                setRunFileChanges(buildRunFileChangesState(runEvent));
-              }
               const nextSession = runEvent.session;
               if (nextSession) {
                 setSessionRegistry((current) =>
@@ -662,6 +795,12 @@ export function SessionWorkbench() {
                 if (isActiveSession) {
                   setSessionUiState((current) =>
                     setSessionSnapshot(current, nextSession)
+                  );
+                  setRunFileChanges((current) =>
+                    mergeRunFileChangesStates(
+                      current,
+                      buildRunFileChangesStatesFromSession(nextSession)
+                    )
                   );
                 }
               }
@@ -747,35 +886,43 @@ export function SessionWorkbench() {
     }
   }
 
-  async function handleRunFileChangeAction(action: "undo" | "reapply") {
-    if (!currentSession || !runFileChanges || runFileChanges.pendingAction) {
+  async function handleRunFileChangeAction(
+    viewKey: string,
+    action: "undo" | "reapply"
+  ) {
+    const targetView = runFileChanges.find((view) => view.key === viewKey);
+    if (!currentSession || !targetView || targetView.pendingAction) {
       return;
     }
 
-    const selectedFileIndexes = runFileChanges.selectedFileIndexes.filter(
-      (index) => index >= 0 && index < runFileChanges.files.length
+    const selectedFileIndexes = targetView.selectedFileIndexes.filter(
+      (index) => index >= 0 && index < targetView.files.length
     );
-    const selectedFiles = getSelectedWorkspaceFileChanges(runFileChanges);
+    const selectedFiles = getSelectedWorkspaceFileChanges(targetView);
     if (selectedFiles.length === 0) {
       setRunFileChanges((current) =>
-        current
-          ? {
-              ...current,
-              errorText: "至少选择一个文件。"
-            }
-          : current
+        current.map((view) =>
+          view.key === viewKey
+            ? {
+                ...view,
+                errorText: "至少选择一个文件。"
+              }
+            : view
+        )
       );
       return;
     }
 
     setRunFileChanges((current) =>
-      current
-        ? {
-            ...current,
-            pendingAction: action,
-            errorText: null
-          }
-        : current
+      current.map((view) =>
+        view.key === viewKey
+          ? {
+              ...view,
+              pendingAction: action,
+              errorText: null
+            }
+          : view
+      )
     );
 
     try {
@@ -785,48 +932,58 @@ export function SessionWorkbench() {
         files: selectedFiles
       });
       setRunFileChanges((current) =>
-        current
-          ? (() => {
-              const selectedIndexes = new Set(selectedFileIndexes);
-              const nextFileStates = current.fileStates.map(
-                (fileState, index) =>
-                  selectedIndexes.has(index)
-                    ? action === "undo"
-                      ? "undone"
-                      : "applied"
-                    : fileState
-              );
-              return {
-                ...current,
-                fileStates: nextFileStates,
-                state: getRunFileChangesAggregateState(nextFileStates),
-                pendingAction: null,
-                errorText: null
-              };
-            })()
-          : current
+        current.map((view) =>
+          view.key === viewKey
+            ? (() => {
+                const selectedIndexes = new Set(selectedFileIndexes);
+                const nextFileStates = view.fileStates.map(
+                  (fileState, index) =>
+                    selectedIndexes.has(index)
+                      ? action === "undo"
+                        ? "undone"
+                        : "applied"
+                      : fileState
+                );
+                return {
+                  ...view,
+                  fileStates: nextFileStates,
+                  state: getRunFileChangesAggregateState(nextFileStates),
+                  pendingAction: null,
+                  errorText: null
+                };
+              })()
+            : view
+        )
       );
     } catch (error) {
       setRunFileChanges((current) =>
-        current
-          ? {
-              ...current,
-              pendingAction: null,
-              errorText: error instanceof Error ? error.message : String(error)
-            }
-          : current
+        current.map((view) =>
+          view.key === viewKey
+            ? {
+                ...view,
+                pendingAction: null,
+                errorText:
+                  error instanceof Error ? error.message : String(error)
+              }
+            : view
+        )
       );
     }
   }
 
-  function handleRunFileSelectionChange(selectedFileIndexes: number[]) {
+  function handleRunFileSelectionChange(
+    viewKey: string,
+    selectedFileIndexes: number[]
+  ) {
     setRunFileChanges((current) =>
-      current
-        ? {
-            ...current,
-            selectedFileIndexes
-          }
-        : current
+      current.map((view) =>
+        view.key === viewKey
+          ? {
+              ...view,
+              selectedFileIndexes
+            }
+          : view
+      )
     );
   }
 
@@ -850,6 +1007,7 @@ export function SessionWorkbench() {
         {
           workingDirectory: normalizedForm.workingDirectory,
           model: normalizedForm.model,
+          thinkingEffort: normalizedForm.thinkingEffort,
           yoloMode: normalizedForm.yoloMode,
           contextWindow: normalizeContextWindow(normalizedForm.contextWindow),
           maxTurns: normalizeMaxTurns(normalizedForm.maxTurns),
@@ -983,6 +1141,38 @@ export function SessionWorkbench() {
       const settingsPayload = await apiClient.updateUserSettingsPayload(
         currentSession.context.userId,
         { model }
+      );
+      setUserSettings(settingsPayload.settings);
+      setPermissionTools(settingsPayload.permissionTools);
+      setSettingsForm(toSettingsFormState(settingsPayload.settings));
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function handleSettingsThinkingEffortChange(thinkingEffort: string) {
+    if (!currentSession) {
+      return;
+    }
+
+    const normalizedThinkingEffort = thinkingEffort === "max" ? "max" : "high";
+    setErrorText(null);
+
+    try {
+      const updatedSession = await apiClient.updateSessionSettings(
+        currentSession.sessionId,
+        {
+          thinkingEffort: normalizedThinkingEffort
+        }
+      );
+      setSessionUiState((current) =>
+        setSessionSnapshot(current, updatedSession)
+      );
+      setSessionRegistry((current) => upsertSession(current, updatedSession));
+
+      const settingsPayload = await apiClient.updateUserSettingsPayload(
+        currentSession.context.userId,
+        { thinkingEffort: normalizedThinkingEffort }
       );
       setUserSettings(settingsPayload.settings);
       setPermissionTools(settingsPayload.permissionTools);
@@ -1136,6 +1326,16 @@ export function SessionWorkbench() {
     !currentSession.sessionState.interruptRequested &&
     !submitting
   );
+  const showSessionRail = !isSessionRailCollapsed;
+  const showSessionRailOverlay = showSessionRail && isSessionRailNarrowViewport;
+  const handleOverlaySelectSession = (sessionId: string) => {
+    handleSelectSession(sessionId);
+    setIsSessionRailCollapsed(true);
+  };
+  const handleOverlayCreateSession = () => {
+    setIsSessionRailCollapsed(true);
+    void handleCreateSession();
+  };
   const sidebarToggleLabel = isSessionRailCollapsed
     ? "展开会话侧边栏"
     : "收起会话侧边栏";
@@ -1186,7 +1386,7 @@ export function SessionWorkbench() {
   return (
     <main className="min-h-screen bg-[var(--app-bg-canvas)] text-[var(--app-text-primary)]">
       <div className="mx-auto flex min-h-screen w-full max-w-[1840px] flex-col gap-5 px-4 py-4 lg:flex-row lg:items-start lg:gap-6 lg:px-6">
-        {isSessionRailCollapsed ? null : (
+        {showSessionRail && !showSessionRailOverlay ? (
           <SessionWorkbenchSidebar
             sessions={renderedSessions}
             selectedSessionId={selectedSessionId}
@@ -1200,7 +1400,36 @@ export function SessionWorkbench() {
             onDeleteSession={(sessionId) => void handleDeleteSession(sessionId)}
             onToggleSidebarPanel={handleToggleSidebarPanel}
           />
-        )}
+        ) : null}
+
+        {showSessionRailOverlay ? (
+          <div className="fixed inset-0 z-40 lg:hidden">
+            <button
+              type="button"
+              aria-label="收起会话侧边栏"
+              onClick={() => setIsSessionRailCollapsed(true)}
+              className="absolute inset-0 bg-[color:color-mix(in_srgb,var(--app-bg-canvas)_72%,transparent)]"
+            />
+            <div className="absolute inset-y-0 left-0 w-[min(86vw,320px)] px-4 py-4">
+              <SessionWorkbenchSidebar
+                sessions={renderedSessions}
+                selectedSessionId={selectedSessionId}
+                activeSidebarPanel={activeSidebarPanel}
+                collapsed={false}
+                overlay
+                deletingSessionId={deletingSessionId}
+                loading={loading}
+                creatingSession={creatingSession}
+                onCreateSession={handleOverlayCreateSession}
+                onSelectSession={handleOverlaySelectSession}
+                onDeleteSession={(sessionId) =>
+                  void handleDeleteSession(sessionId)
+                }
+                onToggleSidebarPanel={handleToggleSidebarPanel}
+              />
+            </div>
+          </div>
+        ) : null}
 
         <div className="relative min-h-[calc(100vh-2rem)] min-w-0 flex-1 lg:h-[calc(100vh-2rem)]">
           {showSidebarPanel ? (
@@ -1266,11 +1495,18 @@ export function SessionWorkbench() {
                 session: currentSession,
                 settingsForm
               })}
+              selectedThinkingEffort={resolveSelectedThinkingEffort({
+                session: currentSession,
+                settingsForm
+              })}
               onMessageChange={setMessage}
               onSubmit={(event) => void handleSubmit(event)}
               onInterrupt={() => void handleInterruptSession()}
               onSettingsModelChange={(model) =>
                 void handleSettingsModelChange(model)
+              }
+              onSettingsThinkingEffortChange={(thinkingEffort) =>
+                void handleSettingsThinkingEffortChange(thinkingEffort)
               }
               onSettingsYoloModeChange={(checked) =>
                 void handleSettingsYoloModeChange(checked)
@@ -1287,8 +1523,8 @@ export function SessionWorkbench() {
               onUserQuestionQuickReply={(reply) =>
                 void submitSessionMessage(reply)
               }
-              onRunFileChangeAction={(action) =>
-                void handleRunFileChangeAction(action)
+              onRunFileChangeAction={(viewKey, action) =>
+                void handleRunFileChangeAction(viewKey, action)
               }
               onRunFileSelectionChange={handleRunFileSelectionChange}
               onAssistantAnimationComplete={handleAssistantAnimationComplete}

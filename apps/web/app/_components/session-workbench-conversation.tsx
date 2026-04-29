@@ -57,6 +57,7 @@ interface SessionWorkbenchConversationPanelProps {
   currentSession: SessionSnapshot | null;
   modelCatalog: ModelCatalogEntry[];
   selectedModelId: string;
+  selectedThinkingEffort: string;
   todoUpdating: boolean;
   loading: boolean;
   conversationProjection: ConversationProjection;
@@ -73,11 +74,12 @@ interface SessionWorkbenchConversationPanelProps {
   interrupting: boolean;
   showInterruptedHint: boolean;
   errorText: string | null;
-  runFileChanges: RunFileChangesView | null;
+  runFileChanges: RunFileChangesView[];
   onMessageChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onInterrupt: () => void;
   onSettingsModelChange: (model: string) => void;
+  onSettingsThinkingEffortChange: (thinkingEffort: string) => void;
   onSettingsYoloModeChange: (checked: boolean) => void;
   onSessionPlanModeChange: (checked: boolean) => void;
   onPermissionQuickReply: (
@@ -86,8 +88,11 @@ interface SessionWorkbenchConversationPanelProps {
   ) => void | Promise<void>;
   onConfirmationQuickReply: (reply: string) => void;
   onUserQuestionQuickReply: (reply: string) => void;
-  onRunFileChangeAction: (action: "undo" | "reapply") => void;
-  onRunFileSelectionChange: (selectedFileIndexes: number[]) => void;
+  onRunFileChangeAction: (viewKey: string, action: "undo" | "reapply") => void;
+  onRunFileSelectionChange: (
+    viewKey: string,
+    selectedFileIndexes: number[]
+  ) => void;
   onAssistantAnimationComplete: (itemKey: string) => void;
   onToggleExpandedItem: (key: string) => void;
   onAutoCollapseComplete: (key: string) => void;
@@ -96,6 +101,7 @@ interface SessionWorkbenchConversationPanelProps {
 
 export interface RunFileChangesView {
   key: string;
+  createdAt: string;
   files: WorkspaceFileChangeSummary[];
   fileStates: Array<"applied" | "undone">;
   state: "applied" | "undone" | "mixed";
@@ -150,6 +156,80 @@ export function getWorkspaceFileChangeRows(
     countsLabel: `+${file.addedLineCount} / -${file.removedLineCount}`,
     diff: file.diff
   }));
+}
+
+type UnifiedDiffLineTone = "add" | "remove" | "hunk" | "header" | "context";
+
+export function getUnifiedDiffLineTone(line: string): UnifiedDiffLineTone {
+  if (
+    line.startsWith("diff --git ") ||
+    line.startsWith("index ") ||
+    line.startsWith("new file mode ") ||
+    line.startsWith("deleted file mode ") ||
+    line.startsWith("similarity index ") ||
+    line.startsWith("rename from ") ||
+    line.startsWith("rename to ") ||
+    line.startsWith("--- ") ||
+    line.startsWith("+++ ")
+  ) {
+    return "header";
+  }
+
+  if (line.startsWith("@@")) {
+    return "hunk";
+  }
+
+  if (line.startsWith("+")) {
+    return "add";
+  }
+
+  if (line.startsWith("-")) {
+    return "remove";
+  }
+
+  return "context";
+}
+
+function getUnifiedDiffLineClass(tone: UnifiedDiffLineTone): string {
+  switch (tone) {
+    case "add":
+      return "border-[color:color-mix(in_srgb,var(--app-status-success)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--app-status-success)_13%,transparent)] text-[color:color-mix(in_srgb,var(--app-status-success)_86%,var(--app-text-primary)_14%)]";
+    case "remove":
+      return "border-[color:color-mix(in_srgb,var(--app-status-danger)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--app-status-danger)_12%,transparent)] text-[color:color-mix(in_srgb,var(--app-status-danger)_88%,var(--app-text-primary)_12%)]";
+    case "hunk":
+      return "border-[color:color-mix(in_srgb,var(--app-status-warning)_52%,transparent)] bg-[color:color-mix(in_srgb,var(--app-status-warning)_10%,transparent)] text-[color:color-mix(in_srgb,var(--app-status-warning)_84%,var(--app-text-primary)_16%)]";
+    case "header":
+      return "border-[color:color-mix(in_srgb,var(--app-border-subtle)_72%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_52%,transparent)] text-[var(--app-text-primary)]";
+    case "context":
+      return "border-transparent text-[var(--app-text-secondary)]";
+    default:
+      return "border-transparent text-[var(--app-text-secondary)]";
+  }
+}
+
+function UnifiedDiffBlock({ diff }: { diff: string }) {
+  return (
+    <pre
+      className={`${getDebugPreClass("surface").replace(
+        "mt-2 ",
+        ""
+      )} overflow-hidden px-0 py-2`}
+    >
+      {diff.split("\n").map((line, index) => {
+        const tone = getUnifiedDiffLineTone(line);
+        return (
+          <span
+            key={`${index}:${line}`}
+            className={`block min-h-6 border-l-2 px-3 ${getUnifiedDiffLineClass(
+              tone
+            )}`}
+          >
+            {line.length > 0 ? line : "\u00A0"}
+          </span>
+        );
+      })}
+    </pre>
+  );
 }
 
 interface BackgroundNotificationCopySource {
@@ -214,7 +294,9 @@ function getBackgroundNotificationKindLabel(kind: string): string {
   }
 }
 
-function isSubagentBackgroundNotification(taskKind: string | null | undefined): boolean {
+function isSubagentBackgroundNotification(
+  taskKind: string | null | undefined
+): boolean {
   return taskKind === "subagent";
 }
 
@@ -1334,11 +1416,7 @@ function renderCompactToolItem(
                       {file.countsLabel}
                     </span>
                   </div>
-                  <pre
-                    className={getDebugPreClass("surface").replace("mt-2 ", "")}
-                  >
-                    {file.diff}
-                  </pre>
+                  <UnifiedDiffBlock diff={file.diff} />
                 </section>
               ))}
             </div>
@@ -1516,11 +1594,7 @@ function renderRunFileChangesPanel(input: {
                 }`}
               >
                 <div className="min-h-0 overflow-hidden">
-                  <pre
-                    className={getDebugPreClass("surface").replace("mt-2 ", "")}
-                  >
-                    {file.diff}
-                  </pre>
+                  <UnifiedDiffBlock diff={file.diff} />
                 </div>
               </div>
             </section>
@@ -1740,10 +1814,72 @@ function hasRenderableTimelineContent(node: React.ReactNode): boolean {
   return node !== null && node !== undefined && node !== false;
 }
 
+type ConversationRenderEntry =
+  | {
+      type: "conversation";
+      key: string;
+      item: ConversationProjection["visibleItems"][number];
+    }
+  | {
+      type: "run-file-changes";
+      key: string;
+      view: RunFileChangesView;
+    };
+
+function buildConversationRenderEntries(input: {
+  items: ConversationProjection["visibleItems"];
+  runFileChanges: RunFileChangesView[];
+}): ConversationRenderEntry[] {
+  const sortedRunFileChanges = [...input.runFileChanges].sort((left, right) =>
+    left.createdAt === right.createdAt
+      ? left.key.localeCompare(right.key)
+      : left.createdAt.localeCompare(right.createdAt)
+  );
+  const entries: ConversationRenderEntry[] = [];
+  let viewIndex = 0;
+
+  for (let itemIndex = 0; itemIndex < input.items.length; itemIndex += 1) {
+    const item = input.items[itemIndex]!;
+    const nextItem = input.items[itemIndex + 1];
+    entries.push({
+      type: "conversation",
+      key: item.key,
+      item
+    });
+
+    while (
+      viewIndex < sortedRunFileChanges.length &&
+      (!nextItem ||
+        sortedRunFileChanges[viewIndex]!.createdAt < nextItem.createdAt)
+    ) {
+      const view = sortedRunFileChanges[viewIndex]!;
+      entries.push({
+        type: "run-file-changes",
+        key: view.key,
+        view
+      });
+      viewIndex += 1;
+    }
+  }
+
+  while (viewIndex < sortedRunFileChanges.length) {
+    const view = sortedRunFileChanges[viewIndex]!;
+    entries.push({
+      type: "run-file-changes",
+      key: view.key,
+      view
+    });
+    viewIndex += 1;
+  }
+
+  return entries;
+}
+
 export function SessionWorkbenchConversationPanel({
   currentSession,
   modelCatalog,
   selectedModelId,
+  selectedThinkingEffort,
   todoUpdating,
   loading,
   conversationProjection,
@@ -1765,6 +1901,7 @@ export function SessionWorkbenchConversationPanel({
   onSubmit,
   onInterrupt,
   onSettingsModelChange,
+  onSettingsThinkingEffortChange,
   onSettingsYoloModeChange,
   onSessionPlanModeChange,
   onPermissionQuickReply,
@@ -1810,12 +1947,24 @@ export function SessionWorkbenchConversationPanel({
   const visibleConversationViewItems = conversationProjection.visibleItems;
   const collapsedFlowAnchorsByKey =
     conversationProjection.collapsedFlowAnchorsByKey;
+  const conversationRenderEntries = useMemo(
+    () =>
+      buildConversationRenderEntries({
+        items: visibleConversationViewItems,
+        runFileChanges
+      }),
+    [visibleConversationViewItems, runFileChanges]
+  );
   const scrollItems = useMemo(() => {
-    const items: Array<{
-      key: string;
-      type: string;
-      event?: RunStreamEvent;
-    }> = visibleConversationViewItems.map((item) => {
+    return conversationRenderEntries.map((entry) => {
+      if (entry.type === "run-file-changes") {
+        return {
+          key: entry.key,
+          type: "run-file-changes"
+        };
+      }
+
+      const item = entry.item;
       if (item.type === "timeline" && item.item.type === "event") {
         return {
           key: item.key,
@@ -1828,17 +1977,12 @@ export function SessionWorkbenchConversationPanel({
         key: item.key,
         type: item.type
       };
-    });
-
-    if (runFileChanges) {
-      items.push({
-        key: runFileChanges.key,
-        type: "run-file-changes"
-      });
-    }
-
-    return items;
-  }, [visibleConversationViewItems, runFileChanges]);
+    }) satisfies Array<{
+      key: string;
+      type: string;
+      event?: RunStreamEvent;
+    }>;
+  }, [conversationRenderEntries]);
   const scrollSnapshot = useMemo(
     () => buildConversationScrollSnapshot(scrollItems),
     [scrollItems]
@@ -1861,6 +2005,10 @@ export function SessionWorkbenchConversationPanel({
     currentWorkingDirectory
   );
   const yoloModeEnabled = currentSession?.context.yoloMode ?? false;
+  const selectedModel = modelCatalog.find(
+    (model) => model.id === selectedModelId
+  );
+  const thinkingEffortOptions = selectedModel?.thinkingEfforts ?? [];
   const peakContextUsageLabel = currentSession
     ? formatContextWindowUsage(
         peakTurnContextTokens,
@@ -2125,7 +2273,7 @@ export function SessionWorkbenchConversationPanel({
 
   useEffect(() => {
     setExpandedRunFileKeys(new Set());
-  }, [runFileChanges?.key]);
+  }, [currentSession?.sessionId]);
 
   useEffect(() => {
     previousScrollSnapshotRef.current = buildConversationScrollSnapshot([]);
@@ -2284,16 +2432,58 @@ export function SessionWorkbenchConversationPanel({
                 </div>
               ) : null}
 
-              {renderedTimelineItems.length ? (
-                renderedTimelineItems.map(({ item, content }) => (
-                  <div
-                    key={item.key}
-                    data-timeline-item-key={item.key}
-                    className="min-w-0"
-                  >
-                    {content}
-                  </div>
-                ))
+              {conversationRenderEntries.length ? (
+                conversationRenderEntries.map((entry) => {
+                  if (entry.type === "run-file-changes") {
+                    return (
+                      <div
+                        key={entry.key}
+                        data-timeline-item-key={entry.key}
+                        className="min-w-0"
+                      >
+                        {renderRunFileChangesPanel({
+                          view: entry.view,
+                          expandedFileKeys: expandedRunFileKeys,
+                          onToggleFile(fileKey) {
+                            setExpandedRunFileKeys((current) => {
+                              const next = new Set(current);
+                              if (next.has(fileKey)) {
+                                next.delete(fileKey);
+                              } else {
+                                next.add(fileKey);
+                              }
+                              return next;
+                            });
+                          },
+                          onSelectionChange: (selectedFileIndexes) =>
+                            onRunFileSelectionChange(
+                              entry.view.key,
+                              selectedFileIndexes
+                            ),
+                          onAction: (action) =>
+                            onRunFileChangeAction(entry.view.key, action)
+                        })}
+                      </div>
+                    );
+                  }
+
+                  const rendered = renderedTimelineItems.find(
+                    ({ item }) => item.key === entry.item.key
+                  );
+                  if (!rendered) {
+                    return null;
+                  }
+
+                  return (
+                    <div
+                      key={entry.key}
+                      data-timeline-item-key={entry.key}
+                      className="min-w-0"
+                    >
+                      {rendered.content}
+                    </div>
+                  );
+                })
               ) : (
                 <div
                   className={getSoftBlockClass(
@@ -2303,28 +2493,6 @@ export function SessionWorkbenchConversationPanel({
                   发送请求后，这里会显示当前会话的对话和执行记录。
                 </div>
               )}
-
-              {runFileChanges ? (
-                <div data-timeline-item-key={runFileChanges.key}>
-                  {renderRunFileChangesPanel({
-                    view: runFileChanges,
-                    expandedFileKeys: expandedRunFileKeys,
-                    onToggleFile(fileKey) {
-                      setExpandedRunFileKeys((current) => {
-                        const next = new Set(current);
-                        if (next.has(fileKey)) {
-                          next.delete(fileKey);
-                        } else {
-                          next.add(fileKey);
-                        }
-                        return next;
-                      });
-                    },
-                    onSelectionChange: onRunFileSelectionChange,
-                    onAction: onRunFileChangeAction
-                  })}
-                </div>
-              ) : null}
             </div>
           </div>
 
@@ -2753,6 +2921,20 @@ export function SessionWorkbenchConversationPanel({
                         }))}
                       />
                     </div>
+                    {thinkingEffortOptions.length > 0 ? (
+                      <div className="w-28 max-w-[34vw]">
+                        <WorkbenchSelect
+                          value={selectedThinkingEffort}
+                          disabled={!currentSession}
+                          ariaLabel="选择 thinking effort"
+                          onValueChange={onSettingsThinkingEffortChange}
+                          options={thinkingEffortOptions.map((effort) => ({
+                            value: effort,
+                            label: effort
+                          }))}
+                        />
+                      </div>
+                    ) : null}
                     <button
                       type={
                         composerActionView.buttonType === "submit"

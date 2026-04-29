@@ -1,6 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk";
 
-import { DEFAULT_SESSION_MODEL } from "@ai-app-template/domain";
+import {
+  DEFAULT_SESSION_MODEL,
+  THINKING_EFFORT_OPTIONS,
+  type ThinkingEffort
+} from "@ai-app-template/domain";
 
 import type { AnthropicCompatibleClient } from "../model.js";
 
@@ -27,6 +31,7 @@ export interface ModelCatalogEntry {
   configured: boolean;
   baseURL: string;
   supportsThinking: boolean;
+  thinkingEfforts: ThinkingEffort[];
   unavailableReason: string | null;
 }
 
@@ -36,6 +41,7 @@ interface ModelDefinition {
   provider: ModelProviderId;
   description: string;
   supportsThinking: boolean;
+  thinkingEfforts: ThinkingEffort[];
 }
 
 interface ProviderRuntime {
@@ -53,21 +59,24 @@ const MODEL_DEFINITIONS: readonly ModelDefinition[] = [
     label: "MiniMax 2.7",
     provider: "minimax",
     description: "当前默认模型，走 MiniMax 的 Anthropic-compatible endpoint。",
-    supportsThinking: true
+    supportsThinking: true,
+    thinkingEfforts: []
   },
   {
     id: DEFAULT_DEEPSEEK_MODEL,
     label: "DeepSeek V4 Pro",
     provider: "deepseek",
     description: "通过 DeepSeek 官方 Anthropic-compatible endpoint 接入。",
-    supportsThinking: true
+    supportsThinking: true,
+    thinkingEfforts: [...THINKING_EFFORT_OPTIONS]
   },
   {
     id: DEFAULT_DEEPSEEK_FLASH_MODEL,
     label: "DeepSeek V4 Flash",
     provider: "deepseek",
     description: "更快的 DeepSeek Anthropic-compatible endpoint 选项。",
-    supportsThinking: true
+    supportsThinking: true,
+    thinkingEfforts: [...THINKING_EFFORT_OPTIONS]
   }
 ];
 
@@ -106,15 +115,11 @@ function createAnthropicCompatibleClient(input: {
   return client as unknown as AnthropicCompatibleClient;
 }
 
-function resolveMiniMaxProvider(
-  env: NodeJS.ProcessEnv
-): ProviderRuntime {
+function resolveMiniMaxProvider(env: NodeJS.ProcessEnv): ProviderRuntime {
   const apiKey =
     env.MINIMAX_API_KEY ?? env.ANTHROPIC_API_KEY ?? env.API_KEY ?? "";
   const baseURL =
-    env.MINIMAX_BASE_URL ??
-    env.ANTHROPIC_BASE_URL ??
-    DEFAULT_MINIMAX_BASE_URL;
+    env.MINIMAX_BASE_URL ?? env.ANTHROPIC_BASE_URL ?? DEFAULT_MINIMAX_BASE_URL;
   const configured = apiKey.trim().length > 0;
 
   return {
@@ -132,9 +137,7 @@ function resolveMiniMaxProvider(
   };
 }
 
-function resolveDeepSeekProvider(
-  env: NodeJS.ProcessEnv
-): ProviderRuntime {
+function resolveDeepSeekProvider(env: NodeJS.ProcessEnv): ProviderRuntime {
   const apiKey = env.DEEPSEEK_API_KEY ?? "";
   const baseURL = env.DEEPSEEK_BASE_URL ?? DEFAULT_DEEPSEEK_BASE_URL;
   const configured = apiKey.trim().length > 0;
@@ -154,9 +157,7 @@ function resolveDeepSeekProvider(
   };
 }
 
-function resolvePreferredDefaultModel(
-  env: NodeJS.ProcessEnv
-): string | null {
+function resolvePreferredDefaultModel(env: NodeJS.ProcessEnv): string | null {
   const value = env.DEFAULT_AGENT_MODEL ?? env.AGENT_MODEL ?? null;
   return typeof value === "string" && value.trim().length > 0
     ? value.trim()
@@ -169,6 +170,7 @@ export interface ModelService {
   isModelSupported(model: string): model is SupportedModelId;
   isModelAvailable(model: string): boolean;
   supportsThinking(model: string): boolean;
+  getThinkingEfforts(model: string): ThinkingEffort[];
   assertModelAvailable(model: string): SupportedModelId;
   getClient(model: string): AnthropicCompatibleClient;
 }
@@ -194,6 +196,7 @@ export class AnthropicCompatibleModelService implements ModelService {
         configured: provider.configured,
         baseURL: provider.baseURL,
         supportsThinking: definition.supportsThinking,
+        thinkingEfforts: [...definition.thinkingEfforts],
         unavailableReason: provider.configured
           ? null
           : `${definition.label} is not configured. Set ${provider.apiKeyEnv}.`
@@ -239,6 +242,14 @@ export class AnthropicCompatibleModelService implements ModelService {
     }
 
     return MODEL_DEFINITION_MAP.get(model)?.supportsThinking ?? false;
+  }
+
+  getThinkingEfforts(model: string): ThinkingEffort[] {
+    if (!this.isModelSupported(model)) {
+      return [];
+    }
+
+    return [...(MODEL_DEFINITION_MAP.get(model)?.thinkingEfforts ?? [])];
   }
 
   assertModelAvailable(model: string): SupportedModelId {

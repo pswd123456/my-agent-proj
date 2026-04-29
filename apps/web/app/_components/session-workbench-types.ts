@@ -34,6 +34,7 @@ export interface TurnUsageSummary {
 export interface SettingsFormState {
   workingDirectory: string;
   model: string;
+  thinkingEffort: string;
   yoloMode: boolean;
   contextWindow: string;
   maxTurns: string;

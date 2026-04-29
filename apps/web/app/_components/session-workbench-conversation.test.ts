@@ -13,6 +13,7 @@ import {
   buildPermissionCardView,
   buildUserQuestionCardView,
   getConfirmationKey,
+  getUnifiedDiffLineTone,
   getWorkspaceFileChangeRows,
   createPermissionCardFeedback,
   getPermissionRequestKey,
@@ -401,6 +402,20 @@ describe("workspace file change rows", () => {
         diff: "--- a/apps/web/app/page.tsx\n+++ b/apps/web/app/page.tsx"
       }
     ]);
+  });
+
+  test("classifies unified diff lines for visual highlighting", () => {
+    expect(getUnifiedDiffLineTone("diff --git a/a.ts b/a.ts")).toBe("header");
+    expect(getUnifiedDiffLineTone("--- a/apps/web/app/page.tsx")).toBe(
+      "header"
+    );
+    expect(getUnifiedDiffLineTone("+++ b/apps/web/app/page.tsx")).toBe(
+      "header"
+    );
+    expect(getUnifiedDiffLineTone("@@ -1,2 +1,3 @@")).toBe("hunk");
+    expect(getUnifiedDiffLineTone("+const next = true;")).toBe("add");
+    expect(getUnifiedDiffLineTone("-const prev = true;")).toBe("remove");
+    expect(getUnifiedDiffLineTone(" const same = true;")).toBe("context");
   });
 });
 

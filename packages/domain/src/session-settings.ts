@@ -7,6 +7,11 @@ import {
   normalizeSettingsPermissionRuleLists,
   SETTINGS_PERMISSION_TOOL_OPTIONS
 } from "./permission-rules.js";
+import {
+  DEFAULT_THINKING_EFFORT,
+  normalizeThinkingEffort,
+  type ThinkingEffort
+} from "./session-context.js";
 
 export const DEFAULT_SESSION_SETTINGS_USER_ID = "cli-user";
 export const DEFAULT_SESSION_WORKING_DIRECTORY = "agent-workspace";
@@ -23,6 +28,7 @@ export interface SessionSettingsRecord {
   userId: string;
   workingDirectory: string;
   model: string;
+  thinkingEffort: ThinkingEffort;
   yoloMode: boolean;
   contextWindow: number;
   maxTurns: number;
@@ -40,6 +46,7 @@ export interface SessionSettingsRecord {
 export interface SessionSettingsInput {
   workingDirectory?: string;
   model?: string;
+  thinkingEffort?: ThinkingEffort;
   yoloMode?: boolean;
   contextWindow?: number;
   maxTurns?: number;
@@ -68,6 +75,7 @@ export function resolveSessionSettingsDefaults(
     userId,
     workingDirectory: DEFAULT_SESSION_WORKING_DIRECTORY,
     model: DEFAULT_SESSION_MODEL,
+    thinkingEffort: normalizeThinkingEffort(DEFAULT_THINKING_EFFORT),
     yoloMode: false,
     contextWindow: DEFAULT_CONTEXT_WINDOW,
     maxTurns: DEFAULT_SESSION_MAX_TURNS,

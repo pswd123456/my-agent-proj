@@ -6,7 +6,10 @@ import type {
   LoopState,
   SessionSnapshot
 } from "../types.js";
-import { DEFAULT_SESSION_MODEL } from "@ai-app-template/domain";
+import {
+  DEFAULT_SESSION_MODEL,
+  type ThinkingEffort
+} from "@ai-app-template/domain";
 
 import type { SessionManager } from "./contracts.js";
 import {
@@ -30,6 +33,7 @@ export class MemorySessionManager implements SessionManager {
       sessionId: string;
       workingDirectory: string;
       model: string;
+      thinkingEffort?: ThinkingEffort;
       userId?: string;
       yoloMode?: boolean;
       planModeEnabled?: boolean;
@@ -47,6 +51,9 @@ export class MemorySessionManager implements SessionManager {
       model: input.model ?? DEFAULT_SESSION_MODEL
     };
 
+    if (input.thinkingEffort) {
+      createSnapshotInput.thinkingEffort = input.thinkingEffort;
+    }
     if (typeof input.userId === "string" && input.userId.length > 0) {
       createSnapshotInput.userId = input.userId;
     }

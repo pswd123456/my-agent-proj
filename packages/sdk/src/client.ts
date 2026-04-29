@@ -56,6 +56,7 @@ export interface ModelCatalogEntry {
   configured: boolean;
   baseURL: string;
   supportsThinking: boolean;
+  thinkingEfforts: string[];
   unavailableReason: string | null;
 }
 
@@ -73,6 +74,7 @@ export interface InterruptSessionResult {
 export interface CreateSessionPayload {
   workingDirectory?: string;
   model?: string;
+  thinkingEffort?: string;
   userId?: string;
   yoloMode?: boolean;
   planModeEnabled?: boolean;
@@ -83,6 +85,7 @@ export interface CreateSessionPayload {
 
 export interface UpdateSessionSettingsPayload {
   model?: string;
+  thinkingEffort?: string;
   yoloMode?: boolean;
   planModeEnabled?: boolean;
   shellAllowPatterns?: string[];
@@ -96,6 +99,7 @@ export interface UpdateSessionSettingsPayload {
 export interface UpdateUserSettingsPayload {
   workingDirectory?: string;
   model?: string;
+  thinkingEffort?: string;
   yoloMode?: boolean;
   contextWindow?: number;
   maxTurns?: number;
@@ -229,8 +233,12 @@ function getFirstUserMessage(session: SessionSnapshot): string | null {
   }
 
   const firstUserBlock = session.messages.find(
-    (block): block is Extract<SessionSnapshot["messages"][number], { kind: "user" }> =>
-      block.kind === "user" && block.content.trim().length > 0
+    (
+      block
+    ): block is Extract<
+      SessionSnapshot["messages"][number],
+      { kind: "user" }
+    > => block.kind === "user" && block.content.trim().length > 0
   );
 
   return firstUserBlock?.content ?? null;

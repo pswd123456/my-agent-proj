@@ -4,6 +4,10 @@ export function resolveSessionRailCollapsedState(
   storedValue: string | null,
   mediaMatches: boolean
 ): boolean {
+  if (mediaMatches) {
+    return true;
+  }
+
   if (storedValue === "true") {
     return true;
   }

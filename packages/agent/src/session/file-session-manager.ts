@@ -1,7 +1,10 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { DEFAULT_SESSION_MODEL } from "@ai-app-template/domain";
+import {
+  DEFAULT_SESSION_MODEL,
+  type ThinkingEffort
+} from "@ai-app-template/domain";
 
 import type {
   CreateSessionInput,
@@ -82,6 +85,7 @@ export class FileSessionManager implements SessionManager {
       sessionId: string;
       workingDirectory: string;
       model: string;
+      thinkingEffort?: ThinkingEffort;
       userId?: string;
       yoloMode?: boolean;
       planModeEnabled?: boolean;
@@ -99,6 +103,9 @@ export class FileSessionManager implements SessionManager {
       model: input.model ?? DEFAULT_SESSION_MODEL
     };
 
+    if (input.thinkingEffort) {
+      createSnapshotInput.thinkingEffort = input.thinkingEffort;
+    }
     if (typeof input.userId === "string" && input.userId.length > 0) {
       createSnapshotInput.userId = input.userId;
     }

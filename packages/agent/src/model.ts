@@ -1,9 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 
-import type {
-  JsonValue,
-  UserConversationBlock
-} from "./types.js";
+import type { ThinkingEffort } from "@ai-app-template/domain";
+
+import type { JsonValue, UserConversationBlock } from "./types.js";
 
 export const DEFAULT_MINIMAX_MODEL = "MiniMax-M2.7";
 export const DEFAULT_MINIMAX_BASE_URL = "https://api.minimaxi.com/anthropic";
@@ -80,6 +79,9 @@ export interface AnthropicMessageRequest {
   messages: AnthropicMessage[];
   tools: AnthropicToolDefinition[];
   tool_choice?: AnthropicToolChoice;
+  output_config?: {
+    effort?: ThinkingEffort;
+  };
 }
 
 export interface AnthropicTextDelta {
@@ -155,8 +157,7 @@ export type AnthropicMessageStreamEvent =
   | AnthropicMessageStartEvent
   | AnthropicMessageStopEvent;
 
-export interface AnthropicMessageStream
-  extends AsyncIterable<AnthropicMessageStreamEvent> {
+export interface AnthropicMessageStream extends AsyncIterable<AnthropicMessageStreamEvent> {
   finalMessage(): Promise<AnthropicMessageResponse>;
   abort?(): void;
 }
@@ -226,9 +227,7 @@ export function resolveToolChoice(
   return undefined;
 }
 
-export function resolveMaxTokens(
-  env: NodeJS.ProcessEnv = process.env
-): number {
+export function resolveMaxTokens(env: NodeJS.ProcessEnv = process.env): number {
   const raw = env.ANTHROPIC_MAX_TOKENS ?? env.MAX_TOKENS;
   if (!raw) {
     return DEFAULT_MAX_TOKENS;
@@ -282,9 +281,7 @@ export async function streamAnthropicMessage(input: {
   client: AnthropicCompatibleClient;
   request: AnthropicMessageRequest;
   signal?: AbortSignal;
-  onTextDelta?: (
-    snapshot: AnthropicTextDeltaSnapshot
-  ) => void | Promise<void>;
+  onTextDelta?: (snapshot: AnthropicTextDeltaSnapshot) => void | Promise<void>;
   onThinkingDelta?: (
     snapshot: AnthropicThinkingDeltaSnapshot
   ) => void | Promise<void>;
@@ -296,7 +293,10 @@ export async function streamAnthropicMessage(input: {
 
   const stream = input.client.messages.stream(input.request, requestOptions);
   const textSnapshots = new Map<number, string>();
-  const thinkingSnapshots = new Map<number, { text: string; signature: string }>();
+  const thinkingSnapshots = new Map<
+    number,
+    { text: string; signature: string }
+  >();
   const abortStream = () => {
     if (typeof stream.abort === "function") {
       try {

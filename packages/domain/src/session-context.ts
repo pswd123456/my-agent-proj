@@ -132,12 +132,21 @@ export interface SessionFullCompactionState {
   retainedTailCount: number;
 }
 
+export const THINKING_EFFORT_OPTIONS = ["high", "max"] as const;
+export type ThinkingEffort = (typeof THINKING_EFFORT_OPTIONS)[number];
+export const DEFAULT_THINKING_EFFORT: ThinkingEffort = "high";
+
+export function normalizeThinkingEffort(value: unknown): ThinkingEffort {
+  return value === "max" ? "max" : DEFAULT_THINKING_EFFORT;
+}
+
 export interface ScheduleSessionContext {
   userId: string;
   status: ScheduleSessionStatus;
   currentDateContext: string;
   yoloMode: boolean;
   planModeEnabled: boolean;
+  thinkingEffort?: ThinkingEffort;
   taskBriefPath: string | null;
   workspaceEscapeAllowed: boolean;
   shellAllowPatterns: string[];

@@ -5,9 +5,11 @@ import {
   DEFAULT_SESSION_MAX_TURNS,
   createPermissionRuleLists,
   normalizeCapabilityPacks,
+  normalizeThinkingEffort,
   type BackgroundNotificationKind,
   type SessionBackgroundNotification,
-  type ScheduleSessionContext
+  type ScheduleSessionContext,
+  type ThinkingEffort
 } from "@ai-app-template/domain";
 
 import type {
@@ -77,6 +79,7 @@ export function createSnapshot(input: {
   userId?: string;
   yoloMode?: boolean;
   planModeEnabled?: boolean;
+  thinkingEffort?: ThinkingEffort;
   taskBriefPath?: string | null;
   firstUserMessage?: string | null;
   lastUserMessage?: string | null;
@@ -98,6 +101,7 @@ export function createSnapshot(input: {
     ...(typeof input.planModeEnabled === "boolean"
       ? { planModeEnabled: input.planModeEnabled }
       : {}),
+    ...(input.thinkingEffort ? { thinkingEffort: input.thinkingEffort } : {}),
     ...(typeof input.taskBriefPath === "string" || input.taskBriefPath === null
       ? { taskBriefPath: input.taskBriefPath }
       : {}),
@@ -176,6 +180,7 @@ export function cloneSnapshot(snapshot: SessionSnapshot): SessionSnapshot {
       ...cloned.context,
       yoloMode: cloned.context.yoloMode ?? false,
       planModeEnabled: cloned.context.planModeEnabled ?? false,
+      thinkingEffort: normalizeThinkingEffort(cloned.context.thinkingEffort),
       taskBriefPath: resolveTaskBriefPathForSession({
         workingDirectory: cloned.workingDirectory,
         sessionId: cloned.sessionId,
@@ -233,6 +238,7 @@ export function createScheduleSessionContext(
     userId?: string;
     yoloMode?: boolean;
     planModeEnabled?: boolean;
+    thinkingEffort?: ThinkingEffort;
     taskBriefPath?: string | null;
     firstUserMessage?: string | null;
     lastUserMessage?: string | null;
@@ -254,6 +260,7 @@ export function createScheduleSessionContext(
     currentDateContext: resolveCurrentDateContext(),
     yoloMode: input.yoloMode ?? false,
     planModeEnabled: input.planModeEnabled ?? false,
+    thinkingEffort: normalizeThinkingEffort(input.thinkingEffort),
     taskBriefPath: input.taskBriefPath ?? null,
     workspaceEscapeAllowed: input.workspaceEscapeAllowed ?? false,
     shellAllowPatterns:
@@ -319,7 +326,8 @@ function isToolResultDetails(value: unknown): value is ToolResultDetails {
       (value.operation === "replace" || value.operation === "edit") &&
       (typeof value.startLine === "number" ||
         typeof value.startLine === "undefined") &&
-      (typeof value.endLine === "number" || typeof value.endLine === "undefined")
+      (typeof value.endLine === "number" ||
+        typeof value.endLine === "undefined")
     );
   }
 
@@ -401,6 +409,9 @@ export function isSessionSnapshot(value: unknown): value is SessionSnapshot {
       typeof value.context.yoloMode === "undefined") &&
     (typeof value.context.planModeEnabled === "boolean" ||
       typeof value.context.planModeEnabled === "undefined") &&
+    (value.context.thinkingEffort === "high" ||
+      value.context.thinkingEffort === "max" ||
+      typeof value.context.thinkingEffort === "undefined") &&
     (typeof value.context.taskBriefPath === "string" ||
       value.context.taskBriefPath === null ||
       typeof value.context.taskBriefPath === "undefined") &&

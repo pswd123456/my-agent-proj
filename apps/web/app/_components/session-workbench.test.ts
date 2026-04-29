@@ -4,9 +4,11 @@ import type { RunStreamEvent } from "@ai-app-template/sdk";
 
 import {
   buildRunFileChangesState,
+  buildRunFileChangesStatesFromSession,
   collectWorkspaceFileChangesFromRun,
   getRunFileChangesAggregateState,
-  getSelectedWorkspaceFileChanges
+  getSelectedWorkspaceFileChanges,
+  mergeRunFileChangesStates
 } from "./session-workbench";
 
 const runCompleteWithFileChanges: Extract<
@@ -117,6 +119,7 @@ describe("session-workbench run file changes", () => {
   test("builds an applied run file change view after a run completes", () => {
     expect(buildRunFileChangesState(runCompleteWithFileChanges)).toMatchObject({
       key: "run-file-changes:2026-04-28T10:00:00.000Z",
+      createdAt: "2026-04-28T10:00:00.000Z",
       state: "applied",
       pendingAction: null,
       errorText: null,
@@ -157,5 +160,134 @@ describe("session-workbench run file changes", () => {
     expect(getRunFileChangesAggregateState(["undone", "undone"])).toBe(
       "undone"
     );
+  });
+
+  test("rebuilds one file change view for each persisted user run", () => {
+    const views = buildRunFileChangesStatesFromSession({
+      ...runCompleteWithFileChanges.session,
+      messages: [
+        {
+          id: "user-1",
+          kind: "user",
+          content: "改页面",
+          createdAt: "2026-04-28T09:59:00.000Z"
+        },
+        {
+          id: "tool-result-1",
+          kind: "tool result",
+          toolCallId: "tool-1",
+          toolName: "edit_file",
+          output: "ok",
+          isError: false,
+          state: "success",
+          details: {
+            kind: "workspace_file_changes",
+            files: [
+              {
+                path: "apps/web/app/page.tsx",
+                action: "modify",
+                addedLineCount: 3,
+                removedLineCount: 2,
+                diff: "--- a/apps/web/app/page.tsx\n+++ b/apps/web/app/page.tsx"
+              }
+            ]
+          },
+          createdAt: "2026-04-28T10:00:00.000Z"
+        },
+        {
+          id: "user-2",
+          kind: "user",
+          content: "再改布局",
+          createdAt: "2026-04-28T10:01:00.000Z"
+        },
+        {
+          id: "tool-result-2",
+          kind: "tool result",
+          toolCallId: "tool-2",
+          toolName: "write_file",
+          output: "ok",
+          isError: false,
+          state: "success",
+          details: {
+            kind: "workspace_file_changes",
+            files: [
+              {
+                path: "apps/web/app/layout.tsx",
+                action: "create",
+                addedLineCount: 2,
+                removedLineCount: 0,
+                diff: "--- /dev/null\n+++ b/apps/web/app/layout.tsx"
+              }
+            ]
+          },
+          createdAt: "2026-04-28T10:02:00.000Z"
+        }
+      ]
+    });
+
+    expect(views.map((view) => view.key)).toEqual([
+      "run-file-changes:session-1:user-1",
+      "run-file-changes:session-1:user-2"
+    ]);
+    expect(views.map((view) => view.files.map((file) => file.path))).toEqual([
+      ["apps/web/app/page.tsx"],
+      ["apps/web/app/layout.tsx"]
+    ]);
+  });
+
+  test("keeps local undo state when persisted run views refresh", () => {
+    const next = buildRunFileChangesStatesFromSession({
+      ...runCompleteWithFileChanges.session,
+      messages: [
+        {
+          id: "user-1",
+          kind: "user",
+          content: "改页面",
+          createdAt: "2026-04-28T09:59:00.000Z"
+        },
+        {
+          id: "tool-result-1",
+          kind: "tool result",
+          toolCallId: "tool-1",
+          toolName: "edit_file",
+          output: "ok",
+          isError: false,
+          state: "success",
+          details: {
+            kind: "workspace_file_changes",
+            files: [
+              {
+                path: "apps/web/app/page.tsx",
+                action: "modify",
+                addedLineCount: 3,
+                removedLineCount: 2,
+                diff: "--- a/apps/web/app/page.tsx\n+++ b/apps/web/app/page.tsx"
+              }
+            ]
+          },
+          createdAt: "2026-04-28T10:00:00.000Z"
+        }
+      ]
+    });
+
+    const merged = mergeRunFileChangesStates(
+      [
+        {
+          ...next[0]!,
+          fileStates: ["undone"],
+          state: "undone",
+          selectedFileIndexes: [],
+          errorText: "stale"
+        }
+      ],
+      next
+    );
+
+    expect(merged[0]).toMatchObject({
+      fileStates: ["undone"],
+      state: "undone",
+      selectedFileIndexes: [],
+      errorText: "stale"
+    });
   });
 });

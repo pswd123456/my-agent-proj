@@ -1,9 +1,9 @@
 import type { BackgroundTaskRepository } from "@ai-app-template/db";
 import type { SessionSnapshot } from "@ai-app-template/agent";
 
-function buildParentSessionIdMap(tasks: Awaited<
-  ReturnType<BackgroundTaskRepository["listTasks"]>
->): Map<string, string> {
+function buildParentSessionIdMap(
+  tasks: Awaited<ReturnType<BackgroundTaskRepository["listTasks"]>>
+): Map<string, string> {
   const parentSessionIdByChildSessionId = new Map<string, string>();
 
   for (const task of tasks) {
@@ -11,7 +11,11 @@ function buildParentSessionIdMap(tasks: Awaited<
       continue;
     }
 
-    if (!task.parentSessionId || task.parentSessionId === task.childSessionId) {
+    if (
+      !task.parentSessionId ||
+      !task.childSessionId ||
+      task.parentSessionId === task.childSessionId
+    ) {
       continue;
     }
 

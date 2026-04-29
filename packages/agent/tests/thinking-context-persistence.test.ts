@@ -100,7 +100,80 @@ function messageText(message: AnthropicMessageRequest["messages"][number]) {
     .join("\n");
 }
 
+function createDeepSeekModelService(client: {
+  messages: {
+    create(request: AnthropicMessageRequest): Promise<{
+      content: [];
+      stop_reason: "end_turn";
+    }>;
+  };
+}) {
+  return {
+    listModels() {
+      return [];
+    },
+    getDefaultModel() {
+      return DEFAULT_DEEPSEEK_MODEL;
+    },
+    isModelSupported(model: string) {
+      return model === DEFAULT_DEEPSEEK_MODEL;
+    },
+    isModelAvailable(model: string) {
+      return model === DEFAULT_DEEPSEEK_MODEL;
+    },
+    supportsThinking() {
+      return true;
+    },
+    getThinkingEfforts() {
+      return ["high", "max"] as const;
+    },
+    assertModelAvailable() {
+      return DEFAULT_DEEPSEEK_MODEL;
+    },
+    getClient() {
+      return client;
+    }
+  };
+}
+
 describe("thinking context persistence", () => {
+  test("passes DeepSeek thinking effort through Anthropic-compatible request options", async () => {
+    const requests: AnthropicMessageRequest[] = [];
+    const sessionManager = createMemorySessionManager();
+    const routineRepository = createMemoryRoutineRepository();
+    const client = {
+      messages: {
+        async create(request: AnthropicMessageRequest) {
+          requests.push(structuredClone(request));
+          return {
+            content: [],
+            stop_reason: "end_turn" as const
+          };
+        }
+      }
+    };
+
+    const runtime = createAgentRuntime({
+      modelService: createDeepSeekModelService(client),
+      sessionManager,
+      routineRepository,
+      toolRegistry: new ToolRegistry(),
+      maxTurns: 1
+    });
+    const session = await runtime.createSession({
+      model: DEFAULT_DEEPSEEK_MODEL,
+      thinkingEffort: "max",
+      userId: "deepseek-thinking-effort-test"
+    });
+
+    await runtime.run({
+      sessionId: session.sessionId,
+      message: "hello"
+    });
+
+    expect(requests[0]?.output_config).toEqual({ effort: "max" });
+  });
+
   test("sends runtime context before conversation history so tool results stay last", async () => {
     const requests: AnthropicMessageRequest[] = [];
     const sessionManager = createMemorySessionManager();
@@ -424,6 +497,9 @@ describe("thinking context persistence", () => {
         supportsThinking() {
           return true;
         },
+        getThinkingEfforts() {
+          return ["high", "max"];
+        },
         assertModelAvailable() {
           return DEFAULT_DEEPSEEK_MODEL;
         },
@@ -635,6 +711,9 @@ describe("thinking context persistence", () => {
         },
         supportsThinking() {
           return true;
+        },
+        getThinkingEfforts() {
+          return ["high", "max"];
         },
         assertModelAvailable() {
           return DEFAULT_DEEPSEEK_MODEL;

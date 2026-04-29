@@ -5,13 +5,15 @@ import { and, asc, desc, eq, sql } from "drizzle-orm";
 import {
   DEFAULT_SESSION_MODEL,
   normalizeCapabilityPacks,
+  normalizeThinkingEffort,
   type PendingConfirmationPayload,
   type PendingPermissionRequest,
   type PendingUserQuestionPayload,
   type SessionBackgroundNotification,
   type SessionFullCompactionState,
   type SessionTodoState,
-  type ScheduleSessionContext
+  type ScheduleSessionContext,
+  type ThinkingEffort
 } from "@ai-app-template/domain";
 
 import type { ProductDatabaseClient } from "@ai-app-template/db";
@@ -114,13 +116,18 @@ function readToolResultDetails(
     };
   }
 
-  if (details.kind !== "workspace_file_changes" || !Array.isArray(details.files)) {
+  if (
+    details.kind !== "workspace_file_changes" ||
+    !Array.isArray(details.files)
+  ) {
     return undefined;
   }
 
   const files = details.files
     .filter(
-      (file): file is {
+      (
+        file
+      ): file is {
         path: string;
         action: "modify" | "create" | "delete";
         addedLineCount: number;
@@ -275,6 +282,7 @@ export function toSessionContext(row: SessionRow): ScheduleSessionContext {
     currentDateContext: row.currentDateContext,
     yoloMode: row.yoloMode ?? false,
     planModeEnabled: row.planModeEnabled ?? false,
+    thinkingEffort: normalizeThinkingEffort(row.thinkingEffort),
     taskBriefPath: resolveTaskBriefPathForSession({
       workingDirectory: row.workingDirectory,
       sessionId: row.id,
@@ -425,6 +433,7 @@ export class PostgresSessionManager implements SessionManager {
       sessionId: string;
       workingDirectory: string;
       model: string;
+      thinkingEffort?: ThinkingEffort;
       userId?: string;
       yoloMode?: boolean;
       planModeEnabled?: boolean;
@@ -442,6 +451,9 @@ export class PostgresSessionManager implements SessionManager {
       model: input.model ?? DEFAULT_SESSION_MODEL
     };
 
+    if (input.thinkingEffort) {
+      createSnapshotInput.thinkingEffort = input.thinkingEffort;
+    }
     if (typeof input.userId === "string" && input.userId.length > 0) {
       createSnapshotInput.userId = input.userId;
     }
@@ -828,6 +840,7 @@ export class PostgresSessionManager implements SessionManager {
         currentDateContext: snapshot.context.currentDateContext,
         yoloMode: snapshot.context.yoloMode,
         planModeEnabled: snapshot.context.planModeEnabled,
+        thinkingEffort: snapshot.context.thinkingEffort,
         taskBriefPath: snapshot.context.taskBriefPath,
         workspaceEscapeAllowed: snapshot.context.workspaceEscapeAllowed,
         contextWindow: snapshot.contextWindow,
@@ -871,6 +884,7 @@ export class PostgresSessionManager implements SessionManager {
           currentDateContext: snapshot.context.currentDateContext,
           yoloMode: snapshot.context.yoloMode,
           planModeEnabled: snapshot.context.planModeEnabled,
+          thinkingEffort: snapshot.context.thinkingEffort,
           taskBriefPath: snapshot.context.taskBriefPath,
           workspaceEscapeAllowed: snapshot.context.workspaceEscapeAllowed,
           contextWindow: snapshot.contextWindow,

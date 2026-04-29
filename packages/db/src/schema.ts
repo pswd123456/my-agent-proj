@@ -12,7 +12,11 @@ import type {
   PendingUserQuestionPayload,
   SessionTodoState
 } from "@ai-app-template/domain";
-import { DEFAULT_SESSION_MODEL } from "@ai-app-template/domain";
+import {
+  DEFAULT_SESSION_MODEL,
+  DEFAULT_THINKING_EFFORT,
+  type ThinkingEffort
+} from "@ai-app-template/domain";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { sql } from "drizzle-orm";
 import {
@@ -104,6 +108,10 @@ export const agentSessions = pgTable(
     currentDateContext: text("current_date_context").notNull(),
     yoloMode: boolean("yolo_mode").notNull().default(false),
     planModeEnabled: boolean("plan_mode_enabled").notNull().default(false),
+    thinkingEffort: text("thinking_effort")
+      .$type<ThinkingEffort>()
+      .notNull()
+      .default(DEFAULT_THINKING_EFFORT),
     taskBriefPath: text("task_brief_path"),
     workspaceEscapeAllowed: boolean("workspace_escape_allowed")
       .notNull()
@@ -203,6 +211,10 @@ export const agentSettings = pgTable("agent_settings", {
     .notNull()
     .default("agent-workspace"),
   model: text("model").notNull().default(DEFAULT_SESSION_MODEL),
+  thinkingEffort: text("thinking_effort")
+    .$type<ThinkingEffort>()
+    .notNull()
+    .default(DEFAULT_THINKING_EFFORT),
   yoloMode: boolean("yolo_mode").notNull().default(false),
   contextWindow: integer("context_window").notNull().default(200000),
   maxTurns: integer("max_turns").notNull().default(50),

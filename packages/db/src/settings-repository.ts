@@ -8,6 +8,7 @@ import {
   DEFAULT_SESSION_MODEL,
   SETTINGS_PERMISSION_TOOL_OPTIONS,
   normalizeCapabilityPacks,
+  normalizeThinkingEffort,
   normalizeSettingsPermissionRules,
   resolveSessionSettingsDefaults,
   sanitizeContextWindow,
@@ -67,16 +68,18 @@ function toStringArray(value: unknown): string[] {
 
 export function mapSettingsRow(
   row: SettingsRow,
-  settingsPermissionToolOptions: readonly string[] =
-    SETTINGS_PERMISSION_TOOL_OPTIONS
+  settingsPermissionToolOptions: readonly string[] = SETTINGS_PERMISSION_TOOL_OPTIONS
 ): SessionSettingsRecord {
-  const permissionRules = normalizeSettingsPermissionRules({
-    shellAllowPatterns: toStringArray(row.shellAllowPatterns),
-    shellDenyPatterns: toStringArray(row.shellDenyPatterns),
-    toolAllowList: toStringArray(row.toolAllowList),
-    toolAskList: toStringArray(row.toolAskList),
-    toolDenyList: toStringArray(row.toolDenyList)
-  }, settingsPermissionToolOptions);
+  const permissionRules = normalizeSettingsPermissionRules(
+    {
+      shellAllowPatterns: toStringArray(row.shellAllowPatterns),
+      shellDenyPatterns: toStringArray(row.shellDenyPatterns),
+      toolAllowList: toStringArray(row.toolAllowList),
+      toolAskList: toStringArray(row.toolAskList),
+      toolDenyList: toStringArray(row.toolDenyList)
+    },
+    settingsPermissionToolOptions
+  );
 
   return {
     userId: row.userId,
@@ -85,6 +88,7 @@ export function mapSettingsRow(
       typeof row.model === "string" && row.model.trim().length > 0
         ? row.model
         : DEFAULT_SESSION_MODEL,
+    thinkingEffort: normalizeThinkingEffort(row.thinkingEffort),
     yoloMode: row.yoloMode,
     contextWindow: sanitizeContextWindow(row.contextWindow),
     maxTurns: sanitizeSessionMaxTurns(row.maxTurns),
@@ -108,16 +112,19 @@ export function mapSettingsRow(
 function buildPatchedSettings(
   current: SessionSettingsRecord,
   patch: SessionSettingsInput,
-  settingsPermissionToolOptions: readonly string[] =
-    SETTINGS_PERMISSION_TOOL_OPTIONS
+  settingsPermissionToolOptions: readonly string[] = SETTINGS_PERMISSION_TOOL_OPTIONS
 ): SessionSettingsRecord {
-  const permissionRules = normalizeSettingsPermissionRules({
-    shellAllowPatterns: patch.shellAllowPatterns ?? current.shellAllowPatterns,
-    shellDenyPatterns: patch.shellDenyPatterns ?? current.shellDenyPatterns,
-    toolAllowList: patch.toolAllowList ?? current.toolAllowList,
-    toolAskList: patch.toolAskList ?? current.toolAskList,
-    toolDenyList: patch.toolDenyList ?? current.toolDenyList
-  }, settingsPermissionToolOptions);
+  const permissionRules = normalizeSettingsPermissionRules(
+    {
+      shellAllowPatterns:
+        patch.shellAllowPatterns ?? current.shellAllowPatterns,
+      shellDenyPatterns: patch.shellDenyPatterns ?? current.shellDenyPatterns,
+      toolAllowList: patch.toolAllowList ?? current.toolAllowList,
+      toolAskList: patch.toolAskList ?? current.toolAskList,
+      toolDenyList: patch.toolDenyList ?? current.toolDenyList
+    },
+    settingsPermissionToolOptions
+  );
 
   return {
     ...current,
@@ -129,6 +136,9 @@ function buildPatchedSettings(
       : {}),
     ...(typeof patch.model === "string"
       ? { model: patch.model.trim() || current.model }
+      : {}),
+    ...(patch.thinkingEffort
+      ? { thinkingEffort: normalizeThinkingEffort(patch.thinkingEffort) }
       : {}),
     ...(typeof patch.yoloMode === "boolean"
       ? { yoloMode: patch.yoloMode }
@@ -157,8 +167,7 @@ function buildPatchedSettings(
 export class PostgresSettingsRepository implements SettingsRepository {
   constructor(
     private readonly db: ProductDatabaseClient,
-    private readonly settingsPermissionToolOptions: readonly string[] =
-      SETTINGS_PERMISSION_TOOL_OPTIONS
+    private readonly settingsPermissionToolOptions: readonly string[] = SETTINGS_PERMISSION_TOOL_OPTIONS
   ) {}
 
   async getOrCreate(userId: string): Promise<SessionSettingsRecord> {
@@ -176,6 +185,7 @@ export class PostgresSettingsRepository implements SettingsRepository {
         userId: defaults.userId,
         workingDirectory: defaults.workingDirectory,
         model: defaults.model,
+        thinkingEffort: defaults.thinkingEffort,
         yoloMode: defaults.yoloMode,
         contextWindow: defaults.contextWindow,
         maxTurns: defaults.maxTurns,
@@ -217,6 +227,7 @@ export class PostgresSettingsRepository implements SettingsRepository {
         userId: next.userId,
         workingDirectory: next.workingDirectory,
         model: next.model,
+        thinkingEffort: next.thinkingEffort,
         yoloMode: next.yoloMode,
         contextWindow: next.contextWindow,
         maxTurns: next.maxTurns,
@@ -235,6 +246,7 @@ export class PostgresSettingsRepository implements SettingsRepository {
         set: {
           workingDirectory: next.workingDirectory,
           model: next.model,
+          thinkingEffort: next.thinkingEffort,
           yoloMode: next.yoloMode,
           contextWindow: next.contextWindow,
           maxTurns: next.maxTurns,
@@ -272,8 +284,7 @@ export class MemorySettingsRepository implements SettingsRepository {
   private readonly settings = new Map<string, SessionSettingsRecord>();
 
   constructor(
-    private readonly settingsPermissionToolOptions: readonly string[] =
-      SETTINGS_PERMISSION_TOOL_OPTIONS
+    private readonly settingsPermissionToolOptions: readonly string[] = SETTINGS_PERMISSION_TOOL_OPTIONS
   ) {}
 
   async getOrCreate(userId: string): Promise<SessionSettingsRecord> {

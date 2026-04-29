@@ -1,4 +1,7 @@
-import type { ScheduleSessionContext } from "@ai-app-template/domain";
+import type {
+  ScheduleSessionContext,
+  ThinkingEffort
+} from "@ai-app-template/domain";
 
 export type LoopState =
   | "running"
@@ -121,6 +124,7 @@ export interface SessionSnapshot {
 export interface CreateSessionInput {
   workingDirectory?: string;
   model?: string;
+  thinkingEffort?: ThinkingEffort;
   userId?: string;
   yoloMode?: boolean;
   planModeEnabled?: boolean;
