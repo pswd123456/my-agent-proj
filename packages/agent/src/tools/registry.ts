@@ -1,11 +1,13 @@
 import type { AnthropicToolDefinition } from "../model.js";
 
 import type { RoutineRepository } from "@ai-app-template/db";
-import type {
-  CapabilityPackName,
-  SettingsPermissionToolOption
+import {
+  DEFAULT_CAPABILITY_PACKS,
+  type CapabilityPackName,
+  type SettingsPermissionToolOption
 } from "@ai-app-template/domain";
 
+import type { LspServerManager } from "../lsp/index.js";
 import { createApplyPatchTool } from "./apply-patch.js";
 import { createAskForConfirmationTool } from "./ask-for-confirmation.js";
 import { createAskUserQuestionTool } from "./ask-user-question.js";
@@ -31,6 +33,7 @@ import { createListRoutineByDateTool } from "./list-routine-by-date.js";
 import { createListRoutineByWeekTool } from "./list-routine-by-week.js";
 import { createListDirectoryTool } from "./list-directory.js";
 import { createLoadSkillTool } from "./load-skill.js";
+import { createLspTools } from "./lsp.js";
 import { createManageCapabilityPacksTool } from "./manage-capability-packs.js";
 import { createMakeHttpRequestTool } from "./make-http-request.js";
 import { createMovePathTool } from "./move-path.js";
@@ -44,6 +47,8 @@ import { createSearchSkillTool } from "./search-skill.js";
 import { createSearchTaskBriefTool } from "./search-task-brief.js";
 import { createSearchTextTool } from "./search-text.js";
 import { createUpdateTodoItemsTool } from "./update-todo-items.js";
+import { createWebFetchTool } from "./web-fetch.js";
+import { createWebSearchTool } from "./web-search.js";
 import { createWriteFileTool } from "./write-file.js";
 import type { RuntimeTool } from "./runtime-tool.js";
 
@@ -197,15 +202,34 @@ export function createScheduleToolRegistry(options: {
   ]);
 }
 
+export function createWebToolRegistry(options?: {
+  env?: NodeJS.ProcessEnv;
+}): ToolRegistry {
+  return registerTools(new ToolRegistry(), [
+    options?.env
+      ? createWebSearchTool({ env: options.env })
+      : createWebSearchTool(),
+    createWebFetchTool()
+  ]);
+}
+
+export function createLspToolRegistry(options: {
+  workingDirectory: string;
+  lspServerManager?: LspServerManager;
+}): ToolRegistry {
+  return registerTools(new ToolRegistry(), createLspTools(options));
+}
+
 export function createDefaultToolRegistry(options: {
   workingDirectory: string;
   routineRepository: RoutineRepository;
+  lspServerManager?: LspServerManager;
   enabledCapabilityPacks?: readonly string[];
+  env?: NodeJS.ProcessEnv;
 }): ToolRegistry {
   const registry = createPlanningToolRegistry();
   const enabled = new Set(
-    options.enabledCapabilityPacks ??
-      (["workspace", "schedule"] satisfies CapabilityPackName[])
+    options.enabledCapabilityPacks ?? DEFAULT_CAPABILITY_PACKS
   );
 
   if (enabled.has("workspace")) {
@@ -218,7 +242,20 @@ export function createDefaultToolRegistry(options: {
       registry.register(tool);
     }
   }
-
+  if (enabled.has("web")) {
+    for (const tool of
+      (options.env
+        ? createWebToolRegistry({ env: options.env })
+        : createWebToolRegistry()
+      ).list()) {
+      registry.register(tool);
+    }
+  }
+  if (enabled.has("lsp")) {
+    for (const tool of createLspToolRegistry(options).list()) {
+      registry.register(tool);
+    }
+  }
   return registry;
 }
 
@@ -244,6 +281,20 @@ export function listSettingsPermissionToolOptions(options: {
 
   for (const tool of createScheduleToolRegistry(options).list()) {
     const option = toSettingsPermissionToolOption(tool, "schedule");
+    if (option) {
+      tools.set(option.name, option);
+    }
+  }
+
+  for (const tool of createWebToolRegistry({ env: process.env }).list()) {
+    const option = toSettingsPermissionToolOption(tool, "web");
+    if (option) {
+      tools.set(option.name, option);
+    }
+  }
+
+  for (const tool of createLspToolRegistry(options).list()) {
+    const option = toSettingsPermissionToolOption(tool, "lsp");
     if (option) {
       tools.set(option.name, option);
     }

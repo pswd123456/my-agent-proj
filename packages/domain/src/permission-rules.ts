@@ -51,6 +51,14 @@ export const PERMISSION_TOOL_OPTIONS = [
   "git_diff_cached",
   "run_shell_command",
   "make_http_request",
+  "web_search",
+  "web_fetch",
+  "lsp_hover",
+  "lsp_go_to_definition",
+  "lsp_find_references",
+  "lsp_document_symbols",
+  "lsp_workspace_symbols",
+  "lsp_diagnostics",
   "create_routine",
   "edit_routine",
   "delete_routine",
@@ -62,7 +70,10 @@ export const PERMISSION_TOOL_OPTIONS = [
 
 export const SETTINGS_PERMISSION_TOOL_OPTIONS = PERMISSION_TOOL_OPTIONS.filter(
   (toolName) =>
-    toolName !== "run_shell_command" && toolName !== "make_http_request"
+    toolName !== "run_shell_command" &&
+    toolName !== "make_http_request" &&
+    toolName !== "web_search" &&
+    toolName !== "web_fetch"
 ) as readonly string[];
 
 function normalizeList(values: unknown): string[] {

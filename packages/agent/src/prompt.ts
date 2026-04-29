@@ -70,21 +70,31 @@ export interface PromptRuntimeContext {
 }
 
 const DEFAULT_SYSTEM_PROMPT = [
+  "## Role and Operating Mode",
   "You are a personal assistant.",
-  "Use the available tools directly and adapt to the tools that are actually available in this run.",
+  "Use the available tools directly.",
   "Adapt to the tools that are actually available in this run instead of assuming a fixed product workflow.",
   "Prefer inspecting the current workspace or persisted state before taking actions that depend on existing context.",
-  "Follow workspace instructions listed in the runtime context when they are present.",
   "When a capability is not exposed in the current tool list, say so briefly instead of inventing hidden tools.",
   "When a tool returns INVALID_TOOL_INPUT or other validation errors, correct the tool call instead of repeating the same mistake.",
+  "",
+  "## Workspace Instructions",
+  "Follow workspace instructions listed in the runtime context when they are present.",
+  "",
+  "## Action Updates",
   "Before taking an action, you MUST briefly state your immediate intent in one short sentence so the user can follow what you are about to do.",
   "Keep pre-action intent text concrete and short; do not restate the whole task or write long plans unless the user asks for them.",
+  "",
+  "## Pending User State",
   "When the session contains a pending confirmation payload and the user answers yes/no or revises the time, treat it as a response to that pending confirmation.",
-  "Some file writes, deletes, moves, shell commands, and network requests may trigger a permission pause before execution.",
+  "",
+  "## Skills and Planning State",
   "Actively utilize the skills listed in the runtime context when they are relevant to the user's request and can improve efficiency or reliability.",
   "When search_skill and load_skill are available, use search_skill to find the most relevant workspace skill and load_skill to inspect its exact instructions before following a detailed skill workflow.",
   "Only rely on skills explicitly listed in the current runtime context. Do not invent or assume unavailable skills.",
   "When a structured todo list is available, use it to stay aligned with the current task and keep item status updated as you make progress.",
+  "",
+  "## Repository and Document Retrieval",
   "For repository or document inspection, follow this retrieval protocol unless the user explicitly asks for a full-file read: (1) use search_text or find_files to narrow the target, (2) read only a narrow window with read_file, (3) expand with the next adjacent window only if needed.",
   "Do not begin context gathering with broad read_file, git_status, or directory-wide exploration when search_text or find_files can narrow the target faster.",
   "When both search_text and read_file are available, you MUST use search_text first before read_file unless you already have an exact file path and exact line range from the current turn.",
@@ -93,8 +103,12 @@ const DEFAULT_SYSTEM_PROMPT = [
   "If the first read_file window is not enough, continue with the next adjacent window instead of rereading from the beginning or jumping to a full-file read.",
   "Only read an entire file when the tool results already show it is small enough and the whole file is genuinely required for the task.",
   "If read_file reports that a file is unchanged since the last read, reuse the earlier content already in context instead of rereading it.",
+  "",
+  "## File Mutation Tools",
   "Use write_file only for new files or full-file replacement, use apply_patch for line-level edits, and use delete_file for deleting one or more files. Use delete_path only when the target may be a directory or generic path.",
   "Before using write_file, apply_patch, or delete_file on an existing file, you MUST have a current session file state for that file: either read it with read_file, or rely on a successful write_file/apply_patch/delete_file from this same session. If the write tool reports the file changed since the last session file state, read it again before retrying.",
+  "",
+  "## Final Response",
   "Keep the final text concise and rely on stable tool results for detail."
 ].join("\n");
 
@@ -173,7 +187,6 @@ function createPrefixMessage(
         cache_control: EPHEMERAL_CACHE_CONTROL,
         text: [
           `Workspace root: ${session.workingDirectory}`,
-          `YOLO mode: ${session.context.yoloMode ? "enabled" : "disabled"}`,
           `Enabled capability packs: ${enabledCapabilityPacks.join(", ") || "none"}`,
           `Mounted tools: ${toolSummary(tools) || "none"}`
         ].join("\n")
@@ -302,12 +315,12 @@ function createRuntimeContextMessages(
   const userQuestionText = pendingUserQuestion
     ? JSON.stringify(pendingUserQuestion, null, 2)
     : "none";
-  const pendingPermissionRequest = session.context.pendingPermissionRequest;
-  const permissionText = pendingPermissionRequest
-    ? JSON.stringify(pendingPermissionRequest, null, 2)
-    : "none";
   const pendingBackgroundNotifications =
-    session.context.pendingBackgroundNotifications;
+    session.context.pendingBackgroundNotifications.filter(
+      (notification) =>
+        notification.expectedParentReply !== "permission_decision" &&
+        notification.request?.kind !== "permission_request"
+    );
   const backgroundNotificationText =
     pendingBackgroundNotifications.length > 0
       ? JSON.stringify(pendingBackgroundNotifications, null, 2)
@@ -338,15 +351,12 @@ function createRuntimeContextMessages(
   const runtimeLines = [
     "Runtime context for this run:",
     `Working directory: ${session.workingDirectory}`,
-    `Session status: ${session.context.status}`,
-    `YOLO mode: ${session.context.yoloMode ? "enabled" : "disabled"}`,
     `Plan mode: ${session.context.planModeEnabled ? "enabled" : "disabled"}`,
     `Task brief path: ${session.context.taskBriefPath ?? "none"}`,
     `Task brief binding: ${taskBriefBinding.state}`,
     `Task brief next write: ${createTaskBriefWriteRule(taskBriefBinding)}`,
     `Active background task count: ${session.context.activeBackgroundTaskCount}`,
     `Pending background notifications: ${backgroundNotificationText}`,
-    `Pending permission request: ${permissionText}`,
     `Pending confirmation payload: ${pendingText}`,
     `Pending user question payload: ${userQuestionText}`
   ];
@@ -354,24 +364,18 @@ function createRuntimeContextMessages(
     runtimeLines.push(...dynamicPromptMessages);
   }
 
-  const messages: AnthropicMessage[] = [
-    {
-      role: "user",
-      content: [
-        {
-          type: "text",
-          text: runtimeLines.join("\n")
-        }
-      ]
-    }
-  ];
-  const fullCompactionMessage = createFullCompactionContextMessage(session);
-  if (fullCompactionMessage) {
-    messages.push(fullCompactionMessage);
-  }
-
   return {
-    messages,
+    messages: [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: runtimeLines.join("\n")
+          }
+        ]
+      }
+    ],
     dynamicPromptMessages
   };
 }
@@ -842,6 +846,8 @@ export class PromptBuilder {
     const baseMessages = toAnthropicMessages(session.messages);
     const { messages: runtimeContextMessages, dynamicPromptMessages } =
       createRuntimeContextMessages(session, runtimeContext);
+    const fullCompactionContextMessage =
+      createFullCompactionContextMessage(session);
     const workspaceInstructionsContextMessage =
       createWorkspaceInstructionsContextMessage(
         runtimeContext.workspaceInstructions
@@ -862,11 +868,12 @@ export class PromptBuilder {
       messages: baseMessages,
       runtimeContextMessages: [
         ...(planModePromptMessage ? [planModePromptMessage] : []),
-        ...runtimeContextMessages,
         ...(workspaceInstructionsContextMessage
           ? [workspaceInstructionsContextMessage]
           : []),
-        skillsContextMessage
+        skillsContextMessage,
+        ...(fullCompactionContextMessage ? [fullCompactionContextMessage] : []),
+        ...runtimeContextMessages
       ],
       dynamicPromptMessages,
       tools,

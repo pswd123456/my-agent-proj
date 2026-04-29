@@ -18,6 +18,8 @@ export {
 
 export type {
   ApiClientConfig,
+  ChooseDirectoryInput,
+  ChooseDirectoryResult,
   CreateSessionPayload,
   InterruptSessionResult,
   ListModelsResult,

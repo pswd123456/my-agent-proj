@@ -35,7 +35,7 @@
 - `api` 是当前主入口，负责 session 生命周期、执行触发、SSE 输出、trace / system log 查询、用户 settings 读取与归一化、interrupt、snapshot / recover，以及已落地的 routine 相关接口
 - `worker` 负责 detached background task 的轮询、认领、心跳、取消协作与 child session 执行
 - `web` 是当前产品层前端，主要承担工作台和调试可观测性；它消费 `packages/sdk`、`packages/tokens`、`packages/ui-patterns` 和 `packages/ui`
-- agent session 的默认工作目录不再直接落在 repo root，而是 repo 根下的 `agent-workspace/`
+- agent session 的默认工作目录不再直接落在 repo root，而是 repo 根下的 `agent-workspace/`；但用户默认值或显式 override 现在可以指向 repo 外的任意目录
 
 ### `packages/`
 
@@ -77,7 +77,7 @@
 
 - 应用壳层逻辑留在 `apps/`，不要把 runtime、领域规则或数据库访问反向塞回 app
 - 可跨端复用的能力优先沉淀到 `packages/`
-- session settings 的解析顺序是 `explicit override > user settings > repo default`；repo default 当前固定为 `agent-workspace/`
+- session settings 的解析顺序是 `explicit override > user settings > repo default`；repo default 当前固定为 `agent-workspace/`，但 override 与 user settings 不再被限制在 repo 根目录内
 - 工作区 skills 统一放在 session workingDirectory 下的 `.agent/skills/`
 - 工作区 MCP 配置统一放在 session workingDirectory 下的 `.agent/.config.toml`
 - `.agent/` 配置只认当前 workingDirectory，不向父目录递归，也不和 user settings merge

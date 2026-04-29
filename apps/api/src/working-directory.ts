@@ -3,14 +3,6 @@ import path from "node:path";
 
 import { DEFAULT_SESSION_WORKING_DIRECTORY } from "@ai-app-template/domain";
 
-function isWithinRoot(rootDirectory: string, targetDirectory: string): boolean {
-  const relativePath = path.relative(rootDirectory, targetDirectory);
-  return (
-    relativePath === "" ||
-    (!relativePath.startsWith("..") && !path.isAbsolute(relativePath))
-  );
-}
-
 export function resolveApiWorkingDirectory(
   workspaceRoot: string,
   input?: string
@@ -24,10 +16,7 @@ export function resolveApiWorkingDirectory(
     return defaultDirectory;
   }
 
-  const candidateDirectory = path.resolve(rootDirectory, input.trim());
-  return isWithinRoot(rootDirectory, candidateDirectory)
-    ? candidateDirectory
-    : defaultDirectory;
+  return path.resolve(rootDirectory, input.trim());
 }
 
 export async function ensureApiWorkingDirectory(

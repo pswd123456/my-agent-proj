@@ -58,7 +58,8 @@ Stage 5 主要把“每次新建 session 时临时询问的运行参数”收敛
 
 - repo 根目录固定保留 `agent-workspace/`
 - API 会确保这个目录存在
-- 用户传入的 `workingDirectory` 只有在位于 repo 根目录内时才会生效；越界时回退默认目录
+- 留空时仍会回退到 `agent-workspace/`
+- 用户传入的 `workingDirectory` 现在会按路径解析后直接生效，允许指向 repo 外目录
 
 ### 5. `maxTurns` 语义
 

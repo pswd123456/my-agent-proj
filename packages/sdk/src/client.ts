@@ -117,6 +117,15 @@ export interface UserSettingsPayload {
   permissionTools: SettingsPermissionToolOption[];
 }
 
+export interface ChooseDirectoryInput {
+  startDirectory?: string;
+}
+
+export interface ChooseDirectoryResult {
+  path: string | null;
+  canceled: boolean;
+}
+
 export interface ListSessionRoutinesResult {
   sessionId: string;
   startDate: string;
@@ -441,6 +450,22 @@ export class ApiClient {
   async getUserSettings(userId: string): Promise<SessionSettingsRecord> {
     const payload = await this.getUserSettingsPayload(userId);
     return payload.settings;
+  }
+
+  async chooseDirectory(
+    input: ChooseDirectoryInput = {}
+  ): Promise<ChooseDirectoryResult> {
+    const response = await this.fetchImpl(
+      buildUrl(this.baseUrl, "/directory-picker"),
+      {
+        method: "POST",
+        headers: toJsonHeaders(),
+        body: JSON.stringify(input)
+      }
+    );
+    return (await ensureOk(response).then((result) =>
+      result.json()
+    )) as ChooseDirectoryResult;
   }
 
   async updateUserSettingsPayload(

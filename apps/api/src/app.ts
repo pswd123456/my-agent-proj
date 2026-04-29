@@ -133,6 +133,10 @@ const updateUserSettingsBodySchema = z
     }
   );
 
+const chooseDirectoryBodySchema = z.object({
+  startDirectory: z.string().optional()
+});
+
 const executeSessionBodySchema = z.object({
   message: z.string().min(1),
   maxTurns: z.number().int().min(1).max(SESSION_MAX_TURNS_LIMIT).optional(),
@@ -187,6 +191,7 @@ export interface ApiAppDependencies {
   systemLogManager: SystemLogManager;
   apiLogger?: Logger;
   buildWorkingDirectory(input?: string): string;
+  pickDirectory?(input?: { startDirectory?: string }): Promise<string | null>;
   runtimeFactory?: (session: SessionSnapshot) => Promise<{
     runtime: AgentRuntime;
     dispose(): Promise<void>;
@@ -715,6 +720,23 @@ export function createApiApp(dependencies: ApiAppDependencies) {
       resolveUserId(dependencies, c.req.param("userId"))
     );
     return c.json({ settings, permissionTools: settingsPermissionTools });
+  });
+
+  app.post("/directory-picker", async (c) => {
+    if (!dependencies.pickDirectory) {
+      return c.json({ error: "Directory picker is not configured." }, 501);
+    }
+
+    const body = chooseDirectoryBodySchema.parse(await c.req.json());
+    const selectedPath = await dependencies.pickDirectory(
+      body.startDirectory
+        ? { startDirectory: body.startDirectory }
+        : undefined
+    );
+    return c.json({
+      path: selectedPath,
+      canceled: selectedPath === null
+    });
   });
 
   app.patch("/users/:userId/settings", async (c) => {

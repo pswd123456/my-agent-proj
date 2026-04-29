@@ -22,7 +22,8 @@ export type RuntimeToolFamily =
   | "mcp"
   | "delegation"
   | "planning"
-  | "schedule";
+  | "schedule"
+  | "lsp";
 
 export type RuntimeToolPermissionProfile =
   | "allow"

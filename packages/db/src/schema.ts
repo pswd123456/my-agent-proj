@@ -44,6 +44,8 @@ const defaultToolAskListJson = JSON.stringify([
   "delete_path",
   "run_shell_command",
   "make_http_request",
+  "web_search",
+  "web_fetch",
   "create_routine",
   "edit_routine",
   "delete_routine",
@@ -59,7 +61,7 @@ function toSqlJsonbLiteral(value: string): string {
 
 const defaultToolAskListJsonLiteral = toSqlJsonbLiteral(defaultToolAskListJson);
 const defaultCapabilityPacksJsonLiteral = toSqlJsonbLiteral(
-  JSON.stringify(["workspace", "schedule"])
+  JSON.stringify(["workspace", "schedule", "web", "lsp"])
 );
 const defaultJsonbArray = sql.raw("'[]'::jsonb");
 

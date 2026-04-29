@@ -14,6 +14,7 @@ import { createWriteFileTool } from "../src/tools/write-file.js";
 import { createReadFileTool } from "../src/tools/read-file.js";
 import { ToolRegistry } from "../src/tools/registry.js";
 import {
+  buildPromptRequestMessages,
   compactHistoryBlocks,
   createPromptBuilder,
   summarizePromptEnvelopeComposition,
@@ -149,14 +150,14 @@ describe("PromptBuilder skill context", () => {
       "Only rely on skills explicitly listed in the current runtime context"
     );
     expect(promptEnvelope.runtimeContextMessages).toHaveLength(2);
-    expect(JSON.stringify(promptEnvelope.runtimeContextMessages[1])).toContain(
+    expect(JSON.stringify(promptEnvelope.runtimeContextMessages[0])).toContain(
       "Runtime skills for this workspace:"
     );
-    expect(JSON.stringify(promptEnvelope.runtimeContextMessages[1])).toContain(
+    expect(JSON.stringify(promptEnvelope.runtimeContextMessages[0])).toContain(
       "repo_reader"
     );
     expect(
-      JSON.stringify(promptEnvelope.runtimeContextMessages[1])
+      JSON.stringify(promptEnvelope.runtimeContextMessages[0])
     ).not.toContain(".agent/skills/repo-reader/SKILL.md");
   });
 
@@ -181,13 +182,13 @@ describe("PromptBuilder skill context", () => {
       "Follow workspace instructions listed in the runtime context"
     );
     expect(promptEnvelope.runtimeContextMessages).toHaveLength(3);
-    expect(JSON.stringify(promptEnvelope.runtimeContextMessages[1])).toContain(
+    expect(JSON.stringify(promptEnvelope.runtimeContextMessages[0])).toContain(
       "Workspace instructions from AGENTS.md:"
     );
-    expect(JSON.stringify(promptEnvelope.runtimeContextMessages[1])).toContain(
+    expect(JSON.stringify(promptEnvelope.runtimeContextMessages[0])).toContain(
       "Read scoped instructions first."
     );
-    expect(JSON.stringify(promptEnvelope.runtimeContextMessages[2])).toContain(
+    expect(JSON.stringify(promptEnvelope.runtimeContextMessages[1])).toContain(
       "Runtime skills for this workspace:"
     );
     expect(promptEnvelope.cacheKey).toBe(
@@ -210,15 +211,146 @@ describe("PromptBuilder skill context", () => {
     expect(JSON.stringify(promptEnvelope.prefixMessages[0])).not.toContain(
       "Current date context:"
     );
-    expect(
-      JSON.stringify(promptEnvelope.runtimeContextMessages[0])
-    ).not.toContain("Current date context:");
-    expect(
-      JSON.stringify(promptEnvelope.runtimeContextMessages[0])
-    ).not.toContain("Current local datetime:");
-    expect(
-      JSON.stringify(promptEnvelope.runtimeContextMessages[0])
-    ).not.toContain("Current timezone:");
+    expect(JSON.stringify(promptEnvelope.runtimeContextMessages)).not.toContain(
+      "Current date context:"
+    );
+    expect(JSON.stringify(promptEnvelope.runtimeContextMessages)).not.toContain(
+      "Current local datetime:"
+    );
+    expect(JSON.stringify(promptEnvelope.runtimeContextMessages)).not.toContain(
+      "Current timezone:"
+    );
+  });
+
+  test("does not expose tool permission state in model-visible context", () => {
+    const promptBuilder = createPromptBuilder();
+    const session = createSessionSnapshot();
+    session.context.status = "waiting_for_permission";
+    session.context.yoloMode = true;
+    session.context.pendingPermissionRequest = {
+      toolCallId: "call-shell",
+      toolName: "run_shell_command",
+      toolInput: { command: "rm -rf tmp" },
+      family: "workspace-shell",
+      permissionProfile: "destructive-only",
+      summaryText: "Run a destructive shell command.",
+      createdAt: "2026-04-29T00:00:00.000Z"
+    };
+    session.context.pendingBackgroundNotifications = [
+      {
+        id: "notification-1",
+        kind: "task_waiting",
+        taskId: "task-1",
+        taskKind: "delegate",
+        childSessionId: "child-session-1",
+        title: "Background delegate",
+        summary: "Subagent needs permission.",
+        content: "Subagent needs a permission decision.",
+        createdAt: "2026-04-29T00:00:00.000Z",
+        requiresMainAgentReply: true,
+        expectedParentReply: "permission_decision",
+        request: {
+          kind: "permission_request",
+          summary: "Subagent needs permission.",
+          data: { toolName: "run_shell_command" }
+        }
+      }
+    ];
+
+    const promptEnvelope = promptBuilder.build(session, new ToolRegistry());
+    const modelVisibleContext = JSON.stringify([
+      ...promptEnvelope.prefixMessages,
+      ...promptEnvelope.runtimeContextMessages
+    ]);
+
+    expect(modelVisibleContext).not.toContain("YOLO mode:");
+    expect(modelVisibleContext).not.toContain("Session status:");
+    expect(modelVisibleContext).not.toContain("waiting_for_permission");
+    expect(modelVisibleContext).not.toContain("Pending permission request:");
+    expect(modelVisibleContext).not.toContain("permission_decision");
+    expect(modelVisibleContext).not.toContain("run_shell_command");
+    expect(modelVisibleContext).toContain(
+      "Pending background notifications: none"
+    );
+  });
+
+  test("orders stable context before runtime context and keeps tool results at the tail", () => {
+    const promptBuilder = createPromptBuilder();
+    const session = createSessionSnapshot();
+    session.messages = [
+      {
+        id: "user-1",
+        kind: "user",
+        content: "Inspect the current workspace.",
+        createdAt: "2026-04-29T00:00:00.000Z"
+      },
+      {
+        id: "assistant-1",
+        kind: "assistant",
+        content: "I will inspect the workspace root.",
+        createdAt: "2026-04-29T00:00:01.000Z"
+      },
+      {
+        id: "tool-call-1",
+        kind: "tool call",
+        toolCallId: "call-1",
+        toolName: "list_directory",
+        input: { path: "." },
+        state: "completed",
+        createdAt: "2026-04-29T00:00:02.000Z"
+      },
+      {
+        id: "tool-result-1",
+        kind: "tool result",
+        toolCallId: "call-1",
+        toolName: "list_directory",
+        output: "README.md\npackages",
+        isError: false,
+        state: "success",
+        createdAt: "2026-04-29T00:00:03.000Z"
+      }
+    ];
+
+    const promptEnvelope = promptBuilder.build(
+      session,
+      new ToolRegistry(),
+      {
+        workspaceInstructions: {
+          relativePath: "AGENTS.md",
+          content: "# AGENTS.md\n\n- Stable workspace instruction.\n"
+        }
+      },
+      [
+        {
+          name: "repo_reader",
+          description: "Read repository structure before implementation.",
+          relativePath: ".agent/skills/repo-reader/SKILL.md"
+        }
+      ]
+    );
+    const requestMessages = buildPromptRequestMessages(promptEnvelope);
+    const firstHistoryIndex =
+      promptEnvelope.prefixMessages.length +
+      promptEnvelope.runtimeContextMessages.length;
+
+    expect(JSON.stringify(requestMessages[0])).toContain("Workspace root:");
+    expect(JSON.stringify(requestMessages[1])).toContain(
+      "Workspace instructions from AGENTS.md:"
+    );
+    expect(JSON.stringify(requestMessages[2])).toContain(
+      "Runtime skills for this workspace:"
+    );
+    expect(JSON.stringify(requestMessages[3])).toContain(
+      "Runtime context for this run:"
+    );
+    expect(JSON.stringify(requestMessages[firstHistoryIndex])).toContain(
+      "Inspect the current workspace."
+    );
+    expect(requestMessages.at(-1)?.content[0]).toMatchObject({
+      type: "tool_result",
+      tool_use_id: "call-1",
+      content: "README.md\npackages"
+    });
   });
 
   test("injects task brief binding context without replaying brief content", async () => {
@@ -257,23 +389,23 @@ describe("PromptBuilder skill context", () => {
       expect(JSON.stringify(first.runtimeContextMessages[0])).toContain(
         "Plan mode prompt for this run:"
       );
-      expect(JSON.stringify(first.runtimeContextMessages[1])).toContain(
+      expect(JSON.stringify(first.runtimeContextMessages[2])).toContain(
         "Plan mode: enabled"
       );
-      expect(JSON.stringify(first.runtimeContextMessages[1])).toContain(
+      expect(JSON.stringify(first.runtimeContextMessages[2])).toContain(
         "Task brief binding: bound_named"
       );
-      expect(JSON.stringify(first.runtimeContextMessages[1])).toContain(
+      expect(JSON.stringify(first.runtimeContextMessages[2])).toContain(
         "Task brief next write: omit plan_name unless you are reusing jump_joy_web_game.md."
       );
-      expect(JSON.stringify(first.runtimeContextMessages[1])).not.toContain(
+      expect(JSON.stringify(first.runtimeContextMessages[2])).not.toContain(
         "First draft"
       );
-      expect(JSON.stringify(second.runtimeContextMessages[1])).not.toContain(
+      expect(JSON.stringify(second.runtimeContextMessages[2])).not.toContain(
         "Second draft"
       );
-      expect(first.runtimeContextMessages[1]).toEqual(
-        second.runtimeContextMessages[1]
+      expect(first.runtimeContextMessages[2]).toEqual(
+        second.runtimeContextMessages[2]
       );
       expect(first.cacheKey).toBe(second.cacheKey);
     } finally {
@@ -426,15 +558,15 @@ describe("PromptBuilder skill context", () => {
       /scheduling agent.*routine manager/i
     );
     expect(promptEnvelope.runtimeContextMessages).toHaveLength(2);
-    expect(JSON.stringify(promptEnvelope.runtimeContextMessages[1])).toContain(
+    expect(JSON.stringify(promptEnvelope.runtimeContextMessages[0])).toContain(
       "Runtime skills for this workspace:"
     );
-    expect(JSON.stringify(promptEnvelope.runtimeContextMessages[1])).toContain(
+    expect(JSON.stringify(promptEnvelope.runtimeContextMessages[0])).toContain(
       "none"
     );
-    expect(
-      JSON.stringify(promptEnvelope.runtimeContextMessages[0])
-    ).not.toContain("Session todo state:");
+    expect(JSON.stringify(promptEnvelope.runtimeContextMessages)).not.toContain(
+      "Session todo state:"
+    );
   });
 
   test("does not replay the active todo summary into runtime context messages", () => {
@@ -469,9 +601,7 @@ describe("PromptBuilder skill context", () => {
     };
 
     const promptEnvelope = promptBuilder.build(session, new ToolRegistry());
-    const runtimeText = JSON.stringify(
-      promptEnvelope.runtimeContextMessages[0]
-    );
+    const runtimeText = JSON.stringify(promptEnvelope.runtimeContextMessages);
 
     expect(promptEnvelope.system).toContain(
       "When a structured todo list is available"
@@ -491,7 +621,7 @@ describe("PromptBuilder skill context", () => {
       maxTurns: 10
     });
 
-    expect(JSON.stringify(promptEnvelope.runtimeContextMessages[0])).toContain(
+    expect(JSON.stringify(promptEnvelope.runtimeContextMessages[1])).toContain(
       "Turn budget is nearly exhausted. Consolidate work, avoid exploratory detours, and prefer a final answer or a crisp blocking question."
     );
     expect(promptEnvelope.dynamicPromptMessages).toEqual([
@@ -508,7 +638,7 @@ describe("PromptBuilder skill context", () => {
     });
 
     expect(
-      JSON.stringify(promptEnvelope.runtimeContextMessages[0])
+      JSON.stringify(promptEnvelope.runtimeContextMessages[1])
     ).not.toContain("Turn budget is nearly exhausted.");
     expect(promptEnvelope.dynamicPromptMessages).toEqual([]);
   });

@@ -11,6 +11,7 @@ import {
   createFileTraceManager,
   createFileSystemLogManager,
   createLogger,
+  createLspServerManager,
   listSettingsPermissionToolOptions,
   loadWorkspaceMcpTools,
   resolveMaxTokens,
@@ -30,6 +31,7 @@ import {
 import { fileURLToPath } from "node:url";
 
 import { createApiApp } from "./app.js";
+import { pickDirectoryWithSystemDialog } from "./directory-picker.js";
 import {
   ensureApiWorkingDirectory,
   resolveApiWorkingDirectory
@@ -85,10 +87,15 @@ async function createRuntime(session: SessionSnapshot) {
     throw new Error("No configured model provider is available.");
   }
 
+  const lspServerManager = createLspServerManager({
+    workingDirectory: session.workingDirectory
+  });
   const toolRegistry = createDefaultToolRegistry({
     workingDirectory: session.workingDirectory,
     routineRepository,
-    enabledCapabilityPacks: session.context.enabledCapabilityPacks
+    lspServerManager,
+    enabledCapabilityPacks: session.context.enabledCapabilityPacks,
+    env: process.env
   });
   const mcpLoadResult = await loadWorkspaceMcpTools(session.workingDirectory);
   for (const tool of mcpLoadResult.tools) {
@@ -115,7 +122,7 @@ async function createRuntime(session: SessionSnapshot) {
       ...(toolChoice ? { toolChoice } : {})
     }),
     async dispose() {
-      await mcpLoadResult.dispose();
+      await Promise.all([mcpLoadResult.dispose(), lspServerManager.dispose()]);
     },
     preRunTraceEvent: {
       kind: "mcp_loaded" as const,
@@ -137,6 +144,7 @@ export const app = createApiApp({
   systemLogManager,
   apiLogger,
   buildWorkingDirectory,
+  pickDirectory: pickDirectoryWithSystemDialog,
   modelService,
   ...(defaultModel ? { runtimeFactory: createRuntime } : {}),
   ...(defaultModel ? { defaultModel } : {}),

@@ -1,0 +1,18 @@
+use_default_settings:
+  engines:
+    keep_only:
+      - bing
+
+server:
+  bind_address: "0.0.0.0"
+  port: 8080
+  secret_key: "${SEARXNG_SECRET:-change-me-local-only}"
+
+engines:
+  - name: bing
+    disabled: false
+
+search:
+  formats:
+    - html
+    - json

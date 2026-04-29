@@ -39,5 +39,7 @@ export * from "./search-text.js";
 export * from "./tool-result.js";
 export * from "./unified-patch.js";
 export * from "./update-todo-items.js";
+export * from "./web-fetch.js";
+export * from "./web-search.js";
 export * from "./write-file.js";
 export * from "./workspace.js";

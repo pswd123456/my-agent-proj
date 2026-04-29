@@ -889,7 +889,7 @@ describe("Stage 4 permission flow", () => {
           async create(input) {
             modelCallCount += 1;
             const promptText = JSON.stringify(input.messages);
-            expect(promptText).toContain("Pending permission request: none");
+            expect(promptText).not.toContain("Pending permission request:");
             expect(promptText).not.toContain("本会话允许 shell:ls *");
             return {
               content: [{ type: "text", text: "已继续执行" }]
@@ -967,7 +967,7 @@ describe("Stage 4 permission flow", () => {
           async create(input) {
             modelCallCount += 1;
             const promptText = JSON.stringify(input.messages);
-            expect(promptText).toContain("Pending permission request: none");
+            expect(promptText).not.toContain("Pending permission request:");
             expect(promptText).not.toContain("本会话允许 tool:delete_path");
             return {
               content: [{ type: "text", text: "已继续执行工具权限" }]

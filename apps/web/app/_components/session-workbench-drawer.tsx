@@ -35,13 +35,29 @@ function formatToolOptionLabel(toolName: string): string {
 }
 
 function formatCapabilityPackLabel(packName: string): string {
-  return packName === "workspace" ? "Workspace" : "Schedule";
+  if (packName === "workspace") {
+    return "Workspace";
+  }
+  if (packName === "schedule") {
+    return "Schedule";
+  }
+  if (packName === "web") {
+    return "Web";
+  }
+  return packName;
 }
 
 function formatCapabilityPackDescription(packName: string): string {
-  return packName === "workspace"
-    ? "文件、搜索、shell 与网络等工作区能力。"
-    : "日程创建、编辑、查询与冲突确认相关能力。";
+  if (packName === "workspace") {
+    return "文件、搜索、shell 与网络等工作区能力。";
+  }
+  if (packName === "schedule") {
+    return "日程创建、编辑、查询与冲突确认相关能力。";
+  }
+  if (packName === "web") {
+    return "网页搜索与静态网页正文抓取。";
+  }
+  return packName;
 }
 
 function getVisiblePermissionTools(
@@ -67,6 +83,7 @@ interface SessionWorkbenchDrawerProps {
   permissionTools: SettingsPermissionToolOption[];
   loadingSettings: boolean;
   savingSettings: boolean;
+  choosingWorkingDirectory: boolean;
   pendingPermissionToolName: string | null;
   weekDates: string[];
   groupedRoutines: Map<string, RoutineRecord[]>;
@@ -76,6 +93,7 @@ interface SessionWorkbenchDrawerProps {
   onSelectTab: (tabId: InspectorTabId) => void;
   onSettingsFormChange: (patch: Partial<SettingsFormState>) => void;
   onSettingsBlur: () => void;
+  onChooseWorkingDirectory: () => void;
   onSettingsYoloModeChange: (checked: boolean) => void;
   onSettingsDebugConversationViewChange: (checked: boolean) => void;
   onSettingsPermissionToolToggle: (
@@ -98,6 +116,7 @@ export function SessionWorkbenchDrawer({
   permissionTools,
   loadingSettings,
   savingSettings,
+  choosingWorkingDirectory,
   pendingPermissionToolName,
   weekDates,
   groupedRoutines,
@@ -107,6 +126,7 @@ export function SessionWorkbenchDrawer({
   onSelectTab,
   onSettingsFormChange,
   onSettingsBlur,
+  onChooseWorkingDirectory,
   onSettingsYoloModeChange,
   onSettingsDebugConversationViewChange,
   onSettingsPermissionToolToggle,
@@ -190,20 +210,35 @@ export function SessionWorkbenchDrawer({
                 <span className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
                   Default Working Directory
                 </span>
-                <input
-                  value={settingsForm.workingDirectory}
-                  onChange={(event) =>
-                    onSettingsFormChange({
-                      workingDirectory: event.target.value
-                    })
-                  }
-                  onBlur={onSettingsBlur}
-                  placeholder="agent-workspace"
-                  className="w-full rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
-                />
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <input
+                    value={settingsForm.workingDirectory}
+                    onChange={(event) =>
+                      onSettingsFormChange({
+                        workingDirectory: event.target.value
+                      })
+                    }
+                    onBlur={onSettingsBlur}
+                    placeholder="agent-workspace"
+                    className="min-w-0 flex-1 rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
+                  />
+                  <button
+                    type="button"
+                    onClick={onChooseWorkingDirectory}
+                    disabled={
+                      loadingSettings ||
+                      savingSettings ||
+                      choosingWorkingDirectory
+                    }
+                    className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-4 py-3 text-[0.72rem] uppercase tracking-[0.14em] text-[var(--app-text-secondary)] transition hover:border-[var(--app-border-accent)] hover:text-[var(--app-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {choosingWorkingDirectory ? "选择中..." : "选择目录"}
+                  </button>
+                </div>
                 <span className="text-xs leading-6 text-[var(--app-text-muted)]">
-                  留空会回到 repo 根下的 `agent-workspace/`。自定义 cwd
-                  会被解析并限制在仓库根目录内。
+                  留空会回到 repo 根下的
+                  `agent-workspace/`。可以直接输入绝对路径， 也可以选择 repo
+                  外的目录作为默认 cwd。
                 </span>
               </label>
 
@@ -378,7 +413,10 @@ export function SessionWorkbenchDrawer({
                               type="button"
                               disabled={pinnedByYolo}
                               onClick={() =>
-                                onSettingsPermissionToolToggle(tool.name, target)
+                                onSettingsPermissionToolToggle(
+                                  tool.name,
+                                  target
+                                )
                               }
                               className={`rounded-[var(--app-radius-pill)] border px-3 py-1 text-xs transition ${
                                 decision === target

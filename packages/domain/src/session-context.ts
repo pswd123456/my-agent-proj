@@ -24,7 +24,8 @@ export type SessionToolFamily =
   | "mcp"
   | "delegation"
   | "planning"
-  | "schedule";
+  | "schedule"
+  | "lsp";
 
 export type SessionPermissionProfile =
   | "allow"

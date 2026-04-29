@@ -546,7 +546,9 @@ export function WorkbenchSelect({
       onValueChange={onValueChange}
     >
       <Select.Trigger aria-label={ariaLabel} className="app-select-trigger">
-        <Select.Value className="app-select-value" />
+        <span className="app-select-value">
+          <Select.Value />
+        </span>
         <Select.Icon className="app-select-icon">
           <ChevronDownIcon />
         </Select.Icon>

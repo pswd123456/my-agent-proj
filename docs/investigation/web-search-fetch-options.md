@@ -1,8 +1,10 @@
 # Web Search / Fetch 接入方案调研
 
+> 注：这份文档保留当时的方案比较与取舍记录。当前实现已经落地为原生 `web` capability pack，当前事实请以 [Web 能力](../architecture/web-capability.md) 为准。
+
 更新时间：2026-04-26
 
-## 1. 当前仓库现状
+## 1. 调研时仓库现状
 
 先说结论：这个仓库已经有“网络能力底座”，但还没有“适合模型直接用的网页能力层”。
 
@@ -12,10 +14,10 @@
   - `family = "workspace-network"`
   - `permissionProfile = "always-ask-user"`
 - `packages/agent/src/tools/registry.ts`
-  - 当前默认 capability pack 只有 `workspace` 和 `schedule`
+  - 调研当时默认 capability pack 只有 `workspace` 和 `schedule`
   - `workspace` 里已经注册了 `make_http_request`
 - `packages/domain/src/session-settings.ts`
-  - `CapabilityPackName` 目前只有 `"workspace" | "schedule"`
+  - `CapabilityPackName` 调研当时只有 `"workspace" | "schedule"`
 - `docs/architecture/mcp-module.md`
   - 已支持从 `session.workingDirectory/.agent/.config.toml` 动态挂载 MCP tools
   - 支持 `stdio` 和 `http`
@@ -115,13 +117,13 @@
 
 ## 4. 候选方案对比
 
-| 方案 | 最适合的目标 | 和当前仓库的贴合度 | 风险/代价 |
-| --- | --- | --- | --- |
-| Exa MCP | 最快补齐 `web_search + web_fetch` | 很高 | 受 MCP 默认审批和外部 tool naming 约束 |
-| Tavily MCP | 搜索 + extract + crawl，偏 agent 工作流 | 很高 | 搜索参数较多，后期可能仍想收敛成原生工具 |
-| Firecrawl MCP | 需要 scrape / dynamic / interact | 中高 | 能力过宽，成本和复杂度都更高 |
-| 原生 Tavily / Exa / Brave | 要把 web 做成 repo 主线能力 | 高 | 需要改 capability pack、权限、settings、测试 |
-| 继续用 `make_http_request` | 临时实验 | 低 | 模型负担重，维护性差 |
+| 方案                       | 最适合的目标                            | 和当前仓库的贴合度 | 风险/代价                                    |
+| -------------------------- | --------------------------------------- | ------------------ | -------------------------------------------- |
+| Exa MCP                    | 最快补齐 `web_search + web_fetch`       | 很高               | 受 MCP 默认审批和外部 tool naming 约束       |
+| Tavily MCP                 | 搜索 + extract + crawl，偏 agent 工作流 | 很高               | 搜索参数较多，后期可能仍想收敛成原生工具     |
+| Firecrawl MCP              | 需要 scrape / dynamic / interact        | 中高               | 能力过宽，成本和复杂度都更高                 |
+| 原生 Tavily / Exa / Brave  | 要把 web 做成 repo 主线能力             | 高                 | 需要改 capability pack、权限、settings、测试 |
+| 继续用 `make_http_request` | 临时实验                                | 低                 | 模型负担重，维护性差                         |
 
 ## 5. 推荐路线
 

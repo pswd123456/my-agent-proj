@@ -8,6 +8,7 @@ import {
   createFileSystemLogManager,
   createFileTraceManager,
   createLogger,
+  createLspServerManager,
   createModelService,
   createPostgresSessionManager,
   createPromptBuilder,
@@ -65,10 +66,15 @@ const backgroundTaskManager = createBackgroundTaskManager({
 async function createRuntimeHandle(
   session: SessionSnapshot
 ): Promise<BackgroundTaskRuntimeHandle> {
+  const lspServerManager = createLspServerManager({
+    workingDirectory: session.workingDirectory
+  });
   const toolRegistry = createDefaultToolRegistry({
     workingDirectory: session.workingDirectory,
     routineRepository,
-    enabledCapabilityPacks: session.context.enabledCapabilityPacks
+    lspServerManager,
+    enabledCapabilityPacks: session.context.enabledCapabilityPacks,
+    env: process.env
   });
   const mcpLoadResult = await loadWorkspaceMcpTools(session.workingDirectory);
   for (const tool of mcpLoadResult.tools) {
@@ -94,7 +100,7 @@ async function createRuntimeHandle(
       ...(toolChoice ? { toolChoice } : {})
     }),
     async dispose() {
-      await mcpLoadResult.dispose();
+      await Promise.all([mcpLoadResult.dispose(), lspServerManager.dispose()]);
     },
     preRunTraceEvent: {
       kind: "mcp_loaded",

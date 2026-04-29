@@ -35,10 +35,12 @@
 - 必要的数据访问依赖
 - 专项文档与测试
 
-当前仓库里，真正按 pack 装配的是下面两组：
+当前仓库里，真正按 pack 装配的是下面几组：
 
 - `workspace`：`apply_patch`、`read_file`、`list_directory`、`find_files`、`search_text`、`write_file`、`create_directory`、`delete_file`、`delete_path`、`move_path`、`copy_path`、`git_status`、`git_diff`、`git_diff_cached`、`run_shell_command`、`make_http_request`、`search_skill`、`load_skill`
 - `schedule`：`create_routine` / `edit_routine` / `delete_routine` / `search_routine_by_oclock` / `list_routine_by_week` / `list_routine_by_date` / `ask_for_confirmation`
+- `web`：`web_search` / `web_fetch`，用于通过配置的 SearXNG 搜索与公开网页内容抓取；`web_fetch` 会在必要时尝试浏览器渲染兜底，细节见 [Web 能力](./web-capability.md)
+- `lsp`：`lsp_hover` / `lsp_go_to_definition` / `lsp_find_references` / `lsp_document_symbols` / `lsp_workspace_symbols` / `lsp_diagnostics`，用于 TS/JS 语义查询；细节见 [内建 LSP Capability Pack](./lsp-capability-pack.md)
 
 其中 `schedule` 会继续使用当前的：
 
@@ -50,7 +52,10 @@
 
 `manage_capability_packs` 也不属于 capability pack 本身；它只是让 model 读取和调整 session 级 pack 装配的管理工具。当前实现里，enable / disable 只会写回 session 状态，并从下一次 run 开始影响实际 mounted tools。
 
+`lsp` pack 不从零实现 language server。runtime 只维护本仓库的 LSP client、server lifecycle 和工具输出适配层；TypeScript / JavaScript 语义能力来自 `typescript-language-server`。
+
 ## 当前建议阅读顺序
 
 - 想理解仓库整体主线，先看 [项目概览](./overview.md)
 - 想看具体日程能力怎么落地，再看 [`docs/plan/product1.md`](/Users/boneda/gitrepo/my-agent-proj/docs/plan/product1.md)
+- 想看 web 搜索与抓取怎么落地，先看 [Web 能力](./web-capability.md)

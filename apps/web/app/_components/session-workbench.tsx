@@ -347,6 +347,8 @@ export function SessionWorkbench() {
   );
   const [loadingSettings, setLoadingSettings] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
+  const [choosingWorkingDirectory, setChoosingWorkingDirectory] =
+    useState(false);
   const [pendingPermissionToolName, setPendingPermissionToolName] = useState<
     string | null
   >(null);
@@ -1052,6 +1054,40 @@ export function SessionWorkbench() {
     setSettingsForm((current) => patchSettingsForm(current, patch));
   }
 
+  async function handleChooseWorkingDirectory() {
+    if (choosingWorkingDirectory || savingSettings) {
+      return;
+    }
+
+    setChoosingWorkingDirectory(true);
+    setErrorText(null);
+
+    try {
+      const startDirectory =
+        settingsForm.workingDirectory ||
+        userSettings?.workingDirectory ||
+        currentSession?.workingDirectory;
+      const selection = await apiClient.chooseDirectory({
+        ...(startDirectory ? { startDirectory } : {})
+      });
+      if (selection.canceled || !selection.path) {
+        return;
+      }
+
+      const nextForm = normalizeSettingsFormState(
+        patchSettingsForm(settingsForm, {
+          workingDirectory: selection.path
+        })
+      );
+      setSettingsForm(nextForm);
+      await handleSaveUserSettings(nextForm);
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : String(error));
+    } finally {
+      setChoosingWorkingDirectory(false);
+    }
+  }
+
   async function handleSettingsPermissionToolToggle(
     toolName: string,
     target: "allow" | "ask" | "deny"
@@ -1445,6 +1481,7 @@ export function SessionWorkbench() {
               permissionTools={permissionTools}
               loadingSettings={loadingSettings}
               savingSettings={savingSettings}
+              choosingWorkingDirectory={choosingWorkingDirectory}
               pendingPermissionToolName={pendingPermissionToolName}
               weekDates={weekDates}
               groupedRoutines={groupedRoutines}
@@ -1454,6 +1491,9 @@ export function SessionWorkbench() {
               onSelectTab={setActiveTab}
               onSettingsFormChange={handleSettingsFormChange}
               onSettingsBlur={() => void handleSaveUserSettings()}
+              onChooseWorkingDirectory={() =>
+                void handleChooseWorkingDirectory()
+              }
               onSettingsYoloModeChange={(checked) =>
                 void handleSettingsYoloModeChange(checked)
               }

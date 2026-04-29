@@ -16,8 +16,8 @@
 
 ```text
 prefixMessages
-messages
 runtimeContextMessages
+messages
 ```
 
 `system` 作为 provider request 的独立 system 字段发送，`tools` 作为工具定义发送。
@@ -33,7 +33,6 @@ runtimeContextMessages
 - 工具输入错误后的修正策略
 - 行动前输出短意图的要求
 - 像 `search_text -> 局部 read_file`、`read_file offset/limit` 这种稳定工具使用硬约束（需要用 `MUST` 明确约束时也放这里）
-- 权限和 YOLO mode 的高层行为边界
 - skills 只能使用 runtime context 中列出的事实
 
 不适合放入 `system`：
@@ -43,6 +42,7 @@ runtimeContextMessages
 - timezone
 - pending confirmation payload
 - pending permission request
+- YOLO mode 或 permission rules 这类工具权限状态
 - workspace skill 列表
 - 某次执行的临时诊断
 - 产品专项长规则，除非 capability pack 已明确挂载并需要注入
@@ -52,7 +52,6 @@ runtimeContextMessages
 `prefixMessages` 放相对稳定的 session 前缀，当前包括：
 
 - workspace root
-- YOLO mode
 - enabled capability packs
 - mounted tools summary
 
@@ -76,39 +75,38 @@ prefix message 带 `cache_control: { type: "ephemeral" }`，并参与当前 `cac
 
 ## runtimeContextMessages
 
-`runtimeContextMessages` 放每次执行才需要的易变上下文，当前包括五类：
+`runtimeContextMessages` 放每次执行才需要的上下文，并在层内按相对稳定到易变排序，当前包括五类：
 
 1. plan mode prompt
    - 只在当前 session 开启 `plan mode` 时注入
    - 用来给模型一组只属于本轮 planning 态的执行规则
    - 当前会强调：todo 工具不可用、优先通过 `search_task_brief / read_task_brief / edit_task_brief / replace_task_brief` 维护 brief、普通 workspace 文件写工具不可用
 
-2. runtime context
+2. workspace instructions
+   - 从 `session.workingDirectory/AGENTS.md` 读取的工作区根指令
+   - 由 workspace instructions manager 负责扫描和诊断，prompt builder 只负责渲染
+   - 不进入 `prefixMessages` 或 `cacheKey`，避免工作区指令变化影响稳定前缀
+
+3. workspace skills
+   - 从 `session.workingDirectory/.agent/skills/` 发现的 skill metadata
+   - prompt 当前只暴露模型做技能选择需要的元信息
+   - 具体 skill 正文通过 `search_skill` / `load_skill` 按需读取，而不是整篇预注入
+
+4. full compaction continuation summary
+   - 只在 `session.context.fullCompactionState` 存在时注入
+   - 内容来自最近一次 full compaction 生成的 continuation summary
+   - 不进入 `prefixMessages` 或 `cacheKey`
+
+5. runtime context
    - working directory
-   - session status
-   - YOLO mode
-   - pending permission request
    - pending confirmation payload
    - pending user question payload
    - active background task count
    - pending background notifications
 
-3. full compaction continuation summary
-   - 只在 `session.context.fullCompactionState` 存在时注入
-   - 内容来自最近一次 full compaction 生成的 continuation summary
-   - 不进入 `prefixMessages` 或 `cacheKey`
-
-4. workspace instructions
-   - 从 `session.workingDirectory/AGENTS.md` 读取的工作区根指令
-   - 由 workspace instructions manager 负责扫描和诊断，prompt builder 只负责渲染
-   - 不进入 `prefixMessages` 或 `cacheKey`，避免工作区指令变化影响稳定前缀
-
-5. workspace skills
-   - 从 `session.workingDirectory/.agent/skills/` 发现的 skill metadata
-   - prompt 当前只暴露模型做技能选择需要的元信息
-   - 具体 skill 正文通过 `search_skill` / `load_skill` 按需读取，而不是整篇预注入
-
 这层不参与 `cacheKey`。如果新增信息会随执行变化，优先放这里。不过当前日期、当前时间和 timezone 不自动注入 runtime context；模型需要时应显式调用 `get_current_time`。
+
+工具权限相关状态不进入模型可见 context，包括 YOLO mode、pending permission request、permission rules、`waiting_for_permission` 这类 session status，以及需要 permission decision 的后台通知。权限决策由 runtime / UI gate 处理，trace 和 session context 负责保留可观测性。
 
 另外还有一组 `dynamicPromptMessages`，当前只用于 turn budget 逼近时的短促提示，例如“尽量收束工作、避免继续探索”。实现上它们会并入本轮 runtime context 的文本层，跟随上下文一起注入，但同样不进入 `cacheKey`，也不应该被提升到稳定前缀。
 
@@ -155,6 +153,7 @@ sha256(system + prefixMessage + tools)
 - 把当前时间写进 stable prefix
 - 把当前日期、当前时间或 timezone 默认注入 runtime context，导致所有请求都携带易变上下文
 - 把 pending permission 同时写进 messages 和 runtime context，造成双重语义
+- 把 YOLO mode、permission rules、pending permission request 放进 prompt，让模型基于权限态推理
 - 在通用 system prompt 中保留某个产品能力的长规则
 - 把 UI 展示状态当成模型需要推理的对话历史
 - 为了减少上下文把 tool result 在 session 写入前统一截断

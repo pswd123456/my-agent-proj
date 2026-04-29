@@ -30,15 +30,13 @@ describe("resolveApiWorkingDirectory", () => {
     ).toBe(absoluteSubdirectory);
   });
 
-  test("clamps parent traversal back to workspace root", () => {
+  test("resolves parent traversal even when it escapes the repo root", () => {
     expect(resolveApiWorkingDirectory(workspaceRoot, "../../")).toBe(
-      defaultWorkspace
+      path.resolve(workspaceRoot, "../../")
     );
   });
 
-  test("clamps absolute paths outside the workspace root", () => {
-    expect(resolveApiWorkingDirectory(workspaceRoot, "/tmp")).toBe(
-      defaultWorkspace
-    );
+  test("keeps absolute paths outside the workspace root", () => {
+    expect(resolveApiWorkingDirectory(workspaceRoot, "/tmp")).toBe("/tmp");
   });
 });

@@ -155,6 +155,12 @@ describe("createApiApp settings bootstrap", () => {
     expect(session.context.yoloMode).toBe(false);
     expect(session.contextWindow).toBe(200_000);
     expect(session.maxTurns).toBe(50);
+    expect(session.context.enabledCapabilityPacks).toEqual([
+      "workspace",
+      "schedule",
+      "web",
+      "lsp"
+    ]);
   });
 
   test("uses updated user settings for the next newly created session", async () => {
@@ -197,6 +203,34 @@ describe("createApiApp settings bootstrap", () => {
     expect(session.context.yoloMode).toBe(true);
     expect(session.contextWindow).toBe(123_456);
     expect(session.maxTurns).toBe(77);
+  });
+
+  test("accepts a default working directory outside the repo root", async () => {
+    const { app } = await createTestApp();
+    const externalDirectory = "/tmp/my-agent-proj-external-workspace";
+
+    const updateResponse = await app.request(
+      "/users/stage5-external-workspace-user/settings",
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workingDirectory: externalDirectory
+        })
+      }
+    );
+
+    expect(updateResponse.status).toBe(200);
+    const updatePayload = (await updateResponse.json()) as {
+      settings: { workingDirectory: string };
+    };
+    expect(updatePayload.settings.workingDirectory).toBe(externalDirectory);
+
+    const session = await createSession(app, {
+      userId: "stage5-external-workspace-user"
+    });
+
+    expect(session.workingDirectory).toBe(externalDirectory);
   });
 
   test("updating user default model does not rewrite an existing session model", async () => {
@@ -284,6 +318,12 @@ describe("createApiApp settings bootstrap", () => {
     expect(
       payload.permissionTools.some((tool) => tool.name === "run_shell_command")
     ).toBe(false);
+    expect(
+      payload.permissionTools.some((tool) => tool.name === "web_search")
+    ).toBe(false);
+    expect(
+      payload.permissionTools.some((tool) => tool.name === "lsp_hover")
+    ).toBe(true);
   });
 
   test("updates the current session model through session settings", async () => {

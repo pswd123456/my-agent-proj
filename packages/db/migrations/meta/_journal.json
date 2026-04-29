@@ -120,6 +120,20 @@
       "when": 1777870800000,
       "tag": "0016_bored_drax",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1777874400000,
+      "tag": "0017_material_magik",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1777878000000,
+      "tag": "0018_futuristic_black_bolt",
+      "breakpoints": true
     }
   ]
 }

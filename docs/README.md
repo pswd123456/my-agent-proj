@@ -8,6 +8,7 @@
 - [模板初始化](./template/README.md)
 - [技术栈总览](./tech-stack.md)
 - [架构文档目录](./architecture/README.md)
+- [Web 能力](./architecture/web-capability.md)
 - [后台任务与 delegation](./architecture/background-tasks-and-delegation.md)
 - [MCP 模块落地](./architecture/mcp-module.md)
 - [Trace / Log 排查](./architecture/trace-debugging.md)

@@ -26,6 +26,12 @@ describe("MemorySettingsRepository", () => {
     expect(settings.contextWindow).toBe(DEFAULT_CONTEXT_WINDOW);
     expect(settings.maxTurns).toBe(DEFAULT_SESSION_MAX_TURNS);
     expect(settings.toolAskList).toEqual([...SETTINGS_PERMISSION_TOOL_OPTIONS]);
+    expect(settings.enabledCapabilityPacks).toEqual([
+      "workspace",
+      "schedule",
+      "web",
+      "lsp"
+    ]);
     expect(settings.debugConversationView).toBe(false);
   });
 

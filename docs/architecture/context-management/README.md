@@ -19,13 +19,14 @@
 当前 prompt envelope 分为五个组成部分：
 
 - `system`：稳定身份、行为边界和通用 runtime 约束
-- `prefixMessages`：相对稳定的 session 前缀，例如工作目录、YOLO mode、能力包和 mounted tools
+- `prefixMessages`：相对稳定的 session 前缀，例如工作目录、能力包和 mounted tools
 - `messages`：用户、assistant、assistant thinking、tool call、tool result 的会话历史回放
-- `runtimeContextMessages`：每次执行才注入的易变上下文，例如 session status、pending permission、pending confirmation、pending user question、background notifications、full compaction continuation summary、workspace instructions、workspace skills
+- `runtimeContextMessages`：每次执行才注入的上下文，内部按相对稳定到易变排序，例如 workspace instructions、workspace skills、full compaction continuation summary、pending confirmation、pending user question、background notifications
 - `dynamicPromptMessages`：当前仅用于 turn budget 逼近时的短促提示，不进入 cache key
 
-设计新上下文时，先判断它属于哪一层。不要为了模型可见性把所有内容都塞进 `system`，也不要把易变执行态写入稳定前缀。
+设计新上下文时，先判断它属于哪一层。不要为了模型可见性把所有内容都塞进 `system`，也不要把易变执行态写入稳定前缀。同一层内也按稳定度排序，越稳定的块越靠前，越容易随 turn 变化的块越靠后。
 当前日期、当前时间和 timezone 不自动注入 prompt；模型需要这些信息时，应显式调用 `get_current_time`。
+工具权限相关状态不进入模型可见 prompt，例如 YOLO mode、permission rules、pending permission request 和 `waiting_for_permission`。这些状态留在 runtime / UI / trace 层处理。
 
 ### 2. 会话历史是可恢复事实
 

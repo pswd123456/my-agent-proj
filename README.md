@@ -61,6 +61,18 @@ cp .env.example .env
 - 可选：`WORKER_TASK_HEARTBEAT_MS`
 - 可选：`WORKER_TASK_STALE_MS`
 
+另外，`web` 和 `lsp` 这两组能力的外部依赖是：
+
+- `web`：需要自建或本地启动的 SearXNG 服务，默认基址是 `http://127.0.0.1:8888`
+- `lsp`：不需要单独配置 URL，运行时会从 `packages/agent` 依赖里本地拉起 `typescript-language-server`
+- `NEXT_PUBLIC_API_BASE_URL`：可选，Web 前端如果不是通过同源 `/api` 访问 API，就显式填成 `http://127.0.0.1:3001`
+
+如果要启用 `web_search`，先启动 SearXNG：
+
+```bash
+bun run searxng:up
+```
+
 ### 3. 启动开发环境
 
 直接从仓库根目录启动全部开发服务：

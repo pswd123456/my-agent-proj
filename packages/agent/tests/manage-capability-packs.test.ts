@@ -64,9 +64,13 @@ describe("manage_capability_packs tool", () => {
     expect(result.state).toBe("success");
     expect(result.result.code).toBe("CAPABILITY_PACKS_LISTED");
     expect(result.displayText).toContain("- action: list");
-    expect(result.displayText).toContain("- available: workspace, schedule");
+    expect(result.displayText).toContain(
+      "- available: workspace, schedule, web, lsp"
+    );
     expect(result.displayText).toContain("- workspace: enabled");
     expect(result.displayText).toContain("- schedule: disabled");
+    expect(result.displayText).toContain("- web: disabled");
+    expect(result.displayText).toContain("- lsp: disabled");
     expect(result.content).toContain('"effectiveFromNextRun": false');
   });
 
@@ -86,7 +90,9 @@ describe("manage_capability_packs tool", () => {
     expect(enableResult.state).toBe("success");
     expect(enableResult.result.code).toBe("CAPABILITY_PACK_ENABLED");
     expect(enableResult.displayText).toContain("effective: next run");
-    expect(enableResult.displayText).toContain("- enabled: workspace, schedule");
+    expect(enableResult.displayText).toContain(
+      "- enabled: workspace, schedule"
+    );
 
     const enabledSession = await sessionManager.getSession(session.sessionId);
     expect(enabledSession?.context.enabledCapabilityPacks).toEqual([
@@ -136,13 +142,63 @@ describe("manage_capability_packs tool", () => {
     });
 
     const result = await createManageCapabilityPacksTool().execute(
-      { action: "enable", pack_name: "web" as never },
+      { action: "enable", pack_name: "unknown" as never },
       await createSessionContext(sessionManager, session.sessionId)
     );
 
     expect(result.state).toBe("failed");
     expect(result.result.code).toBe("INVALID_TOOL_INPUT");
-    expect(result.displayText).toContain("[manage_capability_packs] invalid input");
+    expect(result.displayText).toContain(
+      "[manage_capability_packs] invalid input"
+    );
+  });
+
+  test("can enable the web capability pack", async () => {
+    const sessionManager = createMemorySessionManager();
+    const session = await sessionManager.createSession({
+      workingDirectory: "/tmp/workspace",
+      userId: "pack-user",
+      enabledCapabilityPacks: ["workspace"]
+    });
+
+    const result = await createManageCapabilityPacksTool().execute(
+      { action: "enable", pack_name: "web" },
+      await createSessionContext(sessionManager, session.sessionId)
+    );
+
+    expect(result.state).toBe("success");
+    expect(result.result.code).toBe("CAPABILITY_PACK_ENABLED");
+    expect(result.displayText).toContain("- web: enabled");
+
+    const updatedSession = await sessionManager.getSession(session.sessionId);
+    expect(updatedSession?.context.enabledCapabilityPacks).toEqual([
+      "workspace",
+      "web"
+    ]);
+  });
+
+  test("can enable the lsp capability pack", async () => {
+    const sessionManager = createMemorySessionManager();
+    const session = await sessionManager.createSession({
+      workingDirectory: "/tmp/workspace",
+      userId: "pack-user",
+      enabledCapabilityPacks: ["workspace"]
+    });
+
+    const result = await createManageCapabilityPacksTool().execute(
+      { action: "enable", pack_name: "lsp" },
+      await createSessionContext(sessionManager, session.sessionId)
+    );
+
+    expect(result.state).toBe("success");
+    expect(result.result.code).toBe("CAPABILITY_PACK_ENABLED");
+    expect(result.displayText).toContain("- lsp: enabled");
+
+    const updatedSession = await sessionManager.getSession(session.sessionId);
+    expect(updatedSession?.context.enabledCapabilityPacks).toEqual([
+      "workspace",
+      "lsp"
+    ]);
   });
 
   test("is mounted in the planning registry by default", () => {
