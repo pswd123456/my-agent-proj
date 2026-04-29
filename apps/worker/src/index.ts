@@ -81,6 +81,7 @@ async function createRuntimeHandle(
       sessionManager,
       routineRepository,
       toolRegistry,
+      backgroundTaskManager,
       traceManager,
       systemLogManager,
       runtimeLogger: createLogger({
@@ -117,16 +118,56 @@ async function reconcileStaleTasks(): Promise<void> {
     }
 
     if (task.kind === "subagent") {
+      const delegateState =
+        task.taskState?.kind === "delegate" ? task.taskState : null;
+      const latestResponse = delegateState?.latestResponse;
       await enqueueBackgroundNotification({
         sessionManager,
         traceManager,
         taskManager: backgroundTaskManager,
         task,
-        kind: "delegate_timeout",
-        summary: task.resultSummary ?? "后台子任务超时。",
+        kind: "task_timeout",
+        summary:
+          latestResponse?.summary ?? task.resultSummary ?? "后台子任务超时。",
+        content:
+          latestResponse?.content ??
+          task.lastError ??
+          "Worker claim expired before completion.",
+        expectedParentReply: delegateState?.expectedParentReply ?? "none",
+        request: latestResponse?.request ?? null,
+        result: latestResponse
+          ? {
+              type: "delegate",
+              summary: latestResponse.summary,
+              content: latestResponse.content,
+              responseKind: latestResponse.kind,
+              expectedParentReply:
+                delegateState?.expectedParentReply ?? "none",
+              ...(latestResponse.request
+                ? { request: latestResponse.request }
+                : {})
+            }
+          : null,
+        decrementActiveTaskCount: true
+      });
+      continue;
+    }
+
+    if (task.kind === "shell_command") {
+      const latestResult =
+        task.taskState?.kind === "shell_command"
+          ? task.taskState.latestResult
+          : null;
+      await enqueueBackgroundNotification({
+        sessionManager,
+        traceManager,
+        taskManager: backgroundTaskManager,
+        task,
+        kind: "task_timeout",
+        summary: task.resultSummary ?? "后台任务超时。",
         content: task.lastError ?? "Worker claim expired before completion.",
-        expectedParentReply: task.taskCard?.expectedParentReply ?? "none",
-        request: task.taskCard?.latestResponse?.request ?? null,
+        expectedParentReply: "none",
+        result: latestResult,
         decrementActiveTaskCount: true
       });
       continue;
@@ -138,7 +179,7 @@ async function reconcileStaleTasks(): Promise<void> {
         traceManager,
         taskManager: backgroundTaskManager,
         task,
-        kind: "delegate_timeout",
+        kind: "task_timeout",
         title: "主会话后台续跑",
         summary: "主会话后台续跑超时。",
         content: task.lastError ?? "Worker claim expired before completion.",

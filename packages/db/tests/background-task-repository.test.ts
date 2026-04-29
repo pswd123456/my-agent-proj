@@ -90,6 +90,27 @@ describe("MemoryBackgroundTaskRepository", () => {
     expect(cancelled.run.status).toBe("cancelled");
   });
 
+  test("stores shell tasks without a child session id", async () => {
+    const repository = createMemoryBackgroundTaskRepository();
+    const task = await repository.enqueueTask({
+      kind: "shell_command",
+      parentSessionId: "parent-session",
+      payload: {
+        executor: "shell_command",
+        message: "",
+        workingDirectory: "/tmp/workspace",
+        model: "MiniMax-M2.7",
+        maxTurns: 1,
+        enabledCapabilityPacks: ["workspace"],
+        metadata: {},
+        command: "pwd",
+        timeoutMs: 5_000
+      }
+    });
+
+    expect(task.childSessionId).toBeNull();
+  });
+
   test("requeues stale claimed tasks and closes the stale run record", async () => {
     const repository = createMemoryBackgroundTaskRepository();
     await repository.enqueueTask({

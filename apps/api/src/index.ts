@@ -102,6 +102,7 @@ async function createRuntime(session: SessionSnapshot) {
       routineRepository,
       toolRegistry,
       delegateAgentService,
+      backgroundTaskManager,
       traceManager,
       systemLogManager,
       runtimeLogger: createLogger({

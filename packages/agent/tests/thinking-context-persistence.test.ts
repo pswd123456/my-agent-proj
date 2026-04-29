@@ -94,7 +94,88 @@ function createApprovalEchoTool(): RuntimeTool {
   };
 }
 
+function messageText(message: AnthropicMessageRequest["messages"][number]) {
+  return message.content
+    .flatMap((block) => (block.type === "text" ? [block.text] : []))
+    .join("\n");
+}
+
 describe("thinking context persistence", () => {
+  test("sends runtime context before conversation history so tool results stay last", async () => {
+    const requests: AnthropicMessageRequest[] = [];
+    const sessionManager = createMemorySessionManager();
+    const routineRepository = createMemoryRoutineRepository();
+    let callCount = 0;
+
+    const runtime = createAgentRuntime({
+      client: {
+        messages: {
+          async create(request) {
+            requests.push(structuredClone(request));
+            callCount += 1;
+
+            if (callCount === 1) {
+              return {
+                content: [
+                  {
+                    type: "tool_use",
+                    id: "call-echo-order",
+                    name: "echo_tool",
+                    input: { value: "tool output should be last" }
+                  }
+                ],
+                stop_reason: "tool_use"
+              };
+            }
+
+            return {
+              content: [{ type: "text", text: "done" }],
+              stop_reason: "end_turn"
+            };
+          }
+        }
+      },
+      model: "MiniMax-M2.7",
+      sessionManager,
+      routineRepository,
+      toolRegistry: new ToolRegistry().register(createEchoTool()),
+      maxTurns: 2,
+      maxTokens: 128
+    });
+
+    const session = await runtime.createSession({
+      workingDirectory: "/tmp/workspace",
+      userId: "message-order-test"
+    });
+
+    const result = await runtime.run({
+      sessionId: session.sessionId,
+      message: "Use echo."
+    });
+
+    expect(result.status).toBe("completed");
+    expect(requests).toHaveLength(2);
+
+    const secondMessages = requests[1]?.messages ?? [];
+    const runtimeContextIndex = secondMessages.findIndex((message) =>
+      messageText(message).includes("Runtime context for this run:")
+    );
+    const userRequestIndex = secondMessages.findIndex((message) =>
+      messageText(message).includes("Use echo.")
+    );
+
+    expect(runtimeContextIndex).toBeGreaterThanOrEqual(0);
+    expect(userRequestIndex).toBeGreaterThan(runtimeContextIndex);
+    expect(secondMessages.at(-1)?.content).toEqual([
+      {
+        type: "tool_result",
+        tool_use_id: "call-echo-order",
+        content: "tool output should be last",
+        is_error: false
+      }
+    ]);
+  });
+
   test("persists signed thinking blocks and replays them in the next prompt", async () => {
     const requests: AnthropicMessageRequest[] = [];
     const sessionManager = createMemorySessionManager();

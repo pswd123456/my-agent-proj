@@ -329,7 +329,7 @@ describe("PromptBuilder skill context", () => {
     }
   });
 
-  test("only exposes ask_user_question while plan mode is enabled", async () => {
+  test("always exposes ask_user_question and adds plan mode guidance when enabled", async () => {
     const workspaceRoot = await mkdtemp(
       path.join(tmpdir(), "prompt-question-")
     );
@@ -348,9 +348,11 @@ describe("PromptBuilder skill context", () => {
       session.context.planModeEnabled = true;
       const after = promptBuilder.build(session, toolRegistry);
 
-      expect(before.tools).toEqual([]);
+      expect(before.tools.map((tool) => tool.name)).toEqual([
+        "ask_user_question"
+      ]);
       expect(JSON.stringify(before.prefixMessages[0])).toContain(
-        "Mounted tools: none"
+        "Mounted tools: ask_user_question"
       );
       expect(after.tools.map((tool) => tool.name)).toEqual([
         "ask_user_question"

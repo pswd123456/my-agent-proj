@@ -16,6 +16,7 @@ import type {
 } from "../model.js";
 import { streamAnthropicMessage } from "../model.js";
 import {
+  buildPromptRequestMessages,
   summarizePromptEnvelopeComposition,
   type PromptBuilder
 } from "../prompt.js";
@@ -26,7 +27,12 @@ import type { TraceManager } from "../trace.js";
 import type { Logger } from "../system-log.js";
 import type { JsonValue, RunSessionResult, SessionSnapshot } from "../types.js";
 import type { DelegateAgentService } from "../delegation/index.js";
+import type { BackgroundTaskManager } from "../background-tasks/index.js";
+import {
+  scheduleBackgroundTaskPollWakeup
+} from "../background-tasks/orchestration.js";
 import { consumeBackgroundNotifications } from "../background-tasks/notifications.js";
+import { readAcceptedBackgroundTaskHandle } from "../background-tasks/task-handle.js";
 import type { ToolRegistry } from "../tools/registry.js";
 import {
   buildAssistantBlockContent,
@@ -58,70 +64,6 @@ interface StreamedThinkingSnapshot {
   thinkingMessageId: string;
   text: string;
   signature: string;
-}
-
-const ACTIVE_DELEGATE_STATUSES = new Set([
-  "queued",
-  "claimed",
-  "running",
-  "cancelling"
-]);
-
-interface ActiveDelegateResult {
-  delegateId: string;
-  status: string;
-  waitMode: "blocking" | "unblocking";
-  initialCheckAfterMs: number;
-}
-
-function clampDelegateInitialCheckAfterMs(value: unknown): number {
-  return typeof value === "number" && Number.isFinite(value)
-    ? Math.max(1_000, Math.min(120_000, Math.floor(value)))
-    : 5_000;
-}
-
-function getActiveDelegateResult(
-  output: RunSessionResult["toolOutputs"][number]
-): ActiveDelegateResult | null {
-  if (output.toolName !== "delegate_agent" || output.isError) {
-    return null;
-  }
-
-  try {
-    const parsed = JSON.parse(output.content) as {
-      ok?: boolean;
-      code?: string;
-      data?: {
-        delegate_id?: unknown;
-        status?: unknown;
-        wait_mode?: unknown;
-        initial_check_after_ms?: unknown;
-      };
-    };
-    if (parsed?.ok !== true || parsed?.code !== "DELEGATE_AGENT_OK") {
-      return null;
-    }
-
-    if (
-      typeof parsed.data?.delegate_id !== "string" ||
-      typeof parsed.data.status !== "string" ||
-      !ACTIVE_DELEGATE_STATUSES.has(parsed.data.status)
-    ) {
-      return null;
-    }
-
-    return {
-      delegateId: parsed.data.delegate_id,
-      status: parsed.data.status,
-      waitMode:
-        parsed.data.wait_mode === "unblocking" ? "unblocking" : "blocking",
-      initialCheckAfterMs: clampDelegateInitialCheckAfterMs(
-        parsed.data.initial_check_after_ms
-      )
-    };
-  } catch {
-    return null;
-  }
 }
 
 function getUnresolvedPendingToolCalls(session: SessionSnapshot): Array<{
@@ -210,6 +152,7 @@ export async function runSessionLoop(input: {
   routineRepository: RoutineRepository;
   toolRegistry: ToolRegistry;
   delegateAgentService?: DelegateAgentService;
+  backgroundTaskManager?: BackgroundTaskManager;
   traceManager: TraceManager | undefined;
   promptBuilder: PromptBuilder;
   session: SessionSnapshot;
@@ -249,7 +192,7 @@ export async function runSessionLoop(input: {
   let toolCallCount = 0;
   let toolResultCount = 0;
   const toolOutputs: RunSessionResult["toolOutputs"] = [];
-  const activeUnblockingDelegates = new Map<string, number>();
+  const activeUnblockingBackgroundTasks = new Map<string, number>();
   let consumedPermissionReply = false;
   let carriedTurnCount = 0;
   let currentTurnCount = Math.max(0, session.sessionState.turnCount);
@@ -354,20 +297,20 @@ export async function runSessionLoop(input: {
     };
   }
 
-  async function maybePauseForActiveDelegate(inputForPause: {
+  async function maybePauseForAcceptedBackgroundTask(inputForPause: {
     output: RunSessionResult["toolOutputs"][number];
     turnCount: number;
     notificationIds: string[];
   }): Promise<RunSessionResult | null> {
-    const activeDelegate = getActiveDelegateResult(inputForPause.output);
-    if (!activeDelegate) {
+    const activeTask = readAcceptedBackgroundTaskHandle(inputForPause.output);
+    if (!activeTask) {
       return null;
     }
 
-    if (activeDelegate.waitMode === "unblocking") {
-      activeUnblockingDelegates.set(
-        activeDelegate.delegateId,
-        activeDelegate.initialCheckAfterMs
+    if (activeTask.waitMode === "unblocking") {
+      activeUnblockingBackgroundTasks.set(
+        activeTask.taskId,
+        activeTask.initialCheckAfterMs
       );
       return null;
     }
@@ -400,11 +343,14 @@ export async function runSessionLoop(input: {
     );
   }
 
-  async function maybePauseForUnblockingDelegates(inputForPause: {
+  async function maybePauseForUnblockingBackgroundTasks(inputForPause: {
     turnCount: number;
     notificationIds: string[];
   }): Promise<RunSessionResult | null> {
-    if (activeUnblockingDelegates.size === 0 || !input.delegateAgentService) {
+    if (
+      activeUnblockingBackgroundTasks.size === 0 ||
+      !input.backgroundTaskManager
+    ) {
       return null;
     }
 
@@ -422,10 +368,12 @@ export async function runSessionLoop(input: {
       return null;
     }
 
-    await input.delegateAgentService.scheduleDelegatePollWakeup({
+    await scheduleBackgroundTaskPollWakeup({
+      sessionManager: input.sessionManager,
+      taskManager: input.backgroundTaskManager,
       parentSessionId: session.sessionId,
-      delegateIds: [...activeUnblockingDelegates.keys()],
-      initialCheckAfterMs: Math.min(...activeUnblockingDelegates.values())
+      taskIds: [...activeUnblockingBackgroundTasks.keys()],
+      initialCheckAfterMs: Math.min(...activeUnblockingBackgroundTasks.values())
     });
 
     session = await input.sessionManager.updateContext(session.sessionId, {
@@ -460,6 +408,9 @@ export async function runSessionLoop(input: {
         sessionManager: input.sessionManager,
         routineRepository: input.routineRepository,
         toolRegistry: input.toolRegistry,
+        ...(input.backgroundTaskManager
+          ? { backgroundTaskManager: input.backgroundTaskManager }
+          : {}),
         traceManager: input.traceManager,
         session,
         message: input.message,
@@ -511,6 +462,9 @@ export async function runSessionLoop(input: {
         sessionManager: input.sessionManager,
         routineRepository: input.routineRepository,
         toolRegistry: input.toolRegistry,
+        ...(input.backgroundTaskManager
+          ? { backgroundTaskManager: input.backgroundTaskManager }
+          : {}),
         traceManager: input.traceManager,
         session,
         message: input.message,
@@ -547,6 +501,9 @@ export async function runSessionLoop(input: {
           toolRegistry: input.toolRegistry,
           ...(input.delegateAgentService
             ? { delegateAgentService: input.delegateAgentService }
+            : {}),
+          ...(input.backgroundTaskManager
+            ? { backgroundTaskManager: input.backgroundTaskManager }
             : {}),
           traceManager: input.traceManager,
           session,
@@ -588,7 +545,7 @@ export async function runSessionLoop(input: {
         toolResultCount += 1;
         toolOutputs.push(executed.output);
 
-        const pausedForActiveDelegate = await maybePauseForActiveDelegate({
+        const pausedForActiveDelegate = await maybePauseForAcceptedBackgroundTask({
           output: executed.output,
           turnCount: Math.max(1, carriedTurnCount),
           notificationIds: visibleBackgroundNotificationIds
@@ -665,6 +622,7 @@ export async function runSessionLoop(input: {
         session.sessionId,
         promptEnvelope.cacheKey
       );
+      const requestMessages = buildPromptRequestMessages(promptEnvelope);
 
       await emitTraceEvent({
         traceManager: input.traceManager,
@@ -714,6 +672,7 @@ export async function runSessionLoop(input: {
           prefixMessages: promptEnvelope.prefixMessages,
           messages: promptEnvelope.messages,
           runtimeContextMessages: promptEnvelope.runtimeContextMessages,
+          requestMessages,
           dynamicPromptMessages: promptEnvelope.dynamicPromptMessages,
           tools: promptEnvelope.tools,
           toolChoice: input.toolChoice ?? null,
@@ -790,15 +749,7 @@ export async function runSessionLoop(input: {
       const request: AnthropicMessageRequest = {
         model: session.model,
         system: promptEnvelope.system,
-        messages: input.prepareMessages?.([
-          ...promptEnvelope.prefixMessages,
-          ...promptEnvelope.messages,
-          ...promptEnvelope.runtimeContextMessages
-        ]) ?? [
-          ...promptEnvelope.prefixMessages,
-          ...promptEnvelope.messages,
-          ...promptEnvelope.runtimeContextMessages
-        ],
+        messages: input.prepareMessages?.(requestMessages) ?? requestMessages,
         tools: promptEnvelope.tools,
         ...(typeof input.maxTokens === "number"
           ? { max_tokens: input.maxTokens }
@@ -1097,6 +1048,9 @@ export async function runSessionLoop(input: {
             ...(input.delegateAgentService
               ? { delegateAgentService: input.delegateAgentService }
               : {}),
+            ...(input.backgroundTaskManager
+              ? { backgroundTaskManager: input.backgroundTaskManager }
+              : {}),
             traceManager: input.traceManager,
             session,
             turnCount,
@@ -1136,7 +1090,7 @@ export async function runSessionLoop(input: {
           toolResultCount += 1;
           toolOutputs.push(executed.output);
 
-          const pausedForActiveDelegate = await maybePauseForActiveDelegate({
+          const pausedForActiveDelegate = await maybePauseForAcceptedBackgroundTask({
             output: executed.output,
             turnCount,
             notificationIds: notificationIdsVisibleThisTurn
@@ -1241,7 +1195,7 @@ export async function runSessionLoop(input: {
 
       if (assistantTexts.length > 0) {
         const pausedForUnblockingDelegates =
-          await maybePauseForUnblockingDelegates({
+          await maybePauseForUnblockingBackgroundTasks({
             turnCount,
             notificationIds: notificationIdsVisibleThisTurn
           });
@@ -1315,7 +1269,7 @@ export async function runSessionLoop(input: {
       }
 
       const pausedForUnblockingDelegates =
-        await maybePauseForUnblockingDelegates({
+        await maybePauseForUnblockingBackgroundTasks({
           turnCount,
           notificationIds: notificationIdsVisibleThisTurn
         });

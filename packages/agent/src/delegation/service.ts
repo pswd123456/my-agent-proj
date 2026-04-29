@@ -1,16 +1,17 @@
 import type {
+  AgentSessionBackgroundTaskPayload,
   BackgroundTaskPayload,
   BackgroundTaskRecord,
   BackgroundTaskStatus,
   DelegateExpectedParentReply,
   DelegatePermissionDecision,
   DelegateResponseEnvelope,
-  DelegateTaskCard,
-  DomainJsonValue
+  DelegateTaskState
 } from "@ai-app-template/domain";
 
 import type { BackgroundTaskManager } from "../background-tasks/contracts.js";
 import { incrementSessionBackgroundTaskCount } from "../background-tasks/notifications.js";
+import { scheduleBackgroundTaskPollWakeup } from "../background-tasks/orchestration.js";
 import type { SessionManager } from "../session/contracts.js";
 
 export interface DelegateAgentView {
@@ -87,11 +88,14 @@ function requireSubagentTask(
   return task;
 }
 
-function requireTaskCard(task: BackgroundTaskRecord): DelegateTaskCard {
-  if (!task.taskCard) {
+function requireTaskCard(task: BackgroundTaskRecord): DelegateTaskState {
+  if (!task.taskState) {
     throw new Error(`Delegate ${task.taskId} is missing its task card.`);
   }
-  return task.taskCard;
+  if (task.taskState.kind !== "delegate") {
+    throw new Error(`Delegate ${task.taskId} has unexpected task state.`);
+  }
+  return task.taskState;
 }
 
 function assertNotActive(task: BackgroundTaskRecord): void {
@@ -105,7 +109,7 @@ function assertNotActive(task: BackgroundTaskRecord): void {
   }
 }
 
-function buildDelegateStartMessage(card: DelegateTaskCard): string {
+function buildDelegateStartMessage(card: DelegateTaskState): string {
   const lines = [
     "You are a delegated subagent working in an isolated child session.",
     "Do not assume you have access to the parent agent's hidden context.",
@@ -142,8 +146,9 @@ function buildDelegateStartMessage(card: DelegateTaskCard): string {
   return lines.join("\n");
 }
 
-function buildInitialTaskCard(input: StartDelegateInput): DelegateTaskCard {
+function buildInitialTaskCard(input: StartDelegateInput): DelegateTaskState {
   return {
+    kind: "delegate",
     title: trimNonEmpty(input.title, "title"),
     objective: trimNonEmpty(input.objective, "objective"),
     parentTaskSummary: trimNonEmpty(
@@ -175,53 +180,30 @@ function buildNextPayload(
     permissionReply?: boolean;
   }
 ): BackgroundTaskPayload {
+  if (task.payload.executor !== "agent_session") {
+    throw new Error(
+      `Delegate ${task.taskId} has unexpected executor ${task.payload.executor}.`
+    );
+  }
+
+  const payload: AgentSessionBackgroundTaskPayload = task.payload;
   return {
-    ...task.payload,
+    ...payload,
     message: input.message,
     permissionReply: input.permissionReply ?? false
   };
 }
 
 function buildNextCard(
-  card: DelegateTaskCard,
+  card: DelegateTaskState,
   latestParentMessage: string
-): DelegateTaskCard {
+): DelegateTaskState {
   return {
     ...card,
     currentRound: card.currentRound + 1,
     latestParentMessage,
     expectedParentReply: "none"
   };
-}
-
-function isActiveWakeupStatus(status: BackgroundTaskStatus): boolean {
-  return (
-    status === "queued" ||
-    status === "claimed" ||
-    status === "running" ||
-    status === "cancelling"
-  );
-}
-
-function buildDelegatePollMetadata(input: {
-  delegateIds: string[];
-  nextIntervalMs: number;
-}): Record<string, DomainJsonValue> {
-  return {
-    reason: "delegate_poll",
-    delegateTaskIds: input.delegateIds,
-    nextIntervalMs: input.nextIntervalMs
-  };
-}
-
-function shouldMoveWakeupEarlier(input: {
-  currentAvailableAt: string | null;
-  nextAvailableAt: string;
-}): boolean {
-  return (
-    typeof input.currentAvailableAt === "string" &&
-    input.nextAvailableAt < input.currentAvailableAt
-  );
 }
 
 export class DefaultDelegateAgentService implements DelegateAgentService {
@@ -235,15 +217,15 @@ export class DefaultDelegateAgentService implements DelegateAgentService {
       throw new Error(`Parent session not found: ${input.parentSessionId}`);
     }
 
-    const taskCard = buildInitialTaskCard(input);
+    const taskState = buildInitialTaskCard(input);
     const task = await this.options.taskManager.enqueueTask({
       kind: "subagent",
       parentSessionId: parentSession.sessionId,
       workingDirectory: parentSession.workingDirectory,
       model: parentSession.model,
       userId: parentSession.context.userId,
-      message: buildDelegateStartMessage(taskCard),
-      taskCard
+      message: buildDelegateStartMessage(taskState),
+      taskState
     });
     await incrementSessionBackgroundTaskCount({
       sessionManager: this.options.sessionManager,
@@ -288,7 +270,7 @@ export class DefaultDelegateAgentService implements DelegateAgentService {
     const nextTask = await this.options.taskManager.requeueTask({
       taskId: task.taskId,
       payload: buildNextPayload(task, { message: latestParentMessage }),
-      taskCard: buildNextCard(card, latestParentMessage),
+      taskState: buildNextCard(card, latestParentMessage),
       lastError: null
     });
     await incrementSessionBackgroundTaskCount({
@@ -329,7 +311,7 @@ export class DefaultDelegateAgentService implements DelegateAgentService {
         message: approved ? "yes" : "no",
         permissionReply: true
       }),
-      taskCard: buildNextCard(card, parentMessage),
+      taskState: buildNextCard(card, parentMessage),
       lastError: null
     });
     await incrementSessionBackgroundTaskCount({
@@ -343,86 +325,12 @@ export class DefaultDelegateAgentService implements DelegateAgentService {
   async scheduleDelegatePollWakeup(
     input: ScheduleDelegatePollInput
   ): Promise<void> {
-    const delegateIds = [...new Set(input.delegateIds.filter(Boolean))];
-    if (delegateIds.length === 0) {
-      return;
-    }
-
-    const parentSession = await this.options.sessionManager.getSession(
-      input.parentSessionId
-    );
-    if (!parentSession) {
-      return;
-    }
-
-    const intervalMs = Math.max(
-      1_000,
-      Math.min(120_000, Math.floor(input.initialCheckAfterMs))
-    );
-    const availableAt = new Date(Date.now() + intervalMs).toISOString();
-    const existingWakeup =
-      await this.options.taskManager.getWakeupTaskBySessionId(
-        parentSession.sessionId
-      );
-    const metadata = buildDelegatePollMetadata({
-      delegateIds,
-      nextIntervalMs: intervalMs
-    });
-
-    if (existingWakeup && isActiveWakeupStatus(existingWakeup.status)) {
-      if (
-        existingWakeup.status === "queued" &&
-        shouldMoveWakeupEarlier({
-          currentAvailableAt: existingWakeup.availableAt,
-          nextAvailableAt: availableAt
-        })
-      ) {
-        await this.options.taskManager.rescheduleQueuedTask({
-          taskId: existingWakeup.taskId,
-          payload: {
-            ...existingWakeup.payload,
-            message: "",
-            permissionReply: false,
-            metadata
-          },
-          availableAt,
-          resultSummary: null,
-          lastError: null
-        });
-      }
-      return;
-    }
-
-    if (existingWakeup) {
-      await this.options.taskManager.requeueTask({
-        taskId: existingWakeup.taskId,
-        payload: {
-          ...existingWakeup.payload,
-          message: "",
-          permissionReply: false,
-          metadata
-        },
-        availableAt,
-        resultSummary: null,
-        lastError: null,
-        maxAttempts: 1
-      });
-      return;
-    }
-
-    await this.options.taskManager.enqueueTask({
-      kind: "session_wakeup",
-      parentSessionId: parentSession.sessionId,
-      childSessionId: parentSession.sessionId,
-      message: "",
-      workingDirectory: parentSession.workingDirectory,
-      model: parentSession.model,
-      maxTurns: Math.min(parentSession.maxTurns, 8),
-      userId: parentSession.context.userId,
-      enabledCapabilityPacks: parentSession.context.enabledCapabilityPacks,
-      metadata,
-      availableAt,
-      maxAttempts: 1
+    await scheduleBackgroundTaskPollWakeup({
+      sessionManager: this.options.sessionManager,
+      taskManager: this.options.taskManager,
+      parentSessionId: input.parentSessionId,
+      taskIds: input.delegateIds,
+      initialCheckAfterMs: input.initialCheckAfterMs
     });
   }
 }

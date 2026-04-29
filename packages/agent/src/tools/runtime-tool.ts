@@ -5,6 +5,7 @@ import type {
   ToolValidationIssue
 } from "@ai-app-template/domain";
 
+import type { BackgroundTaskManager } from "../background-tasks/index.js";
 import type { SessionManager } from "../session/contracts.js";
 import type { DelegateAgentService } from "../delegation/index.js";
 import type {
@@ -41,6 +42,7 @@ export interface ToolExecutionContext {
   routineRepository: RoutineRepository;
   sessionManager: SessionManager;
   delegateAgentService?: DelegateAgentService;
+  backgroundTaskManager?: BackgroundTaskManager;
   sessionContext: {
     status: string;
     currentDateContext: string;

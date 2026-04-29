@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
 
 import type {
+  AgentSessionBackgroundTaskPayload,
   BackgroundNotificationKind,
   BackgroundNotificationRequest,
   BackgroundTaskRecord,
+  BackgroundTaskResultEnvelope,
   DelegateExpectedParentReply,
   ScheduleSessionContext,
   SessionBackgroundNotification
@@ -32,23 +34,46 @@ function createNotification(input: {
   content: string;
   expectedParentReply: DelegateExpectedParentReply;
   request?: BackgroundNotificationRequest | null;
+  result?: BackgroundTaskResultEnvelope | null;
 }): SessionBackgroundNotification {
+  const delegateTitle =
+    input.task.taskState?.kind === "delegate" ? input.task.taskState.title : null;
   return {
     id: randomUUID(),
     kind: input.kind,
     taskId: input.task.taskId,
+    taskKind: input.task.kind,
     childSessionId: input.task.childSessionId,
     title:
       input.title ??
-      input.task.taskCard?.title ??
-      (input.task.kind === "session_wakeup" ? "主会话后台续跑" : "后台子任务"),
+      delegateTitle ??
+      (input.task.kind === "session_wakeup"
+        ? "主会话后台续跑"
+        : input.task.kind === "shell_command"
+          ? "后台任务"
+          : "后台子任务"),
     summary: input.summary,
     content: input.content,
     createdAt: new Date().toISOString(),
     requiresMainAgentReply: input.expectedParentReply !== "none",
     expectedParentReply: input.expectedParentReply,
-    ...(input.request ? { request: structuredClone(input.request) } : {})
+    ...(input.request ? { request: structuredClone(input.request) } : {}),
+    ...(typeof input.result !== "undefined"
+      ? { result: structuredClone(input.result) }
+      : {})
   };
+}
+
+function toAgentSessionPayload(
+  task: BackgroundTaskRecord
+): AgentSessionBackgroundTaskPayload {
+  if (task.payload.executor !== "agent_session") {
+    throw new Error(
+      `Expected agent_session payload for task ${task.taskId}, received ${task.payload.executor}.`
+    );
+  }
+
+  return task.payload;
 }
 
 export async function incrementSessionBackgroundTaskCount(input: {
@@ -80,6 +105,7 @@ export async function enqueueBackgroundNotification(input: {
   content: string;
   expectedParentReply?: DelegateExpectedParentReply;
   request?: BackgroundNotificationRequest | null;
+  result?: BackgroundTaskResultEnvelope | null;
   decrementActiveTaskCount?: boolean;
   autoWake?: boolean;
 }): Promise<SessionBackgroundNotification | null> {
@@ -101,7 +127,8 @@ export async function enqueueBackgroundNotification(input: {
     summary: input.summary,
     content: input.content,
     expectedParentReply: input.expectedParentReply ?? "none",
-    ...(typeof input.request !== "undefined" ? { request: input.request } : {})
+    ...(typeof input.request !== "undefined" ? { request: input.request } : {}),
+    ...(typeof input.result !== "undefined" ? { result: input.result } : {})
   });
 
   const updatedSession = await input.sessionManager.updateContext(
@@ -151,10 +178,11 @@ export async function enqueueBackgroundNotification(input: {
       existingWakeup.availableAt &&
       existingWakeup.availableAt > now
     ) {
+      const payload = toAgentSessionPayload(existingWakeup);
       await input.taskManager.rescheduleQueuedTask({
         taskId: existingWakeup.taskId,
         payload: {
-          ...existingWakeup.payload,
+          ...payload,
           message: "",
           permissionReply: false,
           metadata: {
@@ -170,10 +198,11 @@ export async function enqueueBackgroundNotification(input: {
   }
 
   if (existingWakeup) {
+    const payload = toAgentSessionPayload(existingWakeup);
     await input.taskManager.requeueTask({
       taskId: existingWakeup.taskId,
       payload: {
-        ...existingWakeup.payload,
+        ...payload,
         message: "",
         permissionReply: false
       },

@@ -1,4 +1,9 @@
+import { exec as execCallback } from "node:child_process";
+import { promisify } from "node:util";
+
 import type {
+  AgentSessionBackgroundTaskPayload,
+  BackgroundTaskResultEnvelope,
   BackgroundTaskClaim,
   BackgroundNotificationKind,
   BackgroundTaskRecord,
@@ -6,10 +11,12 @@ import type {
   DelegateExpectedParentReply,
   DelegateRequestEnvelope,
   DelegateResponseEnvelope,
-  DelegateTaskCard,
+  DelegateTaskState,
   PendingConfirmationPayload,
   PendingPermissionRequest,
-  PendingUserQuestionPayload
+  PendingUserQuestionPayload,
+  ShellCommandResultEnvelope,
+  ShellCommandTaskState
 } from "@ai-app-template/domain";
 
 import type { TraceManager } from "../trace.js";
@@ -21,8 +28,14 @@ import type {
   BackgroundTaskRuntimeHandle
 } from "./contracts.js";
 import { enqueueBackgroundNotification } from "./notifications.js";
-
-const DELEGATE_POLL_MAX_INTERVAL_MS = 120_000;
+import {
+  buildBackgroundTaskPollMetadata,
+  parseBackgroundTaskPollMetadata
+} from "./orchestration.js";
+import { truncateText } from "../tools/workspace.js";
+const exec = promisify(execCallback);
+const SHELL_OUTPUT_STDOUT_LIMIT = 12_000;
+const SHELL_OUTPUT_STDERR_LIMIT = 6_000;
 
 export interface RunBackgroundTaskInput {
   claim: BackgroundTaskClaim;
@@ -57,21 +70,35 @@ function isHumanInputPause(result: RunSessionResult): boolean {
   );
 }
 
-function updateDelegateTaskCard(
+function updateDelegateTaskState(
   claim: BackgroundTaskClaim,
   input: {
     response: DelegateResponseEnvelope;
     expectedParentReply: DelegateExpectedParentReply;
   }
-): DelegateTaskCard | null {
-  if (!claim.task.taskCard) {
+): DelegateTaskState | null {
+  if (!claim.task.taskState || claim.task.taskState.kind !== "delegate") {
     return null;
   }
 
   return {
-    ...claim.task.taskCard,
+    ...claim.task.taskState,
     latestResponse: input.response,
     expectedParentReply: input.expectedParentReply
+  };
+}
+
+function updateShellCommandTaskState(
+  claim: BackgroundTaskClaim,
+  latestResult: ShellCommandResultEnvelope
+): ShellCommandTaskState | null {
+  if (!claim.task.taskState || claim.task.taskState.kind !== "shell_command") {
+    return null;
+  }
+
+  return {
+    ...claim.task.taskState,
+    latestResult
   };
 }
 
@@ -103,6 +130,7 @@ function buildUserQuestionRequest(
         ...(option.description ? { description: option.description } : {}),
         ...(option.isRecommended ? { isRecommended: true } : {})
       })),
+      allowCancel: payload.allowCancel !== false,
       ...(payload.contextNote ? { contextNote: payload.contextNote } : {})
     }
   };
@@ -127,6 +155,18 @@ function buildConfirmationRequest(
       ...(payload.contextNote ? { contextNote: payload.contextNote } : {})
     }
   };
+}
+
+function requireAgentSessionPayload(
+  task: BackgroundTaskRecord
+): AgentSessionBackgroundTaskPayload {
+  if (task.payload.executor !== "agent_session") {
+    throw new Error(
+      `Expected agent_session payload for task ${task.taskId}, received ${task.payload.executor}.`
+    );
+  }
+
+  return task.payload;
 }
 
 function buildDelegateMainAgentRequest(result: RunSessionResult): {
@@ -182,7 +222,7 @@ function hasTaskExpired(task: BackgroundTaskRecord, now = Date.now()): boolean {
   return new Date(task.deadlineAt).getTime() <= now;
 }
 
-function isActiveDelegateStatus(status: BackgroundTaskStatus): boolean {
+function isActiveBackgroundTaskStatus(status: BackgroundTaskStatus): boolean {
   return (
     status === "queued" ||
     status === "claimed" ||
@@ -191,38 +231,7 @@ function isActiveDelegateStatus(status: BackgroundTaskStatus): boolean {
   );
 }
 
-function parseDelegatePollMetadata(
-  task: BackgroundTaskRecord
-): { delegateIds: string[]; nextIntervalMs: number } | null {
-  const metadata = task.payload.metadata;
-  if (metadata.reason !== "delegate_poll") {
-    return null;
-  }
-  if (!Array.isArray(metadata.delegateTaskIds)) {
-    return null;
-  }
-
-  const delegateIds = metadata.delegateTaskIds.filter(
-    (item): item is string => typeof item === "string" && item.length > 0
-  );
-  if (delegateIds.length === 0) {
-    return null;
-  }
-
-  return {
-    delegateIds: [...new Set(delegateIds)],
-    nextIntervalMs:
-      typeof metadata.nextIntervalMs === "number" &&
-      Number.isFinite(metadata.nextIntervalMs)
-        ? Math.max(
-            1_000,
-            Math.min(DELEGATE_POLL_MAX_INTERVAL_MS, metadata.nextIntervalMs)
-          )
-        : 5_000
-  };
-}
-
-async function maybeHandleDelegatePollWakeup(input: {
+async function maybeHandleBackgroundTaskPollWakeup(input: {
   claim: BackgroundTaskClaim;
   workerId: string;
   taskManager: BackgroundTaskManager;
@@ -231,24 +240,22 @@ async function maybeHandleDelegatePollWakeup(input: {
     return false;
   }
 
-  const poll = parseDelegatePollMetadata(input.claim.task);
+  const poll = parseBackgroundTaskPollMetadata(input.claim.task);
   if (!poll) {
     return false;
   }
 
-  const delegateTasks = await Promise.all(
-    poll.delegateIds.map((delegateId) => input.taskManager.getTask(delegateId))
+  const tasks = await Promise.all(
+    poll.taskIds.map((taskId) => input.taskManager.getTask(taskId))
   );
-  const activeDelegateIds = delegateTasks
+  const activeTaskIds = tasks
     .filter(
       (task): task is BackgroundTaskRecord =>
-        !!task &&
-        task.kind === "subagent" &&
-        isActiveDelegateStatus(task.status)
+        !!task && isActiveBackgroundTaskStatus(task.status)
     )
     .map((task) => task.taskId);
 
-  if (activeDelegateIds.length === 0) {
+  if (activeTaskIds.length === 0) {
     return false;
   }
 
@@ -256,23 +263,20 @@ async function maybeHandleDelegatePollWakeup(input: {
     taskId: input.claim.task.taskId,
     runId: input.claim.run.runId,
     workerId: input.workerId,
-    resultSummary: "Delegate poll found active subagent work."
+    resultSummary: "Background task poll found active work."
   });
-  const nextIntervalMs = Math.min(
-    poll.nextIntervalMs * 2,
-    DELEGATE_POLL_MAX_INTERVAL_MS
-  );
+  const nextIntervalMs = Math.min(poll.nextIntervalMs * 2, 120_000);
+  const payload = requireAgentSessionPayload(completedClaim.task);
   await input.taskManager.requeueTask({
     taskId: completedClaim.task.taskId,
     payload: {
-      ...completedClaim.task.payload,
+      ...payload,
       message: "",
       permissionReply: false,
-      metadata: {
-        reason: "delegate_poll",
-        delegateTaskIds: activeDelegateIds,
+      metadata: buildBackgroundTaskPollMetadata({
+        taskIds: activeTaskIds,
         nextIntervalMs
-      }
+      })
     },
     availableAt: new Date(Date.now() + nextIntervalMs).toISOString(),
     resultSummary: null,
@@ -291,7 +295,9 @@ async function notifySubagentParent(input: {
   fallbackSummary: string;
   fallbackContent: string;
 }): Promise<void> {
-  const latestResponse = input.task.taskCard?.latestResponse;
+  const taskState =
+    input.task.taskState?.kind === "delegate" ? input.task.taskState : null;
+  const latestResponse = taskState?.latestResponse;
   await enqueueBackgroundNotification({
     sessionManager: input.sessionManager,
     traceManager: input.traceManager,
@@ -300,8 +306,45 @@ async function notifySubagentParent(input: {
     kind: input.kind,
     summary: latestResponse?.summary ?? input.fallbackSummary,
     content: latestResponse?.content ?? input.fallbackContent,
-    expectedParentReply: input.task.taskCard?.expectedParentReply ?? "none",
+    expectedParentReply: taskState?.expectedParentReply ?? "none",
     request: latestResponse?.request ?? null,
+    result: latestResponse
+      ? {
+          type: "delegate",
+          summary: latestResponse.summary,
+          content: latestResponse.content,
+          responseKind: latestResponse.kind,
+          expectedParentReply: taskState?.expectedParentReply ?? "none",
+          ...(latestResponse.request ? { request: latestResponse.request } : {})
+        }
+      : null,
+    decrementActiveTaskCount: true
+  });
+}
+
+async function notifyShellTaskParent(input: {
+  sessionManager: SessionManager;
+  traceManager?: TraceManager | undefined;
+  taskManager: BackgroundTaskManager;
+  task: BackgroundTaskRecord;
+  kind: BackgroundNotificationKind;
+  fallbackSummary: string;
+  fallbackContent: string;
+}): Promise<void> {
+  const result =
+    input.task.taskState?.kind === "shell_command"
+      ? input.task.taskState.latestResult
+      : null;
+  await enqueueBackgroundNotification({
+    sessionManager: input.sessionManager,
+    traceManager: input.traceManager,
+    taskManager: input.taskManager,
+    task: input.task,
+    kind: input.kind,
+    summary: input.fallbackSummary,
+    content: input.fallbackContent,
+    expectedParentReply: "none",
+    result,
     decrementActiveTaskCount: true
   });
 }
@@ -329,13 +372,280 @@ async function notifyWakeupSession(input: {
   });
 }
 
+function createShellCommandResult(input: {
+  command: string;
+  stdout: string;
+  stderr: string;
+  workingDirectory: string;
+  timeoutMs: number;
+  exitCode: number | null;
+  terminationReason: ShellCommandResultEnvelope["terminationReason"];
+}): ShellCommandResultEnvelope {
+  return {
+    type: "shell_command",
+    command: input.command,
+    stdout: truncateText(input.stdout, SHELL_OUTPUT_STDOUT_LIMIT),
+    stderr: truncateText(input.stderr, SHELL_OUTPUT_STDERR_LIMIT),
+    workingDirectory: input.workingDirectory,
+    timeoutMs: input.timeoutMs,
+    exitCode: input.exitCode,
+    terminationReason: input.terminationReason
+  };
+}
+
+function renderShellResultContent(result: ShellCommandResultEnvelope): string {
+  const lines = [
+    `command: ${result.command}`,
+    `termination: ${result.terminationReason}`,
+    `cwd: ${result.workingDirectory}`
+  ];
+
+  if (result.stdout.trim().length > 0) {
+    lines.push(`stdout:\n${result.stdout}`);
+  }
+  if (result.stderr.trim().length > 0) {
+    lines.push(`stderr:\n${result.stderr}`);
+  }
+
+  return lines.join("\n");
+}
+
+async function runShellCommandTask(input: RunBackgroundTaskInput): Promise<void> {
+  const { claim, workerId } = input;
+  if (claim.task.payload.executor !== "shell_command") {
+    throw new Error("Expected shell_command payload.");
+  }
+
+  const payload = claim.task.payload;
+  await input.taskManager.markTaskRunning({
+    taskId: claim.task.taskId,
+    runId: claim.run.runId,
+    workerId
+  });
+
+  const abortController = new AbortController();
+  let heartbeat: ReturnType<typeof setInterval> | null = null;
+  let heartbeatInFlight = false;
+  let cancelRequested = false;
+  let deadlineExceeded = false;
+
+  try {
+    heartbeat = setInterval(() => {
+      if (heartbeatInFlight) {
+        return;
+      }
+
+      heartbeatInFlight = true;
+      void input.taskManager
+        .heartbeatTask({
+          taskId: claim.task.taskId,
+          runId: claim.run.runId,
+          workerId
+        })
+        .then((heartbeatClaim) => {
+          if (
+            heartbeatClaim?.task.status === "cancelling" &&
+            !cancelRequested
+          ) {
+            cancelRequested = true;
+            abortController.abort();
+          }
+          if (
+            heartbeatClaim?.task &&
+            hasTaskExpired(heartbeatClaim.task) &&
+            !deadlineExceeded
+          ) {
+            deadlineExceeded = true;
+            abortController.abort();
+          }
+        })
+        .finally(() => {
+          heartbeatInFlight = false;
+        });
+    }, input.heartbeatIntervalMs);
+
+    const { stdout, stderr } = await exec(payload.command, {
+      cwd: payload.workingDirectory,
+      signal: abortController.signal,
+      timeout: payload.timeoutMs,
+      maxBuffer: 512 * 1024
+    });
+
+    const latestResult = createShellCommandResult({
+      command: payload.command,
+      stdout,
+      stderr,
+      workingDirectory: payload.workingDirectory,
+      timeoutMs: payload.timeoutMs,
+      exitCode: 0,
+      terminationReason: "completed"
+    });
+    const taskState = updateShellCommandTaskState(claim, latestResult);
+    const completedClaim = await input.taskManager.completeTask({
+      taskId: claim.task.taskId,
+      runId: claim.run.runId,
+      workerId,
+      resultSummary: `${payload.command} (completed)`,
+      ...(taskState ? { taskState } : {})
+    });
+    await notifyShellTaskParent({
+      sessionManager: input.sessionManager,
+      traceManager: input.traceManager,
+      taskManager: input.taskManager,
+      task: completedClaim.task,
+      kind: "task_completed",
+      fallbackSummary: `后台任务已完成：${payload.command}`,
+      fallbackContent: renderShellResultContent(latestResult)
+    });
+  } catch (error) {
+    const shellError = error as NodeJS.ErrnoException & {
+      code?: number | string;
+      killed?: boolean;
+      signal?: NodeJS.Signals;
+      stdout?: string;
+      stderr?: string;
+    };
+
+    if (cancelRequested || deadlineExceeded || abortController.signal.aborted) {
+      const terminationReason = deadlineExceeded ? "timeout" : "cancelled";
+      const latestResult = createShellCommandResult({
+        command: payload.command,
+        stdout: shellError.stdout ?? "",
+        stderr: shellError.stderr ?? "",
+        workingDirectory: payload.workingDirectory,
+        timeoutMs: payload.timeoutMs,
+        exitCode:
+          typeof shellError.code === "number" ? shellError.code : null,
+        terminationReason
+      });
+      const taskState = updateShellCommandTaskState(claim, latestResult);
+
+      if (deadlineExceeded) {
+        const failedClaim = await input.taskManager.failTask({
+          taskId: claim.task.taskId,
+          runId: claim.run.runId,
+          workerId,
+          errorSummary: "Background shell task exceeded its deadline.",
+          resultSummary: `${payload.command} (timeout)`,
+          ...(taskState ? { taskState } : {})
+        });
+        await notifyShellTaskParent({
+          sessionManager: input.sessionManager,
+          traceManager: input.traceManager,
+          taskManager: input.taskManager,
+          task: failedClaim.task,
+          kind: "task_timeout",
+          fallbackSummary: `后台任务超时：${payload.command}`,
+          fallbackContent: renderShellResultContent(latestResult)
+        });
+      } else {
+        const cancelledClaim = await input.taskManager.cancelTask({
+          taskId: claim.task.taskId,
+          runId: claim.run.runId,
+          workerId,
+          resultSummary: `${payload.command} (cancelled)`,
+          ...(taskState ? { taskState } : {})
+        });
+        await notifyShellTaskParent({
+          sessionManager: input.sessionManager,
+          traceManager: input.traceManager,
+          taskManager: input.taskManager,
+          task: cancelledClaim.task,
+          kind: "task_cancelled",
+          fallbackSummary: `后台任务已取消：${payload.command}`,
+          fallbackContent: renderShellResultContent(latestResult)
+        });
+      }
+      return;
+    }
+
+    const latestResult = createShellCommandResult({
+      command: payload.command,
+      stdout: shellError.stdout ?? "",
+      stderr: shellError.stderr ?? "",
+      workingDirectory: payload.workingDirectory,
+      timeoutMs: payload.timeoutMs,
+      exitCode: typeof shellError.code === "number" ? shellError.code : null,
+      terminationReason:
+        shellError.killed && shellError.signal === "SIGTERM"
+          ? "timeout"
+          : "failed"
+    });
+    const taskState = updateShellCommandTaskState(claim, latestResult);
+    const failedClaim = await input.taskManager.failTask({
+      taskId: claim.task.taskId,
+      runId: claim.run.runId,
+      workerId,
+      errorSummary: error instanceof Error ? error.message : String(error),
+      resultSummary: `${payload.command} (${latestResult.terminationReason})`,
+      ...(taskState ? { taskState } : {})
+    });
+    await notifyShellTaskParent({
+      sessionManager: input.sessionManager,
+      traceManager: input.traceManager,
+      taskManager: input.taskManager,
+      task: failedClaim.task,
+      kind:
+        latestResult.terminationReason === "timeout"
+          ? "task_timeout"
+          : "task_failed",
+      fallbackSummary:
+        latestResult.terminationReason === "timeout"
+          ? `后台任务超时：${payload.command}`
+          : `后台任务失败：${payload.command}`,
+      fallbackContent: renderShellResultContent(latestResult)
+    });
+  } finally {
+    if (heartbeat) {
+      clearInterval(heartbeat);
+    }
+  }
+}
+
 export async function runBackgroundTask(
   input: RunBackgroundTaskInput
 ): Promise<void> {
   const { claim, workerId } = input;
-  const initialSession = await input.sessionManager.getSession(
-    claim.task.childSessionId
-  );
+
+  if (claim.task.kind === "shell_command") {
+    await runShellCommandTask(input);
+    return;
+  }
+
+  if (
+    claim.task.kind === "session_wakeup" &&
+    (await maybeHandleBackgroundTaskPollWakeup({
+      claim,
+      workerId,
+      taskManager: input.taskManager
+    }))
+  ) {
+    return;
+  }
+
+  const childSessionId = claim.task.childSessionId;
+  if (!childSessionId) {
+    const failedClaim = await input.taskManager.failTask({
+      taskId: claim.task.taskId,
+      runId: claim.run.runId,
+      workerId,
+      errorSummary: "Child session is required for agent_session background tasks."
+    });
+    if (claim.task.kind === "subagent") {
+      await notifySubagentParent({
+        sessionManager: input.sessionManager,
+        traceManager: input.traceManager,
+        taskManager: input.taskManager,
+        task: failedClaim.task,
+        kind: "task_failed",
+        fallbackSummary: "后台子任务失败。",
+        fallbackContent: "Child session is required for agent_session background tasks."
+      });
+    }
+    return;
+  }
+
+  const initialSession = await input.sessionManager.getSession(childSessionId);
 
   if (!initialSession) {
     const failedClaim = await input.taskManager.failTask({
@@ -350,7 +660,7 @@ export async function runBackgroundTask(
         traceManager: input.traceManager,
         taskManager: input.taskManager,
         task: failedClaim.task,
-        kind: "delegate_failed",
+        kind: "task_failed",
         fallbackSummary: "后台子任务失败。",
         fallbackContent: `Child session not found: ${claim.task.childSessionId}`
       });
@@ -359,16 +669,6 @@ export async function runBackgroundTask(
   }
 
   if (claim.task.kind === "session_wakeup") {
-    if (
-      await maybeHandleDelegatePollWakeup({
-        claim,
-        workerId,
-        taskManager: input.taskManager
-      })
-    ) {
-      return;
-    }
-
     const alreadyRunning = await input.sessionManager.isExecutionActive(
       initialSession.sessionId
     );
@@ -403,7 +703,7 @@ export async function runBackgroundTask(
         traceManager: input.traceManager,
         taskManager: input.taskManager,
         task: timedOutClaim.task,
-        kind: "delegate_timeout",
+        kind: "task_timeout",
         fallbackSummary: "后台子任务超时。",
         fallbackContent:
           "Background task exceeded its deadline before execution started."
@@ -414,7 +714,7 @@ export async function runBackgroundTask(
         traceManager: input.traceManager,
         taskManager: input.taskManager,
         task: timedOutClaim.task,
-        kind: "delegate_timeout",
+        kind: "task_timeout",
         summary: "主会话后台续跑超时。",
         content:
           "Background task exceeded its deadline before execution started."
@@ -423,6 +723,7 @@ export async function runBackgroundTask(
     return;
   }
 
+  const sessionPayload = requireAgentSessionPayload(claim.task);
   const runtimeHandle = await input.createRuntimeHandle(initialSession);
   let heartbeat: ReturnType<typeof setInterval> | null = null;
   let heartbeatInFlight = false;
@@ -431,7 +732,7 @@ export async function runBackgroundTask(
   try {
     if (runtimeHandle.preRunTraceEvent && input.traceManager) {
       await input.traceManager.appendEvent(
-        claim.task.childSessionId,
+        childSessionId,
         runtimeHandle.preRunTraceEvent
       );
     }
@@ -459,9 +760,7 @@ export async function runBackgroundTask(
             !interruptRequested
           ) {
             interruptRequested = true;
-            void input.sessionManager.requestInterrupt(
-              claim.task.childSessionId
-            );
+            void input.sessionManager.requestInterrupt(childSessionId);
           }
           if (
             heartbeatClaim?.task &&
@@ -469,9 +768,7 @@ export async function runBackgroundTask(
             !interruptRequested
           ) {
             interruptRequested = true;
-            void input.sessionManager.requestInterrupt(
-              claim.task.childSessionId
-            );
+            void input.sessionManager.requestInterrupt(childSessionId);
           }
         })
         .finally(() => {
@@ -480,13 +777,13 @@ export async function runBackgroundTask(
     }, input.heartbeatIntervalMs);
 
     const resultInput = {
-      sessionId: claim.task.childSessionId,
-      maxTurns: claim.task.payload.maxTurns,
-      ...(claim.task.payload.message.trim().length > 0
-        ? { message: claim.task.payload.message }
+      sessionId: childSessionId,
+      maxTurns: sessionPayload.maxTurns,
+      ...(sessionPayload.message.trim().length > 0
+        ? { message: sessionPayload.message }
         : {}),
-      ...(typeof claim.task.payload.permissionReply === "boolean"
-        ? { permissionReply: claim.task.payload.permissionReply }
+      ...(typeof sessionPayload.permissionReply === "boolean"
+        ? { permissionReply: sessionPayload.permissionReply }
         : {})
     };
     const result = (await runtimeHandle.runtime.run(
@@ -507,7 +804,7 @@ export async function runBackgroundTask(
           traceManager: input.traceManager,
           taskManager: input.taskManager,
           task: timedOutClaim.task,
-          kind: "delegate_timeout",
+          kind: "task_timeout",
           fallbackSummary: "后台子任务超时。",
           fallbackContent: "Background task exceeded its deadline."
         });
@@ -517,7 +814,7 @@ export async function runBackgroundTask(
           traceManager: input.traceManager,
           taskManager: input.taskManager,
           task: timedOutClaim.task,
-          kind: "delegate_timeout",
+          kind: "task_timeout",
           summary: "主会话后台续跑超时。",
           content: "Background task exceeded its deadline."
         });
@@ -529,7 +826,7 @@ export async function runBackgroundTask(
       result.status === "interrupted" ||
       result.stopReason === "interrupted_by_user"
     ) {
-      const taskCard = updateDelegateTaskCard(claim, {
+      const taskState = updateDelegateTaskState(claim, {
         response: {
           kind: "cancelled",
           summary: resultSummary ?? "Delegate cancelled.",
@@ -543,7 +840,7 @@ export async function runBackgroundTask(
         runId: claim.run.runId,
         workerId,
         resultSummary,
-        ...(taskCard ? { taskCard } : {})
+        ...(taskState ? { taskState } : {})
       });
       if (claim.task.kind === "subagent") {
         await notifySubagentParent({
@@ -551,7 +848,7 @@ export async function runBackgroundTask(
           traceManager: input.traceManager,
           taskManager: input.taskManager,
           task: cancelledClaim.task,
-          kind: "delegate_cancelled",
+          kind: "task_cancelled",
           fallbackSummary: "后台子任务已取消。",
           fallbackContent: resultSummary ?? "Delegate cancelled."
         });
@@ -562,9 +859,9 @@ export async function runBackgroundTask(
     if (isHumanInputPause(result)) {
       if (claim.task.kind === "subagent") {
         const request = buildDelegateMainAgentRequest(result);
-        const taskCard =
+        const taskState =
           request &&
-          updateDelegateTaskCard(claim, {
+          updateDelegateTaskState(claim, {
             response: {
               kind: "needs_main_agent",
               summary: request.summary,
@@ -579,19 +876,19 @@ export async function runBackgroundTask(
             taskId: claim.task.taskId,
             runId: claim.run.runId,
             workerId,
-            resultSummary: taskCard?.latestResponse?.summary ?? resultSummary,
-            ...(taskCard ? { taskCard } : {})
+            resultSummary: taskState?.latestResponse?.summary ?? resultSummary,
+            ...(taskState ? { taskState } : {})
           });
         await notifySubagentParent({
           sessionManager: input.sessionManager,
           traceManager: input.traceManager,
           taskManager: input.taskManager,
           task: waitingClaim.task,
-          kind: "delegate_needs_main_agent",
+          kind: "task_waiting",
           fallbackSummary:
-            taskCard?.latestResponse?.summary ?? "后台子任务需要主代理处理。",
+            taskState?.latestResponse?.summary ?? "后台子任务需要主代理处理。",
           fallbackContent:
-            taskCard?.latestResponse?.content ??
+            taskState?.latestResponse?.content ??
             "Subagent needs the main agent to continue."
         });
       } else {
@@ -606,9 +903,9 @@ export async function runBackgroundTask(
     }
 
     if (result.status === "failed") {
-      const taskCard =
+      const taskState =
         claim.task.kind === "subagent"
-          ? updateDelegateTaskCard(claim, {
+          ? updateDelegateTaskState(claim, {
               response: {
                 kind: "failed",
                 summary:
@@ -634,7 +931,7 @@ export async function runBackgroundTask(
           result.stopReason ??
           "Background task failed.",
         resultSummary,
-        ...(taskCard ? { taskCard } : {})
+        ...(taskState ? { taskState } : {})
       });
       if (claim.task.kind === "subagent") {
         await notifySubagentParent({
@@ -642,7 +939,7 @@ export async function runBackgroundTask(
           traceManager: input.traceManager,
           taskManager: input.taskManager,
           task: failedClaim.task,
-          kind: "delegate_failed",
+          kind: "task_failed",
           fallbackSummary: "后台子任务失败。",
           fallbackContent:
             result.finalAnswer ??
@@ -656,7 +953,7 @@ export async function runBackgroundTask(
           traceManager: input.traceManager,
           taskManager: input.taskManager,
           task: failedClaim.task,
-          kind: "delegate_failed",
+          kind: "task_failed",
           summary: "主会话后台续跑失败。",
           content:
             result.finalAnswer ??
@@ -668,9 +965,9 @@ export async function runBackgroundTask(
       return;
     }
 
-    const taskCard =
+    const taskState =
       claim.task.kind === "subagent"
-        ? updateDelegateTaskCard(claim, {
+        ? updateDelegateTaskState(claim, {
             response: {
               kind: "message",
               summary: resultSummary ?? "Delegate completed.",
@@ -686,7 +983,7 @@ export async function runBackgroundTask(
       runId: claim.run.runId,
       workerId,
       resultSummary,
-      ...(taskCard ? { taskCard } : {})
+      ...(taskState ? { taskState } : {})
     });
     if (claim.task.kind === "subagent") {
       await notifySubagentParent({
@@ -694,16 +991,16 @@ export async function runBackgroundTask(
         traceManager: input.traceManager,
         taskManager: input.taskManager,
         task: completedClaim.task,
-        kind: "delegate_completed",
+        kind: "task_completed",
         fallbackSummary: "后台子任务已完成。",
         fallbackContent:
           result.finalAnswer ?? resultSummary ?? "Delegate completed."
       });
     }
   } catch (error) {
-    const taskCard =
+    const taskState =
       claim.task.kind === "subagent"
-        ? updateDelegateTaskCard(claim, {
+        ? updateDelegateTaskState(claim, {
             response: {
               kind: "failed",
               summary:
@@ -719,7 +1016,7 @@ export async function runBackgroundTask(
       runId: claim.run.runId,
       workerId,
       errorSummary: error instanceof Error ? error.message : String(error),
-      ...(taskCard ? { taskCard } : {})
+      ...(taskState ? { taskState } : {})
     });
     if (claim.task.kind === "subagent") {
       await notifySubagentParent({
@@ -727,7 +1024,7 @@ export async function runBackgroundTask(
         traceManager: input.traceManager,
         taskManager: input.taskManager,
         task: failedClaim.task,
-        kind: "delegate_failed",
+        kind: "task_failed",
         fallbackSummary: "后台子任务失败。",
         fallbackContent: error instanceof Error ? error.message : String(error)
       });
@@ -737,7 +1034,7 @@ export async function runBackgroundTask(
         traceManager: input.traceManager,
         taskManager: input.taskManager,
         task: failedClaim.task,
-        kind: "delegate_failed",
+        kind: "task_failed",
         summary: "主会话后台续跑失败。",
         content: error instanceof Error ? error.message : String(error)
       });

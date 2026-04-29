@@ -1,7 +1,7 @@
 import { getEncoding, type Tiktoken } from "js-tiktoken";
 
 import type { AnthropicToolChoice } from "../model.js";
-import type { PromptEnvelope } from "../prompt.js";
+import { buildPromptRequestMessages, type PromptEnvelope } from "../prompt.js";
 
 let encoder: Tiktoken | null = null;
 
@@ -23,11 +23,7 @@ export function estimatePromptTokens(
 ): number {
   const payload = JSON.stringify({
     system: promptEnvelope.system,
-    messages: [
-      ...promptEnvelope.prefixMessages,
-      ...promptEnvelope.messages,
-      ...promptEnvelope.runtimeContextMessages
-    ],
+    messages: buildPromptRequestMessages(promptEnvelope),
     tools: promptEnvelope.tools,
     ...(toolChoice ? { toolChoice } : {})
   });

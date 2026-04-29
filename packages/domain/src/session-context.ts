@@ -1,6 +1,12 @@
 import type { DomainJsonValue } from "./json.js";
 import type { CapabilityPackName } from "./session-settings.js";
 import type { PermissionRuleLists } from "./permission-rules.js";
+import type {
+  BackgroundTaskKind,
+  BackgroundTaskResultEnvelope,
+  DelegateExpectedParentReply,
+  DelegateRequestKind
+} from "./background-task.js";
 
 export type ScheduleSessionStatus =
   | "running"
@@ -54,6 +60,7 @@ export interface PendingUserQuestionOption {
 export interface PendingUserQuestionPayload {
   questionText: string;
   options: PendingUserQuestionOption[];
+  allowCancel?: boolean;
   contextNote?: string;
   createdAt: string;
 }
@@ -72,14 +79,14 @@ export interface PendingPermissionRequest {
 }
 
 export type BackgroundNotificationKind =
-  | "delegate_completed"
-  | "delegate_needs_main_agent"
-  | "delegate_failed"
-  | "delegate_cancelled"
-  | "delegate_timeout";
+  | "task_completed"
+  | "task_waiting"
+  | "task_failed"
+  | "task_cancelled"
+  | "task_timeout";
 
 export interface BackgroundNotificationRequest {
-  kind: "user_question" | "permission_request" | "confirmation_request";
+  kind: DelegateRequestKind;
   summary: string;
   data: Record<string, DomainJsonValue>;
 }
@@ -88,14 +95,16 @@ export interface SessionBackgroundNotification {
   id: string;
   kind: BackgroundNotificationKind;
   taskId: string;
-  childSessionId?: string;
+  taskKind: BackgroundTaskKind;
+  childSessionId?: string | null;
   title: string;
   summary: string;
   content: string;
   createdAt: string;
   requiresMainAgentReply: boolean;
-  expectedParentReply: "none" | "message" | "permission_decision";
+  expectedParentReply: DelegateExpectedParentReply;
   request?: BackgroundNotificationRequest | null;
+  result?: BackgroundTaskResultEnvelope | null;
   consumedAt?: string | null;
 }
 

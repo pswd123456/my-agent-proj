@@ -1,7 +1,9 @@
 import type { BackgroundTaskManager, EnqueueBackgroundTaskInput } from "./contracts.js";
 
 import {
+  type BackgroundTaskExecutor,
   type BackgroundTaskPayload,
+  type BackgroundTaskState,
   normalizeCapabilityPacks,
   sanitizeSessionMaxTurns
 } from "@ai-app-template/domain";
@@ -27,6 +29,7 @@ export class DefaultBackgroundTaskManager implements BackgroundTaskManager {
   constructor(private readonly options: BackgroundTaskManagerOptions) {}
 
   async enqueueTask(input: EnqueueBackgroundTaskInput) {
+    const executor: BackgroundTaskExecutor = input.executor ?? "agent_session";
     const maxTurns = sanitizeSessionMaxTurns(
       input.maxTurns ?? input.sessionSeed?.maxTurns
     );
@@ -34,49 +37,70 @@ export class DefaultBackgroundTaskManager implements BackgroundTaskManager {
       input.enabledCapabilityPacks ?? input.sessionSeed?.enabledCapabilityPacks
     );
     const existingChildSessionId = input.childSessionId?.trim() || null;
-    const childSession = existingChildSessionId
-      ? await this.options.sessionManager.getSession(existingChildSessionId)
-      : await this.options.sessionManager.createSession({
-          ...(input.sessionSeed ?? {}),
-          workingDirectory: input.workingDirectory,
-          model: input.model,
-          maxTurns,
-          enabledCapabilityPacks,
-          ...(typeof input.userId === "string" ? { userId: input.userId } : {})
-        });
+    const shouldCreateChildSession = executor === "agent_session";
+    const childSession = shouldCreateChildSession
+      ? existingChildSessionId
+        ? await this.options.sessionManager.getSession(existingChildSessionId)
+        : await this.options.sessionManager.createSession({
+            ...(input.sessionSeed ?? {}),
+            workingDirectory: input.workingDirectory,
+            model: input.model,
+            maxTurns,
+            enabledCapabilityPacks,
+            ...(typeof input.userId === "string" ? { userId: input.userId } : {})
+          })
+      : null;
 
-    if (!childSession) {
+    if (shouldCreateChildSession && !childSession) {
       throw new Error(
         `Child session not found for background task: ${existingChildSessionId}`
       );
     }
 
-    const payload: BackgroundTaskPayload = {
-      executor: "agent_session",
+    const sharedPayload = {
       message: input.message,
       workingDirectory: input.workingDirectory,
       model: input.model,
       maxTurns,
-      ...(typeof input.permissionReply === "boolean"
-        ? { permissionReply: input.permissionReply }
-        : {}),
       enabledCapabilityPacks,
       metadata: structuredClone(input.metadata ?? {})
     };
+    const payload: BackgroundTaskPayload =
+      executor === "shell_command"
+        ? {
+            executor,
+            ...sharedPayload,
+            command: input.command?.trim() ?? "",
+            timeoutMs:
+              typeof input.timeoutMs === "number" && Number.isFinite(input.timeoutMs)
+                ? Math.max(1, Math.floor(input.timeoutMs))
+                : 120_000
+          }
+        : {
+            executor,
+            ...sharedPayload,
+            ...(typeof input.permissionReply === "boolean"
+              ? { permissionReply: input.permissionReply }
+              : {})
+          };
+
+    if (payload.executor === "shell_command" && payload.command.length === 0) {
+      throw new Error("shell_command background tasks require a command.");
+    }
 
     try {
       return await this.options.repository.enqueueTask({
         kind: input.kind,
         parentSessionId: input.parentSessionId ?? null,
-        childSessionId: childSession.sessionId,
+        childSessionId: childSession?.sessionId ?? null,
         payload,
-        taskCard: input.taskCard ?? null,
+        taskState: input.taskState ?? null,
         availableAt: input.availableAt ?? null,
         deadlineAt: input.deadlineAt ?? resolveDefaultDeadline({ kind: input.kind }),
         maxAttempts: Math.max(1, Math.floor(input.maxAttempts ?? 1))
       });
     } catch (error) {
-      if (!existingChildSessionId) {
+      if (shouldCreateChildSession && !existingChildSessionId && childSession) {
         await this.options.sessionManager.deleteSession(childSession.sessionId);
       }
       throw error;
@@ -127,7 +151,7 @@ export class DefaultBackgroundTaskManager implements BackgroundTaskManager {
     runId: string;
     workerId: string;
     resultSummary?: string | null;
-    taskCard?: import("@ai-app-template/domain").DelegateTaskCard | null;
+    taskState?: BackgroundTaskState | null;
   }) {
     return this.options.repository.markTaskWaitingForInput(input);
   }
@@ -137,7 +161,7 @@ export class DefaultBackgroundTaskManager implements BackgroundTaskManager {
     runId: string;
     workerId: string;
     resultSummary?: string | null;
-    taskCard?: import("@ai-app-template/domain").DelegateTaskCard | null;
+    taskState?: BackgroundTaskState | null;
   }) {
     return this.options.repository.markTaskWaitingForMainAgent(input);
   }
@@ -147,7 +171,7 @@ export class DefaultBackgroundTaskManager implements BackgroundTaskManager {
     runId: string;
     workerId: string;
     resultSummary?: string | null;
-    taskCard?: import("@ai-app-template/domain").DelegateTaskCard | null;
+    taskState?: BackgroundTaskState | null;
   }) {
     return this.options.repository.completeTask(input);
   }
@@ -158,7 +182,7 @@ export class DefaultBackgroundTaskManager implements BackgroundTaskManager {
     workerId: string;
     errorSummary: string;
     resultSummary?: string | null;
-    taskCard?: import("@ai-app-template/domain").DelegateTaskCard | null;
+    taskState?: BackgroundTaskState | null;
   }) {
     return this.options.repository.failTask(input);
   }
@@ -172,7 +196,7 @@ export class DefaultBackgroundTaskManager implements BackgroundTaskManager {
     runId: string;
     workerId: string;
     resultSummary?: string | null;
-    taskCard?: import("@ai-app-template/domain").DelegateTaskCard | null;
+    taskState?: BackgroundTaskState | null;
   }) {
     return this.options.repository.cancelTask(input);
   }
@@ -180,7 +204,7 @@ export class DefaultBackgroundTaskManager implements BackgroundTaskManager {
   async requeueTask(input: {
     taskId: string;
     payload?: BackgroundTaskPayload;
-    taskCard?: import("@ai-app-template/domain").DelegateTaskCard | null;
+    taskState?: BackgroundTaskState | null;
     resultSummary?: string | null;
     lastError?: string | null;
     availableAt?: string | null;

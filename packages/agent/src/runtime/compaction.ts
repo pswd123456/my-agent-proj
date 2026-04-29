@@ -56,6 +56,14 @@ function stringifyToolInput(input: Record<string, unknown>): string {
   return typeof serialized === "string" ? serialized : String(input);
 }
 
+function getBlockResponseGroupId(
+  block: ConversationBlock
+): string | undefined {
+  return "responseGroupId" in block && typeof block.responseGroupId === "string"
+    ? block.responseGroupId
+    : undefined;
+}
+
 function buildFullCompactionSourceLine(
   block: ConversationBlock
 ): string | null {
@@ -81,28 +89,77 @@ function splitFullCompactionBlocks(blocks: ConversationBlock[]): {
   sourceBlocks: ConversationBlock[];
   retainedTail: ConversationBlock[];
 } {
-  const retainedTail: ConversationBlock[] = [];
+  const retainedRanges: Array<{ start: number; end: number }> = [];
 
-  for (let index = blocks.length - 1; index >= 0; index -= 1) {
+  for (
+    let index = blocks.length - 1;
+    index >= 0 && retainedRanges.length < FULL_COMPACTION_RETAINED_TAIL_BLOCKS;
+    index -= 1
+  ) {
     const block = blocks[index];
     if (!block) {
       continue;
     }
-    if (
-      block.kind !== "user" &&
-      block.kind !== "assistant" &&
-      block.kind !== "tool call"
-    ) {
+
+    const responseGroupId = getBlockResponseGroupId(block);
+    if (responseGroupId) {
+      let start = index;
+      while (
+        start - 1 >= 0 &&
+        getBlockResponseGroupId(blocks[start - 1] as ConversationBlock) ===
+          responseGroupId
+      ) {
+        start -= 1;
+      }
+
+      let end = index;
+      while (
+        end + 1 < blocks.length &&
+        getBlockResponseGroupId(blocks[end + 1] as ConversationBlock) ===
+          responseGroupId
+      ) {
+        end += 1;
+      }
+
+      retainedRanges.push({ start, end });
+      index = start;
       continue;
     }
 
-    retainedTail.push(block);
-    if (retainedTail.length >= FULL_COMPACTION_RETAINED_TAIL_BLOCKS) {
-      break;
+    if (block.kind === "tool result") {
+      const previous = blocks[index - 1];
+      if (
+        previous &&
+        previous.kind === "tool call" &&
+        previous.toolCallId === block.toolCallId &&
+        getBlockResponseGroupId(previous) === undefined
+      ) {
+        retainedRanges.push({ start: index - 1, end: index });
+        index -= 1;
+        continue;
+      }
     }
+
+    if (block.kind === "tool call") {
+      const next = blocks[index + 1];
+      if (
+        next &&
+        next.kind === "tool result" &&
+        next.toolCallId === block.toolCallId &&
+        getBlockResponseGroupId(next) === undefined
+      ) {
+        retainedRanges.push({ start: index, end: index + 1 });
+        continue;
+      }
+    }
+
+    retainedRanges.push({ start: index, end: index });
   }
 
-  retainedTail.reverse();
+  retainedRanges.reverse();
+  const retainedTail = retainedRanges.flatMap((range) =>
+    blocks.slice(range.start, range.end + 1)
+  );
   const retainedIds = new Set(retainedTail.map((block) => block.id));
   const sourceBlocks = blocks.filter((block) => !retainedIds.has(block.id));
   return { sourceBlocks, retainedTail };

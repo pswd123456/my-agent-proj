@@ -254,6 +254,15 @@ function createFailureResult(message: string) {
   );
 }
 
+function isActiveStatus(status: string): boolean {
+  return (
+    status === "queued" ||
+    status === "claimed" ||
+    status === "running" ||
+    status === "cancelling"
+  );
+}
+
 export function createDelegateAgentTool(): RuntimeTool {
   return {
     name: "delegate_agent",
@@ -384,7 +393,18 @@ export function createDelegateAgentTool(): RuntimeTool {
           expected_parent_reply: view.expectedParentReply,
           round: view.round,
           wait_mode: waitOptions.waitMode,
-          initial_check_after_ms: waitOptions.initialCheckAfterMs
+          initial_check_after_ms: waitOptions.initialCheckAfterMs,
+          ...(isActiveStatus(view.status)
+            ? {
+                background_task: {
+                  task_id: view.delegateId,
+                  task_kind: "subagent",
+                  status: view.status,
+                  wait_mode: waitOptions.waitMode,
+                  initial_check_after_ms: waitOptions.initialCheckAfterMs
+                }
+              }
+            : {})
         };
 
         return successResult(

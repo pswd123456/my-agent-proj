@@ -95,8 +95,8 @@ compact 不等于停止条件。
 当前 full compaction 的实现边界是：
 
 - continuation summary 写入 `session.context.fullCompactionState`
-- `session.messages` 只保留最近 6 个 `user` / `assistant` / `tool call`
-- `tool result` 正文不进入 compact prompt，也不保留在 compact 后 tail
+- `session.messages` 只保留最近 6 个可回放单元
+- `tool result` 正文不进入 compact prompt 的 source extract，但会和匹配的 `tool call` 一起保留在 compact 后 tail
 - summary 通过 `runtimeContextMessages` 注入，不进入 stable prefix / cache key
 
 实现细节见 [docs/plan/full-compaction.md](../../plan/full-compaction.md)。

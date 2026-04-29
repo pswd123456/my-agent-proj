@@ -46,7 +46,7 @@
 - `create_routine` / `edit_routine` / `delete_routine`
 - confirmation 相关等待流转
 
-`ask_user_question` 不属于 capability pack；它只在 `plan mode` 开启时作为 planning 工具面的一部分暴露。
+`ask_user_question` 不属于 capability pack；它作为普通 planning 工具暴露，用于把当前 run 暂停到结构化澄清问题。
 
 `manage_capability_packs` 也不属于 capability pack 本身；它只是让 model 读取和调整 session 级 pack 装配的管理工具。当前实现里，enable / disable 只会写回 session 状态，并从下一次 run 开始影响实际 mounted tools。
 

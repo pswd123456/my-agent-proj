@@ -3,12 +3,12 @@ import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, inArray, isNull, lte, or, sql } from "drizzle-orm";
 
 import type {
+  BackgroundTaskState,
   BackgroundTaskClaim,
   BackgroundTaskPayload,
   BackgroundTaskRecord,
   BackgroundTaskRunRecord,
-  BackgroundTaskStatus,
-  DelegateTaskCard
+  BackgroundTaskStatus
 } from "@ai-app-template/domain";
 
 import { backgroundTaskRuns, backgroundTasks } from "./schema.js";
@@ -20,9 +20,9 @@ type BackgroundTaskRunRow = typeof backgroundTaskRuns.$inferSelect;
 export interface EnqueueBackgroundTaskInput {
   kind: BackgroundTaskRecord["kind"];
   parentSessionId?: string | null;
-  childSessionId: string;
+  childSessionId?: string | null;
   payload: BackgroundTaskPayload;
-  taskCard?: DelegateTaskCard | null;
+  taskState?: BackgroundTaskState | null;
   availableAt?: string | null;
   deadlineAt?: string | null;
   maxAttempts?: number;
@@ -36,34 +36,34 @@ export interface TaskClaimInput {
 
 export interface TaskWaitingForInputInput extends TaskClaimInput {
   resultSummary?: string | null;
-  taskCard?: DelegateTaskCard | null;
+  taskState?: BackgroundTaskState | null;
 }
 
 export interface TaskWaitingForMainAgentInput extends TaskClaimInput {
   resultSummary?: string | null;
-  taskCard?: DelegateTaskCard | null;
+  taskState?: BackgroundTaskState | null;
 }
 
 export interface CompleteTaskInput extends TaskClaimInput {
   resultSummary?: string | null;
-  taskCard?: DelegateTaskCard | null;
+  taskState?: BackgroundTaskState | null;
 }
 
 export interface FailTaskInput extends TaskClaimInput {
   errorSummary: string;
   resultSummary?: string | null;
-  taskCard?: DelegateTaskCard | null;
+  taskState?: BackgroundTaskState | null;
 }
 
 export interface CancelTaskInput extends TaskClaimInput {
   resultSummary?: string | null;
-  taskCard?: DelegateTaskCard | null;
+  taskState?: BackgroundTaskState | null;
 }
 
 export interface RequeueExistingTaskInput {
   taskId: string;
   payload?: BackgroundTaskPayload;
-  taskCard?: DelegateTaskCard | null;
+  taskState?: BackgroundTaskState | null;
   resultSummary?: string | null;
   lastError?: string | null;
   availableAt?: string | null;
@@ -133,6 +133,41 @@ function parseJsonValue(value: unknown): unknown {
   }
 }
 
+function normalizeTaskState(value: unknown): BackgroundTaskState | null {
+  const parsed = parseJsonValue(value);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return null;
+  }
+
+  if ("kind" in parsed && typeof parsed.kind === "string") {
+    return parsed as BackgroundTaskState;
+  }
+
+  if (
+    "title" in parsed &&
+    typeof parsed.title === "string" &&
+    "objective" in parsed &&
+    typeof parsed.objective === "string"
+  ) {
+    return {
+      kind: "delegate",
+      ...(parsed as Omit<Extract<BackgroundTaskState, { kind: "delegate" }>, "kind">)
+    };
+  }
+
+  if ("command" in parsed && typeof parsed.command === "string") {
+    return {
+      kind: "shell_command",
+      ...(parsed as Omit<
+        Extract<BackgroundTaskState, { kind: "shell_command" }>,
+        "kind"
+      >)
+    };
+  }
+
+  return null;
+}
+
 function mapTaskRow(row: BackgroundTaskRow): BackgroundTaskRecord {
   return {
     taskId: row.id,
@@ -142,7 +177,7 @@ function mapTaskRow(row: BackgroundTaskRow): BackgroundTaskRecord {
     parentSessionId: row.parentSessionId,
     childSessionId: row.childSessionId,
     payload: parseJsonValue(row.payload) as BackgroundTaskPayload,
-    taskCard: parseJsonValue(row.taskCard) as DelegateTaskCard | null,
+    taskState: normalizeTaskState(row.taskState),
     resultSummary: row.resultSummary,
     lastError: row.lastError,
     availableAt: row.availableAt ? toIsoString(row.availableAt) : null,
@@ -252,10 +287,21 @@ function finishRun(
 }
 
 function resolveTaskResultSummary(input: {
-  taskCard?: DelegateTaskCard | null | undefined;
+  taskState?: BackgroundTaskState | null | undefined;
   fallback?: string | null;
 }): string | null {
-  return input.taskCard?.latestResponse?.summary ?? input.fallback ?? null;
+  if (input.taskState?.kind === "delegate") {
+    return input.taskState.latestResponse?.summary ?? input.fallback ?? null;
+  }
+
+  if (input.taskState?.kind === "shell_command") {
+    const latestResult = input.taskState.latestResult;
+    if (latestResult) {
+      return `${latestResult.command} (${latestResult.terminationReason})`;
+    }
+  }
+
+  return input.fallback ?? null;
 }
 
 function isTaskAvailable(task: BackgroundTaskRecord, now: string): boolean {
@@ -317,11 +363,11 @@ export class MemoryBackgroundTaskRepository implements BackgroundTaskRepository 
       status: "queued",
       executor: input.payload.executor,
       parentSessionId: input.parentSessionId ?? null,
-      childSessionId: input.childSessionId,
+      childSessionId: input.childSessionId ?? null,
       payload: structuredClone(input.payload) as BackgroundTaskPayload,
-      taskCard: structuredClone(input.taskCard ?? null) as DelegateTaskCard | null,
+      taskState: structuredClone(input.taskState ?? null) as BackgroundTaskState | null,
       resultSummary: resolveTaskResultSummary({
-        taskCard: input.taskCard,
+        taskState: input.taskState,
         fallback: null
       }),
       lastError: null,
@@ -450,9 +496,9 @@ export class MemoryBackgroundTaskRepository implements BackgroundTaskRepository 
       {
         ...task,
         status: "waiting_for_input",
-        taskCard: structuredClone(input.taskCard ?? task.taskCard ?? null),
+        taskState: structuredClone(input.taskState ?? task.taskState ?? null),
         resultSummary: resolveTaskResultSummary({
-          taskCard: input.taskCard ?? task.taskCard ?? null,
+          taskState: input.taskState ?? task.taskState ?? null,
           fallback: input.resultSummary ?? task.resultSummary
         })
       },
@@ -460,7 +506,7 @@ export class MemoryBackgroundTaskRepository implements BackgroundTaskRepository 
     );
     const nextRun = finishRun(run, "waiting_for_input", now, {
       resultSummary: resolveTaskResultSummary({
-        taskCard: input.taskCard ?? task.taskCard ?? null,
+        taskState: input.taskState ?? task.taskState ?? null,
         fallback: input.resultSummary ?? run.resultSummary
       })
     });
@@ -487,9 +533,9 @@ export class MemoryBackgroundTaskRepository implements BackgroundTaskRepository 
       {
         ...task,
         status: "waiting_for_main_agent",
-        taskCard: structuredClone(input.taskCard ?? task.taskCard ?? null),
+        taskState: structuredClone(input.taskState ?? task.taskState ?? null),
         resultSummary: resolveTaskResultSummary({
-          taskCard: input.taskCard ?? task.taskCard ?? null,
+          taskState: input.taskState ?? task.taskState ?? null,
           fallback: input.resultSummary ?? task.resultSummary
         })
       },
@@ -497,7 +543,7 @@ export class MemoryBackgroundTaskRepository implements BackgroundTaskRepository 
     );
     const nextRun = finishRun(run, "waiting_for_main_agent", now, {
       resultSummary: resolveTaskResultSummary({
-        taskCard: input.taskCard ?? task.taskCard ?? null,
+        taskState: input.taskState ?? task.taskState ?? null,
         fallback: input.resultSummary ?? run.resultSummary
       })
     });
@@ -523,9 +569,9 @@ export class MemoryBackgroundTaskRepository implements BackgroundTaskRepository 
         {
           ...task,
           status: "completed",
-          taskCard: structuredClone(input.taskCard ?? task.taskCard ?? null),
+          taskState: structuredClone(input.taskState ?? task.taskState ?? null),
           resultSummary: resolveTaskResultSummary({
-            taskCard: input.taskCard ?? task.taskCard ?? null,
+            taskState: input.taskState ?? task.taskState ?? null,
             fallback: input.resultSummary ?? task.resultSummary
           }),
           completedAt: now
@@ -536,7 +582,7 @@ export class MemoryBackgroundTaskRepository implements BackgroundTaskRepository 
     };
     const nextRun = finishRun(run, "completed", now, {
       resultSummary: resolveTaskResultSummary({
-        taskCard: input.taskCard ?? task.taskCard ?? null,
+        taskState: input.taskState ?? task.taskState ?? null,
         fallback: input.resultSummary ?? run.resultSummary
       }),
       errorSummary: null
@@ -559,10 +605,10 @@ export class MemoryBackgroundTaskRepository implements BackgroundTaskRepository 
         {
           ...task,
           status: "failed",
-          taskCard: structuredClone(input.taskCard ?? task.taskCard ?? null),
+          taskState: structuredClone(input.taskState ?? task.taskState ?? null),
           lastError: input.errorSummary,
           resultSummary: resolveTaskResultSummary({
-            taskCard: input.taskCard ?? task.taskCard ?? null,
+            taskState: input.taskState ?? task.taskState ?? null,
             fallback: input.resultSummary ?? task.resultSummary
           }),
           completedAt: now
@@ -574,7 +620,7 @@ export class MemoryBackgroundTaskRepository implements BackgroundTaskRepository 
     const nextRun = finishRun(run, "failed", now, {
       errorSummary: input.errorSummary,
       resultSummary: resolveTaskResultSummary({
-        taskCard: input.taskCard ?? task.taskCard ?? null,
+        taskState: input.taskState ?? task.taskState ?? null,
         fallback: input.resultSummary ?? run.resultSummary
       })
     });
@@ -636,9 +682,9 @@ export class MemoryBackgroundTaskRepository implements BackgroundTaskRepository 
         {
           ...task,
           status: "cancelled",
-          taskCard: structuredClone(input.taskCard ?? task.taskCard ?? null),
+          taskState: structuredClone(input.taskState ?? task.taskState ?? null),
           resultSummary: resolveTaskResultSummary({
-            taskCard: input.taskCard ?? task.taskCard ?? null,
+            taskState: input.taskState ?? task.taskState ?? null,
             fallback: input.resultSummary ?? task.resultSummary
           }),
           completedAt: now
@@ -649,7 +695,7 @@ export class MemoryBackgroundTaskRepository implements BackgroundTaskRepository 
     };
     const nextRun = finishRun(run, "cancelled", now, {
       resultSummary: resolveTaskResultSummary({
-        taskCard: input.taskCard ?? task.taskCard ?? null,
+        taskState: input.taskState ?? task.taskState ?? null,
         fallback: input.resultSummary ?? run.resultSummary
       }),
       errorSummary: null
@@ -715,9 +761,9 @@ export class MemoryBackgroundTaskRepository implements BackgroundTaskRepository 
       ...task,
       status: "queued",
       payload: structuredClone(input.payload ?? task.payload) as BackgroundTaskPayload,
-      taskCard: structuredClone(input.taskCard ?? task.taskCard ?? null),
+      taskState: structuredClone(input.taskState ?? task.taskState ?? null),
       resultSummary: resolveTaskResultSummary({
-        taskCard: input.taskCard ?? task.taskCard ?? null,
+        taskState: input.taskState ?? task.taskState ?? null,
         fallback: input.resultSummary ?? task.resultSummary
       }),
       lastError:
@@ -857,11 +903,11 @@ export class PostgresBackgroundTaskRepository
         status: "queued",
         executor: input.payload.executor,
         parentSessionId: input.parentSessionId ?? null,
-        childSessionId: input.childSessionId,
+        childSessionId: input.childSessionId ?? null,
         payload: input.payload,
-        taskCard: input.taskCard ?? null,
+        taskState: input.taskState ?? null,
         resultSummary: resolveTaskResultSummary({
-          taskCard: input.taskCard,
+          taskState: input.taskState,
           fallback: null
         }),
         lastError: null,
@@ -1014,9 +1060,9 @@ export class PostgresBackgroundTaskRepository
           {
             ...existing.task,
             status: "waiting_for_input",
-            taskCard: structuredClone(input.taskCard ?? existing.task.taskCard ?? null),
+            taskState: structuredClone(input.taskState ?? existing.task.taskState ?? null),
             resultSummary: resolveTaskResultSummary({
-              taskCard: input.taskCard ?? existing.task.taskCard ?? null,
+              taskState: input.taskState ?? existing.task.taskState ?? null,
               fallback: input.resultSummary ?? existing.task.resultSummary
             })
           },
@@ -1025,7 +1071,7 @@ export class PostgresBackgroundTaskRepository
       },
       finishRun(existing.run, "waiting_for_input", now, {
         resultSummary: resolveTaskResultSummary({
-          taskCard: input.taskCard ?? existing.task.taskCard ?? null,
+          taskState: input.taskState ?? existing.task.taskState ?? null,
           fallback: input.resultSummary ?? existing.run.resultSummary
         })
       })
@@ -1048,9 +1094,9 @@ export class PostgresBackgroundTaskRepository
           {
             ...existing.task,
             status: "waiting_for_main_agent",
-            taskCard: structuredClone(input.taskCard ?? existing.task.taskCard ?? null),
+            taskState: structuredClone(input.taskState ?? existing.task.taskState ?? null),
             resultSummary: resolveTaskResultSummary({
-              taskCard: input.taskCard ?? existing.task.taskCard ?? null,
+              taskState: input.taskState ?? existing.task.taskState ?? null,
               fallback: input.resultSummary ?? existing.task.resultSummary
             })
           },
@@ -1059,7 +1105,7 @@ export class PostgresBackgroundTaskRepository
       },
       finishRun(existing.run, "waiting_for_main_agent", now, {
         resultSummary: resolveTaskResultSummary({
-          taskCard: input.taskCard ?? existing.task.taskCard ?? null,
+          taskState: input.taskState ?? existing.task.taskState ?? null,
           fallback: input.resultSummary ?? existing.run.resultSummary
         })
       })
@@ -1080,9 +1126,9 @@ export class PostgresBackgroundTaskRepository
           {
             ...existing.task,
             status: "completed",
-            taskCard: structuredClone(input.taskCard ?? existing.task.taskCard ?? null),
+            taskState: structuredClone(input.taskState ?? existing.task.taskState ?? null),
             resultSummary: resolveTaskResultSummary({
-              taskCard: input.taskCard ?? existing.task.taskCard ?? null,
+              taskState: input.taskState ?? existing.task.taskState ?? null,
               fallback: input.resultSummary ?? existing.task.resultSummary
             }),
             completedAt: now
@@ -1093,7 +1139,7 @@ export class PostgresBackgroundTaskRepository
       },
       finishRun(existing.run, "completed", now, {
         resultSummary: resolveTaskResultSummary({
-          taskCard: input.taskCard ?? existing.task.taskCard ?? null,
+          taskState: input.taskState ?? existing.task.taskState ?? null,
           fallback: input.resultSummary ?? existing.run.resultSummary
         }),
         errorSummary: null
@@ -1111,10 +1157,10 @@ export class PostgresBackgroundTaskRepository
           {
             ...existing.task,
             status: "failed",
-            taskCard: structuredClone(input.taskCard ?? existing.task.taskCard ?? null),
+            taskState: structuredClone(input.taskState ?? existing.task.taskState ?? null),
             lastError: input.errorSummary,
             resultSummary: resolveTaskResultSummary({
-              taskCard: input.taskCard ?? existing.task.taskCard ?? null,
+              taskState: input.taskState ?? existing.task.taskState ?? null,
               fallback: input.resultSummary ?? existing.task.resultSummary
             }),
             completedAt: now
@@ -1126,7 +1172,7 @@ export class PostgresBackgroundTaskRepository
       finishRun(existing.run, "failed", now, {
         errorSummary: input.errorSummary,
         resultSummary: resolveTaskResultSummary({
-          taskCard: input.taskCard ?? existing.task.taskCard ?? null,
+          taskState: input.taskState ?? existing.task.taskState ?? null,
           fallback: input.resultSummary ?? existing.run.resultSummary
         })
       })
@@ -1176,9 +1222,9 @@ export class PostgresBackgroundTaskRepository
           {
             ...existing.task,
             status: "cancelled",
-            taskCard: structuredClone(input.taskCard ?? existing.task.taskCard ?? null),
+            taskState: structuredClone(input.taskState ?? existing.task.taskState ?? null),
             resultSummary: resolveTaskResultSummary({
-              taskCard: input.taskCard ?? existing.task.taskCard ?? null,
+              taskState: input.taskState ?? existing.task.taskState ?? null,
               fallback: input.resultSummary ?? existing.task.resultSummary
             }),
             completedAt: now
@@ -1189,7 +1235,7 @@ export class PostgresBackgroundTaskRepository
       },
       finishRun(existing.run, "cancelled", now, {
         resultSummary: resolveTaskResultSummary({
-          taskCard: input.taskCard ?? existing.task.taskCard ?? null,
+          taskState: input.taskState ?? existing.task.taskState ?? null,
           fallback: input.resultSummary ?? existing.run.resultSummary
         }),
         errorSummary: null
@@ -1259,9 +1305,9 @@ export class PostgresBackgroundTaskRepository
       .set({
         status: "queued",
         payload: input.payload ?? task.payload,
-        taskCard: input.taskCard ?? task.taskCard,
+        taskState: input.taskState ?? task.taskState,
         resultSummary: resolveTaskResultSummary({
-          taskCard: input.taskCard ?? task.taskCard,
+          taskState: input.taskState ?? task.taskState,
           fallback: input.resultSummary ?? task.resultSummary
         }),
         lastError:
@@ -1382,7 +1428,7 @@ export class PostgresBackgroundTaskRepository
       .set({
         status: task.status,
         payload: task.payload,
-        taskCard: task.taskCard,
+        taskState: task.taskState,
         resultSummary: task.resultSummary,
         lastError: task.lastError,
         availableAt: task.availableAt,

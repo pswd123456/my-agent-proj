@@ -4,6 +4,8 @@ import type { SessionSnapshot } from "@ai-app-template/sdk";
 
 import {
   buildBackgroundNotificationCopy,
+  getBackgroundNotificationCardLabel,
+  getBackgroundNotificationHeadline,
   buildPermissionQuickReplies,
   buildComposerActionView,
   buildConfirmationCardView,
@@ -48,6 +50,7 @@ const pendingUserQuestionPayload: NonNullable<
       description: "同时补完整前端交互"
     }
   ],
+  allowCancel: true,
   contextNote: "这会影响当前 plan mode 的交付边界。",
   createdAt: "2026-04-26T09:00:00.000Z"
 };
@@ -342,6 +345,42 @@ describe("background notification copy", () => {
   });
 });
 
+describe("background notification messaging", () => {
+  test("keeps the consumed subagent wording unchanged", () => {
+    expect(
+      getBackgroundNotificationCardLabel({
+        taskKind: "subagent",
+        isConsumed: true
+      })
+    ).toBe("子代理反馈");
+    expect(
+      getBackgroundNotificationHeadline({
+        kind: "task_completed",
+        title: "后台子任务",
+        taskKind: "subagent",
+        isConsumed: true
+      })
+    ).toBe("主代理接受了子代理的反馈");
+  });
+
+  test("uses background-task wording for consumed shell notifications", () => {
+    expect(
+      getBackgroundNotificationCardLabel({
+        taskKind: "shell_command",
+        isConsumed: true
+      })
+    ).toBe("后台任务");
+    expect(
+      getBackgroundNotificationHeadline({
+        kind: "task_completed",
+        title: "后台任务",
+        taskKind: "shell_command",
+        isConsumed: true
+      })
+    ).toBe("后台任务已完成");
+  });
+});
+
 describe("workspace file change rows", () => {
   test("formats line deltas and preserves diff text", () => {
     expect(
@@ -373,12 +412,22 @@ describe("user question card", () => {
     expect(view?.questionText).toBe("这次计划要覆盖 CLI 还是 Web workbench？");
     expect(view?.options).toHaveLength(2);
     expect(view?.options[0]?.isRecommended).toBe(true);
+    expect(view?.showCancelAction).toBe(true);
     expect(view?.contextNote).toBe("这会影响当前 plan mode 的交付边界。");
   });
 
   test("returns null when there is no pending clarification", () => {
     expect(buildUserQuestionCardView(null)).toBeNull();
     expect(getUserQuestionKey(null)).toBeNull();
+  });
+
+  test("hides the cancel action when the payload disables it", () => {
+    const view = buildUserQuestionCardView({
+      ...pendingUserQuestionPayload,
+      allowCancel: false
+    });
+
+    expect(view?.showCancelAction).toBe(false);
   });
 });
 

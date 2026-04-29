@@ -197,6 +197,66 @@ export function buildBackgroundNotificationCopy(
   };
 }
 
+function getBackgroundNotificationKindLabel(kind: string): string {
+  switch (kind) {
+    case "task_completed":
+      return "completed";
+    case "task_waiting":
+      return "waiting";
+    case "task_failed":
+      return "failed";
+    case "task_cancelled":
+      return "cancelled";
+    case "task_timeout":
+      return "timeout";
+    default:
+      return kind;
+  }
+}
+
+function isSubagentBackgroundNotification(taskKind: string | null | undefined): boolean {
+  return taskKind === "subagent";
+}
+
+export function getBackgroundNotificationCardLabel(input: {
+  taskKind: string | null | undefined;
+  isConsumed: boolean;
+}): string {
+  if (input.isConsumed) {
+    return isSubagentBackgroundNotification(input.taskKind)
+      ? "子代理反馈"
+      : "后台任务";
+  }
+
+  return "后台更新";
+}
+
+export function getBackgroundNotificationHeadline(input: {
+  kind: string;
+  title: string;
+  taskKind: string | null | undefined;
+  isConsumed: boolean;
+}): string {
+  if (!input.isConsumed) {
+    return input.title;
+  }
+
+  if (isSubagentBackgroundNotification(input.taskKind)) {
+    return "主代理接受了子代理的反馈";
+  }
+
+  switch (input.kind) {
+    case "task_failed":
+      return "后台任务失败";
+    case "task_cancelled":
+      return "后台任务已取消";
+    case "task_timeout":
+      return "后台任务超时";
+    default:
+      return "后台任务已完成";
+  }
+}
+
 function MessageRoleLabel({
   role,
   timestamp
@@ -240,6 +300,7 @@ interface UserQuestionCardView {
   options: NonNullable<
     SessionSnapshot["context"]["pendingUserQuestionPayload"]
   >["options"];
+  showCancelAction: boolean;
   contextNote?: string;
 }
 
@@ -497,6 +558,7 @@ export function buildUserQuestionCardView(
     key,
     questionText: payload.questionText,
     options: payload.options,
+    showCancelAction: payload.allowCancel !== false,
     ...(payload.contextNote ? { contextNote: payload.contextNote } : {})
   };
 }
@@ -935,13 +997,16 @@ function renderExecutionEvent(
     const consumedIdLabel = childSessionId ? "Session ID" : "Task ID";
     const toneClass = isConsumed
       ? "text-[var(--app-text-muted)]"
-      : event.notification.kind === "delegate_failed" ||
-          event.notification.kind === "delegate_timeout"
+      : event.notification.kind === "task_failed" ||
+          event.notification.kind === "task_timeout"
         ? "text-[var(--app-status-danger)]"
-        : event.notification.kind === "delegate_needs_main_agent"
+        : event.notification.kind === "task_waiting"
           ? "text-[var(--app-status-warning)]"
           : "text-[var(--app-text-secondary)]";
-    const title = isConsumed ? "子代理反馈" : "后台更新";
+    const title = getBackgroundNotificationCardLabel({
+      taskKind: event.notification.taskKind,
+      isConsumed
+    });
     const cardClass = getInspectorCardClass(
       isConsumed
         ? "border-[color:color-mix(in_srgb,var(--app-text-muted)_18%,var(--app-border-subtle)_82%)] bg-[color:color-mix(in_srgb,var(--app-bg-elevated)_54%,var(--app-bg-surface)_46%)]"
@@ -956,9 +1021,12 @@ function renderExecutionEvent(
               {title}
             </div>
             <div className="mt-2 text-sm font-medium text-[var(--app-text-primary)]">
-              {isConsumed
-                ? "主代理接受了子代理的反馈"
-                : event.notification.title}
+              {getBackgroundNotificationHeadline({
+                kind: event.notification.kind,
+                title: event.notification.title,
+                taskKind: event.notification.taskKind,
+                isConsumed
+              })}
             </div>
           </div>
           <div
@@ -970,7 +1038,9 @@ function renderExecutionEvent(
           >
             {isConsumed
               ? "已处理"
-              : event.notification.kind.replace("delegate_", "")}
+              : `${getBackgroundNotificationKindLabel(
+                  event.notification.kind
+                )} · ${event.notification.taskKind}`}
           </div>
         </div>
         <div className="mt-3 grid gap-2 text-sm leading-6 text-[var(--app-text-secondary)]">
@@ -1786,6 +1856,17 @@ export function SessionWorkbenchConversationPanel({
     () => getPeakTurnContextTokens(turnUsageByTurnCount),
     [turnUsageByTurnCount]
   );
+  const currentWorkingDirectory = currentSession?.workingDirectory ?? "--";
+  const currentWorkingDirectoryLabel = formatWorkingDirectory(
+    currentWorkingDirectory
+  );
+  const yoloModeEnabled = currentSession?.context.yoloMode ?? false;
+  const peakContextUsageLabel = currentSession
+    ? formatContextWindowUsage(
+        peakTurnContextTokens,
+        currentSession.contextWindow
+      )
+    : "-- / ctx --";
   const renderedTimelineItems = useMemo(
     () =>
       visibleConversationViewItems
@@ -2515,8 +2596,23 @@ export function SessionWorkbenchConversationPanel({
                         </div>
                       ) : null}
 
+                      {userQuestionCardView.showCancelAction ? (
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => onUserQuestionQuickReply("取消")}
+                            disabled={submitting}
+                            className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-3 py-1.5 text-sm font-medium text-[var(--app-text-secondary)] transition hover:border-[var(--app-status-danger)] hover:text-[var(--app-status-danger)] disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            取消
+                          </button>
+                        </div>
+                      ) : null}
+
                       <div className="text-xs text-[var(--app-text-muted)]">
-                        也可以直接在下面输入你的答案。
+                        {userQuestionCardView.showCancelAction
+                          ? "也可以直接在下面输入你的答案，或者回复“取消”。"
+                          : "也可以直接在下面输入你的答案。"}
                       </div>
                     </div>
                   </div>
@@ -2538,25 +2634,6 @@ export function SessionWorkbenchConversationPanel({
                       {quickActionsOpen ? (
                         <div className="absolute bottom-full left-0 mb-2 w-72 rounded-[var(--app-radius-lg)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_98%,transparent)] p-3 shadow-none">
                           <div className="grid gap-3">
-                            <label className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
-                              <span className="text-[0.68rem] uppercase tracking-[0.14em] text-[var(--app-text-muted)]">
-                                Model
-                              </span>
-                              <WorkbenchSelect
-                                value={selectedModelId}
-                                disabled={!currentSession}
-                                ariaLabel="选择当前会话模型"
-                                onValueChange={onSettingsModelChange}
-                                options={modelCatalog.map((model) => ({
-                                  value: model.id,
-                                  label: model.configured
-                                    ? model.label
-                                    : `${model.label} (unavailable)`,
-                                  disabled: !model.configured
-                                }))}
-                              />
-                            </label>
-
                             <label className="flex items-center justify-between gap-3 rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_92%,transparent)] px-3 py-2.5 text-sm text-[var(--app-text-secondary)]">
                               <div>
                                 <div className="text-sm text-[var(--app-text-primary)]">
@@ -2620,32 +2697,62 @@ export function SessionWorkbenchConversationPanel({
                         本次执行已中断，可直接继续输入下一条消息。
                       </span>
                     ) : null}
-                    <span className="min-w-0 font-mono text-[var(--app-text-secondary)]">
-                      cwd{" "}
-                      {formatWorkingDirectory(
-                        currentSession?.workingDirectory ?? "--"
-                      )}
+                    <span className="inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-[var(--app-radius-pill)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_54%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_68%,transparent)] px-2.5 py-1 font-mono text-[0.7rem] leading-none text-[var(--app-text-secondary)]">
+                      <span className="shrink-0 uppercase tracking-[0.12em] text-[var(--app-text-muted)]">
+                        cwd
+                      </span>
+                      <span
+                        title={currentWorkingDirectory}
+                        className="min-w-0 truncate text-[var(--app-text-primary)]"
+                      >
+                        {currentWorkingDirectoryLabel}
+                      </span>
                     </span>
                     <span
-                      className={`${
-                        currentSession?.context.yoloMode
-                          ? "text-[var(--app-status-success)]"
-                          : "text-[var(--app-text-muted)]"
+                      className={`inline-flex items-center gap-1.5 rounded-[var(--app-radius-pill)] border px-2.5 py-1 font-mono text-[0.7rem] leading-none ${
+                        yoloModeEnabled
+                          ? "border-[color:color-mix(in_srgb,var(--app-status-success)_42%,transparent)] bg-[color:color-mix(in_srgb,var(--app-status-success)_11%,var(--app-bg-muted)_89%)] text-[var(--app-status-success)]"
+                          : "border-[color:color-mix(in_srgb,var(--app-border-subtle)_54%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_60%,transparent)] text-[var(--app-text-muted)]"
                       }`}
                     >
-                      yolo {currentSession?.context.yoloMode ? "on" : "off"}
+                      <span
+                        className={`h-1.5 w-1.5 rounded-full ${
+                          yoloModeEnabled
+                            ? "bg-[var(--app-status-success)]"
+                            : "bg-[var(--app-text-muted)]"
+                        }`}
+                      />
+                      <span className="uppercase tracking-[0.12em]">yolo</span>
+                      <span className="text-[var(--app-text-primary)]">
+                        {yoloModeEnabled ? "on" : "off"}
+                      </span>
                     </span>
-                    <span className="font-mono text-xs text-[var(--app-text-muted)]">
-                      {currentSession
-                        ? `peak ctx ${formatContextWindowUsage(
-                            peakTurnContextTokens,
-                            currentSession.contextWindow
-                          )}`
-                        : "peak ctx -- / ctx --"}
+                    <span className="inline-flex items-center gap-1.5 rounded-[var(--app-radius-pill)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_46%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_52%,transparent)] px-2.5 py-1 font-mono text-[0.7rem] leading-none text-[var(--app-text-muted)]">
+                      <span className="uppercase tracking-[0.12em]">
+                        peak ctx
+                      </span>
+                      <span className="text-[var(--app-text-secondary)]">
+                        {peakContextUsageLabel}
+                      </span>
                     </span>
                   </div>
 
-                  <div className="flex shrink-0 items-center justify-end">
+                  <div className="flex shrink-0 items-center justify-end gap-2">
+                    <div className="w-44 max-w-[52vw]">
+                      <WorkbenchSelect
+                        value={selectedModelId}
+                        disabled={!currentSession}
+                        ariaLabel="选择当前会话模型"
+                        onValueChange={onSettingsModelChange}
+                        options={modelCatalog.map((model) => ({
+                          value: model.id,
+                          label: model.configured
+                            ? model.label
+                            : `${model.label} (unavailable)`,
+                          disabled: !model.configured
+                        }))}
+                      />
+                    </div>
                     <button
                       type={
                         composerActionView.buttonType === "submit"

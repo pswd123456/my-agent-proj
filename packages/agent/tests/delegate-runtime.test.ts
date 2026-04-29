@@ -44,7 +44,7 @@ function createInjectedNotificationTool(): RuntimeTool {
           ...session.context.pendingBackgroundNotifications,
           {
             id: "notification-1",
-            kind: "delegate_completed",
+            kind: "task_completed",
             taskId: "delegate-1",
             title: "后台子任务",
             summary: "后台子任务已完成。",
@@ -281,6 +281,7 @@ describe("delegate runtime behavior", () => {
       sessionManager,
       routineRepository,
       delegateAgentService,
+      backgroundTaskManager,
       toolRegistry: new ToolRegistry()
         .register(createDelegateAgentTool())
         .register(createNoopTool())
@@ -311,7 +312,7 @@ describe("delegate runtime behavior", () => {
     expect(wakeupTask?.status).toBe("queued");
     expect(wakeupTask?.availableAt).not.toBeNull();
     expect(wakeupTask?.payload.metadata).toMatchObject({
-      reason: "delegate_poll",
+      reason: "background_task_poll",
       nextIntervalMs: 1500
     });
   });
@@ -433,7 +434,7 @@ describe("delegate runtime behavior", () => {
                 ...session.context.pendingBackgroundNotifications,
                 {
                   id: "mid-turn-notification",
-                  kind: "delegate_completed",
+                  kind: "task_completed",
                   taskId: "delegate-mid-turn",
                   title: "后台子任务",
                   summary: "后台子任务在当前回合中完成。",

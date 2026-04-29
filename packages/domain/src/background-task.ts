@@ -4,7 +4,8 @@ import type { DomainJsonValue } from "./json.js";
 export const BACKGROUND_TASK_KIND_OPTIONS = [
   "cron_job",
   "subagent",
-  "session_wakeup"
+  "session_wakeup",
+  "shell_command"
 ] as const;
 export type BackgroundTaskKind =
   (typeof BACKGROUND_TASK_KIND_OPTIONS)[number];
@@ -23,7 +24,19 @@ export const BACKGROUND_TASK_STATUS_OPTIONS = [
 export type BackgroundTaskStatus =
   (typeof BACKGROUND_TASK_STATUS_OPTIONS)[number];
 
-export type BackgroundTaskExecutor = "agent_session";
+export const BACKGROUND_TASK_EXECUTOR_OPTIONS = [
+  "agent_session",
+  "shell_command"
+] as const;
+export type BackgroundTaskExecutor =
+  (typeof BACKGROUND_TASK_EXECUTOR_OPTIONS)[number];
+
+export const BACKGROUND_TASK_WAIT_MODE_OPTIONS = [
+  "blocking",
+  "unblocking"
+] as const;
+export type BackgroundTaskWaitMode =
+  (typeof BACKGROUND_TASK_WAIT_MODE_OPTIONS)[number];
 
 export const DELEGATE_EXPECTED_PARENT_REPLY_OPTIONS = [
   "none",
@@ -63,7 +76,8 @@ export interface DelegateResponseEnvelope {
   request?: DelegateRequestEnvelope | null;
 }
 
-export interface DelegateTaskCard {
+export interface DelegateTaskState {
+  kind: "delegate";
   title: string;
   objective: string;
   parentTaskSummary: string;
@@ -77,10 +91,38 @@ export interface DelegateTaskCard {
   responseIsolation: true;
 }
 
+export interface ShellCommandResultEnvelope {
+  type: "shell_command";
+  command: string;
+  stdout: string;
+  stderr: string;
+  workingDirectory: string;
+  timeoutMs: number;
+  exitCode: number | null;
+  terminationReason:
+    | "completed"
+    | "failed"
+    | "timeout"
+    | "cancelled"
+    | "interrupted";
+}
+
+export interface ShellCommandTaskState {
+  kind: "shell_command";
+  command: string;
+  waitMode: BackgroundTaskWaitMode;
+  timeoutMs: number;
+  latestResult: ShellCommandResultEnvelope | null;
+}
+
+export type BackgroundTaskState =
+  | DelegateTaskState
+  | ShellCommandTaskState;
+
 export type DelegatePermissionDecision = "approve" | "reject";
 
-export interface BackgroundTaskPayload {
-  executor: BackgroundTaskExecutor;
+export interface AgentSessionBackgroundTaskPayload {
+  executor: "agent_session";
   message: string;
   workingDirectory: string;
   model: string;
@@ -90,15 +132,52 @@ export interface BackgroundTaskPayload {
   metadata: Record<string, DomainJsonValue>;
 }
 
+export interface ShellCommandBackgroundTaskPayload {
+  executor: "shell_command";
+  message: string;
+  workingDirectory: string;
+  model: string;
+  maxTurns: number;
+  enabledCapabilityPacks: CapabilityPackName[];
+  metadata: Record<string, DomainJsonValue>;
+  command: string;
+  timeoutMs: number;
+}
+
+export type BackgroundTaskPayload =
+  | AgentSessionBackgroundTaskPayload
+  | ShellCommandBackgroundTaskPayload;
+
+export interface DelegateBackgroundTaskResultEnvelope {
+  type: "delegate";
+  summary: string;
+  content: string;
+  responseKind: DelegateResponseKind;
+  expectedParentReply: DelegateExpectedParentReply;
+  request?: DelegateRequestEnvelope | null;
+}
+
+export type BackgroundTaskResultEnvelope =
+  | DelegateBackgroundTaskResultEnvelope
+  | ShellCommandResultEnvelope;
+
+export interface BackgroundTaskHandle {
+  taskId: string;
+  taskKind: BackgroundTaskKind;
+  status: BackgroundTaskStatus;
+  waitMode: BackgroundTaskWaitMode;
+  initialCheckAfterMs: number;
+}
+
 export interface BackgroundTaskRecord {
   taskId: string;
   kind: BackgroundTaskKind;
   status: BackgroundTaskStatus;
   executor: BackgroundTaskExecutor;
   parentSessionId: string | null;
-  childSessionId: string;
+  childSessionId: string | null;
   payload: BackgroundTaskPayload;
-  taskCard: DelegateTaskCard | null;
+  taskState: BackgroundTaskState | null;
   resultSummary: string | null;
   lastError: string | null;
   availableAt: string | null;

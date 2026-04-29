@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   listSettingsPermissionToolOptions,
   applyUnifiedPatch,
+  createRunErrorEvent,
   createRunTraceEvent,
   invertUnifiedPatch,
   ModelUnavailableError,
@@ -12,7 +13,8 @@ import {
   UnsupportedModelError,
   type ModelCatalogEntry,
   type ModelService,
-  type RunEventSink
+  type RunEventSink,
+  type RunSessionResult
 } from "@ai-app-template/agent";
 import type {
   AgentRuntime,
@@ -329,6 +331,37 @@ function toCreateSessionInput(input: {
 function encodeSseEvent<T extends { kind: string }>(event: T): Uint8Array {
   const payload = JSON.stringify(event);
   return new TextEncoder().encode(`event: ${event.kind}\ndata: ${payload}\n\n`);
+}
+
+function enqueueRunErrorEvent(
+  controller: ReadableStreamDefaultController<Uint8Array>,
+  input: {
+    sessionId: string;
+    session: SessionSnapshot | null;
+    error: string;
+    toolCallCount: number;
+    toolResultCount: number;
+    toolOutputs: RunSessionResult["toolOutputs"];
+  }
+): void {
+  try {
+    controller.enqueue(
+      encodeSseEvent(
+        createRunErrorEvent({
+          sessionId: input.sessionId,
+          session: input.session,
+          error: input.error,
+          status: "failed",
+          stopReason: null,
+          toolCallCount: input.toolCallCount,
+          toolResultCount: input.toolResultCount,
+          toolOutputs: input.toolOutputs
+        })
+      )
+    );
+  } catch {
+    // If the stream is already closed, there is nothing left to report.
+  }
 }
 
 function getRequestId(c: {
@@ -959,6 +992,15 @@ export function createApiApp(dependencies: ApiAppDependencies) {
         controller.enqueue(new TextEncoder().encode(": stream-start\n\n"));
 
         void (async () => {
+          let runtimeTerminalEventSeen = false;
+          let runtimeResult: RunSessionResult | null = null;
+          const runtimeEventSink: RunEventSink = (event) => {
+            if (event.kind === "run_complete" || event.kind === "run_error") {
+              runtimeTerminalEventSeen = true;
+            }
+
+            controller.enqueue(encodeSseEvent(event));
+          };
           try {
             await emitPreRunTraceEvent({
               traceManager: dependencies.traceManager,
@@ -968,7 +1010,7 @@ export function createApiApp(dependencies: ApiAppDependencies) {
                 controller.enqueue(encodeSseEvent(event));
               }
             });
-            await runtimeHandle.runtime.run({
+            runtimeResult = await runtimeHandle.runtime.run({
               sessionId,
               message: body.message,
               ...(typeof body.maxTurns === "number"
@@ -977,33 +1019,48 @@ export function createApiApp(dependencies: ApiAppDependencies) {
               ...(typeof body.permissionReply === "boolean"
                 ? { permissionReply: body.permissionReply }
                 : {}),
-              eventSink(event) {
-                controller.enqueue(encodeSseEvent(event));
-              }
+              eventSink: runtimeEventSink
             });
           } catch (error) {
             if (
               error instanceof Error &&
               error.name === "SessionExecutionInProgressError"
             ) {
-              controller.enqueue(
-                encodeSseEvent({
-                  kind: "run_error",
-                  sessionId,
-                  createdAt: new Date().toISOString(),
-                  error: error.message,
-                  status: "failed",
-                  stopReason: "session_busy",
-                  toolCallCount: 0,
-                  toolResultCount: 0,
-                  toolOutputs: [],
-                  session: null
-                })
-              );
+              enqueueRunErrorEvent(controller, {
+                sessionId,
+                session: null,
+                error: error.message,
+                toolCallCount: 0,
+                toolResultCount: 0,
+                toolOutputs: []
+              });
+            } else if (!runtimeTerminalEventSeen) {
+              enqueueRunErrorEvent(controller, {
+                sessionId,
+                session: currentSession,
+                error: error instanceof Error ? error.message : String(error),
+                toolCallCount: 0,
+                toolResultCount: 0,
+                toolOutputs: []
+              });
             }
           } finally {
-            await runtimeHandle.dispose();
-            controller.close();
+            try {
+              await runtimeHandle.dispose();
+            } catch (error) {
+              if (runtimeResult) {
+                enqueueRunErrorEvent(controller, {
+                  sessionId,
+                  session: runtimeResult.session,
+                  error: error instanceof Error ? error.message : String(error),
+                  toolCallCount: runtimeResult.toolCallCount,
+                  toolResultCount: runtimeResult.toolResultCount,
+                  toolOutputs: runtimeResult.toolOutputs
+                });
+              }
+            } finally {
+              controller.close();
+            }
           }
         })();
       }

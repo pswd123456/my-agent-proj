@@ -109,10 +109,11 @@
 当前 planning tool surface 里，与 `plan mode` 最直接相关的是下面几类：
 
 - `ask_user_question`
-  - 只在 `plan mode` 开启时暴露给模型
+  - 普通 planning 工具，非 `plan mode` 也会暴露给模型
   - 用于结构化澄清需求或不确定点
   - 一次只问一个问题，可附带最多 4 个快捷回复选项
   - 可显式标记 1 个推荐选项，供 workbench 做更强提示
+  - 默认提供一个“取消”快捷回复；如确实不需要，可通过 `allow_cancel = false` 关闭
   - 调用后会把 session 置为 `waiting_for_user_question`
 - `search_task_brief`
   - 只读
@@ -163,7 +164,7 @@
 - `replace_todo_list`
 - `update_todo_items`
 
-当前 prompt 不会向模型暴露以上这些普通文件写工具；权限层继续保留 block，作为兜底约束，避免旧消息回放或异常 tool call 绕过 plan mode。
+当前 prompt 不会向模型暴露以上这些普通文件写工具；权限层继续保留 block，作为兜底约束，避免旧消息回放或异常 tool call 绕过 plan mode。`ask_user_question` 不属于这类限制，它作为普通工具保持可见。
 
 当前不受 plan mode 影响的范围：
 

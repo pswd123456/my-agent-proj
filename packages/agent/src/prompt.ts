@@ -122,10 +122,6 @@ function shouldExposeToolInPrompt(
   session: SessionSnapshot,
   tool: RuntimeTool
 ): boolean {
-  if (tool.name === "ask_user_question" && !session.context.planModeEnabled) {
-    return false;
-  }
-
   if (
     session.context.planModeEnabled &&
     tool.family === "workspace-file" &&
@@ -663,6 +659,19 @@ export function summarizePromptEnvelopeComposition(
     conversationBreakdown: conversation.conversationBreakdown,
     largestToolResults: conversation.largestToolResults
   };
+}
+
+export function buildPromptRequestMessages(
+  promptEnvelope: Pick<
+    PromptEnvelope,
+    "prefixMessages" | "runtimeContextMessages" | "messages"
+  >
+): AnthropicMessage[] {
+  return [
+    ...promptEnvelope.prefixMessages,
+    ...promptEnvelope.runtimeContextMessages,
+    ...promptEnvelope.messages
+  ];
 }
 
 export function toAnthropicMessages(

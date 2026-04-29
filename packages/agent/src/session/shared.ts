@@ -5,6 +5,7 @@ import {
   DEFAULT_SESSION_MAX_TURNS,
   createPermissionRuleLists,
   normalizeCapabilityPacks,
+  type BackgroundNotificationKind,
   type SessionBackgroundNotification,
   type ScheduleSessionContext
 } from "@ai-app-template/domain";
@@ -18,6 +19,43 @@ import type {
 } from "../types.js";
 import { resolveTaskBriefPathForSession } from "./task-brief.js";
 import { normalizeTodoState } from "./todo-state.js";
+
+function normalizeBackgroundNotificationKind(
+  kind: string | undefined
+): BackgroundNotificationKind {
+  switch (kind) {
+    case "delegate_completed":
+      return "task_completed";
+    case "delegate_needs_main_agent":
+      return "task_waiting";
+    case "delegate_failed":
+      return "task_failed";
+    case "delegate_cancelled":
+      return "task_cancelled";
+    case "delegate_timeout":
+      return "task_timeout";
+    case "task_completed":
+    case "task_waiting":
+    case "task_failed":
+    case "task_cancelled":
+    case "task_timeout":
+      return kind;
+    default:
+      return "task_completed";
+  }
+}
+
+function normalizeBackgroundNotification(
+  value: SessionBackgroundNotification
+): SessionBackgroundNotification {
+  return {
+    ...value,
+    kind: normalizeBackgroundNotificationKind(value.kind),
+    taskKind: value.taskKind ?? "subagent",
+    expectedParentReply: value.expectedParentReply ?? "none",
+    result: value.result ?? null
+  };
+}
 
 export function createSessionState(
   loopState: LoopState = "waiting for input"
@@ -162,7 +200,11 @@ export function cloneSnapshot(snapshot: SessionSnapshot): SessionSnapshot {
       pendingBackgroundNotifications: Array.isArray(
         cloned.context.pendingBackgroundNotifications
       )
-        ? structuredClone(cloned.context.pendingBackgroundNotifications)
+        ? cloned.context.pendingBackgroundNotifications.map((notification) =>
+            normalizeBackgroundNotification(
+              structuredClone(notification) as SessionBackgroundNotification
+            )
+          )
         : [],
       todoState: normalizeTodoState(cloned.context.todoState),
       fullCompactionState: cloned.context.fullCompactionState ?? null,
@@ -232,7 +274,9 @@ export function createScheduleSessionContext(
     pendingConfirmationPayload: null,
     pendingUserQuestionPayload: null,
     pendingBackgroundNotifications: structuredClone(
-      input.pendingBackgroundNotifications ?? []
+      (input.pendingBackgroundNotifications ?? []).map((notification) =>
+        normalizeBackgroundNotification(notification)
+      )
     ),
     todoState: null,
     fullCompactionState: null,

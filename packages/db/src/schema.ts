@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 
 import type {
   BackgroundTaskPayload,
-  DelegateTaskCard,
+  BackgroundTaskState,
   PendingConfirmationPayload,
   BackgroundTaskStatus,
   BackgroundTaskKind,
@@ -255,9 +255,9 @@ export const backgroundTasks = pgTable(
     status: text("status").$type<BackgroundTaskStatus>().notNull(),
     executor: text("executor").notNull(),
     parentSessionId: text("parent_session_id"),
-    childSessionId: text("child_session_id").notNull(),
+    childSessionId: text("child_session_id"),
     payload: jsonb("payload").$type<BackgroundTaskPayload>().notNull(),
-    taskCard: jsonb("task_card").$type<DelegateTaskCard | null>(),
+    taskState: jsonb("task_state").$type<BackgroundTaskState | null>(),
     resultSummary: text("result_summary"),
     lastError: text("last_error"),
     availableAt: timestamp("available_at", {

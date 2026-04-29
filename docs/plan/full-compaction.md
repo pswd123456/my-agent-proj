@@ -102,20 +102,20 @@ full compaction 会调用一条专门的 compact prompt，输出固定 Markdown 
 
 ## full compaction 后的 message 保留
 
-当前 full compaction 后，`session.messages` 只保留最近 `6` 个可直接回放的 block：
+当前 full compaction 后，`session.messages` 只保留最近 `6` 个可回放单元：
 
 - 保留：`user`
 - 保留：`assistant`
 - 保留：`tool call`
-- 丢弃：`tool result`
+- 保留：`tool result`，但只和匹配的 `tool call` 一起留在尾部
 - 丢弃：`assistant thinking`
 
-这里按保留下来的 block 计数，不按原始 block 计数。
+这里按可回放单元计数；如果一个单元里包含 `tool call` / `tool result` 配对，这两个 block 会一起保留。
 
 因此 continuation state 的承接主轴是：
 
 1. `fullCompactionState.summaryMarkdown`
-2. 最近 `6` 个可回放 block
+2. 最近 `6` 个可回放单元
 
 ## prompt 注入
 

@@ -356,7 +356,11 @@ export function renderPendingUserQuestionAnswer(
     lines.push(`- 说明：${pendingUserQuestion.contextNote}`);
   }
 
-  lines.push("你也可以直接回复你的答案。");
+  lines.push(
+    pendingUserQuestion.allowCancel === false
+      ? "你也可以直接回复你的答案。"
+      : "你也可以直接回复你的答案，或者回复“取消”。"
+  );
   return lines.join("\n");
 }
 

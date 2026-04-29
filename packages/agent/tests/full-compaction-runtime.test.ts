@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { createMemoryRoutineRepository } from "@ai-app-template/db";
 
 import { createAgentRuntime } from "../src/runtime.js";
+import { fullCompactionTestUtils } from "../src/runtime/compaction.js";
 import { createMemorySessionManager } from "../src/session/index.js";
 import type { AnthropicMessageRequest } from "../src/model.js";
 import type { TraceEvent, TraceManager, TraceRecord } from "../src/trace.js";
@@ -70,6 +71,73 @@ function buildLongHistory() {
 }
 
 describe("full compaction runtime", () => {
+  test("retains tool result blocks together with their paired tool calls", () => {
+    const blocks = [
+      {
+        id: "user-0",
+        kind: "user" as const,
+        content: "Earlier context",
+        createdAt: "2026-04-26T00:00:00.000Z"
+      },
+      {
+        id: "assistant-0",
+        kind: "assistant" as const,
+        content: "Earlier reply",
+        createdAt: "2026-04-26T00:00:01.000Z"
+      },
+      {
+        id: "assistant-tail-0",
+        kind: "assistant" as const,
+        content: "Tail text before the tool use",
+        responseGroupId: "group-1",
+        createdAt: "2026-04-26T00:00:02.000Z"
+      },
+      {
+        id: "tool-call-0",
+        kind: "tool call" as const,
+        toolCallId: "call-0",
+        toolName: "read_file",
+        input: { path: "src/a.ts" },
+        state: "success" as const,
+        responseGroupId: "group-1",
+        createdAt: "2026-04-26T00:00:03.000Z"
+      },
+      {
+        id: "tool-result-0",
+        kind: "tool result" as const,
+        toolCallId: "call-0",
+        toolName: "read_file",
+        output: "result-a",
+        isError: false,
+        state: "success" as const,
+        responseGroupId: "group-1",
+        createdAt: "2026-04-26T00:00:04.000Z"
+      },
+      {
+        id: "assistant-tail-1",
+        kind: "assistant" as const,
+        content: "Post-tool follow-up",
+        createdAt: "2026-04-26T00:00:05.000Z"
+      }
+    ];
+
+    const { retainedTail } = fullCompactionTestUtils.splitFullCompactionBlocks(
+      blocks
+    );
+
+    expect(
+      retainedTail.some((block) => block.kind === "tool call")
+    ).toBe(true);
+    expect(
+      retainedTail.some((block) => block.kind === "tool result")
+    ).toBe(true);
+    expect(
+      retainedTail.find((block) => block.kind === "tool call")?.toolCallId
+    ).toBe(
+      retainedTail.find((block) => block.kind === "tool result")?.toolCallId
+    );
+  });
+
   test("runs history compaction once, then full compaction, and keeps only the retained tail", async () => {
     const sessionManager = createMemorySessionManager();
     const routineRepository = createMemoryRoutineRepository();
@@ -167,15 +235,55 @@ describe("full compaction runtime", () => {
     expect(
       result.session.sessionState.historyCompactionsSinceFullCompaction
     ).toBe(0);
-    expect(result.session.messages.length).toBeLessThanOrEqual(8);
     expect(
       result.session.messages.some((block) => block.kind === "tool result")
-    ).toBe(false);
+    ).toBe(true);
     expect(
       result.session.messages.some(
         (block) => block.kind === "assistant thinking"
       )
     ).toBe(false);
+
+    const retainedToolCallIds = result.session.messages
+      .filter(
+        (
+          block
+        ): block is Extract<typeof result.session.messages[number], { kind: "tool call" }> =>
+          block.kind === "tool call"
+      )
+      .map((block) => block.toolCallId);
+    const retainedToolResultIds = new Set(
+      result.session.messages
+        .filter(
+          (
+            block
+          ): block is Extract<
+            typeof result.session.messages[number],
+            { kind: "tool result" }
+          > => block.kind === "tool result"
+        )
+        .map((block) => block.toolCallId)
+    );
+    expect(retainedToolCallIds.length).toBeGreaterThan(0);
+    for (const toolCallId of retainedToolCallIds) {
+      expect(retainedToolResultIds.has(toolCallId)).toBe(true);
+    }
+
+    const promptMessages = requests[1]?.messages ?? [];
+    const promptToolUseCount = promptMessages.reduce(
+      (total, message) =>
+        total +
+        message.content.filter((block) => block.type === "tool_use").length,
+      0
+    );
+    const promptToolResultCount = promptMessages.reduce(
+      (total, message) =>
+        total +
+        message.content.filter((block) => block.type === "tool_result").length,
+      0
+    );
+    expect(promptToolUseCount).toBeGreaterThan(0);
+    expect(promptToolUseCount).toBe(promptToolResultCount);
 
     const historyEvent = traceManager.events.find(
       (event): event is Extract<TraceEvent, { kind: "history_compaction" }> =>

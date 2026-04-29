@@ -26,6 +26,7 @@ import type { ToolRegistry } from "./tools/registry.js";
 import type { TraceManager } from "./trace.js";
 import type { RunEventSink } from "./events.js";
 import type { DelegateAgentService } from "./delegation/index.js";
+import type { BackgroundTaskManager } from "./background-tasks/index.js";
 import { runSessionLoop } from "./runtime/run-loop.js";
 
 export interface AgentRuntimeOptions {
@@ -38,6 +39,7 @@ export interface AgentRuntimeOptions {
   routineRepository: RoutineRepository;
   toolRegistry: ToolRegistry;
   delegateAgentService?: DelegateAgentService;
+  backgroundTaskManager?: BackgroundTaskManager;
   traceManager?: TraceManager;
   promptBuilder?: PromptBuilder;
   maxTurns?: number;
@@ -258,6 +260,9 @@ export class AgentRuntime {
         eventSink,
         ...(this.options.delegateAgentService
           ? { delegateAgentService: this.options.delegateAgentService }
+          : {}),
+        ...(this.options.backgroundTaskManager
+          ? { backgroundTaskManager: this.options.backgroundTaskManager }
           : {}),
         ...(runtimeLogger ? { logger: runtimeLogger } : {})
       };

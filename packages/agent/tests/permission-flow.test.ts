@@ -285,7 +285,7 @@ describe("Stage 4 permission flow", () => {
     );
   });
 
-  test("rejects ask_user_question outside plan mode", async () => {
+  test("pauses for a structured user question outside plan mode", async () => {
     const sessionManager = createMemorySessionManager();
     const routineRepository = createMemoryRoutineRepository();
 
@@ -315,8 +315,17 @@ describe("Stage 4 permission flow", () => {
     if (executed.kind !== "completed") {
       throw new Error("expected completed result");
     }
-    expect(executed.output.isError).toBe(true);
-    expect(executed.output.displayText).toContain("plan mode required");
+    expect(executed.output.isError).toBe(false);
+    expect(executed.output.displayText).toContain(
+      "[ask_user_question] waiting for clarification"
+    );
+
+    const updatedSession = await sessionManager.getSession(session.sessionId);
+    expect(updatedSession?.context.status).toBe("waiting_for_user_question");
+    expect(updatedSession?.context.pendingUserQuestionPayload).toMatchObject({
+      questionText: "要先做 CLI 还是 Web？",
+      allowCancel: true
+    });
   });
 
   test("pauses for a structured user question in plan mode and resumes on the next reply", async () => {
@@ -404,6 +413,7 @@ describe("Stage 4 permission flow", () => {
     });
     expect(firstRun.finalAnswer).toContain("这次计划要覆盖 CLI 还是 Web？");
     expect(firstRun.finalAnswer).toContain("推荐");
+    expect(firstRun.finalAnswer).toContain("取消");
     expect(
       emittedEvents.some((event) => event.kind === "user_question_request")
     ).toBe(true);

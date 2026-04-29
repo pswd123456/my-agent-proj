@@ -16,6 +16,7 @@ import { ToolRegistry } from "../src/tools/registry.js";
 
 function createTaskCard() {
   return {
+    kind: "delegate" as const,
     title: "Inspect implementation",
     objective: "Read the implementation in isolation.",
     parentTaskSummary: "Parent needs a scoped summary.",
@@ -66,7 +67,9 @@ describe("delegate agent service", () => {
     expect(started.latestResponse).toBeNull();
 
     const task = await taskManager.getTask(started.delegateId);
-    const child = task && (await sessionManager.getSession(task.childSessionId));
+    const child =
+      task?.childSessionId &&
+      (await sessionManager.getSession(task.childSessionId));
     expect(task?.parentSessionId).toBe(parent.sessionId);
     expect(child?.workingDirectory).toBe("/tmp/parent");
     expect(child?.model).toBe("MiniMax-M2.7");
@@ -84,8 +87,10 @@ describe("delegate agent service", () => {
       taskId: claim!.task.taskId,
       runId: claim!.run.runId,
       workerId: "worker-a",
-      taskCard: {
-        ...claim!.task.taskCard!,
+      taskState: {
+        ...(claim!.task.taskState?.kind === "delegate"
+          ? claim!.task.taskState
+          : createTaskCard()),
         latestResponse: {
           kind: "message",
           summary: "Parser inspected.",
@@ -105,7 +110,11 @@ describe("delegate agent service", () => {
 
     const requeued = await taskManager.getTask(started.delegateId);
     expect(requeued?.payload.message).toBe("Now inspect the related tests.");
-    expect(requeued?.taskCard?.latestParentMessage).toBe(
+    expect(
+      requeued?.taskState?.kind === "delegate"
+        ? requeued.taskState.latestParentMessage
+        : null
+    ).toBe(
       "Now inspect the related tests."
     );
     expect(requeued?.childSessionId).toBe(task?.childSessionId);
@@ -234,7 +243,7 @@ describe("delegate agent tool", () => {
       taskId: claim!.task.taskId,
       runId: claim!.run.runId,
       workerId: "worker-a",
-      taskCard: {
+      taskState: {
         ...createTaskCard(),
         latestResponse: {
           kind: "needs_main_agent",

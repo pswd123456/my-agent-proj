@@ -7,9 +7,11 @@ import {
   createMemorySessionManager,
   runBackgroundTask
 } from "../src/index.js";
+import { scheduleBackgroundTaskPollWakeup } from "../src/background-tasks/orchestration.js";
 
 function createDelegateTaskCard() {
   return {
+    kind: "delegate" as const,
     title: "Inspect implementation",
     objective: "Review the relevant code path.",
     parentTaskSummary: "Parent needs a scoped implementation readout.",
@@ -51,7 +53,7 @@ describe("background task manager", () => {
       enabledCapabilityPacks: ["workspace"]
     });
 
-    const child = await sessionManager.getSession(task.childSessionId);
+    const child = await sessionManager.getSession(task.childSessionId!);
     expect(child).not.toBeNull();
     expect(child?.sessionId).not.toBe(parent.sessionId);
     expect(child?.workingDirectory).toBe("/tmp/child");
@@ -89,6 +91,30 @@ describe("background task manager", () => {
       })
     ).rejects.toThrow("Unknown active task claim");
   });
+
+  test("does not create a child session for background shell tasks", async () => {
+    const sessionManager = createMemorySessionManager();
+    const repository = createMemoryBackgroundTaskRepository();
+    const manager = createBackgroundTaskManager({
+      sessionManager,
+      repository
+    });
+
+    const task = await manager.enqueueTask({
+      kind: "shell_command",
+      executor: "shell_command",
+      parentSessionId: "parent-session",
+      message: "",
+      workingDirectory: "/tmp/shell-task",
+      model: "MiniMax-M2.7",
+      maxTurns: 1,
+      enabledCapabilityPacks: ["workspace"],
+      command: "pwd",
+      timeoutMs: 5_000
+    });
+
+    expect(task.childSessionId).toBeNull();
+  });
 });
 
 describe("background task runner", () => {
@@ -112,7 +138,7 @@ describe("background task runner", () => {
       model: "MiniMax-M2.7",
       maxTurns: 4,
       enabledCapabilityPacks: ["workspace"],
-      taskCard: createDelegateTaskCard()
+      taskState: createDelegateTaskCard()
     });
     const completedClaim = await manager.claimNextTask("worker-a");
     await runBackgroundTask({
@@ -139,7 +165,7 @@ describe("background task runner", () => {
     });
     const completedRecord = await repository.getTask(completedTask.taskId);
     expect(completedRecord?.status).toBe("completed");
-    expect(completedRecord?.taskCard?.latestResponse?.kind).toBe("message");
+    expect(completedRecord?.taskState?.latestResponse?.kind).toBe("message");
     const wakeupClaim = await manager.claimNextTask("worker-a");
     expect(wakeupClaim?.task.kind).toBe("session_wakeup");
     await runBackgroundTask({
@@ -173,7 +199,7 @@ describe("background task runner", () => {
       model: "MiniMax-M2.7",
       maxTurns: 4,
       enabledCapabilityPacks: ["workspace"],
-      taskCard: createDelegateTaskCard()
+      taskState: createDelegateTaskCard()
     });
     const waitingClaim = await manager.claimNextTask("worker-a");
     await runBackgroundTask({
@@ -208,10 +234,10 @@ describe("background task runner", () => {
     });
     const waitingRecord = await repository.getTask(waitingTask.taskId);
     expect(waitingRecord?.status).toBe("waiting_for_main_agent");
-    expect(waitingRecord?.taskCard?.latestResponse?.kind).toBe(
+    expect(waitingRecord?.taskState?.latestResponse?.kind).toBe(
       "needs_main_agent"
     );
-    expect(waitingRecord?.taskCard?.expectedParentReply).toBe("message");
+    expect(waitingRecord?.taskState?.expectedParentReply).toBe("message");
     const waitingWakeupClaim = await manager.claimNextTask("worker-a");
     expect(waitingWakeupClaim?.task.kind).toBe("session_wakeup");
     await runBackgroundTask({
@@ -245,7 +271,7 @@ describe("background task runner", () => {
       model: "MiniMax-M2.7",
       maxTurns: 4,
       enabledCapabilityPacks: ["workspace"],
-      taskCard: createDelegateTaskCard()
+      taskState: createDelegateTaskCard()
     });
     const cancelledClaim = await manager.claimNextTask("worker-a");
     await runBackgroundTask({
@@ -274,7 +300,7 @@ describe("background task runner", () => {
     });
     const cancelledRecord = await repository.getTask(cancelledTask.taskId);
     expect(cancelledRecord?.status).toBe("cancelled");
-    expect(cancelledRecord?.taskCard?.latestResponse?.kind).toBe("cancelled");
+    expect(cancelledRecord?.taskState?.latestResponse?.kind).toBe("cancelled");
 
     const parentAfter = await sessionManager.getSession(parent.sessionId);
     expect(parentAfter?.messages).toHaveLength(0);
@@ -302,7 +328,7 @@ describe("background task runner", () => {
       model: "MiniMax-M2.7",
       maxTurns: 4,
       enabledCapabilityPacks: ["workspace"],
-      taskCard: createDelegateTaskCard()
+      taskState: createDelegateTaskCard()
     });
     const claim = await manager.claimNextTask("worker-a");
 
@@ -333,7 +359,7 @@ describe("background task runner", () => {
     expect(parentAfter?.context.activeBackgroundTaskCount).toBe(0);
     expect(parentAfter?.context.pendingBackgroundNotifications).toHaveLength(1);
     expect(parentAfter?.context.pendingBackgroundNotifications[0]?.kind).toBe(
-      "delegate_completed"
+      "task_completed"
     );
     expect(
       parentAfter?.context.pendingBackgroundNotifications[0]?.childSessionId
@@ -368,7 +394,7 @@ describe("background task runner", () => {
       model: "MiniMax-M2.7",
       maxTurns: 4,
       enabledCapabilityPacks: ["workspace"],
-      taskCard: createDelegateTaskCard()
+      taskState: createDelegateTaskCard()
     });
     const delegateClaim = await manager.claimNextTask("worker-a");
     expect(delegateClaim?.task.taskId).toBe(delegateTask.taskId);
@@ -383,8 +409,8 @@ describe("background task runner", () => {
       maxTurns: 4,
       enabledCapabilityPacks: ["workspace"],
       metadata: {
-        reason: "delegate_poll",
-        delegateTaskIds: [delegateTask.taskId],
+        reason: "background_task_poll",
+        backgroundTaskIds: [delegateTask.taskId],
         nextIntervalMs: 70_000
       },
       maxAttempts: 1
@@ -410,11 +436,60 @@ describe("background task runner", () => {
     expect(requeuedPoll?.status).toBe("queued");
     expect(requeuedPoll?.availableAt).not.toBeNull();
     expect(requeuedPoll?.payload.metadata).toMatchObject({
-      reason: "delegate_poll",
-      delegateTaskIds: [delegateTask.taskId],
+      reason: "background_task_poll",
+      backgroundTaskIds: [delegateTask.taskId],
       nextIntervalMs: 120_000
     });
     expect(await manager.claimNextTask("worker-a")).toBeNull();
+  });
+
+  test("merges new task ids into an existing queued poll wakeup", async () => {
+    const sessionManager = createMemorySessionManager();
+    const repository = createMemoryBackgroundTaskRepository();
+    const manager = createBackgroundTaskManager({
+      sessionManager,
+      repository
+    });
+    const parent = await sessionManager.createSession({
+      workingDirectory: "/tmp/parent"
+    });
+
+    await scheduleBackgroundTaskPollWakeup({
+      sessionManager,
+      taskManager: manager,
+      parentSessionId: parent.sessionId,
+      taskIds: ["delegate-a"],
+      initialCheckAfterMs: 5_000
+    });
+
+    const firstWakeup = await repository.getWakeupTaskBySessionId(
+      parent.sessionId
+    );
+    expect(firstWakeup?.status).toBe("queued");
+    expect(firstWakeup?.payload.metadata).toMatchObject({
+      reason: "background_task_poll",
+      backgroundTaskIds: ["delegate-a"],
+      nextIntervalMs: 5_000
+    });
+
+    await scheduleBackgroundTaskPollWakeup({
+      sessionManager,
+      taskManager: manager,
+      parentSessionId: parent.sessionId,
+      taskIds: ["delegate-b"],
+      initialCheckAfterMs: 10_000
+    });
+
+    const mergedWakeup = await repository.getWakeupTaskBySessionId(
+      parent.sessionId
+    );
+    expect(mergedWakeup?.taskId).toBe(firstWakeup?.taskId);
+    expect(mergedWakeup?.availableAt).toBe(firstWakeup?.availableAt);
+    expect(mergedWakeup?.payload.metadata).toMatchObject({
+      reason: "background_task_poll",
+      backgroundTaskIds: ["delegate-a", "delegate-b"],
+      nextIntervalMs: 5_000
+    });
   });
 
   test("expedites a future delegate poll wakeup when the subagent completes", async () => {
@@ -439,7 +514,7 @@ describe("background task runner", () => {
       model: "MiniMax-M2.7",
       maxTurns: 4,
       enabledCapabilityPacks: ["workspace"],
-      taskCard: createDelegateTaskCard()
+      taskState: createDelegateTaskCard()
     });
     const delegateClaim = await manager.claimNextTask("worker-a");
     const futureAvailableAt = new Date(Date.now() + 60_000).toISOString();
@@ -453,8 +528,8 @@ describe("background task runner", () => {
       maxTurns: 4,
       enabledCapabilityPacks: ["workspace"],
       metadata: {
-        reason: "delegate_poll",
-        delegateTaskIds: [delegateTask.taskId],
+        reason: "background_task_poll",
+        backgroundTaskIds: [delegateTask.taskId],
         nextIntervalMs: 60_000
       },
       availableAt: futureAvailableAt,
@@ -515,7 +590,7 @@ describe("background task runner", () => {
       model: "MiniMax-M2.7",
       maxTurns: 4,
       enabledCapabilityPacks: ["workspace"],
-      taskCard: createDelegateTaskCard()
+      taskState: createDelegateTaskCard()
     });
     const claim = await manager.claimNextTask("worker-a");
 
@@ -553,7 +628,7 @@ describe("background task runner", () => {
     const parentAfter = await sessionManager.getSession(parent.sessionId);
     expect(parentAfter?.context.pendingBackgroundNotifications).toHaveLength(1);
     expect(parentAfter?.context.pendingBackgroundNotifications[0]?.kind).toBe(
-      "delegate_needs_main_agent"
+      "task_waiting"
     );
     expect(
       await repository.getWakeupTaskBySessionId(parent.sessionId)

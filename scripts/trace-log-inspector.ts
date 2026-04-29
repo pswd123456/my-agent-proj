@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { resolveSessionStateDirectory } from "../packages/agent/src/index.ts";
+import { buildPromptRequestMessages } from "../packages/agent/src/prompt.ts";
 import type { TraceEvent, TraceRecord } from "../packages/agent/src/trace.ts";
 
 type IncludeSection =
@@ -459,8 +460,8 @@ function isErrorLikeTurn(turn: TurnSummary): boolean {
 
 function buildTurnSummaries(records: TraceRecord[]): TurnSummary[] {
   const turns: TurnSummary[] = [];
+  const turnsByCount = new Map<number, TurnSummary>();
   const toolIndex = new Map<string, ToolCallSummary>();
-  let current: TurnSummary | null = null;
 
   function createTurn(turnCount: number): TurnSummary {
     const created: TurnSummary = {
@@ -478,17 +479,15 @@ function buildTurnSummaries(records: TraceRecord[]): TurnSummary[] {
       runErrors: []
     };
     turns.push(created);
+    turnsByCount.set(turnCount, created);
     return created;
   }
 
   for (let index = 0; index < records.length; index += 1) {
     const record = records[index]!;
-    const previous = index > 0 ? records[index - 1] : null;
     const event = record.event;
-    if (!current || previous?.event.kind === "turn_end") {
-      current = createTurn(event.turnCount);
-    }
-    const turn = current;
+    const turn =
+      turnsByCount.get(event.turnCount) ?? createTurn(event.turnCount);
     turn.observedTurnCounts.add(event.turnCount);
     turn.records.push(record);
 
@@ -851,6 +850,12 @@ function printDetailedEvents(turns: TurnSummary[], options: CliOptions): void {
     console.log(header);
     switch (record.event.kind) {
       case "prompt":
+        const requestMessages =
+          record.event.requestMessages ??
+          buildPromptRequestMessages(record.event);
+        const requestMessagesLabel = record.event.requestMessages
+          ? "model_request_messages"
+          : "model_request_messages_reconstructed";
         console.log(`    cache_key: ${record.event.cacheKey}`);
         console.log(
           `    tool_count: ${record.event.tools.length}, tool_choice: ${jsonText(record.event.toolChoice, options.maxChars)}`
@@ -860,6 +865,9 @@ function printDetailedEvents(turns: TurnSummary[], options: CliOptions): void {
         );
         console.log(
           `    runtime_context:\n${indentBlock(jsonText(record.event.runtimeContextMessages, options.maxChars), 6)}`
+        );
+        console.log(
+          `    ${requestMessagesLabel}:\n${indentBlock(jsonText(requestMessages, options.maxChars), 6)}`
         );
         console.log(
           `    messages:\n${indentBlock(jsonText(record.event.messages, options.maxChars), 6)}`

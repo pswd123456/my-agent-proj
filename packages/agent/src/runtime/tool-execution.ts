@@ -1,6 +1,7 @@
 import type { RoutineRepository } from "@ai-app-template/db";
 
 import type { RunEventSink } from "../events.js";
+import type { BackgroundTaskManager } from "../background-tasks/index.js";
 import type { DelegateAgentService } from "../delegation/index.js";
 import type { SessionManager } from "../session.js";
 import type { TraceManager } from "../trace.js";
@@ -41,6 +42,7 @@ function createToolExecutionContext(input: {
   routineRepository: RoutineRepository;
   sessionManager: SessionManager;
   delegateAgentService?: DelegateAgentService;
+  backgroundTaskManager?: BackgroundTaskManager;
   tool: NonNullable<ReturnType<ToolRegistry["get"]>>;
   abortSignal?: AbortSignal;
   allowWorkspaceEscape?: boolean;
@@ -61,6 +63,9 @@ function createToolExecutionContext(input: {
     sessionManager: input.sessionManager,
     ...(input.delegateAgentService
       ? { delegateAgentService: input.delegateAgentService }
+      : {}),
+    ...(input.backgroundTaskManager
+      ? { backgroundTaskManager: input.backgroundTaskManager }
       : {}),
     allowWorkspaceEscape: workspaceEscapeAllowed ?? false,
     permissionRules: {
@@ -94,6 +99,7 @@ export async function executeToolAction(input: {
   routineRepository: RoutineRepository;
   toolRegistry: ToolRegistry;
   delegateAgentService?: DelegateAgentService;
+  backgroundTaskManager?: BackgroundTaskManager;
   traceManager: TraceManager | undefined;
   session: SessionSnapshot;
   turnCount: number;
@@ -241,6 +247,9 @@ export async function executeToolAction(input: {
     sessionManager: input.sessionManager,
     ...(input.delegateAgentService
       ? { delegateAgentService: input.delegateAgentService }
+      : {}),
+    ...(input.backgroundTaskManager
+      ? { backgroundTaskManager: input.backgroundTaskManager }
       : {}),
     tool,
     ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),

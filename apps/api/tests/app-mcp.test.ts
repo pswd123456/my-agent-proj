@@ -15,12 +15,15 @@ import { mkdtemp } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { createApiApp } from "../src/app.js";
+import { createApiApp, type ApiAppDependencies } from "../src/app.js";
 import { resolveApiWorkingDirectory } from "../src/working-directory.js";
 
 const workspaceRoot = "/Users/boneda/gitrepo/my-agent-proj";
 
-async function createRuntimeTestApp() {
+async function createRuntimeTestApp(options?: {
+  traceManager?: ApiAppDependencies["traceManager"];
+  runtimeFactory?: ApiAppDependencies["runtimeFactory"];
+}) {
   const sessionManager = createMemorySessionManager();
   const routineRepository = createMemoryRoutineRepository();
   const settingsRepository = createMemorySettingsRepository();
@@ -37,11 +40,9 @@ async function createRuntimeTestApp() {
   const runtimeCalls: string[] = [];
   const disposedSessionIds: string[] = [];
 
-  const app = createApiApp({
-    sessionManager,
-    routineRepository,
-    settingsRepository,
-    traceManager: {
+  const traceManager =
+    options?.traceManager ??
+    ({
       async appendEvent(sessionId, event) {
         traceEvents.push({ sessionId, event });
       },
@@ -49,14 +50,10 @@ async function createRuntimeTestApp() {
         return [];
       },
       async deleteEvents() {}
-    },
-    systemLogManager,
-    apiLogger,
-    buildWorkingDirectory(input) {
-      return resolveApiWorkingDirectory(workspaceRoot, input);
-    },
-    defaultModel: "MiniMax-M2.7",
-    async runtimeFactory(session) {
+    } satisfies ApiAppDependencies["traceManager"]);
+  const runtimeFactory =
+    options?.runtimeFactory ??
+    (async (session) => {
       return {
         runtime: {
           async run(input: {
@@ -99,7 +96,20 @@ async function createRuntimeTestApp() {
           servers: []
         }
       };
-    }
+    });
+
+  const app = createApiApp({
+    sessionManager,
+    routineRepository,
+    settingsRepository,
+    traceManager,
+    systemLogManager,
+    apiLogger,
+    buildWorkingDirectory(input) {
+      return resolveApiWorkingDirectory(workspaceRoot, input);
+    },
+    defaultModel: "MiniMax-M2.7",
+    runtimeFactory
   });
 
   return {
@@ -168,6 +178,162 @@ describe("createApiApp MCP runtime assembly", () => {
     const body = await response.text();
     expect(body).toContain("event: mcp_loaded");
     expect(body).toContain("event: run_complete");
+    expect(disposedSessionIds).toEqual([session.sessionId]);
+  });
+
+  test("reports pre-run SSE failures as run_error before runtime starts", async () => {
+    const { app, runtimeCalls, disposedSessionIds } = await createRuntimeTestApp(
+      {
+        traceManager: {
+          async appendEvent() {
+            throw new Error("pre-run trace failed");
+          },
+          async readEvents() {
+            return [];
+          },
+          async deleteEvents() {}
+        }
+      }
+    );
+    const session = await createSession(app);
+
+    const response = await app.request(
+      `/sessions/${session.sessionId}/execute/stream`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: "stream" })
+      }
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.text();
+    expect(body).toContain("event: run_error");
+    expect(body).not.toContain("event: run_complete");
+    expect(runtimeCalls).toEqual([]);
+    expect(disposedSessionIds).toEqual([session.sessionId]);
+  });
+
+  test("reports runtime crashes as run_error when no terminal event was emitted", async () => {
+    const { app, runtimeCalls, disposedSessionIds } = await createRuntimeTestApp(
+      {
+        runtimeFactory: async (session) => {
+          return {
+            runtime: {
+              async run(input: {
+                sessionId: string;
+                eventSink?: RunEventSink;
+              }) {
+                runtimeCalls.push(input.sessionId);
+                throw new Error("runtime crashed");
+              }
+            } as AgentRuntime,
+            async dispose() {
+              disposedSessionIds.push(session.sessionId);
+            },
+            preRunTraceEvent: {
+              kind: "mcp_loaded",
+              turnCount: 1,
+              configPath: path.join(
+                session.workingDirectory,
+                ".agent/.config.toml"
+              ),
+              foundConfig: true,
+              diagnostics: [],
+              servers: []
+            }
+          };
+        }
+      }
+    );
+    const session = await createSession(app);
+
+    const response = await app.request(
+      `/sessions/${session.sessionId}/execute/stream`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: "stream" })
+      }
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.text();
+    expect(body).toContain("event: run_error");
+    expect(body).not.toContain("event: run_complete");
+    expect(runtimeCalls).toEqual([session.sessionId]);
+    expect(disposedSessionIds).toEqual([session.sessionId]);
+  });
+
+  test("reports dispose failures as run_error after a successful run", async () => {
+    const runtimeCalls: string[] = [];
+    const disposedSessionIds: string[] = [];
+    const { app } = await createRuntimeTestApp({
+      runtimeFactory: async (session) => {
+        return {
+          runtime: {
+            async run(input: {
+              sessionId: string;
+              eventSink?: RunEventSink;
+            }) {
+              runtimeCalls.push(input.sessionId);
+              await input.eventSink?.({
+                kind: "run_complete",
+                sessionId: input.sessionId,
+                createdAt: new Date().toISOString(),
+                finalAnswer: "done",
+                status: "completed",
+                stopReason: "end_turn",
+                toolCallCount: 0,
+                toolResultCount: 0,
+                toolOutputs: [],
+                session
+              });
+              return {
+                session,
+                finalAnswer: "done",
+                status: "completed" as const,
+                stopReason: "end_turn",
+                toolCallCount: 0,
+                toolResultCount: 0,
+                toolOutputs: []
+              };
+            }
+          } as AgentRuntime,
+          async dispose() {
+            disposedSessionIds.push(session.sessionId);
+            throw new Error("dispose failed");
+          },
+          preRunTraceEvent: {
+            kind: "mcp_loaded",
+            turnCount: 1,
+            configPath: path.join(
+              session.workingDirectory,
+              ".agent/.config.toml"
+            ),
+            foundConfig: true,
+            diagnostics: [],
+            servers: []
+          }
+        };
+      }
+    });
+    const session = await createSession(app);
+
+    const response = await app.request(
+      `/sessions/${session.sessionId}/execute/stream`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: "stream" })
+      }
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.text();
+    expect(body).toContain("event: run_complete");
+    expect(body).toContain("event: run_error");
+    expect(runtimeCalls).toEqual([session.sessionId]);
     expect(disposedSessionIds).toEqual([session.sessionId]);
   });
 });

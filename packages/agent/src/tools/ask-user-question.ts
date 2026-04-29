@@ -19,6 +19,7 @@ const schema = z
   .object({
     question_text: z.string().min(1),
     options: z.array(optionSchema).max(4).optional(),
+    allow_cancel: z.boolean().optional().default(true),
     context_note: z.string().min(1).optional()
   })
   .superRefine((input, ctx) => {
@@ -66,6 +67,10 @@ function renderQuestionSummary(input: z.infer<typeof schema>): string {
     lines.push(`- context: ${input.context_note}`);
   }
 
+  if (input.allow_cancel) {
+    lines.push("- cancel option: 取消");
+  }
+
   return lines.join("\n");
 }
 
@@ -73,7 +78,7 @@ export function createAskUserQuestionTool(): RuntimeTool {
   return {
     name: "ask_user_question",
     description:
-      "Pause the current planning run and ask the user one structured clarification question, optionally with quick-reply options.",
+      "Pause the current run and ask the user one structured clarification question, optionally with quick-reply options.",
     family: "planning",
     isReadOnly: false,
     hasExternalSideEffect: true,
@@ -98,6 +103,7 @@ export function createAskUserQuestionTool(): RuntimeTool {
           },
           maxItems: 4
         },
+        allow_cancel: { type: "boolean" },
         context_note: { type: "string" }
       },
       required: ["question_text"],
@@ -126,27 +132,13 @@ export function createAskUserQuestionTool(): RuntimeTool {
         );
       }
 
-      if (!context.sessionContext.planModeEnabled) {
-        return failureResult(
-          createToolResult({
-            ok: false,
-            code: "PLAN_MODE_REQUIRED",
-            message:
-              "ask_user_question is only available while plan mode is enabled."
-          }),
-          [
-            "[ask_user_question] plan mode required",
-            "- enable plan mode before asking the user a structured planning question"
-          ].join("\n")
-        );
-      }
-
       await context.sessionManager.updateContext(context.sessionId, {
         status: "waiting_for_user_question",
         pendingPermissionRequest: null,
         pendingUserQuestionPayload: {
           questionText: parsed.data.question_text,
           options: (parsed.data.options ?? []).map(mapOption),
+          allowCancel: parsed.data.allow_cancel,
           ...(parsed.data.context_note
             ? { contextNote: parsed.data.context_note }
             : {}),
@@ -159,7 +151,7 @@ export function createAskUserQuestionTool(): RuntimeTool {
           ok: true,
           code: "USER_QUESTION_REQUESTED",
           message:
-            "Stored a structured clarification question and paused the current planning run.",
+            "Stored a structured clarification question and paused the current run.",
           data: {
             question_text: parsed.data.question_text,
             options: (parsed.data.options ?? []).map((option) => ({
@@ -170,6 +162,7 @@ export function createAskUserQuestionTool(): RuntimeTool {
                 : {}),
               ...(option.is_recommended ? { is_recommended: true } : {})
             })),
+            allow_cancel: parsed.data.allow_cancel,
             context_note: parsed.data.context_note ?? null
           }
         }),

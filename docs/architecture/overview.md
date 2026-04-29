@@ -9,8 +9,8 @@
 
 - `apps/api` 是当前运行主入口，负责 session 生命周期、设置读取、runtime 装配、SSE 输出、trace 查询与恢复接口
 - `apps/web` 是当前唯一产品层前端，主要承载 workbench、会话可视化、trace 与调试观察
-- `apps/worker` 是后台执行入口，负责轮询 `background_tasks`、认领 detached task，并用独立 child session 驱动长任务
-- `packages/agent` 提供 runtime loop、prompt、provider 适配、统一模型服务、permission checker、session manager、tool registry、skills、MCP、background tasks、delegation、trace 与 system log
+- `apps/worker` 是后台执行入口，负责轮询 `background_tasks`、认领 detached task，并用独立 child session 或 detached shell process 驱动长任务
+- `packages/agent` 提供 runtime loop、prompt、provider 适配、统一模型服务、permission checker、session manager、tool registry、skills、MCP、background tasks orchestration、delegation、trace 与 system log
 - `packages/db` 提供 PostgreSQL 访问、schema 初始化、settings repository、routine repository 与 background task repository
 - `packages/domain` 提供 session settings、session context、权限规则、background task 载荷与 routine 领域模型
 - `packages/sdk` 提供给 Web 使用的 API client、摘要转换与跨层类型
@@ -23,7 +23,7 @@
 - session 默认 `maxTurns` 是 `50`，接口允许的上限是 `200`
 - 默认启用的 capability packs 是 `workspace` 和 `schedule`
 - session settings 的解析顺序是 `explicit override > user settings > repo default`
-- detached background task 使用独立 child session，不与 parent session 共用消息历史
+- detached background task 使用独立 child session 或 shell worker 执行，不与 parent session 共用消息历史
 - 工作区 runtime 上下文还会按次读取 `session.workingDirectory` 下的工作区输入：
   - `AGENTS.md` 提供工作区根指令，进入本轮 runtime context，不进入 cache key
   - `.agent/skills/` 提供 skill metadata
@@ -70,8 +70,8 @@
 - 当前已落地 `BackgroundTaskManager` v1 基座
 - 任务主记录保存在 `background_tasks`
 - 每次执行尝试保存在 `background_task_runs`
-- v1 只支持 `agent_session` 执行后端
-- `apps/worker` 负责轮询和执行这些任务，`packages/agent/src/delegation/` 负责主 agent 发起与回复 delegated subagent
+- 当前支持 `agent_session` 与 `shell_command` 两类执行后端
+- `apps/worker` 负责轮询和执行这些任务，`packages/agent/src/background-tasks/` 负责通用 orchestration，`packages/agent/src/delegation/` 负责主 agent 发起与回复 delegated subagent
 - 当前没有公开 background task API，也没有 cron tool surface；`subagent` 是内部任务类型，不是对外 HTTP 接口
 
 ## 当前事实源

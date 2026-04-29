@@ -3,16 +3,19 @@ import type {
   BackgroundTaskPayload,
   BackgroundTaskKind,
   BackgroundTaskRecord,
+  BackgroundTaskState,
+  BackgroundTaskExecutor,
+  BackgroundTaskWaitMode,
   CapabilityPackName,
-  DelegateTaskCard
 } from "@ai-app-template/domain";
 
 import type { CreateSessionInput, JsonValue, SessionSnapshot } from "../types.js";
 
 export interface EnqueueBackgroundTaskInput {
   kind: BackgroundTaskKind;
+  executor?: BackgroundTaskExecutor;
   parentSessionId?: string | null;
-  childSessionId?: string;
+  childSessionId?: string | null;
   message: string;
   workingDirectory: string;
   model: string;
@@ -23,7 +26,10 @@ export interface EnqueueBackgroundTaskInput {
   userId?: string;
   enabledCapabilityPacks?: CapabilityPackName[];
   metadata?: Record<string, JsonValue>;
-  taskCard?: DelegateTaskCard | null;
+  taskState?: BackgroundTaskState | null;
+  command?: string;
+  timeoutMs?: number;
+  waitMode?: BackgroundTaskWaitMode;
   sessionSeed?: Partial<CreateSessionInput>;
   availableAt?: string | null;
 }
@@ -46,21 +52,21 @@ export interface BackgroundTaskManager {
     runId: string;
     workerId: string;
     resultSummary?: string | null;
-    taskCard?: DelegateTaskCard | null;
+    taskState?: BackgroundTaskState | null;
   }): Promise<BackgroundTaskClaim>;
   markTaskWaitingForMainAgent(input: {
     taskId: string;
     runId: string;
     workerId: string;
     resultSummary?: string | null;
-    taskCard?: DelegateTaskCard | null;
+    taskState?: BackgroundTaskState | null;
   }): Promise<BackgroundTaskClaim>;
   completeTask(input: {
     taskId: string;
     runId: string;
     workerId: string;
     resultSummary?: string | null;
-    taskCard?: DelegateTaskCard | null;
+    taskState?: BackgroundTaskState | null;
   }): Promise<BackgroundTaskClaim>;
   failTask(input: {
     taskId: string;
@@ -68,7 +74,7 @@ export interface BackgroundTaskManager {
     workerId: string;
     errorSummary: string;
     resultSummary?: string | null;
-    taskCard?: DelegateTaskCard | null;
+    taskState?: BackgroundTaskState | null;
   }): Promise<BackgroundTaskClaim>;
   requestCancel(taskId: string): Promise<BackgroundTaskRecord | null>;
   cancelTask(input: {
@@ -76,7 +82,7 @@ export interface BackgroundTaskManager {
     runId: string;
     workerId: string;
     resultSummary?: string | null;
-    taskCard?: DelegateTaskCard | null;
+    taskState?: BackgroundTaskState | null;
   }): Promise<BackgroundTaskClaim>;
   getTask(taskId: string): Promise<BackgroundTaskRecord | null>;
   getWakeupTaskBySessionId(
@@ -93,7 +99,7 @@ export interface BackgroundTaskManager {
   requeueTask(input: {
     taskId: string;
     payload?: BackgroundTaskPayload;
-    taskCard?: DelegateTaskCard | null;
+    taskState?: BackgroundTaskState | null;
     resultSummary?: string | null;
     lastError?: string | null;
     availableAt?: string | null;

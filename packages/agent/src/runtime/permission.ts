@@ -14,6 +14,7 @@ import { executeToolAction } from "./tool-execution.js";
 import type { RoutineRepository } from "@ai-app-template/db";
 
 import type { RunEventSink } from "../events.js";
+import type { BackgroundTaskManager } from "../background-tasks/index.js";
 import type { SessionManager } from "../session.js";
 import type { TraceManager } from "../trace.js";
 import type { JsonValue, RunSessionResult, SessionSnapshot } from "../types.js";
@@ -37,6 +38,7 @@ export async function handlePendingPermissionReply(input: {
   sessionManager: SessionManager;
   routineRepository: RoutineRepository;
   toolRegistry: ToolRegistry;
+  backgroundTaskManager?: BackgroundTaskManager;
   traceManager: TraceManager | undefined;
   session: SessionSnapshot;
   message: string;
@@ -237,6 +239,9 @@ export async function handlePendingPermissionReply(input: {
     sessionManager: input.sessionManager,
     routineRepository: input.routineRepository,
     toolRegistry: input.toolRegistry,
+    ...(input.backgroundTaskManager
+      ? { backgroundTaskManager: input.backgroundTaskManager }
+      : {}),
     traceManager: input.traceManager,
     session,
     turnCount,
