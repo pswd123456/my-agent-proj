@@ -68,3 +68,95 @@ After all groups are processed, report:
 - If a group has only test files, still treat it as a valid group (use `test:` type prefix).
 - When generating commit messages, prefer specificity over vagueness — mention the actual module, feature, or fix, not just "update files".
 - Respect `.gitignore`; never force-add ignored files.
+
+## Example
+
+Given this `git status`:
+
+```
+ M apps/api/src/app.ts
+ M apps/api/tests/app-settings.test.ts
+ M apps/web/app/_components/session-workbench.tsx
+ M apps/web/app/_components/session-workbench-state.ts
+?? apps/web/app/_components/session-composer-commands.ts
+?? apps/web/app/_components/session-composer-commands.test.ts
+ M packages/agent/src/prompt.ts
+ M packages/agent/src/runtime.ts
+ M packages/agent/tests/prompt-skills.test.ts
+?? packages/agent/src/context-hooks.ts
+?? packages/agent/tests/context-hooks.test.ts
+ M packages/db/src/schema.ts
+?? packages/db/migrations/0019_fearless_quasar.sql
+?? packages/db/migrations/meta/0019_snapshot.json
+ M docs/architecture/overview.md
+ M docs/architecture/workspace-agent-config.md
+```
+
+### Grouping result
+
+| Group | Files |
+|---|---|
+| `apps/api` | `apps/api/src/app.ts`, `apps/api/tests/app-settings.test.ts` |
+| `apps/web` | `apps/web/app/_components/session-workbench.tsx`, `apps/web/app/_components/session-workbench-state.ts`, `apps/web/app/_components/session-composer-commands.ts`, `apps/web/app/_components/session-composer-commands.test.ts` |
+| `packages/agent` | `packages/agent/src/prompt.ts`, `packages/agent/src/runtime.ts`, `packages/agent/tests/prompt-skills.test.ts`, `packages/agent/src/context-hooks.ts`, `packages/agent/tests/context-hooks.test.ts` |
+| `packages/db` | `packages/db/src/schema.ts`, `packages/db/migrations/0019_fearless_quasar.sql`, `packages/db/migrations/meta/0019_snapshot.json` |
+| `docs` | `docs/architecture/overview.md`, `docs/architecture/workspace-agent-config.md` |
+
+### Commands executed
+
+**Group 1 — `apps/api`:**
+
+```
+git add apps/api/src/app.ts apps/api/tests/app-settings.test.ts
+git commit -m "feat(api): add app settings endpoint and tests"
+```
+
+**Group 2 — `apps/web`:**
+
+```
+git add apps/web/app/_components/session-workbench.tsx \
+        apps/web/app/_components/session-workbench-state.ts \
+        apps/web/app/_components/session-composer-commands.ts \
+        apps/web/app/_components/session-composer-commands.test.ts
+git commit -m "feat(web): add composer commands panel with workbench state wiring"
+```
+
+**Group 3 — `packages/agent`:**
+
+```
+git add packages/agent/src/prompt.ts \
+        packages/agent/src/runtime.ts \
+        packages/agent/tests/prompt-skills.test.ts \
+        packages/agent/src/context-hooks.ts \
+        packages/agent/tests/context-hooks.test.ts
+git commit -m "feat(agent): add context hook infrastructure and update prompt assembly"
+```
+
+**Group 4 — `packages/db`:**
+
+```
+git add packages/db/src/schema.ts \
+        packages/db/migrations/0019_fearless_quasar.sql \
+        packages/db/migrations/meta/0019_snapshot.json
+git commit -m "feat(db): add migration 0019 for schema changes"
+```
+
+**Group 5 — `docs`:**
+
+```
+git add docs/architecture/overview.md docs/architecture/workspace-agent-config.md
+git commit -m "docs: update architecture overview and agent config documentation"
+```
+
+### Summary report
+
+```
+Committed 5 groups:
+  a1b2c3d feat(api): add app settings endpoint and tests
+  e4f5g6h feat(web): add composer commands panel with workbench state wiring
+  i7j8k9l feat(agent): add context hook infrastructure and update prompt assembly
+  m0n1o2p feat(db): add migration 0019 for schema changes
+  q3r4s5t docs: update architecture overview and agent config documentation
+
+All changes committed, working tree clean.
+```
