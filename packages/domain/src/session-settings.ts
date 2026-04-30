@@ -23,13 +23,11 @@ export const DEFAULT_SESSION_MODEL = "MiniMax-M2.7";
 export const CAPABILITY_PACK_OPTIONS = [
   "workspace",
   "schedule",
-  "web",
   "lsp"
 ] as const;
 export const DEFAULT_CAPABILITY_PACKS = [
   "workspace",
   "schedule",
-  "web",
   "lsp"
 ] as const;
 
