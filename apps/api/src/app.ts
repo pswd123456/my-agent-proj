@@ -864,6 +864,57 @@ export function createApiApp(dependencies: ApiAppDependencies) {
     return c.json({ session: updated });
   });
 
+  app.delete("/sessions/history", async (c) => {
+    const sessions = await enrichSessionSnapshotsWithParentRelation({
+      sessions: await dependencies.sessionManager.listSessions(),
+      backgroundTaskRepository: dependencies.backgroundTaskRepository
+    });
+    if (sessions.length === 0) {
+      return c.body(null, 204);
+    }
+
+    const sessionIdsToDelete = new Set<string>();
+    const rootSessions = sessions.filter((session) => {
+      const parentSessionId = session.parentSessionId?.trim() ?? null;
+      return (
+        !parentSessionId ||
+        parentSessionId === session.sessionId ||
+        !sessions.some((candidate) => candidate.sessionId === parentSessionId)
+      );
+    });
+
+    for (const rootSession of rootSessions) {
+      for (const sessionId of collectSessionTreeSessionIds({
+        sessions,
+        rootSessionId: rootSession.sessionId
+      }).reverse()) {
+        sessionIdsToDelete.add(sessionId);
+      }
+    }
+
+    const isAnyExecutionActive = await Promise.all(
+      [...sessionIdsToDelete].map((sessionId) =>
+        dependencies.sessionManager.isExecutionActive(sessionId)
+      )
+    );
+    if (isAnyExecutionActive.some(Boolean)) {
+      return c.json(
+        {
+          error:
+            "One or more sessions are currently running. Wait for active runs to finish before clearing history."
+        },
+        409
+      );
+    }
+
+    for (const sessionId of sessionIdsToDelete) {
+      await dependencies.sessionManager.deleteSession(sessionId);
+      await dependencies.traceManager.deleteEvents(sessionId);
+    }
+
+    return c.body(null, 204);
+  });
+
   app.delete("/sessions/:sessionId", async (c) => {
     const requestId = getRequestId(c);
     const sessionId = c.req.param("sessionId");

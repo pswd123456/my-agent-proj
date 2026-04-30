@@ -101,4 +101,24 @@ describe("ApiClient error handling", () => {
 
     expect(order).toEqual(["Hel", "timer", "Hello"]);
   });
+
+  test("clears session history with the dedicated endpoint", async () => {
+    const calls: Array<{ url: string; method?: string }> = [];
+    const client = new ApiClient({
+      baseUrl: "http://localhost:3001",
+      fetch: async (url, init) => {
+        calls.push({ url: String(url), method: init?.method });
+        return new Response(null, { status: 204 });
+      }
+    });
+
+    await client.clearSessionHistory();
+
+    expect(calls).toEqual([
+      {
+        url: "http://localhost:3001/sessions/history",
+        method: "DELETE"
+      }
+    ]);
+  });
 });

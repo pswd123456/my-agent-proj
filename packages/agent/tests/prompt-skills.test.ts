@@ -903,7 +903,92 @@ describe("PromptBuilder skill context", () => {
     expect(serializedMessages).toContain("我继续往下看。");
   });
 
-  test("omits compacted thinking text and signatures from the summary while preserving tail thinking", () => {
+  test("preserves compacted text and thinking while summarizing tool blocks", () => {
+    const oldUserText = `Run a long investigation.\n${"u".repeat(700)}`;
+    const oldAssistantText = `I checked the first clue.\n${"a".repeat(800)}`;
+    const blocks: ConversationBlock[] = [
+      {
+        id: "user-1",
+        kind: "user",
+        content: oldUserText,
+        createdAt: "2026-04-25T00:00:00.000Z"
+      },
+      {
+        id: "old-thinking",
+        kind: "assistant thinking",
+        content: "old private reasoning that should not be summarized verbatim",
+        signature: "old-signature-should-not-leak",
+        createdAt: "2026-04-25T00:00:01.000Z"
+      },
+      {
+        id: "tool-call-1",
+        kind: "tool call",
+        toolCallId: "call-secret",
+        toolName: "read_file",
+        input: { path: "secret.txt" },
+        createdAt: "2026-04-25T00:00:01.500Z"
+      },
+      {
+        id: "tool-result-1",
+        kind: "tool result",
+        toolCallId: "call-secret",
+        toolName: "read_file",
+        output: "SECRET_TOOL_RESULT_BODY",
+        isError: false,
+        createdAt: "2026-04-25T00:00:01.750Z"
+      },
+      {
+        id: "assistant-1",
+        kind: "assistant",
+        content: oldAssistantText,
+        createdAt: "2026-04-25T00:00:02.000Z"
+      }
+    ];
+
+    for (let index = 0; index < 18; index += 1) {
+      blocks.push({
+        id: `tail-assistant-${index}`,
+        kind: "assistant",
+        content: `tail step ${index}`,
+        createdAt: "2026-04-25T00:00:03.000Z"
+      });
+    }
+
+    const compactedBlocks = compactHistoryBlocks(blocks);
+    const serializedMessages = JSON.stringify(
+      toAnthropicMessages(compactedBlocks)
+    );
+
+    expect(compactedBlocks[0]).toMatchObject({
+      id: "user-1",
+      kind: "user",
+      content: oldUserText
+    });
+    expect(compactedBlocks[1]).toMatchObject({
+      id: "old-thinking",
+      kind: "assistant thinking",
+      content: "old private reasoning that should not be summarized verbatim",
+      signature: "old-signature-should-not-leak"
+    });
+    expect(compactedBlocks[3]).toMatchObject({
+      id: "assistant-1",
+      kind: "assistant",
+      content: oldAssistantText
+    });
+    expect(serializedMessages).toContain("[History compacted:");
+    expect(serializedMessages).toContain("u".repeat(700));
+    expect(serializedMessages).toContain("a".repeat(800));
+    expect(serializedMessages).toContain(
+      "old private reasoning that should not be summarized verbatim"
+    );
+    expect(serializedMessages).toContain("old-signature-should-not-leak");
+    expect(serializedMessages).not.toContain("SECRET_TOOL_RESULT_BODY");
+    expect(serializedMessages).toContain(
+      "tool result: read_file succeeded; output omitted from compact summary"
+    );
+  });
+
+  test("preserves compacted and tail thinking text and signatures", () => {
     const blocks: ConversationBlock[] = [
       {
         id: "user-1",
@@ -953,14 +1038,11 @@ describe("PromptBuilder skill context", () => {
       toAnthropicMessages(compactedBlocks)
     );
 
-    expect(serializedMessages).toContain("[History compacted:");
+    expect(serializedMessages).not.toContain("[History compacted:");
     expect(serializedMessages).toContain(
-      "assistant thinking: preserved reasoning for a prior tool-use turn; signature omitted from compact summary"
-    );
-    expect(serializedMessages).not.toContain(
       "old private reasoning that should not be summarized verbatim"
     );
-    expect(serializedMessages).not.toContain("old-signature-should-not-leak");
+    expect(serializedMessages).toContain("old-signature-should-not-leak");
     expect(serializedMessages).toContain(
       "tail reasoning must remain protocol-visible"
     );

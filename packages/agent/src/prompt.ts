@@ -205,22 +205,68 @@ function truncateText(text: string, maxCharacters: number): string {
 
 function summarizeCompactedBlock(block: ConversationBlock): string {
   if (block.kind === "user") {
-    return `user: ${truncateText(block.content, 320)}`;
+    return `user: ${block.content}`;
   }
 
   if (block.kind === "assistant") {
-    return `assistant: ${truncateText(block.content, 420)}`;
-  }
-
-  if (block.kind === "assistant thinking") {
-    return "assistant thinking: preserved reasoning for a prior tool-use turn; signature omitted from compact summary";
+    return `assistant: ${block.content}`;
   }
 
   if (block.kind === "tool call") {
     return `tool call: ${block.toolName} ${truncateText(JSON.stringify(block.input), 320)}`;
   }
 
-  return `tool result: ${block.toolName} ${block.isError ? "failed" : "succeeded"}; ${truncateText(block.output, 520)}`;
+  if (block.kind === "assistant thinking") {
+    return "assistant thinking: preserved verbatim outside compact summary";
+  }
+
+  return `tool result: ${block.toolName} ${block.isError ? "failed" : "succeeded"}; output omitted from compact summary (${block.output.length} chars)`;
+}
+
+function shouldSummarizeInHistoryCompaction(block: ConversationBlock): boolean {
+  return block.kind === "tool call" || block.kind === "tool result";
+}
+
+function createHistoryCompactionSummaryBlock(
+  blocks: ConversationBlock[],
+  index: number
+): UserConversationBlock {
+  const summary = blocks.map(summarizeCompactedBlock).join("\n");
+
+  return {
+    id:
+      index === 0
+        ? "history-compaction-summary"
+        : `history-compaction-summary-${index}`,
+    kind: "user",
+    content: [
+      `[History compacted: ${blocks.length} older tool blocks summarized to reduce context. User, assistant text, and assistant thinking blocks were preserved verbatim.]`,
+      truncateText(summary, COMPACTED_TEXT_LIMIT)
+    ].join("\n"),
+    createdAt: new Date(0).toISOString()
+  };
+}
+
+function getHistoryCompactionTailStart(blocks: ConversationBlock[]): number {
+  const tailCandidateStart = Math.max(
+    0,
+    blocks.length - HISTORY_COMPACTION_TAIL_MESSAGES
+  );
+  const tailStart = blocks.findIndex(
+    (block, index) => index >= tailCandidateStart && block.kind === "user"
+  );
+
+  return tailStart === -1 ? tailCandidateStart : tailStart;
+}
+
+export function countHistoryCompactionTailBlocks(
+  blocks: ConversationBlock[]
+): number {
+  if (blocks.length <= HISTORY_COMPACTION_TAIL_MESSAGES) {
+    return blocks.length;
+  }
+
+  return blocks.length - getHistoryCompactionTailStart(blocks);
 }
 
 export function compactHistoryBlocks(
@@ -230,30 +276,37 @@ export function compactHistoryBlocks(
     return blocks;
   }
 
-  const tailCandidateStart = Math.max(
-    0,
-    blocks.length - HISTORY_COMPACTION_TAIL_MESSAGES
-  );
-  const tailStart = blocks.findIndex(
-    (block, index) => index >= tailCandidateStart && block.kind === "user"
-  );
-  const effectiveTailStart = tailStart === -1 ? tailCandidateStart : tailStart;
+  const effectiveTailStart = getHistoryCompactionTailStart(blocks);
   const compacted = blocks.slice(0, effectiveTailStart);
   const tail = blocks.slice(effectiveTailStart);
-  const summary = compacted.map(summarizeCompactedBlock).join("\n");
+  const retainedBlocks: ConversationBlock[] = [];
+  let pendingSummaryBlocks: ConversationBlock[] = [];
+  let summaryIndex = 0;
 
-  return [
-    {
-      id: "history-compaction-summary",
-      kind: "user",
-      content: [
-        `[History compacted: ${compacted.length} older blocks summarized to reduce context.]`,
-        truncateText(summary, COMPACTED_TEXT_LIMIT)
-      ].join("\n"),
-      createdAt: new Date(0).toISOString()
-    },
-    ...tail
-  ];
+  const flushSummaryBlocks = () => {
+    if (pendingSummaryBlocks.length === 0) {
+      return;
+    }
+
+    retainedBlocks.push(
+      createHistoryCompactionSummaryBlock(pendingSummaryBlocks, summaryIndex)
+    );
+    pendingSummaryBlocks = [];
+    summaryIndex += 1;
+  };
+
+  for (const block of compacted) {
+    if (shouldSummarizeInHistoryCompaction(block)) {
+      pendingSummaryBlocks.push(block);
+      continue;
+    }
+
+    flushSummaryBlocks();
+    retainedBlocks.push(block);
+  }
+  flushSummaryBlocks();
+
+  return [...retainedBlocks, ...tail];
 }
 
 function createDomainInstructions(tools: AnthropicToolDefinition[]): string[] {

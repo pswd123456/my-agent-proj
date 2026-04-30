@@ -488,4 +488,35 @@ describe("createApiApp settings bootstrap", () => {
       payload.records.some((record) => record.requestId === "req-create")
     ).toBe(true);
   });
+
+  test("clears all session history in one request", async () => {
+    const { app, sessionManager } = await createTestApp();
+
+    const parentSession = await createSession(app, {
+      userId: "stage5-clear-history-user"
+    });
+    const childSession = await createSession(app, {
+      userId: "stage5-clear-history-user"
+    });
+
+    const childSnapshot = await sessionManager.getSession(childSession.sessionId);
+    expect(childSnapshot).not.toBeNull();
+    await sessionManager.saveSession({
+      ...childSnapshot!,
+      parentSessionId: parentSession.sessionId
+    });
+    await sessionManager.saveSession(parentSession);
+
+    const response = await app.request("/sessions/history", {
+      method: "DELETE"
+    });
+    expect(response.status).toBe(204);
+
+    const listResponse = await app.request("/sessions");
+    expect(listResponse.status).toBe(200);
+    const listPayload = (await listResponse.json()) as {
+      sessions: SessionSnapshot[];
+    };
+    expect(listPayload.sessions).toHaveLength(0);
+  });
 });

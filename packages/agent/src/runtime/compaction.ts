@@ -10,6 +10,7 @@ import {
   HISTORY_COMPACTION_TAIL_MESSAGES,
   HISTORY_COMPACTION_TRIGGER_RATIO,
   compactHistoryBlocks,
+  countHistoryCompactionTailBlocks,
   type PromptBuilder,
   type PromptEnvelope,
   type PromptRuntimeContext
@@ -56,9 +57,7 @@ function stringifyToolInput(input: Record<string, unknown>): string {
   return typeof serialized === "string" ? serialized : String(input);
 }
 
-function getBlockResponseGroupId(
-  block: ConversationBlock
-): string | undefined {
+function getBlockResponseGroupId(block: ConversationBlock): string | undefined {
   return "responseGroupId" in block && typeof block.responseGroupId === "string"
     ? block.responseGroupId
     : undefined;
@@ -317,7 +316,9 @@ export async function preparePromptWithCompaction(input: {
         estimatedInputTokensBefore: estimatedInputTokens,
         estimatedInputTokensAfter: estimatedAfterHistoryCompaction,
         sourceBlockCount: input.session.messages.length,
-        retainedTailCount: Math.max(historyCompactedMessages.length - 1, 0)
+        retainedTailCount: countHistoryCompactionTailBlocks(
+          input.session.messages
+        )
       }
     });
     estimatedInputTokens = estimatedAfterHistoryCompaction;

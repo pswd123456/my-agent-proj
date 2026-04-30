@@ -83,6 +83,7 @@ interface SessionWorkbenchDrawerProps {
   permissionTools: SettingsPermissionToolOption[];
   loadingSettings: boolean;
   savingSettings: boolean;
+  clearingSessionHistory: boolean;
   choosingWorkingDirectory: boolean;
   pendingPermissionToolName: string | null;
   weekDates: string[];
@@ -94,6 +95,7 @@ interface SessionWorkbenchDrawerProps {
   onSettingsFormChange: (patch: Partial<SettingsFormState>) => void;
   onSettingsBlur: () => void;
   onChooseWorkingDirectory: () => void;
+  onClearSessionHistory: () => void;
   onSettingsYoloModeChange: (checked: boolean) => void;
   onSettingsDebugConversationViewChange: (checked: boolean) => void;
   onSettingsPermissionToolToggle: (
@@ -116,6 +118,7 @@ export function SessionWorkbenchDrawer({
   permissionTools,
   loadingSettings,
   savingSettings,
+  clearingSessionHistory,
   choosingWorkingDirectory,
   pendingPermissionToolName,
   weekDates,
@@ -127,6 +130,7 @@ export function SessionWorkbenchDrawer({
   onSettingsFormChange,
   onSettingsBlur,
   onChooseWorkingDirectory,
+  onClearSessionHistory,
   onSettingsYoloModeChange,
   onSettingsDebugConversationViewChange,
   onSettingsPermissionToolToggle,
@@ -202,6 +206,28 @@ export function SessionWorkbenchDrawer({
                         </div>
                       </div>
                     </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {currentSession ? (
+                <div className="grid gap-2">
+                  <div className={tertiaryHeadingClassName}>History</div>
+                  <button
+                    type="button"
+                    onClick={onClearSessionHistory}
+                    disabled={
+                      loadingSettings ||
+                      savingSettings ||
+                      clearingSessionHistory ||
+                      !currentSession
+                    }
+                    className="rounded-[var(--app-radius-pill)] border border-[var(--app-status-danger)] px-4 py-3 text-left text-[0.72rem] uppercase tracking-[0.14em] text-[var(--app-status-danger)] transition hover:bg-[color:color-mix(in_srgb,var(--app-status-danger)_12%,transparent)] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {clearingSessionHistory ? "清除中..." : "清除历史会话"}
+                  </button>
+                  <div className="text-xs leading-6 text-[var(--app-text-muted)]">
+                    删除所有会话记录，保留当前设置并重新开始。
                   </div>
                 </div>
               ) : null}

@@ -335,6 +335,7 @@ export function SessionWorkbench() {
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(
     null
   );
+  const [clearingSessionHistory, setClearingSessionHistory] = useState(false);
   const [resettingRoutines, setResettingRoutines] = useState(false);
   const [userSettings, setUserSettings] =
     useState<SessionSettingsRecord | null>(null);
@@ -733,6 +734,46 @@ export function SessionWorkbench() {
       setErrorText(error instanceof Error ? error.message : String(error));
     } finally {
       setDeletingSessionId(null);
+    }
+  }
+
+  async function handleClearSessionHistory() {
+    if (clearingSessionHistory || !currentSession) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "这会删除所有会话记录并重新开始，确认继续吗？"
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setClearingSessionHistory(true);
+    setErrorText(null);
+
+    try {
+      await apiClient.clearSessionHistory();
+      setSessionRegistry(createSessionRegistryState());
+      setSessionUiState((current) => setSessionSnapshot(current, null));
+      setTraceRecords([]);
+      setRoutines([]);
+      setRunFileChanges([]);
+      setMessageManagerState(resetMessageManagerState());
+      focusConversationView();
+      const newSession = await apiClient.createSession(
+        getCreateSessionPayload()
+      );
+      setSessionRegistry(
+        hydrateSelectedSession(createSessionRegistryState(), newSession)
+      );
+      setSessionUiState((current) => setSessionSnapshot(current, newSession));
+      setRunFileChanges(buildRunFileChangesStatesFromSession(newSession));
+      router.replace(`/?sessionId=${newSession.sessionId}`, { scroll: false });
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : String(error));
+    } finally {
+      setClearingSessionHistory(false);
     }
   }
 
@@ -1481,6 +1522,7 @@ export function SessionWorkbench() {
               permissionTools={permissionTools}
               loadingSettings={loadingSettings}
               savingSettings={savingSettings}
+              clearingSessionHistory={clearingSessionHistory}
               choosingWorkingDirectory={choosingWorkingDirectory}
               pendingPermissionToolName={pendingPermissionToolName}
               weekDates={weekDates}
@@ -1494,6 +1536,7 @@ export function SessionWorkbench() {
               onChooseWorkingDirectory={() =>
                 void handleChooseWorkingDirectory()
               }
+              onClearSessionHistory={() => void handleClearSessionHistory()}
               onSettingsYoloModeChange={(checked) =>
                 void handleSettingsYoloModeChange(checked)
               }

@@ -503,6 +503,16 @@ export class ApiClient {
     await ensureOk(response);
   }
 
+  async clearSessionHistory(): Promise<void> {
+    const response = await this.fetchImpl(
+      buildUrl(this.baseUrl, "/sessions/history"),
+      {
+        method: "DELETE"
+      }
+    );
+    await ensureOk(response);
+  }
+
   async interruptSessionExecution(
     sessionId: string
   ): Promise<InterruptSessionResult> {
