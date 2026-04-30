@@ -89,10 +89,12 @@ prefix message 带 `cache_control: { type: "ephemeral" }`，并参与当前 `cac
 
 3. user context hooks
    - 来自 user settings 里的 `userContextHooks`
-   - 由 runtime 在每次 run 开始时解析，只进入 `runtimeContextMessages`
-   - 当前支持 `session_started`、`run_started`、`run_end` 三个时机
-   - `session_started` 只在当前 session 的第一次 run 注入；同一轮内的显示顺序固定为 `session_started -> run_started -> run_end`
+   - `behavior: "context"` 的 hook 由 runtime 在每次 run 开始时解析，只进入 `runtimeContextMessages`
+   - context 注入当前只支持 `session_started`、`run_started` 两个时机；`run_end` 只支持 message hook
+   - `session_started` 只在当前 session 的第一次 run 注入；同一轮内的显示顺序固定为 `session_started -> run_started`
    - hook 文本不进入 `system`、`prefixMessages` 或 `cacheKey`
+
+`behavior: "message"` 的 hook 不进入 prompt runtime context，而是作为真实用户消息排入 runtime：`session_started` 与 `run_started` 会在用户消息发送给模型前先执行，`run_end` 会在用户消息完成后执行。`session_started` message hook 也只在当前 session 的第一次 run 触发。
 
 4. workspace skills
    - 从 `session.workingDirectory/.agent/skills/` 发现的 skill metadata
