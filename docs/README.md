@@ -12,7 +12,7 @@
 - [持久化与 Session 状态模型](./architecture/persistence-and-session-state.md)
 - [前端 Workbench 架构](./architecture/frontend-workbench.md)
 - [Tool 编排与执行边界](./architecture/tool-orchestration.md)
-- [Web 能力](./architecture/web-capability.md)
+- [Firecrawl Web 接入](./architecture/firecrawl-web.md)
 - [后台任务与 delegation](./architecture/background-tasks-and-delegation.md)
 - [MCP 模块落地](./architecture/mcp-module.md)
 - [Trace / Log 排查](./architecture/trace-debugging.md)
@@ -28,7 +28,7 @@
 - 做 UI、视觉统一、AI 生成页面相关工作时，先看根目录 `DESIGN.md`，再进入 `docs/design-system/`
 - 刚复制模板时，先看 `docs/template/`
 - 做技术栈、工程结构、架构边界相关工作时，从 `docs/architecture/` 开始
-- 做 API 契约、runtime 装配点或 Web 调用边界相关工作时，优先看 `docs/architecture/api-and-sdk-boundary.md`
+- 做 API 契约、runtime 装配点或 Web 调用边界相关工作时，优先看 `docs/architecture/api-and-sdk-boundary.md` 和 `docs/architecture/firecrawl-web.md`
 - 做 tool 调度、权限等待、工具结果持久化或并发执行边界时，优先看 `docs/architecture/tool-orchestration.md`
 - 做 session/settings/background task 的状态归属、数据表和持久化边界时，优先看 `docs/architecture/persistence-and-session-state.md`
 - 判断“当前实现事实”时，优先看 `docs/architecture/` 和代码；`docs/plan/`、`docs/investigation/`、`docs/todo/` 更多是阶段规格、调研记录或验收口径

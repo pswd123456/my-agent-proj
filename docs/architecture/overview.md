@@ -21,7 +21,7 @@
 - session 默认工作目录是仓库根下的 `agent-workspace/`；如果用户设置或新建 session 时显式指定了其他目录，也可以落在 repo 外
 - session 默认 `contextWindow` 是 `200000`
 - session 默认 `maxTurns` 是 `50`，接口允许的上限是 `200`
-- 默认启用的 capability packs 是 `workspace`、`schedule`、`web` 和 `lsp`
+- 默认启用的 capability packs 是 `workspace`、`schedule` 和 `lsp`
 - session settings 的解析顺序是 `explicit override > user settings > repo default`
 - detached background task 使用独立 child session 或 shell worker 执行，不与 parent session 共用消息历史
 - 工作区 runtime 上下文还会按次读取 `session.workingDirectory` 下的工作区输入：
@@ -30,6 +30,7 @@
   - `.agent/.config.toml` 提供 MCP server 配置
   - `.agent/plans/` 承载 session 级 task brief artifact
   - 其中 `.agent/plans/` 是运行时产物与用户可编辑 artifact，其余是运行时输入
+- 公开 web 搜索、抓取和结构化抽取通过工作区 Firecrawl MCP 接入，不属于内建 capability pack
 - 用户级 settings 已持久化到 `agent_settings`，当前包含：
   - `model`
   - `thinkingEffort`

@@ -94,11 +94,14 @@ flowchart TD
 
 ```toml
 [mcp_servers.notes]
+enabled = true
 command = "node"
 args = ["./notes-mcp.js"]
 env = { FOO = "bar" }
+disabled_tools = ["dangerous_write"]
 
 [mcp_servers.browser]
+enabled = false
 url = "http://127.0.0.1:8123/mcp"
 headers = { Authorization = "Bearer xxx" }
 ```
@@ -107,8 +110,10 @@ headers = { Authorization = "Bearer xxx" }
 
 - 有 `command` 就按 `stdio` 处理
 - 有 `url` 就按 `http` 处理
-- `stdio` 只允许 `command` / `args` / `env`
-- `http` 只允许 `url` / `headers`
+- `enabled` 可选，默认 `true`；设为 `false` 时该 server 不会在运行前连接和挂载
+- `disabled_tools` 可选，按 MCP 原始 tool name 记录禁用的子工具；server 仍会连接并列出工具，但禁用项不会注册进本轮 `ToolRegistry`
+- `stdio` 只允许 `command` / `args` / `env` / `enabled` / `disabled_tools`
+- `http` 只允许 `url` / `headers` / `enabled` / `disabled_tools`
 - `url` 只能是绝对 `http://` 或 `https://`
 - 重名 server、非法字段、类型错误、TOML 语法错误都会进入 `diagnostics`
 
@@ -172,7 +177,7 @@ task-style MCP 结果如果没有 `content`，当前会走兼容分支，写成 
   - `configPath`
   - `foundConfig`
   - `diagnostics`
-  - `servers`
+  - `servers`，包括 server 加载状态、已挂载工具名，以及可列出的子工具启用状态
 - MCP tool 真正执行时，后续仍走统一的：
   - `tool_call`
   - `permission_request`
@@ -202,6 +207,7 @@ MCP 连接不是单例，也不跨回合复用：
 
 - server 是串行连接，不是并发加载
 - MCP 只在运行前装配，不支持运行中热更新
+- Settings 面板可以读写当前默认工作目录的 server / 子工具启用状态，但修改后仍在下一次 run 才会重新装配
 - prompt 不会额外解释某个 MCP server 的专项语义，模型只能靠工具名和描述理解
 - 如果 namespaced 后的工具名和已有工具重名，`ToolRegistry.register()` 会直接抛错，本轮 runtime 装配失败
 - 当前没有针对 MCP server 的健康检查缓存、重试策略和连接池

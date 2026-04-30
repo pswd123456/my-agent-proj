@@ -9,7 +9,7 @@
 - [前端 Workbench 架构](./frontend-workbench.md)
 - [Tool 编排与执行边界](./tool-orchestration.md)
 - [内建 LSP Capability Pack](./lsp-capability-pack.md)
-- [Web 能力](./web-capability.md)
+- [Firecrawl Web 接入](./firecrawl-web.md)
 - [架构图](./diagram.md)
 - [Context 管理](./context-management/README.md)
 - [技术栈选择](./tech-stack.md)
@@ -28,7 +28,7 @@
 - 如果想确认哪些状态进 `agent_settings`、哪些进 session、哪些进后台任务表，读 [持久化与 Session 状态模型](./persistence-and-session-state.md)
 - 如果想从产品层理解 `apps/web`、SDK、message manager 和 shared UI 包怎么协作，读 [前端 Workbench 架构](./frontend-workbench.md)
 - 如果想确认内建 LSP 能力的工具面、默认值和迁移约定，读 [内建 LSP Capability Pack](./lsp-capability-pack.md)
-- 想确认 `web_search` / `web_fetch` 的契约、自建 SearXNG 和本地抓取实现，读 [Web 能力](./web-capability.md)
+- 想确认公开网页搜索、抓取和 Firecrawl MCP 接入方式，读 [Firecrawl Web 接入](./firecrawl-web.md)
 - 想快速建立全局心智模型时，接着读 [架构图](./diagram.md)
 - 做 messages、compact、tool result 或 prompt 分层相关工作时，读 [Context 管理](./context-management/README.md)
 - 做前端 workbench 的消息 dedupe、折叠、stream overlay 或 inspector 编排时，也从 [Context 管理](./context-management/README.md) 进入

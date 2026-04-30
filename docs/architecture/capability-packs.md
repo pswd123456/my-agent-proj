@@ -39,10 +39,11 @@
 
 - `workspace`：`apply_patch`、`read_file`、`list_directory`、`find_files`、`search_text`、`write_file`、`create_directory`、`delete_file`、`delete_path`、`move_path`、`copy_path`、`git_status`、`git_diff`、`git_diff_cached`、`run_shell_command`、`make_http_request`、`search_skill`、`load_skill`
 - `schedule`：`create_routine` / `edit_routine` / `delete_routine` / `search_routine_by_oclock` / `list_routine_by_week` / `list_routine_by_date` / `ask_for_confirmation`
-- `web`：`web_search` / `web_fetch`，用于通过配置的 SearXNG 搜索与公开网页内容抓取；`web_fetch` 会在必要时尝试浏览器渲染兜底，细节见 [Web 能力](./web-capability.md)
 - `lsp`：`lsp_hover` / `lsp_go_to_definition` / `lsp_find_references` / `lsp_document_symbols` / `lsp_workspace_symbols` / `lsp_diagnostics`，用于 TS/JS 语义查询；细节见 [内建 LSP Capability Pack](./lsp-capability-pack.md)
 
-当前默认 capability packs 是 `workspace`、`schedule`、`web` 和 `lsp`。session create 时会继承 user settings 里的启用组合；`manage_capability_packs` 或 session settings 更新写回后，从下一次 run 开始影响实际 mounted tools。
+当前默认 capability packs 是 `workspace`、`schedule` 和 `lsp`。session create 时会继承 user settings 里的启用组合；`manage_capability_packs` 或 session settings 更新写回后，从下一次 run 开始影响实际 mounted tools。
+
+公开 web 搜索、抓取、map、crawl 与结构化抽取不再作为内建 capability pack 维护；当前通过工作区 Firecrawl MCP 按次挂载，细节见 [Firecrawl Web 接入](./firecrawl-web.md)。
 
 其中 `schedule` 会继续使用当前的：
 
@@ -60,4 +61,4 @@
 
 - 想理解仓库整体主线，先看 [项目概览](./overview.md)
 - 想看具体日程能力怎么落地，再看 [`docs/plan/product1.md`](/Users/boneda/gitrepo/my-agent-proj/docs/plan/product1.md)
-- 想看 web 搜索与抓取怎么落地，先看 [Web 能力](./web-capability.md)
+- 想看公开网页搜索与抓取怎么接入，先看 [Firecrawl Web 接入](./firecrawl-web.md)

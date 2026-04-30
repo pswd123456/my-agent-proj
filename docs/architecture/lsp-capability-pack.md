@@ -41,7 +41,7 @@
 ## 默认值与迁移
 
 - `lsp` 现在是默认 capability pack 之一
-- 当前默认 capability packs 是 `workspace`、`schedule`、`web`、`lsp`
+- 当前默认 capability packs 是 `workspace`、`schedule`、`lsp`
 - 新 session 和新 settings 会带上这个默认值
 - 迁移会把旧默认 `agent_settings` 记录补到新默认，但不会重写自定义组合
 
@@ -54,4 +54,3 @@
 - registry 装配: `packages/agent/src/tools/registry.ts`
 - API runtime: `apps/api/src/index.ts`
 - worker runtime: `apps/worker/src/index.ts`
-

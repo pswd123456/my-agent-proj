@@ -22,7 +22,7 @@
 - `session-context.ts`：session 运行态字段、待批准/待提问/后台通知/todo/full compaction 等上下文类型
 - `permission-rules.ts`：shell/tool allow/ask/deny 规则与 settings 允许配置的工具集合
 - `background-task.ts`：后台任务 kind/status/payload/taskState/result envelope
-- `routine.ts`、`web.ts`、`tool-result.ts`、`user-context-hooks.ts`
+- `routine.ts`、`tool-result.ts`、`user-context-hooks.ts`
 
 一句话概括：`domain` 决定“这些字段在业务上意味着什么”。
 

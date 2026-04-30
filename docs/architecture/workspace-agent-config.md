@@ -64,6 +64,7 @@
 
 - `stdio` server：`command` / `args` / `env`
 - `http` server：`url` / `headers`
+- 通用字段：`enabled` 控制 server 是否连接和挂载，`disabled_tools` 按原始 MCP tool name 禁用子工具
 
 transport 通过字段推断：
 
@@ -79,7 +80,7 @@ transport 通过字段推断：
 ## 运行时装配
 
 - API 和 worker 在各自的 runtime 创建前读取 `.agent/.config.toml`
-- 连接成功的 MCP server 会把工具挂进本次 `ToolRegistry`
+- 启用且连接成功的 MCP server 会把未禁用的子工具挂进本次 `ToolRegistry`
 - MCP tool 统一命名为 `mcp__<server>__<tool>`
 - MCP tool 默认走 `always-ask-user`
 - `YOLO mode` 不绕过 MCP 工具审批

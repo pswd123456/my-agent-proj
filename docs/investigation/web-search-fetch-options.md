@@ -1,6 +1,6 @@
 # Web Search / Fetch 接入方案调研
 
-> 注：这份文档保留当时的方案比较与取舍记录。当前实现已经落地为原生 `web` capability pack，当前事实请以 [Web 能力](../architecture/web-capability.md) 为准。
+> 注：这份文档保留当时的方案比较与取舍记录。当前实现已经移除原生 `web` capability pack，公开 web 能力通过 Firecrawl MCP 接入；当前事实请以 [Firecrawl Web 接入](../architecture/firecrawl-web.md) 为准。
 
 更新时间：2026-04-26
 
