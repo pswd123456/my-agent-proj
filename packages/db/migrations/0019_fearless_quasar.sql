@@ -1,0 +1,1 @@
+ALTER TABLE "agent_settings" ADD COLUMN "user_context_hooks" jsonb DEFAULT '[]'::jsonb NOT NULL;

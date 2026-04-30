@@ -13,6 +13,8 @@ import {
   type SettingsPermissionToolOption,
   type SessionSettingsRecord,
   type TraceRecord,
+  type WorkspaceFileSearchResult,
+  type WorkspaceSkillSearchResult,
   type WorkspaceFileChangeSummary
 } from "@ai-app-template/sdk";
 
@@ -1166,6 +1168,7 @@ export function SessionWorkbench() {
           toolAskList: normalizedForm.toolAskList,
           toolDenyList: normalizedForm.toolDenyList,
           enabledCapabilityPacks: normalizedForm.enabledCapabilityPacks,
+          userContextHooks: normalizedForm.userContextHooks,
           debugConversationView: normalizedForm.debugConversationView
         }
       );
@@ -1195,6 +1198,124 @@ export function SessionWorkbench() {
 
   function handleSettingsFormChange(patch: Partial<SettingsFormState>) {
     setSettingsForm((current) => patchSettingsForm(current, patch));
+  }
+
+  function updateUserContextHookList(
+    updater: (
+      hooks: SettingsFormState["userContextHooks"]
+    ) => SettingsFormState["userContextHooks"]
+  ): SettingsFormState {
+    return patchSettingsForm(settingsForm, {
+      userContextHooks: updater(settingsForm.userContextHooks)
+    });
+  }
+
+  function handleAddUserContextHook() {
+    if (savingSettings) {
+      return;
+    }
+
+    setSettingsForm((current) =>
+      patchSettingsForm(current, {
+        userContextHooks: [
+          ...current.userContextHooks,
+          {
+            id: crypto.randomUUID(),
+            event: "run_started",
+            title: "",
+            content: "",
+            enabled: true
+          }
+        ]
+      })
+    );
+  }
+
+  function handleUserContextHookChange(
+    hookId: string,
+    patch: Partial<SettingsFormState["userContextHooks"][number]>
+  ) {
+    setSettingsForm((current) =>
+      patchSettingsForm(current, {
+        userContextHooks: current.userContextHooks.map((hook) =>
+          hook.id === hookId ? { ...hook, ...patch } : hook
+        )
+      })
+    );
+  }
+
+  async function handleUserContextHookEnabledChange(
+    hookId: string,
+    enabled: boolean
+  ) {
+    if (savingSettings) {
+      return;
+    }
+
+    const nextForm = updateUserContextHookList((hooks) =>
+      hooks.map((hook) => (hook.id === hookId ? { ...hook, enabled } : hook))
+    );
+    setSettingsForm(nextForm);
+    await handleSaveUserSettings(nextForm);
+  }
+
+  async function handleUserContextHookEventChange(
+    hookId: string,
+    event: SettingsFormState["userContextHooks"][number]["event"]
+  ) {
+    if (savingSettings) {
+      return;
+    }
+
+    const nextForm = updateUserContextHookList((hooks) =>
+      hooks.map((hook) => (hook.id === hookId ? { ...hook, event } : hook))
+    );
+    setSettingsForm(nextForm);
+    await handleSaveUserSettings(nextForm);
+  }
+
+  async function handleDeleteUserContextHook(hookId: string) {
+    if (savingSettings) {
+      return;
+    }
+
+    const nextForm = updateUserContextHookList((hooks) =>
+      hooks.filter((hook) => hook.id !== hookId)
+    );
+    setSettingsForm(nextForm);
+    await handleSaveUserSettings(nextForm);
+  }
+
+  async function handleMoveUserContextHook(
+    hookId: string,
+    direction: "up" | "down"
+  ) {
+    if (savingSettings) {
+      return;
+    }
+
+    const nextForm = updateUserContextHookList((hooks) => {
+      const currentIndex = hooks.findIndex((hook) => hook.id === hookId);
+      if (currentIndex === -1) {
+        return hooks;
+      }
+
+      const targetIndex =
+        direction === "up" ? currentIndex - 1 : currentIndex + 1;
+      if (targetIndex < 0 || targetIndex >= hooks.length) {
+        return hooks;
+      }
+
+      const nextHooks = [...hooks];
+      const [moved] = nextHooks.splice(currentIndex, 1);
+      if (!moved) {
+        return hooks;
+      }
+      nextHooks.splice(targetIndex, 0, moved);
+      return nextHooks;
+    });
+    setSettingsForm(nextForm);
+    await handleSaveUserSettings(nextForm);
   }
 
   async function handleChooseWorkingDirectory() {
@@ -1363,7 +1484,7 @@ export function SessionWorkbench() {
 
   async function handleSessionPlanModeChange(checked: boolean) {
     if (!currentSession || submitting) {
-      return;
+      return false;
     }
 
     setErrorText(null);
@@ -1376,9 +1497,45 @@ export function SessionWorkbench() {
       );
       setSessionUiState((current) => setSessionSnapshot(current, updated));
       setSessionRegistry((current) => upsertSession(current, updated));
+      return true;
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : String(error));
+      return false;
     }
+  }
+
+  async function handleSearchSessionWorkspaceFiles(
+    query: string,
+    limit: number
+  ): Promise<WorkspaceFileSearchResult> {
+    if (!currentSession) {
+      return {
+        items: [],
+        truncated: false
+      };
+    }
+
+    return apiClient.searchSessionWorkspaceFiles(currentSession.sessionId, {
+      query,
+      limit
+    });
+  }
+
+  async function handleSearchSessionSkills(
+    query: string,
+    limit: number
+  ): Promise<WorkspaceSkillSearchResult> {
+    if (!currentSession) {
+      return {
+        items: [],
+        truncated: false
+      };
+    }
+
+    return apiClient.searchSessionSkills(currentSession.sessionId, {
+      query,
+      limit
+    });
   }
 
   async function handleSettingsDebugConversationViewChange(checked: boolean) {
@@ -1652,6 +1809,21 @@ export function SessionWorkbench() {
               onSettingsCapabilityPackToggle={(packName) =>
                 void handleSettingsCapabilityPackToggle(packName)
               }
+              onAddUserContextHook={handleAddUserContextHook}
+              onUserContextHookChange={handleUserContextHookChange}
+              onUserContextHookBlur={() => void handleSaveUserSettings()}
+              onUserContextHookEnabledChange={(hookId, enabled) =>
+                void handleUserContextHookEnabledChange(hookId, enabled)
+              }
+              onUserContextHookEventChange={(hookId, event) =>
+                void handleUserContextHookEventChange(hookId, event)
+              }
+              onDeleteUserContextHook={(hookId) =>
+                void handleDeleteUserContextHook(hookId)
+              }
+              onMoveUserContextHook={(hookId, direction) =>
+                void handleMoveUserContextHook(hookId, direction)
+              }
               headerActions={sidebarToggleButton}
             />
           ) : (
@@ -1699,6 +1871,13 @@ export function SessionWorkbench() {
               }
               onSessionPlanModeChange={(checked) =>
                 void handleSessionPlanModeChange(checked)
+              }
+              onEnablePlanModeCommand={() => handleSessionPlanModeChange(true)}
+              onSearchWorkspaceFiles={(query, limit) =>
+                handleSearchSessionWorkspaceFiles(query, limit)
+              }
+              onSearchWorkspaceSkills={(query, limit) =>
+                handleSearchSessionSkills(query, limit)
               }
               onPermissionQuickReply={(reply) =>
                 void handlePermissionQuickReply(reply)

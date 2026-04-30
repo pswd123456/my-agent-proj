@@ -4,6 +4,7 @@ import {
   DEFAULT_CONTEXT_WINDOW,
   DEFAULT_SESSION_MAX_TURNS,
   createPermissionRuleLists,
+  normalizePendingUserQuestionPayload,
   normalizeCapabilityPacks,
   normalizeThinkingEffort,
   type BackgroundNotificationKind,
@@ -200,8 +201,9 @@ export function cloneSnapshot(snapshot: SessionSnapshot): SessionSnapshot {
         0,
         Math.floor(cloned.context.activeBackgroundTaskCount ?? 0)
       ),
-      pendingUserQuestionPayload:
-        cloned.context.pendingUserQuestionPayload ?? null,
+      pendingUserQuestionPayload: normalizePendingUserQuestionPayload(
+        cloned.context.pendingUserQuestionPayload
+      ),
       pendingBackgroundNotifications: Array.isArray(
         cloned.context.pendingBackgroundNotifications
       )

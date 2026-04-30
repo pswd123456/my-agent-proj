@@ -10,6 +10,7 @@ import {
   normalizeCapabilityPacks,
   normalizeThinkingEffort,
   normalizeSettingsPermissionRules,
+  normalizeUserContextHooks,
   resolveSessionSettingsDefaults,
   sanitizeContextWindow,
   sanitizeSessionMaxTurns
@@ -100,6 +101,12 @@ export function mapSettingsRow(
     enabledCapabilityPacks: normalizeCapabilityPacks(
       toStringArray(row.enabledCapabilityPacks)
     ),
+    userContextHooks: normalizeUserContextHooks(
+      parseJsonValue(
+        row.userContextHooks ??
+          (row as { user_context_hooks?: unknown }).user_context_hooks
+      )
+    ),
     debugConversationView:
       row.debugConversationView ??
       (row as { debug_conversation_view?: boolean }).debug_conversation_view ??
@@ -157,6 +164,10 @@ function buildPatchedSettings(
     enabledCapabilityPacks: Array.isArray(patch.enabledCapabilityPacks)
       ? normalizeCapabilityPacks(patch.enabledCapabilityPacks)
       : current.enabledCapabilityPacks,
+    userContextHooks:
+      typeof patch.userContextHooks === "undefined"
+        ? current.userContextHooks
+        : normalizeUserContextHooks(patch.userContextHooks),
     ...(typeof patch.debugConversationView === "boolean"
       ? { debugConversationView: patch.debugConversationView }
       : {}),
@@ -195,6 +206,7 @@ export class PostgresSettingsRepository implements SettingsRepository {
         toolAskList: defaults.toolAskList,
         toolDenyList: defaults.toolDenyList,
         enabledCapabilityPacks: defaults.enabledCapabilityPacks,
+        userContextHooks: defaults.userContextHooks,
         debugConversationView: defaults.debugConversationView,
         createdAt: defaults.createdAt,
         updatedAt: defaults.updatedAt
@@ -237,6 +249,7 @@ export class PostgresSettingsRepository implements SettingsRepository {
         toolAskList: next.toolAskList,
         toolDenyList: next.toolDenyList,
         enabledCapabilityPacks: next.enabledCapabilityPacks,
+        userContextHooks: next.userContextHooks,
         debugConversationView: next.debugConversationView,
         createdAt: next.createdAt,
         updatedAt: next.updatedAt
@@ -256,6 +269,7 @@ export class PostgresSettingsRepository implements SettingsRepository {
           toolAskList: next.toolAskList,
           toolDenyList: next.toolDenyList,
           enabledCapabilityPacks: next.enabledCapabilityPacks,
+          userContextHooks: next.userContextHooks,
           debugConversationView: next.debugConversationView,
           updatedAt: next.updatedAt
         }

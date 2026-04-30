@@ -121,4 +121,44 @@ describe("ApiClient error handling", () => {
       }
     ]);
   });
+
+  test("searches workspace files and skills through dedicated endpoints", async () => {
+    const calls: Array<{ url: string; method?: string }> = [];
+    const client = new ApiClient({
+      baseUrl: "http://localhost:3001",
+      fetch: async (url, init) => {
+        calls.push({ url: String(url), method: init?.method });
+        return new Response(JSON.stringify({ items: [], truncated: false }), {
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          }
+        });
+      }
+    });
+
+    await client.searchSessionWorkspaceFiles("session-1", {
+      query: "app",
+      limit: 8
+    });
+    await client.searchSessionSkills("session-1", {
+      query: "repo",
+      limit: 8
+    });
+
+    expect(calls).toEqual([
+      {
+        url: expect.stringContaining(
+          "http://localhost:3001/sessions/session-1/workspace-files/search?q=app&limit=8"
+        ),
+        method: undefined
+      },
+      {
+        url: expect.stringContaining(
+          "http://localhost:3001/sessions/session-1/skills/search?q=repo&limit=8"
+        ),
+        method: undefined
+      }
+    ]);
+  });
 });

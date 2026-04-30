@@ -880,6 +880,7 @@ export function toSettingsFormState(
     toolAskList: [...(settings?.toolAskList ?? [])],
     toolDenyList: [...(settings?.toolDenyList ?? [])],
     enabledCapabilityPacks: [...(settings?.enabledCapabilityPacks ?? [])],
+    userContextHooks: [...(settings?.userContextHooks ?? [])],
     debugConversationView: settings?.debugConversationView ?? false
   };
 }
@@ -943,6 +944,14 @@ export function normalizeSettingsFormState(
     toolAskList: normalizeList(form.toolAskList),
     toolDenyList: normalizeList(form.toolDenyList),
     enabledCapabilityPacks: normalizeList(form.enabledCapabilityPacks),
+    userContextHooks: form.userContextHooks
+      .map((hook) => ({
+        ...hook,
+        id: hook.id.trim(),
+        title: hook.title.trim(),
+        content: hook.content.trim()
+      }))
+      .filter((hook) => hook.id.length > 0 && hook.content.length > 0),
     debugConversationView: form.debugConversationView
   };
 }

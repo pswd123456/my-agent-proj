@@ -30,9 +30,17 @@
 - runtime 每次执行前扫描 `workingDirectory/.agent/skills/`
 - 发现到的 skill metadata 会进入 prompt 的 `runtimeContextMessages`
 - runtime 同时暴露 `search_skill` / `load_skill`，让模型按需检索和读取具体 `SKILL.md`
+- workbench composer 中的 `#skill_name` 只是显式可见引用，不会把 skill 正文作为隐藏附件自动注入
 - runtime 不执行 skill 文件中的脚本
 
 更细规则见 `docs/plan/stage3.md` 和 `packages/agent/src/skills/`
+
+## Workbench 可见引用
+
+- workbench composer 中的 `@relative/path` 会按当前 session `workingDirectory` 解析为显式文件引用
+- workbench composer 中的 `#skill_name` 会按当前 workspace skill 列表解析为显式 skill 引用
+- 这两类引用都会保留在用户消息正文里，runtime 仍然只接收普通文本消息
+- workbench 不会为这些引用额外创建隐藏消息元数据或预读附件上下文
 
 ## `.agent/.config.toml`
 

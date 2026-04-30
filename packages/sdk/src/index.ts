@@ -8,12 +8,14 @@ export type {
 export type {
   RoutineRecord,
   SessionSettingsRecord,
-  SettingsPermissionToolOption
+  SettingsPermissionToolOption,
+  UserContextHookRecord
 } from "@ai-app-template/domain";
 export {
   CAPABILITY_PACK_OPTIONS,
   PERMISSION_TOOL_OPTIONS,
-  SETTINGS_PERMISSION_TOOL_OPTIONS
+  SETTINGS_PERMISSION_TOOL_OPTIONS,
+  USER_CONTEXT_HOOK_EVENT_OPTIONS
 } from "@ai-app-template/domain";
 
 export type {
@@ -32,6 +34,10 @@ export type {
   StreamSessionExecutionInput,
   UserSettingsPayload,
   UpdateSessionSettingsPayload,
-  UpdateUserSettingsPayload
+  UpdateUserSettingsPayload,
+  WorkspaceFileSearchItem,
+  WorkspaceFileSearchResult,
+  WorkspaceSkillSearchItem,
+  WorkspaceSkillSearchResult
 } from "./client.js";
 export { ApiClient, createApiClient, toSessionSummary } from "./client.js";

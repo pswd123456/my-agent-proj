@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+import {
+  appendPendingUserQuestionContextOption,
+  PENDING_USER_QUESTION_CONTEXT_OPTION_LABEL
+} from "@ai-app-template/domain";
+
 import type { RuntimeTool } from "./runtime-tool.js";
 import {
   createToolResult,
@@ -15,10 +20,10 @@ const optionSchema = z.object({
   is_recommended: z.boolean().optional()
 });
 
-const schema = z
+const questionSchema = z
   .object({
     question_text: z.string().min(1),
-    options: z.array(optionSchema).max(4).optional(),
+    options: z.array(optionSchema).max(5).optional(),
     allow_cancel: z.boolean().optional().default(true),
     context_note: z.string().min(1).optional()
   })
@@ -34,6 +39,57 @@ const schema = z
     }
   });
 
+const schema = z
+  .object({
+    question_text: z.string().min(1).optional(),
+    options: z.array(optionSchema).max(5).optional(),
+    allow_cancel: z.boolean().optional().default(true),
+    context_note: z.string().min(1).optional(),
+    questions: z.array(questionSchema).min(1).max(4).optional()
+  })
+  .superRefine((input, ctx) => {
+    const hasSingleQuestion = typeof input.question_text === "string";
+    const hasQuestionBatch = Array.isArray(input.questions);
+
+    if (hasSingleQuestion === hasQuestionBatch) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "Provide either question_text for one question or questions for a multi-question batch.",
+        path: ["question_text"]
+      });
+      return;
+    }
+
+    if (hasQuestionBatch) {
+      const hasLegacyFields =
+        typeof input.options !== "undefined" ||
+        typeof input.context_note === "string";
+      if (hasLegacyFields) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "When questions is provided, move options and context_note into each question item.",
+          path: ["questions"]
+        });
+      }
+      return;
+    }
+
+    const recommendedCount =
+      input.options?.filter((option) => option.is_recommended).length ?? 0;
+    if (recommendedCount > 1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "At most one option can be marked as recommended.",
+        path: ["options"]
+      });
+    }
+  });
+
+type ParsedQuestionInput = z.infer<typeof questionSchema>;
+type ParsedInput = z.infer<typeof schema>;
+
 function mapOption(option: z.infer<typeof optionSchema>) {
   return {
     label: option.label,
@@ -43,32 +99,61 @@ function mapOption(option: z.infer<typeof optionSchema>) {
   };
 }
 
-function renderQuestionSummary(input: z.infer<typeof schema>): string {
-  const lines = [
-    "[ask_user_question] waiting for clarification",
-    `- question: ${input.question_text}`
-  ];
+function normalizeQuestions(input: ParsedInput): ParsedQuestionInput[] {
+  if (Array.isArray(input.questions)) {
+    return input.questions;
+  }
 
-  for (const option of input.options ?? []) {
-    const prefix = option.is_recommended
-      ? "- recommended option: "
-      : "- option: ";
-    const optionLine =
-      option.label === option.reply
-        ? `${prefix}${option.label}`
-        : `${prefix}${option.label} -> ${option.reply}`;
-    lines.push(optionLine);
-    if (option.description) {
-      lines.push(`  note: ${option.description}`);
+  return [
+    {
+      question_text: input.question_text ?? "",
+      ...(input.options ? { options: input.options } : {}),
+      allow_cancel: input.allow_cancel,
+      ...(input.context_note ? { context_note: input.context_note } : {})
     }
-  }
+  ];
+}
 
-  if (input.context_note) {
-    lines.push(`- context: ${input.context_note}`);
-  }
+function mapQuestion(input: ParsedQuestionInput) {
+  return {
+    questionText: input.question_text,
+    options: appendPendingUserQuestionContextOption(
+      (input.options ?? []).map(mapOption),
+      input.context_note
+    ),
+    allowCancel: input.allow_cancel
+  };
+}
 
-  if (input.allow_cancel) {
-    lines.push("- cancel option: 取消");
+function renderQuestionSummary(questions: ParsedQuestionInput[]): string {
+  const lines = ["[ask_user_question] waiting for clarification"];
+
+  for (const [index, question] of questions.entries()) {
+    lines.push(`- question ${index + 1}: ${question.question_text}`);
+
+    for (const option of question.options ?? []) {
+      const prefix = option.is_recommended
+        ? "  - recommended option: "
+        : "  - option: ";
+      const optionLine =
+        option.label === option.reply
+          ? `${prefix}${option.label}`
+          : `${prefix}${option.label} -> ${option.reply}`;
+      lines.push(optionLine);
+      if (option.description) {
+        lines.push(`    note: ${option.description}`);
+      }
+    }
+
+    if (question.context_note) {
+      lines.push(
+        `  - option: ${PENDING_USER_QUESTION_CONTEXT_OPTION_LABEL} -> ${question.context_note}`
+      );
+    }
+
+    if (question.allow_cancel) {
+      lines.push("  - cancel option: 取消");
+    }
   }
 
   return lines.join("\n");
@@ -78,7 +163,7 @@ export function createAskUserQuestionTool(): RuntimeTool {
   return {
     name: "ask_user_question",
     description:
-      "Pause the current run and ask the user one structured clarification question, optionally with quick-reply options.",
+      "Pause the current run and ask one or more structured clarification questions. Use question_text/options for a single question, or questions for a batch of up to 4 questions. Each question can include up to 5 quick-reply options, one recommended option, and an optional context_note that is surfaced as a selectable note reply.",
     family: "planning",
     isReadOnly: false,
     hasExternalSideEffect: true,
@@ -101,12 +186,41 @@ export function createAskUserQuestionTool(): RuntimeTool {
             required: ["label", "reply"],
             additionalProperties: false
           },
-          maxItems: 4
+          maxItems: 5
         },
         allow_cancel: { type: "boolean" },
-        context_note: { type: "string" }
+        context_note: { type: "string" },
+        questions: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              question_text: { type: "string" },
+              options: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    label: { type: "string" },
+                    reply: { type: "string" },
+                    description: { type: "string" },
+                    is_recommended: { type: "boolean" }
+                  },
+                  required: ["label", "reply"],
+                  additionalProperties: false
+                },
+                maxItems: 5
+              },
+              allow_cancel: { type: "boolean" },
+              context_note: { type: "string" }
+            },
+            required: ["question_text"],
+            additionalProperties: false
+          },
+          minItems: 1,
+          maxItems: 4
+        }
       },
-      required: ["question_text"],
       additionalProperties: false
     },
     validate(input) {
@@ -132,16 +246,13 @@ export function createAskUserQuestionTool(): RuntimeTool {
         );
       }
 
+      const normalizedQuestions = normalizeQuestions(parsed.data);
+
       await context.sessionManager.updateContext(context.sessionId, {
         status: "waiting_for_user_question",
         pendingPermissionRequest: null,
         pendingUserQuestionPayload: {
-          questionText: parsed.data.question_text,
-          options: (parsed.data.options ?? []).map(mapOption),
-          allowCancel: parsed.data.allow_cancel,
-          ...(parsed.data.context_note
-            ? { contextNote: parsed.data.context_note }
-            : {}),
+          questions: normalizedQuestions.map(mapQuestion),
           createdAt: new Date().toISOString()
         }
       });
@@ -153,20 +264,22 @@ export function createAskUserQuestionTool(): RuntimeTool {
           message:
             "Stored a structured clarification question and paused the current run.",
           data: {
-            question_text: parsed.data.question_text,
-            options: (parsed.data.options ?? []).map((option) => ({
-              label: option.label,
-              reply: option.reply,
-              ...(option.description
-                ? { description: option.description }
-                : {}),
-              ...(option.is_recommended ? { is_recommended: true } : {})
-            })),
-            allow_cancel: parsed.data.allow_cancel,
-            context_note: parsed.data.context_note ?? null
+            questions: normalizedQuestions.map((question) => ({
+              question_text: question.question_text,
+              options: (question.options ?? []).map((option) => ({
+                label: option.label,
+                reply: option.reply,
+                ...(option.description
+                  ? { description: option.description }
+                  : {}),
+                ...(option.is_recommended ? { is_recommended: true } : {})
+              })),
+              allow_cancel: question.allow_cancel,
+              context_note: question.context_note ?? null
+            }))
           }
         }),
-        renderQuestionSummary(parsed.data)
+        renderQuestionSummary(normalizedQuestions)
       );
     }
   };

@@ -178,6 +178,15 @@ describe("createApiApp settings bootstrap", () => {
           yoloMode: true,
           contextWindow: 123_456,
           maxTurns: 77,
+          userContextHooks: [
+            {
+              id: "hook-1",
+              event: "run_started",
+              title: "Profile",
+              content: "先看用户偏好。",
+              enabled: true
+            }
+          ],
           debugConversationView: true
         })
       }
@@ -185,10 +194,16 @@ describe("createApiApp settings bootstrap", () => {
 
     expect(updateResponse.status).toBe(200);
     const updatePayload = (await updateResponse.json()) as {
-      settings: { debugConversationView: boolean };
+      settings: {
+        debugConversationView: boolean;
+        userContextHooks: Array<{ id: string }>;
+      };
       permissionTools: Array<{ name: string }>;
     };
     expect(updatePayload.settings.debugConversationView).toBe(true);
+    expect(updatePayload.settings.userContextHooks).toEqual([
+      expect.objectContaining({ id: "hook-1" })
+    ]);
     expect(updatePayload.permissionTools.length).toBeGreaterThan(0);
 
     const session = await createSession(app, {

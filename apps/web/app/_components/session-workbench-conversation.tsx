@@ -8,16 +8,28 @@ import {
   useRef,
   useState,
   type ReactNode,
-  type FormEvent
+  type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent
 } from "react";
 
 import type {
   ModelCatalogEntry,
   RunStreamEvent,
   SessionSnapshot,
+  WorkspaceFileSearchResult,
+  WorkspaceSkillSearchResult,
   WorkspaceFileChangeSummary
 } from "@ai-app-template/sdk";
 
+import {
+  filterComposerSlashCommands,
+  getNextComposerSuggestionIndex,
+  getActiveComposerCommandToken,
+  replaceComposerCommandToken,
+  type ComposerCommandKind,
+  type ComposerCommandTokenMatch,
+  type ComposerSlashCommand
+} from "./session-composer-commands";
 import { MessageMarkdown } from "./message-markdown";
 import { SessionTodoPanel } from "./session-todo-panel";
 import { getAssistantTextRenderMode } from "./message-typewriter";
@@ -82,6 +94,15 @@ interface SessionWorkbenchConversationPanelProps {
   onSettingsThinkingEffortChange: (thinkingEffort: string) => void;
   onSettingsYoloModeChange: (checked: boolean) => void;
   onSessionPlanModeChange: (checked: boolean) => void;
+  onEnablePlanModeCommand: () => Promise<boolean>;
+  onSearchWorkspaceFiles: (
+    query: string,
+    limit: number
+  ) => Promise<WorkspaceFileSearchResult>;
+  onSearchWorkspaceSkills: (
+    query: string,
+    limit: number
+  ) => Promise<WorkspaceSkillSearchResult>;
   onPermissionQuickReply: (
     reply: string,
     options?: { persistShellApproval?: boolean }
@@ -131,6 +152,48 @@ interface TypewriterTextContentProps {
 
 type MessageRole = "user" | "assistant";
 
+interface ComposerSelectionRange {
+  start: number;
+  end: number;
+}
+
+type ComposerSuggestionItem =
+  | {
+      key: string;
+      kind: "slash";
+      label: string;
+      title: string;
+      description: string;
+      replacement: string;
+      command: ComposerSlashCommand["id"];
+    }
+  | {
+      key: string;
+      kind: "file";
+      label: string;
+      title: string;
+      description: string;
+      replacement: string;
+    }
+  | {
+      key: string;
+      kind: "skill";
+      label: string;
+      title: string;
+      description: string;
+      replacement: string;
+    };
+
+interface ComposerSuggestionsState {
+  token: ComposerCommandTokenMatch;
+  items: ComposerSuggestionItem[];
+  loading: boolean;
+  truncated: boolean;
+}
+
+const COMPOSER_SUGGESTION_LIMIT = 8;
+const COMPOSER_SUGGESTION_DEBOUNCE_MS = 120;
+
 export function getCompactToolFileChangeRows(
   item: Pick<CompactToolViewItem, "fileChanges">
 ): Array<{
@@ -156,6 +219,66 @@ export function getWorkspaceFileChangeRows(
     countsLabel: `+${file.addedLineCount} / -${file.removedLineCount}`,
     diff: file.diff
   }));
+}
+
+function buildComposerSlashSuggestionItems(
+  query: string
+): ComposerSuggestionItem[] {
+  return filterComposerSlashCommands(query).map((command) => ({
+    key: `slash:${command.id}`,
+    kind: "slash",
+    label: command.label,
+    title: command.label,
+    description: command.description,
+    replacement: command.label,
+    command: command.id
+  }));
+}
+
+function buildComposerFileSuggestionItems(
+  result: WorkspaceFileSearchResult
+): ComposerSuggestionItem[] {
+  return result.items.map((item) => ({
+    key: `file:${item.path}`,
+    kind: "file",
+    label: item.path,
+    title: item.path,
+    description: item.name,
+    replacement: `@${item.path}`
+  }));
+}
+
+function buildComposerSkillSuggestionItems(
+  result: WorkspaceSkillSearchResult
+): ComposerSuggestionItem[] {
+  return result.items.map((item) => ({
+    key: `skill:${item.name}`,
+    kind: "skill",
+    label: `#${item.name}`,
+    title: item.name,
+    description: item.description,
+    replacement: `#${item.name}`
+  }));
+}
+
+function getComposerSuggestionsEmptyState(input: {
+  kind: ComposerCommandKind;
+  query: string;
+  loading: boolean;
+}): string {
+  if (input.loading) {
+    return input.kind === "file" ? "正在搜索文件..." : "正在搜索 skill...";
+  }
+
+  if (input.kind === "file" && input.query.length === 0) {
+    return "继续输入以搜索文件";
+  }
+
+  if (input.kind === "slash") {
+    return "没有匹配的命令";
+  }
+
+  return input.kind === "file" ? "没有匹配的文件" : "没有匹配的 skill";
 }
 
 type UnifiedDiffLineTone = "add" | "remove" | "hunk" | "header" | "context";
@@ -378,12 +501,9 @@ interface PermissionCardView {
 
 interface UserQuestionCardView {
   key: string;
-  questionText: string;
-  options: NonNullable<
+  questions: NonNullable<
     SessionSnapshot["context"]["pendingUserQuestionPayload"]
-  >["options"];
-  showCancelAction: boolean;
-  contextNote?: string;
+  >["questions"];
 }
 
 interface ConfirmationCardView {
@@ -638,11 +758,38 @@ export function buildUserQuestionCardView(
 
   return {
     key,
-    questionText: payload.questionText,
-    options: payload.options,
-    showCancelAction: payload.allowCancel !== false,
-    ...(payload.contextNote ? { contextNote: payload.contextNote } : {})
+    questions: payload.questions
   };
+}
+
+export function buildUserQuestionReplyMessage(input: {
+  payload: SessionSnapshot["context"]["pendingUserQuestionPayload"];
+  replies: string[];
+}): string | null {
+  const payload = input.payload;
+  if (!payload) {
+    return null;
+  }
+
+  const normalizedReplies = payload.questions.map(
+    (_, index) => input.replies[index]?.trim() ?? ""
+  );
+  if (!normalizedReplies.some((reply) => reply.length > 0)) {
+    return null;
+  }
+
+  if (payload.questions.length === 1) {
+    return normalizedReplies[0] ?? null;
+  }
+
+  return payload.questions
+    .map((question, index) =>
+      [
+        `问题 ${index + 1}：${question.questionText}`,
+        `回答：${normalizedReplies[index] || "暂未回答"}`
+      ].join("\n")
+    )
+    .join("\n\n");
 }
 
 export function getConfirmationKey(
@@ -1904,6 +2051,9 @@ export function SessionWorkbenchConversationPanel({
   onSettingsThinkingEffortChange,
   onSettingsYoloModeChange,
   onSessionPlanModeChange,
+  onEnablePlanModeCommand,
+  onSearchWorkspaceFiles,
+  onSearchWorkspaceSkills,
   onPermissionQuickReply,
   onConfirmationQuickReply,
   onUserQuestionQuickReply,
@@ -1915,14 +2065,29 @@ export function SessionWorkbenchConversationPanel({
   headerActions
 }: SessionWorkbenchConversationPanelProps) {
   const [quickActionsOpen, setQuickActionsOpen] = useState(false);
+  const [composerFocused, setComposerFocused] = useState(false);
+  const [commandActionPending, setCommandActionPending] = useState(false);
+  const [composerActiveIndex, setComposerActiveIndex] = useState(0);
+  const [composerSelection, setComposerSelection] =
+    useState<ComposerSelectionRange>({
+      start: message.length,
+      end: message.length
+    });
+  const [composerSuggestions, setComposerSuggestions] =
+    useState<ComposerSuggestionsState | null>(null);
   const [permissionCardFeedback, setPermissionCardFeedback] =
     useState<PermissionCardFeedback | null>(null);
   const [persistShellApproval, setPersistShellApproval] = useState(false);
+  const [activeUserQuestionIndex, setActiveUserQuestionIndex] = useState(0);
+  const [userQuestionReplies, setUserQuestionReplies] = useState<string[]>([]);
   const [expandedRunFileKeys, setExpandedRunFileKeys] = useState<Set<string>>(
     () => new Set()
   );
   const pendingCollapsedFlowScrollTargetRef = useRef<string | null>(null);
   const pendingAssistantRevealSkipKeyRef = useRef<string | null>(null);
+  const composerContainerRef = useRef<HTMLDivElement | null>(null);
+  const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const suggestionRequestVersionRef = useRef(0);
   const quickActionsRef = useRef<HTMLDivElement | null>(null);
   const conversationViewportRef = useRef<HTMLDivElement | null>(null);
   const timelineContentRef = useRef<HTMLDivElement | null>(null);
@@ -1943,6 +2108,24 @@ export function SessionWorkbenchConversationPanel({
   );
   const userQuestionCardView = buildUserQuestionCardView(
     pendingUserQuestionPayload
+  );
+  const activeUserQuestion =
+    userQuestionCardView?.questions[activeUserQuestionIndex] ?? null;
+  const userQuestionReplyDraft = activeUserQuestion
+    ? (userQuestionReplies[activeUserQuestionIndex] ?? "")
+    : "";
+  const userQuestionReplyMessage = buildUserQuestionReplyMessage({
+    payload: pendingUserQuestionPayload,
+    replies: userQuestionReplies
+  });
+  const activeComposerToken = useMemo(
+    () =>
+      getActiveComposerCommandToken({
+        value: message,
+        selectionStart: composerSelection.start,
+        selectionEnd: composerSelection.end
+      }),
+    [message, composerSelection]
   );
   const visibleConversationViewItems = conversationProjection.visibleItems;
   const collapsedFlowAnchorsByKey =
@@ -2015,6 +2198,41 @@ export function SessionWorkbenchConversationPanel({
         currentSession.contextWindow
       )
     : "-- / ctx --";
+
+  useEffect(() => {
+    if (!userQuestionCardView) {
+      setActiveUserQuestionIndex(0);
+      setUserQuestionReplies([]);
+      return;
+    }
+
+    setActiveUserQuestionIndex(0);
+    setUserQuestionReplies(
+      Array.from({ length: userQuestionCardView.questions.length }, () => "")
+    );
+  }, [userQuestionCardView?.key]);
+
+  useEffect(() => {
+    if (!userQuestionCardView) {
+      return;
+    }
+
+    setActiveUserQuestionIndex((current) =>
+      Math.min(current, Math.max(0, userQuestionCardView.questions.length - 1))
+    );
+  }, [userQuestionCardView?.questions.length]);
+
+  function setUserQuestionReply(index: number, value: string) {
+    setUserQuestionReplies((current) => {
+      const next = Array.from(
+        { length: userQuestionCardView?.questions.length ?? 0 },
+        (_, replyIndex) => current[replyIndex] ?? ""
+      );
+      next[index] = value;
+      return next;
+    });
+  }
+
   const renderedTimelineItems = useMemo(
     () =>
       visibleConversationViewItems
@@ -2182,6 +2400,131 @@ export function SessionWorkbenchConversationPanel({
     });
   });
 
+  function syncComposerSelection(target: HTMLTextAreaElement) {
+    setComposerSelection({
+      start: target.selectionStart,
+      end: target.selectionEnd
+    });
+  }
+
+  function applyComposerReplacement(
+    token: ComposerCommandTokenMatch,
+    replacement: string
+  ) {
+    const next = replaceComposerCommandToken({
+      value: message,
+      token,
+      replacement
+    });
+    onMessageChange(next.value);
+    setComposerSelection({
+      start: next.nextSelection,
+      end: next.nextSelection
+    });
+    setComposerSuggestions(null);
+    setComposerActiveIndex(0);
+    suggestionRequestVersionRef.current += 1;
+    window.requestAnimationFrame(() => {
+      const textarea = composerTextareaRef.current;
+      if (!textarea) {
+        return;
+      }
+
+      textarea.focus();
+      textarea.setSelectionRange(next.nextSelection, next.nextSelection);
+    });
+  }
+
+  async function handleComposerSuggestionSelect(item: ComposerSuggestionItem) {
+    const token = activeComposerToken;
+    if (!token || commandActionPending) {
+      return;
+    }
+
+    if (item.kind === "slash" && item.command === "plan") {
+      if (currentSession?.context.planModeEnabled) {
+        applyComposerReplacement(token, "");
+        return;
+      }
+
+      setCommandActionPending(true);
+      const enabled = await enablePlanModeCommandEvent();
+      setCommandActionPending(false);
+      if (enabled) {
+        applyComposerReplacement(token, "");
+      }
+      return;
+    }
+
+    applyComposerReplacement(token, item.replacement);
+  }
+
+  function handleComposerMessageChange(target: HTMLTextAreaElement) {
+    onMessageChange(target.value);
+    syncComposerSelection(target);
+  }
+
+  function handleComposerKeyDown(
+    event: ReactKeyboardEvent<HTMLTextAreaElement>
+  ) {
+    if (!composerSuggestions) {
+      return;
+    }
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      if (composerSuggestions.items.length === 0) {
+        return;
+      }
+      setComposerActiveIndex((current) =>
+        getNextComposerSuggestionIndex({
+          currentIndex: current,
+          itemCount: composerSuggestions.items.length,
+          direction: "down"
+        })
+      );
+      return;
+    }
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      if (composerSuggestions.items.length === 0) {
+        return;
+      }
+      setComposerActiveIndex((current) =>
+        getNextComposerSuggestionIndex({
+          currentIndex: current,
+          itemCount: composerSuggestions.items.length,
+          direction: "up"
+        })
+      );
+      return;
+    }
+
+    if (
+      (event.key === "Enter" || event.key === "Tab") &&
+      composerSuggestions.items.length > 0
+    ) {
+      event.preventDefault();
+      void handleComposerSuggestionSelect(
+        composerSuggestions.items[composerActiveIndex] ??
+          composerSuggestions.items[0]!
+      );
+      return;
+    }
+
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setComposerSuggestions(null);
+      setComposerActiveIndex(0);
+      suggestionRequestVersionRef.current += 1;
+    }
+  }
+
+  const searchWorkspaceFilesEvent = useEffectEvent(onSearchWorkspaceFiles);
+  const searchWorkspaceSkillsEvent = useEffectEvent(onSearchWorkspaceSkills);
+  const enablePlanModeCommandEvent = useEffectEvent(onEnablePlanModeCommand);
+
   useEffect(() => {
     if (!permissionCardFeedback) {
       return;
@@ -2262,6 +2605,102 @@ export function SessionWorkbenchConversationPanel({
   }, [quickActionsOpen]);
 
   useEffect(() => {
+    if (!composerFocused || !activeComposerToken || !currentSession) {
+      setComposerSuggestions(null);
+      setComposerActiveIndex(0);
+      suggestionRequestVersionRef.current += 1;
+      return;
+    }
+
+    if (activeComposerToken.kind === "slash") {
+      setComposerSuggestions({
+        token: activeComposerToken,
+        items: buildComposerSlashSuggestionItems(activeComposerToken.query),
+        loading: commandActionPending,
+        truncated: false
+      });
+      setComposerActiveIndex(0);
+      return;
+    }
+
+    const requestVersion = suggestionRequestVersionRef.current + 1;
+    suggestionRequestVersionRef.current = requestVersion;
+    setComposerSuggestions((current) => ({
+      token: activeComposerToken,
+      items:
+        current &&
+        current.token.kind === activeComposerToken.kind &&
+        current.token.query === activeComposerToken.query
+          ? current.items
+          : [],
+      loading: true,
+      truncated: false
+    }));
+
+    const timeoutId = window.setTimeout(() => {
+      const searchPromise =
+        activeComposerToken.kind === "file"
+          ? activeComposerToken.query.length === 0
+            ? Promise.resolve<WorkspaceFileSearchResult>({
+                items: [],
+                truncated: false
+              })
+            : searchWorkspaceFilesEvent(
+                activeComposerToken.query,
+                COMPOSER_SUGGESTION_LIMIT
+              )
+          : searchWorkspaceSkillsEvent(
+              activeComposerToken.query,
+              COMPOSER_SUGGESTION_LIMIT
+            );
+
+      void searchPromise
+        .then((result) => {
+          if (suggestionRequestVersionRef.current !== requestVersion) {
+            return;
+          }
+
+          setComposerSuggestions({
+            token: activeComposerToken,
+            items:
+              activeComposerToken.kind === "file"
+                ? buildComposerFileSuggestionItems(
+                    result as WorkspaceFileSearchResult
+                  )
+                : buildComposerSkillSuggestionItems(
+                    result as WorkspaceSkillSearchResult
+                  ),
+            loading: false,
+            truncated: result.truncated
+          });
+          setComposerActiveIndex(0);
+        })
+        .catch(() => {
+          if (suggestionRequestVersionRef.current !== requestVersion) {
+            return;
+          }
+
+          setComposerSuggestions({
+            token: activeComposerToken,
+            items: [],
+            loading: false,
+            truncated: false
+          });
+          setComposerActiveIndex(0);
+        });
+    }, COMPOSER_SUGGESTION_DEBOUNCE_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [
+    activeComposerToken,
+    composerFocused,
+    currentSession,
+    commandActionPending
+  ]);
+
+  useEffect(() => {
     if (submitting) {
       autoFollowLatestRef.current = true;
     }
@@ -2276,12 +2715,22 @@ export function SessionWorkbenchConversationPanel({
   }, [currentSession?.sessionId]);
 
   useEffect(() => {
+    setComposerSelection((current) => ({
+      start: Math.min(current.start, message.length),
+      end: Math.min(current.end, message.length)
+    }));
+  }, [message]);
+
+  useEffect(() => {
     previousScrollSnapshotRef.current = buildConversationScrollSnapshot([]);
     previousViewportScrollTopRef.current = 0;
     autoFollowLatestRef.current = true;
     skipNextResizeAutoFollowRef.current = false;
     pendingCollapsedFlowScrollTargetRef.current = null;
     pendingAssistantRevealSkipKeyRef.current = null;
+    setComposerSuggestions(null);
+    setComposerActiveIndex(0);
+    setComposerFocused(false);
     clearPendingResizeAutoFollowSkip();
     clearPendingSmoothScrollReset();
   }, [currentSession?.sessionId, debugConversationView]);
@@ -2719,77 +3168,250 @@ export function SessionWorkbenchConversationPanel({
                     key={userQuestionCardView.key}
                     className="relative z-0 rounded-[var(--app-radius-lg)] border border-[color:color-mix(in_srgb,var(--app-status-warning)_56%,var(--app-border-subtle)_44%)] bg-[color:color-mix(in_srgb,var(--app-status-warning)_12%,var(--app-bg-surface)_88%)] px-4 pb-4 pt-3"
                   >
-                    <div className="flex flex-col gap-3">
-                      <div className="min-w-0">
-                        <div className="font-mono text-[0.65rem] uppercase tracking-[0.16em] text-[var(--app-text-muted)]">
+                    <div className="flex min-w-0 flex-col gap-3">
+                      <div className="flex min-w-0 items-center justify-between gap-3">
+                        <div className="min-w-0 font-mono text-[0.65rem] uppercase tracking-[0.16em] text-[var(--app-text-muted)]">
                           Need Clarification
                         </div>
-                        <div className="mt-1 text-sm font-medium leading-6 text-[var(--app-text-primary)]">
-                          {userQuestionCardView.questionText}
-                        </div>
-                        {userQuestionCardView.contextNote ? (
-                          <div className="mt-1 text-xs text-[var(--app-text-muted)]">
-                            {userQuestionCardView.contextNote}
+                        {userQuestionCardView.questions.length > 1 ? (
+                          <div className="flex shrink-0 items-center gap-2">
+                            <button
+                              type="button"
+                              aria-label="上一个问题"
+                              onClick={() =>
+                                setActiveUserQuestionIndex((current) =>
+                                  Math.max(0, current - 1)
+                                )
+                              }
+                              disabled={
+                                submitting || activeUserQuestionIndex === 0
+                              }
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] text-sm text-[var(--app-text-secondary)] transition hover:border-[var(--app-border-strong)] hover:text-[var(--app-text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              {"<"}
+                            </button>
+                            <div className="min-w-16 text-center font-mono text-[0.72rem] uppercase tracking-[0.12em] text-[var(--app-text-muted)]">
+                              {activeUserQuestionIndex + 1} /{" "}
+                              {userQuestionCardView.questions.length} 问题
+                            </div>
+                            <button
+                              type="button"
+                              aria-label="下一个问题"
+                              onClick={() =>
+                                setActiveUserQuestionIndex((current) =>
+                                  Math.min(
+                                    userQuestionCardView.questions.length - 1,
+                                    current + 1
+                                  )
+                                )
+                              }
+                              disabled={
+                                submitting ||
+                                activeUserQuestionIndex >=
+                                  userQuestionCardView.questions.length - 1
+                              }
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] text-sm text-[var(--app-text-secondary)] transition hover:border-[var(--app-border-strong)] hover:text-[var(--app-text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              {">"}
+                            </button>
                           </div>
                         ) : null}
                       </div>
 
-                      {userQuestionCardView.options.length > 0 ? (
-                        <div className="flex flex-wrap gap-2">
-                          {userQuestionCardView.options.map((option) => (
-                            <button
-                              key={`${option.label}:${option.reply}`}
-                              type="button"
-                              title={option.description}
-                              onClick={() =>
-                                onUserQuestionQuickReply(option.reply)
-                              }
-                              disabled={submitting}
-                              className={`rounded-[var(--app-radius-pill)] border px-3 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
-                                option.isRecommended
-                                  ? "border-[var(--app-status-warning)] bg-[color:color-mix(in_srgb,var(--app-status-warning)_18%,var(--app-bg-elevated)_82%)] text-[var(--app-text-primary)]"
-                                  : "border-[var(--app-border-accent)] bg-[var(--app-bg-elevated)] text-[var(--app-text-primary)] hover:border-[var(--app-status-warning)] hover:text-[var(--app-text-primary)]"
-                              }`}
-                            >
-                              <span className="inline-flex items-center gap-2">
-                                <span>{option.label}</span>
-                                {option.isRecommended ? (
-                                  <span className="rounded-[var(--app-radius-pill)] border border-[color:color-mix(in_srgb,var(--app-status-warning)_72%,transparent)] px-1.5 py-0.5 text-[0.65rem] uppercase tracking-[0.08em] text-[var(--app-status-warning)]">
-                                    推荐
+                      {userQuestionCardView.questions.length > 1 ? (
+                        <div className="flex min-w-0 gap-2 overflow-x-auto pb-1">
+                          {userQuestionCardView.questions.map(
+                            (question, index) => (
+                              <button
+                                key={`${userQuestionCardView.key}:${index}:${question.questionText}`}
+                                type="button"
+                                onClick={() =>
+                                  setActiveUserQuestionIndex(index)
+                                }
+                                className={`shrink-0 rounded-[var(--app-radius-pill)] border px-3 py-1.5 text-xs font-medium transition ${
+                                  activeUserQuestionIndex === index
+                                    ? "border-[var(--app-status-warning)] bg-[color:color-mix(in_srgb,var(--app-status-warning)_18%,var(--app-bg-elevated)_82%)] text-[var(--app-text-primary)]"
+                                    : "border-[var(--app-border-subtle)] text-[var(--app-text-muted)] hover:border-[var(--app-border-strong)] hover:text-[var(--app-text-secondary)]"
+                                }`}
+                              >
+                                问题 {index + 1}
+                              </button>
+                            )
+                          )}
+                        </div>
+                      ) : null}
+
+                      {activeUserQuestion ? (
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium leading-6 text-[var(--app-text-primary)] [overflow-wrap:anywhere]">
+                            {activeUserQuestion.questionText}
+                          </div>
+
+                          {activeUserQuestion.options.length > 0 ? (
+                            <div className="mt-3 grid gap-2">
+                              {activeUserQuestion.options.map((option) => (
+                                <button
+                                  key={`${activeUserQuestionIndex}:${option.label}:${option.reply}`}
+                                  type="button"
+                                  title={option.description}
+                                  onClick={() =>
+                                    setUserQuestionReply(
+                                      activeUserQuestionIndex,
+                                      option.reply
+                                    )
+                                  }
+                                  disabled={submitting}
+                                  className={`min-w-0 rounded-[var(--app-radius-md)] border px-3 py-2 text-left text-sm transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                                    userQuestionReplyDraft === option.reply
+                                      ? "border-[var(--app-status-warning)] bg-[color:color-mix(in_srgb,var(--app-status-warning)_18%,var(--app-bg-elevated)_82%)] text-[var(--app-text-primary)]"
+                                      : option.isRecommended
+                                        ? "border-[color:color-mix(in_srgb,var(--app-status-warning)_60%,var(--app-border-subtle)_40%)] bg-[color:color-mix(in_srgb,var(--app-status-warning)_10%,var(--app-bg-elevated)_90%)] text-[var(--app-text-primary)]"
+                                        : "border-[var(--app-border-subtle)] bg-[var(--app-bg-elevated)] text-[var(--app-text-secondary)] hover:border-[var(--app-border-strong)] hover:text-[var(--app-text-primary)]"
+                                  }`}
+                                >
+                                  <span className="flex min-w-0 items-start justify-between gap-3">
+                                    <span className="min-w-0">
+                                      <span className="block font-medium [overflow-wrap:anywhere]">
+                                        {option.label}
+                                        {option.isRecommended
+                                          ? " (Recommended)"
+                                          : ""}
+                                      </span>
+                                      {option.description ? (
+                                        <span className="mt-1 block text-xs leading-5 text-[var(--app-text-muted)] [overflow-wrap:anywhere]">
+                                          {option.description}
+                                        </span>
+                                      ) : null}
+                                    </span>
                                   </span>
-                                ) : null}
-                              </span>
+                                </button>
+                              ))}
+                            </div>
+                          ) : null}
+
+                          {activeUserQuestion.allowCancel !== false ? (
+                            <div className="mt-3">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setUserQuestionReply(
+                                    activeUserQuestionIndex,
+                                    "取消"
+                                  )
+                                }
+                                disabled={submitting}
+                                className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-3 py-1.5 text-sm font-medium text-[var(--app-text-secondary)] transition hover:border-[var(--app-status-danger)] hover:text-[var(--app-status-danger)] disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                取消
+                              </button>
+                            </div>
+                          ) : null}
+
+                          <div className="mt-3 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-end">
+                            <label className="min-w-0 flex-1">
+                              <span className="sr-only">直接输入你的回答</span>
+                              <textarea
+                                value={userQuestionReplyDraft}
+                                onChange={(event) =>
+                                  setUserQuestionReply(
+                                    activeUserQuestionIndex,
+                                    event.currentTarget.value
+                                  )
+                                }
+                                rows={2}
+                                placeholder="或者在这里直接输入你的回答"
+                                className="w-full resize-none rounded-[var(--app-radius-md)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-canvas)_12%,var(--app-bg-surface)_88%)] px-3 py-2 text-sm leading-6 text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (userQuestionReplyMessage) {
+                                  onUserQuestionQuickReply(
+                                    userQuestionReplyMessage
+                                  );
+                                }
+                              }}
+                              disabled={!userQuestionReplyMessage || submitting}
+                              className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-accent)] bg-[var(--app-bg-elevated)] px-4 py-2 text-sm font-medium text-[var(--app-text-primary)] transition hover:border-[var(--app-status-success)] hover:text-[var(--app-status-success)] disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              发送
                             </button>
-                          ))}
+                          </div>
                         </div>
                       ) : null}
-
-                      {userQuestionCardView.showCancelAction ? (
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            onClick={() => onUserQuestionQuickReply("取消")}
-                            disabled={submitting}
-                            className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-3 py-1.5 text-sm font-medium text-[var(--app-text-secondary)] transition hover:border-[var(--app-status-danger)] hover:text-[var(--app-status-danger)] disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            取消
-                          </button>
-                        </div>
-                      ) : null}
-
-                      <div className="text-xs text-[var(--app-text-muted)]">
-                        {userQuestionCardView.showCancelAction
-                          ? "也可以直接在下面输入你的答案，或者回复“取消”。"
-                          : "也可以直接在下面输入你的答案。"}
-                      </div>
                     </div>
                   </div>
                 ) : null}
 
-                <div className="relative">
+                <div ref={composerContainerRef} className="relative">
+                  {composerFocused && composerSuggestions ? (
+                    <div className="absolute bottom-full left-0 right-0 z-30 mb-2 rounded-[var(--app-radius-lg)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_98%,transparent)] p-2 shadow-none">
+                      {composerSuggestions.items.length > 0 ? (
+                        <div className="grid gap-1">
+                          {composerSuggestions.items.map((item, index) => {
+                            const active = index === composerActiveIndex;
+                            return (
+                              <button
+                                key={item.key}
+                                type="button"
+                                onMouseEnter={() =>
+                                  setComposerActiveIndex(index)
+                                }
+                                onMouseDown={(event) => {
+                                  event.preventDefault();
+                                  setComposerActiveIndex(index);
+                                  void handleComposerSuggestionSelect(item);
+                                }}
+                                className={`flex w-full items-start justify-between gap-3 rounded-[var(--app-radius-md)] px-3 py-2 text-left transition ${
+                                  active
+                                    ? "bg-[color:color-mix(in_srgb,var(--app-bg-muted)_72%,transparent)] text-[var(--app-text-primary)]"
+                                    : "text-[var(--app-text-secondary)] hover:bg-[color:color-mix(in_srgb,var(--app-bg-muted)_52%,transparent)] hover:text-[var(--app-text-primary)]"
+                                }`}
+                              >
+                                <div className="min-w-0">
+                                  <div className="truncate font-mono text-[0.78rem] text-[var(--app-text-primary)]">
+                                    {item.label}
+                                  </div>
+                                  <div className="mt-0.5 line-clamp-2 text-xs text-[var(--app-text-muted)]">
+                                    {item.description}
+                                  </div>
+                                </div>
+                                <div className="shrink-0 text-[0.65rem] uppercase tracking-[0.14em] text-[var(--app-text-muted)]">
+                                  {item.kind}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="px-3 py-2 text-sm text-[var(--app-text-muted)]">
+                          {getComposerSuggestionsEmptyState({
+                            kind: composerSuggestions.token.kind,
+                            query: composerSuggestions.token.query,
+                            loading: composerSuggestions.loading
+                          })}
+                        </div>
+                      )}
+                      {composerSuggestions.truncated ? (
+                        <div className="px-3 pt-2 text-[0.72rem] text-[var(--app-text-muted)]">
+                          结果过多，仅显示前 {COMPOSER_SUGGESTION_LIMIT} 项
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
                   <textarea
+                    ref={composerTextareaRef}
                     value={message}
-                    onChange={(event) => onMessageChange(event.target.value)}
+                    onFocus={() => setComposerFocused(true)}
+                    onBlur={() => setComposerFocused(false)}
+                    onChange={(event) =>
+                      handleComposerMessageChange(event.currentTarget)
+                    }
+                    onSelect={(event) =>
+                      syncComposerSelection(event.currentTarget)
+                    }
+                    onKeyDown={handleComposerKeyDown}
                     rows={3}
                     placeholder="输入你的请求"
                     className="relative z-10 w-full resize-none rounded-[var(--app-radius-lg)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-canvas)_14%,var(--app-bg-surface)_86%)] px-4 pb-14 pt-3 text-sm leading-7 text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"

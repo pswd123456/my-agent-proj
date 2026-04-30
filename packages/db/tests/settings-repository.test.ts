@@ -32,6 +32,7 @@ describe("MemorySettingsRepository", () => {
       "web",
       "lsp"
     ]);
+    expect(settings.userContextHooks).toEqual([]);
     expect(settings.debugConversationView).toBe(false);
   });
 
@@ -74,6 +75,7 @@ describe("MemorySettingsRepository", () => {
     expect(userA.yoloMode).toBe(true);
     expect(userA.contextWindow).toBe(123_456);
     expect(userA.maxTurns).toBe(88);
+    expect(userA.userContextHooks).toEqual([]);
     expect(userA.debugConversationView).toBe(true);
 
     expect(userB.workingDirectory).toBe(DEFAULT_SESSION_WORKING_DIRECTORY);
@@ -81,7 +83,62 @@ describe("MemorySettingsRepository", () => {
     expect(userB.yoloMode).toBe(false);
     expect(userB.contextWindow).toBe(DEFAULT_CONTEXT_WINDOW);
     expect(userB.maxTurns).toBe(DEFAULT_SESSION_MAX_TURNS);
+    expect(userB.userContextHooks).toEqual([]);
     expect(userB.debugConversationView).toBe(false);
+  });
+
+  test("round-trips normalized user context hooks", async () => {
+    const repository = createMemorySettingsRepository();
+
+    const settings = await repository.update("user-hooks", {
+      userContextHooks: [
+        {
+          id: "hook-1",
+          event: "run_started",
+          title: "Profile",
+          content: "先看长期偏好，再决定回答风格。",
+          enabled: true
+        },
+        {
+          id: "hook-2",
+          event: "run_end",
+          title: "Wrap up",
+          content: "结尾给一个简短 next step。",
+          enabled: false
+        },
+        {
+          id: "hook-2",
+          event: "session_started",
+          title: "Duplicate id",
+          content: "ignored",
+          enabled: true
+        },
+        {
+          id: "hook-3",
+          event: "run_started",
+          title: "Blank",
+          content: "   ",
+          enabled: true
+        }
+      ]
+    });
+
+    expect(settings.userContextHooks).toEqual([
+      {
+        id: "hook-1",
+        event: "run_started",
+        title: "Profile",
+        content: "先看长期偏好，再决定回答风格。",
+        enabled: true
+      },
+      {
+        id: "hook-2",
+        event: "run_end",
+        title: "Wrap up",
+        content: "结尾给一个简短 next step。",
+        enabled: false
+      }
+    ]);
   });
 
   test("normalizes conflicting tool permission lists with deny then allow precedence", async () => {
@@ -126,6 +183,8 @@ describe("MemorySettingsRepository", () => {
       toolAskList: '["search_text"]',
       toolDenyList: '["delete_path"]',
       enabledCapabilityPacks: '["workspace","schedule"]',
+      user_context_hooks:
+        '[{"id":"hook-1","event":"run_started","title":"Profile","content":"先看偏好","enabled":true}]',
       debug_conversation_view: true,
       createdAt: "2026-04-23T00:00:00.000Z",
       updatedAt: "2026-04-23T01:00:00.000Z"
@@ -137,6 +196,15 @@ describe("MemorySettingsRepository", () => {
     expect(settings.toolAskList).toEqual(["search_text"]);
     expect(settings.toolDenyList).toEqual(["delete_path"]);
     expect(settings.model).toBe(DEFAULT_SESSION_MODEL);
+    expect(settings.userContextHooks).toEqual([
+      {
+        id: "hook-1",
+        event: "run_started",
+        title: "Profile",
+        content: "先看偏好",
+        enabled: true
+      }
+    ]);
     expect(settings.debugConversationView).toBe(true);
   });
 });

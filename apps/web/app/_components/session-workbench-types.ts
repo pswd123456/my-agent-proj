@@ -1,4 +1,8 @@
-import { CAPABILITY_PACK_OPTIONS } from "@ai-app-template/sdk";
+import {
+  CAPABILITY_PACK_OPTIONS,
+  USER_CONTEXT_HOOK_EVENT_OPTIONS,
+  type UserContextHookRecord
+} from "@ai-app-template/sdk";
 
 export const inspectorTabs = [
   { id: "prompt", label: "Prompt" },
@@ -10,6 +14,7 @@ export const inspectorTabs = [
 
 export const sidebarPanels = [
   { id: "settings", label: "Settings", title: "默认设置" },
+  { id: "hooks", label: "Hooks", title: "Hooks" },
   { id: "calendar", label: "Calendar", title: "日历" },
   { id: "inspector", label: "Inspector", title: "调试详情" }
 ] as const;
@@ -44,7 +49,9 @@ export interface SettingsFormState {
   toolAskList: string[];
   toolDenyList: string[];
   enabledCapabilityPacks: string[];
+  userContextHooks: UserContextHookRecord[];
   debugConversationView: boolean;
 }
 
 export const capabilityPackOptions = CAPABILITY_PACK_OPTIONS;
+export const userContextHookEventOptions = USER_CONTEXT_HOOK_EVENT_OPTIONS;

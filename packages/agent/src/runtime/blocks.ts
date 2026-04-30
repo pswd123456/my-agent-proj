@@ -340,26 +340,38 @@ export function renderPendingUserQuestionAnswer(
     SessionSnapshot["context"]["pendingUserQuestionPayload"]
   >
 ): string {
-  const lines = [pendingUserQuestion.questionText];
+  const lines =
+    pendingUserQuestion.questions.length > 1
+      ? [`需要补充回答 ${pendingUserQuestion.questions.length} 个问题：`]
+      : [];
 
-  if (pendingUserQuestion.options.length > 0) {
+  for (const [
+    questionIndex,
+    question
+  ] of pendingUserQuestion.questions.entries()) {
     lines.push(
-      ...pendingUserQuestion.options.map((option, index) => {
-        const recommended = option.isRecommended ? "（推荐）" : "";
-        const detail = option.description ? `：${option.description}` : "";
-        return `- 选项 ${index + 1}${recommended}：${option.label}${detail}`;
-      })
+      pendingUserQuestion.questions.length > 1
+        ? `问题 ${questionIndex + 1}：${question.questionText}`
+        : question.questionText
     );
-  }
 
-  if (pendingUserQuestion.contextNote) {
-    lines.push(`- 说明：${pendingUserQuestion.contextNote}`);
+    if (question.options.length > 0) {
+      lines.push(
+        ...question.options.map((option, index) => {
+          const recommended = option.isRecommended ? "（推荐）" : "";
+          const detail = option.description ? `：${option.description}` : "";
+          return `- 选项 ${index + 1}${recommended}：${option.label}${detail}`;
+        })
+      );
+    }
   }
 
   lines.push(
-    pendingUserQuestion.allowCancel === false
-      ? "你也可以直接回复你的答案。"
-      : "你也可以直接回复你的答案，或者回复“取消”。"
+    pendingUserQuestion.questions.every(
+      (question) => question.allowCancel === false
+    )
+      ? "你也可以逐题填写答案后发送，或者直接回复你的答案。"
+      : "你也可以逐题填写答案后发送，或者直接回复你的答案 / “取消”。"
   );
   return lines.join("\n");
 }

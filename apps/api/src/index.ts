@@ -87,6 +87,7 @@ async function createRuntime(session: SessionSnapshot) {
     throw new Error("No configured model provider is available.");
   }
 
+  const settings = await settingsRepository.getOrCreate(session.context.userId);
   const lspServerManager = createLspServerManager({
     workingDirectory: session.workingDirectory
   });
@@ -117,6 +118,7 @@ async function createRuntime(session: SessionSnapshot) {
         component: "runtime"
       }),
       promptBuilder,
+      userContextHooks: settings.userContextHooks,
       maxTurns: 50,
       maxTokens,
       ...(toolChoice ? { toolChoice } : {})

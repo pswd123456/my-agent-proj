@@ -5,6 +5,7 @@ import { and, asc, desc, eq, sql } from "drizzle-orm";
 import {
   DEFAULT_SESSION_MODEL,
   normalizeCapabilityPacks,
+  normalizePendingUserQuestionPayload,
   normalizeThinkingEffort,
   type PendingConfirmationPayload,
   type PendingPermissionRequest,
@@ -338,7 +339,7 @@ export function toSessionContext(row: SessionRow): ScheduleSessionContext {
       ? (pendingConfirmationPayload as unknown as PendingConfirmationPayload)
       : null,
     pendingUserQuestionPayload: isRecord(pendingUserQuestionPayload)
-      ? (pendingUserQuestionPayload as unknown as PendingUserQuestionPayload)
+      ? normalizePendingUserQuestionPayload(pendingUserQuestionPayload)
       : null,
     pendingBackgroundNotifications: Array.isArray(
       pendingBackgroundNotifications

@@ -134,6 +134,13 @@
       "when": 1777878000000,
       "tag": "0018_futuristic_black_bolt",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1777881600000,
+      "tag": "0019_fearless_quasar",
+      "breakpoints": true
     }
   ]
 }

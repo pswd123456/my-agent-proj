@@ -73,6 +73,7 @@ function createSettingsFormState(): SettingsFormState {
     toolAskList: [],
     toolDenyList: [],
     enabledCapabilityPacks: ["workspace"],
+    userContextHooks: [],
     debugConversationView: false
   };
 }
@@ -124,7 +125,14 @@ describe("session-workbench drawer", () => {
         onSettingsYoloModeChange: () => {},
         onSettingsDebugConversationViewChange: () => {},
         onSettingsPermissionToolToggle: () => {},
-        onSettingsCapabilityPackToggle: () => {}
+        onSettingsCapabilityPackToggle: () => {},
+        onAddUserContextHook: () => {},
+        onUserContextHookChange: () => {},
+        onUserContextHookBlur: () => {},
+        onUserContextHookEnabledChange: () => {},
+        onUserContextHookEventChange: () => {},
+        onDeleteUserContextHook: () => {},
+        onMoveUserContextHook: () => {}
       })
     );
 
@@ -132,5 +140,64 @@ describe("session-workbench drawer", () => {
     expect(markup).toContain(
       "One or more sessions are currently running. Wait for active runs to finish before clearing history."
     );
+  });
+
+  test("renders the hooks panel with saved hook items", () => {
+    const settingsForm = createSettingsFormState();
+    settingsForm.userContextHooks = [
+      {
+        id: "hook-1",
+        event: "run_end",
+        title: "Wrap up",
+        content: "结束时补一个 next step。",
+        enabled: true
+      }
+    ];
+
+    const markup = renderToStaticMarkup(
+      createElement(SessionWorkbenchDrawer, {
+        activeSidebarPanel: "hooks",
+        currentSession: createSessionSnapshot(),
+        loadingSession: false,
+        submitting: false,
+        resettingRoutines: false,
+        settingsMeta: "user cli-user",
+        settingsStatusText: "",
+        settingsForm,
+        permissionTools,
+        loadingSettings: false,
+        savingSettings: false,
+        clearingSessionHistory: false,
+        clearHistoryErrorText: null,
+        choosingWorkingDirectory: false,
+        pendingPermissionToolName: null,
+        weekDates: [],
+        groupedRoutines,
+        inspectorProjection: createInspectorProjection(),
+        activeTab: "prompt",
+        onResetAllRoutines: () => {},
+        onSelectTab: () => {},
+        onSettingsFormChange: () => {},
+        onSettingsBlur: () => {},
+        onChooseWorkingDirectory: () => {},
+        onClearSessionHistory: () => {},
+        onSettingsYoloModeChange: () => {},
+        onSettingsDebugConversationViewChange: () => {},
+        onSettingsPermissionToolToggle: () => {},
+        onSettingsCapabilityPackToggle: () => {},
+        onAddUserContextHook: () => {},
+        onUserContextHookChange: () => {},
+        onUserContextHookBlur: () => {},
+        onUserContextHookEnabledChange: () => {},
+        onUserContextHookEventChange: () => {},
+        onDeleteUserContextHook: () => {},
+        onMoveUserContextHook: () => {}
+      })
+    );
+
+    expect(markup).toContain("为不同 runtime 时机注入用户 context");
+    expect(markup).toContain("Wrap up");
+    expect(markup).toContain("结束时补一个 next step。");
+    expect(markup).toContain("1/1 enabled");
   });
 });

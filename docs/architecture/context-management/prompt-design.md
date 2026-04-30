@@ -75,7 +75,7 @@ prefix message 带 `cache_control: { type: "ephemeral" }`，并参与当前 `cac
 
 ## runtimeContextMessages
 
-`runtimeContextMessages` 放每次执行才需要的上下文，并在层内按相对稳定到易变排序，当前包括五类：
+`runtimeContextMessages` 放每次执行才需要的上下文，并在层内按相对稳定到易变排序，当前包括六类：
 
 1. plan mode prompt
    - 只在当前 session 开启 `plan mode` 时注入
@@ -87,17 +87,24 @@ prefix message 带 `cache_control: { type: "ephemeral" }`，并参与当前 `cac
    - 由 workspace instructions manager 负责扫描和诊断，prompt builder 只负责渲染
    - 不进入 `prefixMessages` 或 `cacheKey`，避免工作区指令变化影响稳定前缀
 
-3. workspace skills
+3. user context hooks
+   - 来自 user settings 里的 `userContextHooks`
+   - 由 runtime 在每次 run 开始时解析，只进入 `runtimeContextMessages`
+   - 当前支持 `session_started`、`run_started`、`run_end` 三个时机
+   - `session_started` 只在当前 session 的第一次 run 注入；同一轮内的显示顺序固定为 `session_started -> run_started -> run_end`
+   - hook 文本不进入 `system`、`prefixMessages` 或 `cacheKey`
+
+4. workspace skills
    - 从 `session.workingDirectory/.agent/skills/` 发现的 skill metadata
    - prompt 当前只暴露模型做技能选择需要的元信息
    - 具体 skill 正文通过 `search_skill` / `load_skill` 按需读取，而不是整篇预注入
 
-4. full compaction continuation summary
+5. full compaction continuation summary
    - 只在 `session.context.fullCompactionState` 存在时注入
    - 内容来自最近一次 full compaction 生成的 continuation summary
    - 不进入 `prefixMessages` 或 `cacheKey`
 
-5. runtime context
+6. runtime context
    - working directory
    - pending confirmation payload
    - pending user question payload

@@ -15,6 +15,7 @@ import type { SkillDescriptor } from "./skills/index.js";
 import type { RuntimeTool } from "./tools/runtime-tool.js";
 import type { ToolRegistry } from "./tools/registry.js";
 import type { WorkspaceInstructionsDescriptor } from "./workspace-instructions/index.js";
+import type { ResolvedUserContextHookSection } from "./context-hooks.js";
 import { normalizeCapabilityPacks } from "@ai-app-template/domain";
 import {
   describeTaskBriefBinding,
@@ -66,6 +67,7 @@ export interface PromptBuilderOptions {
 export interface PromptRuntimeContext {
   currentTurnCount?: number;
   maxTurns?: number;
+  contextHooks?: ResolvedUserContextHookSection[];
   workspaceInstructions?: WorkspaceInstructionsDescriptor | null;
 }
 
@@ -92,6 +94,8 @@ const DEFAULT_SYSTEM_PROMPT = [
   "Actively utilize the skills listed in the runtime context when they are relevant to the user's request and can improve efficiency or reliability.",
   "When search_skill and load_skill are available, use search_skill to find the most relevant workspace skill and load_skill to inspect its exact instructions before following a detailed skill workflow.",
   "Only rely on skills explicitly listed in the current runtime context. Do not invent or assume unavailable skills.",
+  "When the user message contains an explicit file reference like @relative/path, treat it as a concrete workspace path. If the path is already precise, do not call find_files just to rediscover the same target.",
+  "When the user message contains an explicit skill reference like #skill_name, treat it as a concrete workspace skill name. If load_skill is available, you may load that exact skill directly.",
   "When a structured todo list is available, use it to stay aligned with the current task and keep item status updated as you make progress.",
   "",
   "## Repository and Document Retrieval",
@@ -477,6 +481,36 @@ function createWorkspaceInstructionsContextMessage(
       }
     ]
   };
+}
+
+function createUserContextHookMessages(
+  sections: ResolvedUserContextHookSection[] | undefined
+): AnthropicMessage[] {
+  if (!sections || sections.length === 0) {
+    return [];
+  }
+
+  return sections.map((section) => ({
+    role: "user",
+    content: [
+      {
+        type: "text",
+        text: [
+          section.heading,
+          section.description,
+          "",
+          ...section.hooks.map((hook, index) =>
+            [
+              hook.title
+                ? `${index + 1}. ${hook.title}`
+                : `${index + 1}. (untitled hook)`,
+              hook.content
+            ].join("\n")
+          )
+        ].join("\n")
+      }
+    ]
+  }));
 }
 
 function createPlanModePromptMessage(
@@ -905,6 +939,9 @@ export class PromptBuilder {
       createWorkspaceInstructionsContextMessage(
         runtimeContext.workspaceInstructions
       );
+    const contextHookMessages = createUserContextHookMessages(
+      runtimeContext.contextHooks
+    );
     const skillsContextMessage = createSkillsContextMessage(skills);
     const cacheKey = createHash("sha256")
       .update(system)
@@ -924,6 +961,7 @@ export class PromptBuilder {
         ...(workspaceInstructionsContextMessage
           ? [workspaceInstructionsContextMessage]
           : []),
+        ...contextHookMessages,
         skillsContextMessage,
         ...(fullCompactionContextMessage ? [fullCompactionContextMessage] : []),
         ...runtimeContextMessages

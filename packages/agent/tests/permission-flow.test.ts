@@ -323,8 +323,97 @@ describe("Stage 4 permission flow", () => {
     const updatedSession = await sessionManager.getSession(session.sessionId);
     expect(updatedSession?.context.status).toBe("waiting_for_user_question");
     expect(updatedSession?.context.pendingUserQuestionPayload).toMatchObject({
-      questionText: "要先做 CLI 还是 Web？",
-      allowCancel: true
+      questions: [
+        {
+          questionText: "要先做 CLI 还是 Web？",
+          allowCancel: true
+        }
+      ]
+    });
+  });
+
+  test("pauses for multiple structured user questions", async () => {
+    const sessionManager = createMemorySessionManager();
+    const routineRepository = createMemoryRoutineRepository();
+
+    const session = await sessionManager.createSession({
+      workingDirectory: await createWorkspaceRoot(),
+      model: "MiniMax-M2.7",
+      userId: "stage4-user",
+      planModeEnabled: false
+    });
+
+    const executed = await executeToolAction({
+      sessionManager,
+      routineRepository,
+      toolRegistry: createPlanningToolRegistry(),
+      traceManager: undefined,
+      session,
+      turnCount: 1,
+      toolCallId: "call-multi-question",
+      toolName: "ask_user_question",
+      toolInput: {
+        questions: [
+          {
+            question_text: "先覆盖 CLI 还是 Web？",
+            options: [
+              {
+                label: "先做 CLI",
+                reply: "先做 CLI",
+                is_recommended: true
+              }
+            ],
+            context_note: "范围会影响测试入口。"
+          },
+          {
+            question_text: "是否同时更新文档？",
+            options: [
+              {
+                label: "同步更新",
+                reply: "同步更新"
+              }
+            ],
+            allow_cancel: false
+          }
+        ]
+      },
+      eventSink: undefined
+    });
+
+    expect(executed.kind).toBe("completed");
+    if (executed.kind !== "completed") {
+      throw new Error("expected completed result");
+    }
+    expect(executed.output.isError).toBe(false);
+
+    const updatedSession = await sessionManager.getSession(session.sessionId);
+    expect(updatedSession?.context.pendingUserQuestionPayload).toMatchObject({
+      questions: [
+        {
+          questionText: "先覆盖 CLI 还是 Web？",
+          options: [
+            expect.objectContaining({
+              label: "先做 CLI",
+              isRecommended: true
+            }),
+            expect.objectContaining({
+              label: "补充说明",
+              reply: "范围会影响测试入口。"
+            })
+          ],
+          allowCancel: true
+        },
+        {
+          questionText: "是否同时更新文档？",
+          options: [
+            {
+              label: "同步更新",
+              reply: "同步更新"
+            }
+          ],
+          allowCancel: false
+        }
+      ]
     });
   });
 
@@ -402,13 +491,21 @@ describe("Stage 4 permission flow", () => {
     expect(firstRun.status).toBe("waiting for input");
     expect(firstRun.session.context.status).toBe("waiting_for_user_question");
     expect(firstRun.session.context.pendingUserQuestionPayload).toMatchObject({
-      questionText: "这次计划要覆盖 CLI 还是 Web？",
-      options: [
-        expect.objectContaining({
-          label: "先做 CLI",
-          reply: "先做 CLI",
-          isRecommended: true
-        })
+      questions: [
+        {
+          questionText: "这次计划要覆盖 CLI 还是 Web？",
+          options: [
+            expect.objectContaining({
+              label: "先做 CLI",
+              reply: "先做 CLI",
+              isRecommended: true
+            }),
+            expect.objectContaining({
+              label: "补充说明",
+              reply: "这会影响交付边界。"
+            })
+          ]
+        }
       ]
     });
     expect(firstRun.finalAnswer).toContain("这次计划要覆盖 CLI 还是 Web？");

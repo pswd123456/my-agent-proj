@@ -7,9 +7,12 @@ import {
   applyUnifiedPatch,
   createRunErrorEvent,
   createRunTraceEvent,
+  discoverWorkspaceSkills,
   invertUnifiedPatch,
   ModelUnavailableError,
   parseUnifiedPatch,
+  searchWorkspaceFiles,
+  searchWorkspaceSkills,
   UnsupportedModelError,
   type ModelCatalogEntry,
   type ModelService,
@@ -30,6 +33,7 @@ import {
   DEFAULT_SESSION_SETTINGS_USER_ID,
   SESSION_MAX_TURNS_LIMIT,
   THINKING_EFFORT_OPTIONS,
+  USER_CONTEXT_HOOK_EVENT_OPTIONS,
   normalizeThinkingEffort,
   normalizeCapabilityPacks,
   normalizeSettingsPermissionRules,
@@ -111,6 +115,17 @@ const updateUserSettingsBodySchema = z
     toolAskList: z.array(z.string()).optional(),
     toolDenyList: z.array(z.string()).optional(),
     enabledCapabilityPacks: z.array(z.string()).optional(),
+    userContextHooks: z
+      .array(
+        z.object({
+          id: z.string().min(1),
+          event: z.enum(USER_CONTEXT_HOOK_EVENT_OPTIONS),
+          title: z.string(),
+          content: z.string().min(1),
+          enabled: z.boolean()
+        })
+      )
+      .optional(),
     debugConversationView: z.boolean().optional()
   })
   .refine(
@@ -127,6 +142,7 @@ const updateUserSettingsBodySchema = z
       Array.isArray(value.toolAskList) ||
       Array.isArray(value.toolDenyList) ||
       Array.isArray(value.enabledCapabilityPacks) ||
+      Array.isArray(value.userContextHooks) ||
       typeof value.debugConversationView === "boolean",
     {
       message: "At least one settings field is required."
@@ -135,6 +151,11 @@ const updateUserSettingsBodySchema = z
 
 const chooseDirectoryBodySchema = z.object({
   startDirectory: z.string().optional()
+});
+
+const searchWorkspaceQuerySchema = z.object({
+  q: z.string().optional().default(""),
+  limit: z.coerce.number().int().min(1).max(50).optional()
 });
 
 const executeSessionBodySchema = z.object({
@@ -729,9 +750,7 @@ export function createApiApp(dependencies: ApiAppDependencies) {
 
     const body = chooseDirectoryBodySchema.parse(await c.req.json());
     const selectedPath = await dependencies.pickDirectory(
-      body.startDirectory
-        ? { startDirectory: body.startDirectory }
-        : undefined
+      body.startDirectory ? { startDirectory: body.startDirectory } : undefined
     );
     return c.json({
       path: selectedPath,
@@ -779,6 +798,9 @@ export function createApiApp(dependencies: ApiAppDependencies) {
         : {}),
       ...(Array.isArray(body.enabledCapabilityPacks)
         ? { enabledCapabilityPacks: body.enabledCapabilityPacks }
+        : {}),
+      ...(Array.isArray(body.userContextHooks)
+        ? { userContextHooks: body.userContextHooks }
         : {}),
       ...(typeof body.debugConversationView === "boolean"
         ? { debugConversationView: body.debugConversationView }
@@ -862,6 +884,55 @@ export function createApiApp(dependencies: ApiAppDependencies) {
       );
     }
     return c.json({ session: updated });
+  });
+
+  app.get("/sessions/:sessionId/workspace-files/search", async (c) => {
+    const sessionId = c.req.param("sessionId");
+    const session = await dependencies.sessionManager.getSession(sessionId);
+    if (!session) {
+      return c.json({ error: "Session not found." }, 404);
+    }
+
+    const query = searchWorkspaceQuerySchema.parse(c.req.query());
+    const result = await searchWorkspaceFiles({
+      workingDirectory: session.workingDirectory,
+      query: query.q,
+      maxResults: query.limit
+    });
+
+    return c.json({
+      items: result.matches.map((match) => ({
+        path: match.path,
+        name: match.name
+      })),
+      truncated: result.truncated
+    });
+  });
+
+  app.get("/sessions/:sessionId/skills/search", async (c) => {
+    const sessionId = c.req.param("sessionId");
+    const session = await dependencies.sessionManager.getSession(sessionId);
+    if (!session) {
+      return c.json({ error: "Session not found." }, 404);
+    }
+
+    const query = searchWorkspaceQuerySchema.parse(c.req.query());
+    const discovery = await discoverWorkspaceSkills(session.workingDirectory);
+    const result = searchWorkspaceSkills({
+      skills: discovery.skills,
+      query: query.q,
+      maxResults: query.limit,
+      allowEmptyQuery: true
+    });
+
+    return c.json({
+      items: result.matches.map((match) => ({
+        name: match.name,
+        description: match.description,
+        relativePath: match.relativePath
+      })),
+      truncated: result.truncated
+    });
   });
 
   app.delete("/sessions/history", async (c) => {

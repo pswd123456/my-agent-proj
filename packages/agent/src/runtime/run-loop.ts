@@ -28,10 +28,12 @@ import type { Logger } from "../system-log.js";
 import type { JsonValue, RunSessionResult, SessionSnapshot } from "../types.js";
 import type { DelegateAgentService } from "../delegation/index.js";
 import type { BackgroundTaskManager } from "../background-tasks/index.js";
+import { resolveUserContextHookSections } from "../context-hooks.js";
 import { scheduleBackgroundTaskPollWakeup } from "../background-tasks/orchestration.js";
 import { consumeBackgroundNotifications } from "../background-tasks/notifications.js";
 import { readAcceptedBackgroundTaskHandle } from "../background-tasks/task-handle.js";
 import type { ToolRegistry } from "../tools/registry.js";
+import type { UserContextHookRecord } from "@ai-app-template/domain";
 import {
   buildAssistantBlockContent,
   buildAssistantThinkingBlockContent,
@@ -153,6 +155,7 @@ export async function runSessionLoop(input: {
   backgroundTaskManager?: BackgroundTaskManager;
   traceManager: TraceManager | undefined;
   promptBuilder: PromptBuilder;
+  userContextHooks: UserContextHookRecord[];
   session: SessionSnapshot;
   message: string | undefined;
   abortSignal?: AbortSignal;
@@ -182,6 +185,10 @@ export async function runSessionLoop(input: {
   const discoveredSkills = await discoverWorkspaceSkills(
     session.workingDirectory
   );
+  const resolvedContextHooks = resolveUserContextHookSections({
+    hooks: input.userContextHooks,
+    session
+  });
   const workspaceInstructionsManager = createWorkspaceInstructionsManager();
   const workspaceInstructions = await workspaceInstructionsManager.load(
     session.workingDirectory
@@ -609,6 +616,7 @@ export async function runSessionLoop(input: {
         runtimeContext: {
           currentTurnCount: turnCount,
           maxTurns: input.maxTurns,
+          contextHooks: resolvedContextHooks,
           workspaceInstructions: workspaceInstructions.instructions
         },
         skills: discoveredSkills.skills,
@@ -633,6 +641,17 @@ export async function runSessionLoop(input: {
           turnCount,
           skills: discoveredSkills.skills,
           diagnostics: discoveredSkills.diagnostics
+        }
+      });
+      await emitTraceEvent({
+        traceManager: input.traceManager,
+        eventSink: input.eventSink,
+        sessionId: session.sessionId,
+        event: {
+          kind: "context_hooks_loaded",
+          turnCount,
+          userId: session.context.userId,
+          hooks: resolvedContextHooks
         }
       });
       await emitTraceEvent({

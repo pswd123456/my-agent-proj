@@ -111,9 +111,10 @@
 - `ask_user_question`
   - 普通 planning 工具，非 `plan mode` 也会暴露给模型
   - 用于结构化澄清需求或不确定点
-  - 一次只问一个问题，可附带最多 4 个快捷回复选项
-  - 可显式标记 1 个推荐选项，供 workbench 做更强提示
-  - 默认提供一个“取消”快捷回复；如确实不需要，可通过 `allow_cancel = false` 关闭
+  - 支持一次只问一个问题，也支持通过 `questions` 一次询问最多 4 个问题
+  - 每个问题可附带最多 5 个快捷回复选项，并可显式标记 1 个推荐选项
+  - 每个问题默认提供一个“取消”快捷回复；如确实不需要，可通过该问题的 `allow_cancel = false` 关闭
+  - 每个问题的 `context_note` 会作为该问题 tab 内的一个“补充说明”选项展示，用户点击后会把说明文本直接返回给模型
   - 调用后会把 session 置为 `waiting_for_user_question`
 - `search_task_brief`
   - 只读
@@ -137,8 +138,9 @@
 `ask_user_question` 的当前恢复语义是：
 
 - 当前 run 结束在 `waiting for input`
-- workbench 展示结构化 question card
-- 用户下一条非空消息直接视为对该问题的回答
+- workbench 展示结构化 question card；多问题时在同一张卡片内用 tab / 左右导航切换
+- 用户在卡片内逐题选择选项或输入回答后发送，也可以在主输入区直接回复
+- 用户下一条非空消息直接视为对当前澄清 payload 的回答
 - runtime 会先清空 `pendingUserQuestionPayload`，再把这条输入当普通 user message 继续执行
 
 普通文件工具即使目标正好是 `.agent/plans/<sessionId>/<planName>.md`，在 plan mode 下也仍然会被 block。
@@ -215,13 +217,18 @@
 - 当前 session 的 `plan mode` 开关
 - 当前绑定的 `task brief path`
 
+当前 workbench 也支持 `/plan` composer command：
+
+- 这是 workbench 侧的会话级快捷入口
+- 选中后会直接把当前 session 的 `planModeEnabled` 设为 `true`
+- 不会自动发送一条新的 user message
+
 这和 user settings 中的 `workingDirectory / yoloMode / permission rules` 是两层不同的状态。
 
 ## 当前不做的事
 
 第一版明确不做：
 
-- `/plan` slash command
 - 自然语言自动进出 plan mode
 - full compaction 集成
 - shell / network / schedule 的 plan mode 限制

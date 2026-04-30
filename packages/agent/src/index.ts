@@ -1,4 +1,5 @@
 export * from "./background-tasks/index.js";
+export * from "./context-hooks.js";
 export * from "./delegation/index.js";
 export * from "./events.js";
 export * from "./mcp/index.js";
@@ -21,6 +22,7 @@ export type {
 export * from "./prompt.js";
 export * from "./runtime.js";
 export * from "./session.js";
+export * from "./skills/search.js";
 export * from "./system-log.js";
 export * from "./skills/index.js";
 export * from "./lsp/index.js";
@@ -28,4 +30,5 @@ export * from "./trace.js";
 export * from "./tools/index.js";
 export * from "./types.js";
 export * from "./web/index.js";
+export * from "./workspace-file-search.js";
 export * from "./workspace-instructions/index.js";

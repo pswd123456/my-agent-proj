@@ -119,19 +119,25 @@ function buildPermissionRequest(
 function buildUserQuestionRequest(
   payload: PendingUserQuestionPayload
 ): DelegateRequestEnvelope {
+  const summary =
+    payload.questions.length === 1
+      ? (payload.questions[0]?.questionText ?? "Need more input.")
+      : `需要补充回答 ${payload.questions.length} 个问题`;
+
   return {
     kind: "user_question",
-    summary: payload.questionText,
+    summary,
     data: {
-      questionText: payload.questionText,
-      options: payload.options.map((option) => ({
-        label: option.label,
-        reply: option.reply,
-        ...(option.description ? { description: option.description } : {}),
-        ...(option.isRecommended ? { isRecommended: true } : {})
-      })),
-      allowCancel: payload.allowCancel !== false,
-      ...(payload.contextNote ? { contextNote: payload.contextNote } : {})
+      questions: payload.questions.map((question) => ({
+        questionText: question.questionText,
+        options: question.options.map((option) => ({
+          label: option.label,
+          reply: option.reply,
+          ...(option.description ? { description: option.description } : {}),
+          ...(option.isRecommended ? { isRecommended: true } : {})
+        })),
+        allowCancel: question.allowCancel !== false
+      }))
     }
   };
 }
@@ -410,7 +416,9 @@ function renderShellResultContent(result: ShellCommandResultEnvelope): string {
   return lines.join("\n");
 }
 
-async function runShellCommandTask(input: RunBackgroundTaskInput): Promise<void> {
+async function runShellCommandTask(
+  input: RunBackgroundTaskInput
+): Promise<void> {
   const { claim, workerId } = input;
   if (claim.task.payload.executor !== "shell_command") {
     throw new Error("Expected shell_command payload.");
@@ -514,8 +522,7 @@ async function runShellCommandTask(input: RunBackgroundTaskInput): Promise<void>
         stderr: shellError.stderr ?? "",
         workingDirectory: payload.workingDirectory,
         timeoutMs: payload.timeoutMs,
-        exitCode:
-          typeof shellError.code === "number" ? shellError.code : null,
+        exitCode: typeof shellError.code === "number" ? shellError.code : null,
         terminationReason
       });
       const taskState = updateShellCommandTaskState(claim, latestResult);
@@ -629,7 +636,8 @@ export async function runBackgroundTask(
       taskId: claim.task.taskId,
       runId: claim.run.runId,
       workerId,
-      errorSummary: "Child session is required for agent_session background tasks."
+      errorSummary:
+        "Child session is required for agent_session background tasks."
     });
     if (claim.task.kind === "subagent") {
       await notifySubagentParent({
@@ -639,7 +647,8 @@ export async function runBackgroundTask(
         task: failedClaim.task,
         kind: "task_failed",
         fallbackSummary: "后台子任务失败。",
-        fallbackContent: "Child session is required for agent_session background tasks."
+        fallbackContent:
+          "Child session is required for agent_session background tasks."
       });
     }
     return;

@@ -8,7 +8,8 @@ import type {
 import type {
   SettingsPermissionToolOption,
   RoutineRecord,
-  SessionSettingsRecord
+  SessionSettingsRecord,
+  UserContextHookRecord
 } from "@ai-app-template/domain";
 
 export interface ApiClientConfig {
@@ -109,6 +110,7 @@ export interface UpdateUserSettingsPayload {
   toolAskList?: string[];
   toolDenyList?: string[];
   enabledCapabilityPacks?: string[];
+  userContextHooks?: UserContextHookRecord[];
   debugConversationView?: boolean;
 }
 
@@ -124,6 +126,27 @@ export interface ChooseDirectoryInput {
 export interface ChooseDirectoryResult {
   path: string | null;
   canceled: boolean;
+}
+
+export interface WorkspaceFileSearchItem {
+  path: string;
+  name: string;
+}
+
+export interface WorkspaceFileSearchResult {
+  items: WorkspaceFileSearchItem[];
+  truncated: boolean;
+}
+
+export interface WorkspaceSkillSearchItem {
+  name: string;
+  description: string;
+  relativePath: string;
+}
+
+export interface WorkspaceSkillSearchResult {
+  items: WorkspaceSkillSearchItem[];
+  truncated: boolean;
 }
 
 export interface ListSessionRoutinesResult {
@@ -466,6 +489,62 @@ export class ApiClient {
     return (await ensureOk(response).then((result) =>
       result.json()
     )) as ChooseDirectoryResult;
+  }
+
+  async searchSessionWorkspaceFiles(
+    sessionId: string,
+    input: { query: string; limit?: number }
+  ): Promise<WorkspaceFileSearchResult> {
+    const searchParams = new URLSearchParams({
+      q: input.query
+    });
+    if (typeof input.limit === "number") {
+      searchParams.set("limit", String(input.limit));
+    }
+
+    const response = await this.fetchImpl(
+      appendCacheBust(
+        buildUrl(
+          this.baseUrl,
+          `/sessions/${sessionId}/workspace-files/search?${searchParams.toString()}`
+        )
+      ),
+      {
+        cache: "no-store"
+      }
+    );
+
+    return (await ensureOk(response).then((result) =>
+      result.json()
+    )) as WorkspaceFileSearchResult;
+  }
+
+  async searchSessionSkills(
+    sessionId: string,
+    input: { query: string; limit?: number }
+  ): Promise<WorkspaceSkillSearchResult> {
+    const searchParams = new URLSearchParams({
+      q: input.query
+    });
+    if (typeof input.limit === "number") {
+      searchParams.set("limit", String(input.limit));
+    }
+
+    const response = await this.fetchImpl(
+      appendCacheBust(
+        buildUrl(
+          this.baseUrl,
+          `/sessions/${sessionId}/skills/search?${searchParams.toString()}`
+        )
+      ),
+      {
+        cache: "no-store"
+      }
+    );
+
+    return (await ensureOk(response).then((result) =>
+      result.json()
+    )) as WorkspaceSkillSearchResult;
   }
 
   async updateUserSettingsPayload(

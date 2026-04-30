@@ -212,8 +212,12 @@ describe("background task runner", () => {
         const waitingSession = structuredClone(session!);
         waitingSession.context.status = "waiting_for_user_question";
         waitingSession.context.pendingUserQuestionPayload = {
-          questionText: "Which file should I inspect first?",
-          options: [],
+          questions: [
+            {
+              questionText: "Which file should I inspect first?",
+              options: []
+            }
+          ],
           createdAt: new Date().toISOString()
         };
         waitingSession.sessionState.loopState = "waiting for input";
@@ -432,7 +436,9 @@ describe("background task runner", () => {
     });
 
     expect(runtimeCalled).toBe(false);
-    const requeuedPoll = await repository.getWakeupTaskBySessionId(parent.sessionId);
+    const requeuedPoll = await repository.getWakeupTaskBySessionId(
+      parent.sessionId
+    );
     expect(requeuedPoll?.status).toBe("queued");
     expect(requeuedPoll?.availableAt).not.toBeNull();
     expect(requeuedPoll?.payload.metadata).toMatchObject({
@@ -559,7 +565,9 @@ describe("background task runner", () => {
       }
     });
 
-    const wakeupTask = await repository.getWakeupTaskBySessionId(parent.sessionId);
+    const wakeupTask = await repository.getWakeupTaskBySessionId(
+      parent.sessionId
+    );
     expect(wakeupTask?.status).toBe("queued");
     expect(wakeupTask?.availableAt).toBeNull();
     expect(wakeupTask?.payload.metadata).toMatchObject({
@@ -604,8 +612,12 @@ describe("background task runner", () => {
         const waitingSession = structuredClone(session!);
         waitingSession.context.status = "waiting_for_user_question";
         waitingSession.context.pendingUserQuestionPayload = {
-          questionText: "Which file should I inspect first?",
-          options: [],
+          questions: [
+            {
+              questionText: "Which file should I inspect first?",
+              options: []
+            }
+          ],
           createdAt: new Date().toISOString()
         };
         waitingSession.sessionState.loopState = "waiting for input";

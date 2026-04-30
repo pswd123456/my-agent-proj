@@ -5,6 +5,7 @@ import type { Logger, SystemLogManager } from "./system-log.js";
 import type { RoutineRepository } from "@ai-app-template/db";
 import {
   DEFAULT_SESSION_MODEL,
+  type UserContextHookRecord,
   normalizeThinkingEffort
 } from "@ai-app-template/domain";
 
@@ -47,6 +48,7 @@ export interface AgentRuntimeOptions {
   backgroundTaskManager?: BackgroundTaskManager;
   traceManager?: TraceManager;
   promptBuilder?: PromptBuilder;
+  userContextHooks?: UserContextHookRecord[];
   maxTurns?: number;
   maxTokens?: number;
   toolChoice?: AnthropicToolChoice;
@@ -273,6 +275,7 @@ export class AgentRuntime {
         toolRegistry: this.options.toolRegistry,
         traceManager: this.options.traceManager,
         promptBuilder: this.promptBuilder,
+        userContextHooks: this.options.userContextHooks ?? [],
         session,
         message: input.message,
         abortSignal: interruptController.signal,

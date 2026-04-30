@@ -58,12 +58,144 @@ export interface PendingUserQuestionOption {
   isRecommended?: boolean;
 }
 
-export interface PendingUserQuestionPayload {
+export interface PendingUserQuestionItem {
   questionText: string;
   options: PendingUserQuestionOption[];
   allowCancel?: boolean;
-  contextNote?: string;
+}
+
+export interface PendingUserQuestionPayload {
+  questions: PendingUserQuestionItem[];
   createdAt: string;
+}
+
+export const PENDING_USER_QUESTION_CONTEXT_OPTION_LABEL = "补充说明";
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizePendingUserQuestionOption(
+  value: unknown
+): PendingUserQuestionOption | null {
+  if (!isPlainRecord(value)) {
+    return null;
+  }
+
+  const label =
+    typeof value.label === "string" ? value.label.trim() : undefined;
+  const reply =
+    typeof value.reply === "string" ? value.reply.trim() : undefined;
+  if (!label || !reply) {
+    return null;
+  }
+
+  return {
+    label,
+    reply,
+    ...(typeof value.description === "string" && value.description.trim()
+      ? { description: value.description.trim() }
+      : {}),
+    ...(value.isRecommended === true ? { isRecommended: true } : {})
+  };
+}
+
+export function createPendingUserQuestionContextOption(
+  contextNote: string
+): PendingUserQuestionOption {
+  const normalizedContextNote = contextNote.trim();
+  return {
+    label: PENDING_USER_QUESTION_CONTEXT_OPTION_LABEL,
+    reply: normalizedContextNote,
+    description: normalizedContextNote
+  };
+}
+
+export function appendPendingUserQuestionContextOption(
+  options: PendingUserQuestionOption[],
+  contextNote: string | null | undefined
+): PendingUserQuestionOption[] {
+  const normalizedContextNote =
+    typeof contextNote === "string" ? contextNote.trim() : "";
+  if (!normalizedContextNote) {
+    return options;
+  }
+
+  if (options.some((option) => option.reply === normalizedContextNote)) {
+    return options;
+  }
+
+  return [
+    ...options,
+    createPendingUserQuestionContextOption(normalizedContextNote)
+  ];
+}
+
+function normalizePendingUserQuestionItem(
+  value: unknown
+): PendingUserQuestionItem | null {
+  if (!isPlainRecord(value)) {
+    return null;
+  }
+
+  const questionText =
+    typeof value.questionText === "string" ? value.questionText.trim() : "";
+  if (!questionText) {
+    return null;
+  }
+
+  const normalizedOptions = Array.isArray(value.options)
+    ? value.options
+        .map((option) => normalizePendingUserQuestionOption(option))
+        .filter(
+          (option): option is PendingUserQuestionOption => option !== null
+        )
+    : [];
+
+  const options = appendPendingUserQuestionContextOption(
+    normalizedOptions,
+    typeof value.contextNote === "string" ? value.contextNote : null
+  );
+
+  return {
+    questionText,
+    options,
+    ...(typeof value.allowCancel === "boolean"
+      ? { allowCancel: value.allowCancel }
+      : {})
+  };
+}
+
+export function normalizePendingUserQuestionPayload(
+  value: unknown
+): PendingUserQuestionPayload | null {
+  if (!isPlainRecord(value)) {
+    return null;
+  }
+
+  const createdAt =
+    typeof value.createdAt === "string" ? value.createdAt.trim() : "";
+  if (!createdAt) {
+    return null;
+  }
+
+  const questions = Array.isArray(value.questions)
+    ? value.questions
+        .map((item) => normalizePendingUserQuestionItem(item))
+        .filter((item): item is PendingUserQuestionItem => item !== null)
+    : (() => {
+        const legacyItem = normalizePendingUserQuestionItem(value);
+        return legacyItem ? [legacyItem] : [];
+      })();
+
+  if (questions.length === 0) {
+    return null;
+  }
+
+  return {
+    questions,
+    createdAt
+  };
 }
 
 export interface PendingPermissionRequest {

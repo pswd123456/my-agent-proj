@@ -143,6 +143,7 @@ describe("model selection state", () => {
       toolAskList: [],
       toolDenyList: [],
       enabledCapabilityPacks: [],
+      userContextHooks: [],
       debugConversationView: false,
       createdAt: "2026-04-24T00:00:00.000Z",
       updatedAt: "2026-04-24T00:00:00.000Z"
@@ -172,6 +173,7 @@ describe("model selection state", () => {
         toolAskList: ["write_file"],
         toolDenyList: ["delete_path"],
         enabledCapabilityPacks: ["workspace"],
+        userContextHooks: [],
         debugConversationView: true,
         createdAt: "2026-04-24T00:00:00.000Z",
         updatedAt: "2026-04-24T00:00:00.000Z"
@@ -250,8 +252,12 @@ describe("getSessionDisplayState", () => {
     const session = createSessionSnapshot();
     session.context.status = "waiting_for_user_question";
     session.context.pendingUserQuestionPayload = {
-      questionText: "先做 CLI 还是 Web？",
-      options: [],
+      questions: [
+        {
+          questionText: "先做 CLI 还是 Web？",
+          options: []
+        }
+      ],
       createdAt: "2026-04-24T00:00:00.000Z"
     };
 
@@ -413,11 +419,15 @@ describe("applyStreamEventToSession", () => {
       createdAt: "2026-04-26T00:00:01.000Z",
       turnCount: 1,
       question: {
-        questionText: "先做 CLI 还是 Web？",
-        options: [
+        questions: [
           {
-            label: "先做 CLI",
-            reply: "先做 CLI"
+            questionText: "先做 CLI 还是 Web？",
+            options: [
+              {
+                label: "先做 CLI",
+                reply: "先做 CLI"
+              }
+            ]
           }
         ],
         createdAt: "2026-04-26T00:00:01.000Z"
@@ -425,9 +435,9 @@ describe("applyStreamEventToSession", () => {
     });
 
     expect(next.context.status).toBe("waiting_for_user_question");
-    expect(next.context.pendingUserQuestionPayload?.questionText).toBe(
-      "先做 CLI 还是 Web？"
-    );
+    expect(
+      next.context.pendingUserQuestionPayload?.questions[0]?.questionText
+    ).toBe("先做 CLI 还是 Web？");
     expect(next.sessionState.loopState).toBe("waiting for input");
   });
 });

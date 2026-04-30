@@ -12,6 +12,7 @@ import {
   createModelService,
   createPostgresSessionManager,
   createPromptBuilder,
+  listSettingsPermissionToolOptions,
   loadWorkspaceMcpTools,
   resolveMaxTokens,
   resolveSessionStateDirectory,
@@ -24,6 +25,7 @@ import {
   createPostgresBackgroundTaskRepository,
   createPostgresDatabase,
   createPostgresRoutineRepository,
+  createPostgresSettingsRepository,
   ensureProductSchema,
   resolveDatabaseUrl
 } from "@ai-app-template/db";
@@ -58,6 +60,13 @@ await ensureProductSchema(database);
 const routineRepository = createPostgresRoutineRepository(database);
 const sessionManager = createPostgresSessionManager(database);
 const backgroundTaskRepository = createPostgresBackgroundTaskRepository(database);
+const settingsPermissionToolOptions = listSettingsPermissionToolOptions({
+  workingDirectory: workspaceRoot,
+  routineRepository
+}).map((tool) => tool.name);
+const settingsRepository = createPostgresSettingsRepository(database, {
+  settingsPermissionToolOptions
+});
 const backgroundTaskManager = createBackgroundTaskManager({
   sessionManager,
   repository: backgroundTaskRepository
@@ -66,6 +75,7 @@ const backgroundTaskManager = createBackgroundTaskManager({
 async function createRuntimeHandle(
   session: SessionSnapshot
 ): Promise<BackgroundTaskRuntimeHandle> {
+  const settings = await settingsRepository.getOrCreate(session.context.userId);
   const lspServerManager = createLspServerManager({
     workingDirectory: session.workingDirectory
   });
@@ -95,6 +105,7 @@ async function createRuntimeHandle(
         component: "runtime"
       }),
       promptBuilder,
+      userContextHooks: settings.userContextHooks,
       maxTurns: 50,
       maxTokens,
       ...(toolChoice ? { toolChoice } : {})

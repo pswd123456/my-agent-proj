@@ -12,6 +12,7 @@ import {
   getCompactToolFileChangeRows,
   buildPermissionCardView,
   buildUserQuestionCardView,
+  buildUserQuestionReplyMessage,
   getConfirmationKey,
   getUnifiedDiffLineTone,
   getWorkspaceFileChangeRows,
@@ -37,22 +38,30 @@ const pendingPermissionRequest: NonNullable<
 const pendingUserQuestionPayload: NonNullable<
   SessionSnapshot["context"]["pendingUserQuestionPayload"]
 > = {
-  questionText: "这次计划要覆盖 CLI 还是 Web workbench？",
-  options: [
+  questions: [
     {
-      label: "先做 CLI",
-      reply: "先做 CLI",
-      description: "先把 runtime 和 tool 行为跑通",
-      isRecommended: true
-    },
-    {
-      label: "CLI + Web",
-      reply: "CLI + Web",
-      description: "同时补完整前端交互"
+      questionText: "这次计划要覆盖 CLI 还是 Web workbench？",
+      options: [
+        {
+          label: "先做 CLI",
+          reply: "先做 CLI",
+          description: "先把 runtime 和 tool 行为跑通",
+          isRecommended: true
+        },
+        {
+          label: "CLI + Web",
+          reply: "CLI + Web",
+          description: "同时补完整前端交互"
+        },
+        {
+          label: "补充说明",
+          reply: "这会影响当前 plan mode 的交付边界。",
+          description: "这会影响当前 plan mode 的交付边界。"
+        }
+      ],
+      allowCancel: true
     }
   ],
-  allowCancel: true,
-  contextNote: "这会影响当前 plan mode 的交付边界。",
   createdAt: "2026-04-26T09:00:00.000Z"
 };
 
@@ -424,11 +433,13 @@ describe("user question card", () => {
     const view = buildUserQuestionCardView(pendingUserQuestionPayload);
 
     expect(view?.key).toBe(getUserQuestionKey(pendingUserQuestionPayload));
-    expect(view?.questionText).toBe("这次计划要覆盖 CLI 还是 Web workbench？");
-    expect(view?.options).toHaveLength(2);
-    expect(view?.options[0]?.isRecommended).toBe(true);
-    expect(view?.showCancelAction).toBe(true);
-    expect(view?.contextNote).toBe("这会影响当前 plan mode 的交付边界。");
+    expect(view?.questions).toHaveLength(1);
+    expect(view?.questions[0]?.questionText).toBe(
+      "这次计划要覆盖 CLI 还是 Web workbench？"
+    );
+    expect(view?.questions[0]?.options).toHaveLength(3);
+    expect(view?.questions[0]?.options[0]?.isRecommended).toBe(true);
+    expect(view?.questions[0]?.allowCancel).toBe(true);
   });
 
   test("returns null when there is no pending clarification", () => {
@@ -436,13 +447,41 @@ describe("user question card", () => {
     expect(getUserQuestionKey(null)).toBeNull();
   });
 
-  test("hides the cancel action when the payload disables it", () => {
+  test("keeps per-question cancel settings", () => {
     const view = buildUserQuestionCardView({
       ...pendingUserQuestionPayload,
-      allowCancel: false
+      questions: pendingUserQuestionPayload.questions.map((question) => ({
+        ...question,
+        allowCancel: false
+      }))
     });
 
-    expect(view?.showCancelAction).toBe(false);
+    expect(view?.questions[0]?.allowCancel).toBe(false);
+  });
+
+  test("formats multi-question replies for the runtime", () => {
+    expect(
+      buildUserQuestionReplyMessage({
+        payload: {
+          questions: [
+            {
+              questionText: "覆盖 CLI？",
+              options: [],
+              allowCancel: true
+            },
+            {
+              questionText: "覆盖 Web？",
+              options: [],
+              allowCancel: true
+            }
+          ],
+          createdAt: "2026-04-26T09:00:00.000Z"
+        },
+        replies: ["先做 CLI", "Web 只补 UI"]
+      })
+    ).toBe(
+      "问题 1：覆盖 CLI？\n回答：先做 CLI\n\n问题 2：覆盖 Web？\n回答：Web 只补 UI"
+    );
   });
 });
 
@@ -454,9 +493,7 @@ describe("confirmation card", () => {
     expect(view?.summaryText).toBe("请确认是否覆盖原有日程");
     expect(view?.proposedItems).toHaveLength(1);
     expect(view?.conflictItems).toHaveLength(1);
-    expect(view?.contextNote).toBe(
-      "确认后会先删除冲突项，再创建新的安排。"
-    );
+    expect(view?.contextNote).toBe("确认后会先删除冲突项，再创建新的安排。");
   });
 
   test("returns null when there is no pending confirmation", () => {

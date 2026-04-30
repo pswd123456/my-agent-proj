@@ -10,7 +10,8 @@ import type {
   SessionBackgroundNotification,
   SessionFullCompactionState,
   PendingUserQuestionPayload,
-  SessionTodoState
+  SessionTodoState,
+  UserContextHookRecord
 } from "@ai-app-template/domain";
 import {
   DEFAULT_SESSION_MODEL,
@@ -244,6 +245,10 @@ export const agentSettings = pgTable("agent_settings", {
     .$type<string[]>()
     .notNull()
     .default(sql.raw(defaultCapabilityPacksJsonLiteral)),
+  userContextHooks: jsonb("user_context_hooks")
+    .$type<UserContextHookRecord[]>()
+    .notNull()
+    .default(defaultJsonbArray),
   debugConversationView: boolean("debug_conversation_view")
     .notNull()
     .default(false),

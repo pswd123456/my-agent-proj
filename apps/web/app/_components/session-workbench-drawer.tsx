@@ -6,12 +6,14 @@ import { WorkbenchPanel } from "@ai-app-template/ui-patterns";
 import type {
   RoutineRecord,
   SessionSnapshot,
-  SettingsPermissionToolOption
+  SettingsPermissionToolOption,
+  UserContextHookRecord
 } from "@ai-app-template/sdk";
 
 import {
   capabilityPackOptions,
   MAX_TURNS_LIMIT,
+  userContextHookEventOptions,
   type InspectorTabId,
   type SettingsFormState,
   type SidebarPanelId
@@ -20,6 +22,7 @@ import {
   formatDayLabel,
   getPermissionToolLabel,
   getSoftBlockClass,
+  WorkbenchSelect,
   WorkbenchSwitch
 } from "./session-workbench-shared";
 import type { InspectorProjection } from "./session-message-manager";
@@ -58,6 +61,30 @@ function formatCapabilityPackDescription(packName: string): string {
     return "网页搜索与静态网页正文抓取。";
   }
   return packName;
+}
+
+function formatUserContextHookEventLabel(
+  event: UserContextHookRecord["event"]
+): string {
+  if (event === "session_started") {
+    return "Session Started";
+  }
+  if (event === "run_started") {
+    return "Run Started";
+  }
+  return "Run End";
+}
+
+function formatUserContextHookEventDescription(
+  event: UserContextHookRecord["event"]
+): string {
+  if (event === "session_started") {
+    return "只在会话第一次 run 时生效。";
+  }
+  if (event === "run_started") {
+    return "每次 run 开始时作为通用上下文注入。";
+  }
+  return "用于收束最终答复，只在准备结束本次 run 时应用。";
 }
 
 function getVisiblePermissionTools(
@@ -104,6 +131,19 @@ interface SessionWorkbenchDrawerProps {
     target: "allow" | "ask" | "deny"
   ) => void;
   onSettingsCapabilityPackToggle: (packName: string) => void;
+  onAddUserContextHook: () => void;
+  onUserContextHookChange: (
+    hookId: string,
+    patch: Partial<UserContextHookRecord>
+  ) => void;
+  onUserContextHookBlur: () => void;
+  onUserContextHookEnabledChange: (hookId: string, enabled: boolean) => void;
+  onUserContextHookEventChange: (
+    hookId: string,
+    event: UserContextHookRecord["event"]
+  ) => void;
+  onDeleteUserContextHook: (hookId: string) => void;
+  onMoveUserContextHook: (hookId: string, direction: "up" | "down") => void;
   headerActions?: ReactNode;
 }
 
@@ -137,6 +177,13 @@ export function SessionWorkbenchDrawer({
   onSettingsDebugConversationViewChange,
   onSettingsPermissionToolToggle,
   onSettingsCapabilityPackToggle,
+  onAddUserContextHook,
+  onUserContextHookChange,
+  onUserContextHookBlur,
+  onUserContextHookEnabledChange,
+  onUserContextHookEventChange,
+  onDeleteUserContextHook,
+  onMoveUserContextHook,
   headerActions
 }: SessionWorkbenchDrawerProps) {
   if (!activeSidebarPanel) {
@@ -154,6 +201,8 @@ export function SessionWorkbenchDrawer({
         eyebrow={
           activeSidebarPanel === "settings"
             ? "Settings"
+            : activeSidebarPanel === "hooks"
+              ? "Hooks"
             : activeSidebarPanel === "calendar"
               ? "Calendar"
               : "Inspector"
@@ -161,6 +210,8 @@ export function SessionWorkbenchDrawer({
         title={
           activeSidebarPanel === "settings"
             ? "用户默认设置"
+            : activeSidebarPanel === "hooks"
+              ? "Hooks"
             : activeSidebarPanel === "calendar"
               ? "日程视图"
               : "调试详情"
@@ -168,6 +219,8 @@ export function SessionWorkbenchDrawer({
         meta={
           activeSidebarPanel === "settings"
             ? settingsMeta
+            : activeSidebarPanel === "hooks"
+              ? `${settingsForm.userContextHooks.filter((hook) => hook.enabled).length}/${settingsForm.userContextHooks.length} enabled`
             : activeSidebarPanel === "calendar"
               ? (currentSession?.context.currentDateContext ?? "--")
               : `${inspectorProjection.inspectorEvents.length} events`
@@ -475,6 +528,155 @@ export function SessionWorkbenchDrawer({
                     : pendingPermissionToolName
                       ? `最近处理权限：${getPermissionToolLabel(pendingPermissionToolName)}`
                       : settingsStatusText}
+              </div>
+            </div>
+          ) : null}
+
+          {activeSidebarPanel === "hooks" ? (
+            <div className="grid gap-3">
+              <div
+                className={getSoftBlockClass(
+                  "text-sm leading-6 text-[var(--app-text-secondary)]"
+                )}
+              >
+                为不同 runtime 时机注入用户 context。修改后会自动保存，并在下一次
+                run 生效。
+              </div>
+
+              <div className="flex items-center justify-between gap-3">
+                <div className={sectionHeadingClassName}>Hook List</div>
+                <button
+                  type="button"
+                  onClick={onAddUserContextHook}
+                  disabled={savingSettings}
+                  className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-4 py-2 text-[0.72rem] uppercase tracking-[0.14em] text-[var(--app-text-secondary)] transition hover:border-[var(--app-border-accent)] hover:text-[var(--app-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Add Hook
+                </button>
+              </div>
+
+              {settingsForm.userContextHooks.length === 0 ? (
+                <div
+                  className={getSoftBlockClass(
+                    "text-sm leading-6 text-[var(--app-text-muted)]"
+                  )}
+                >
+                  还没有 hooks。先加一条 run_started 或 run_end 试试。
+                </div>
+              ) : (
+                <div className="grid gap-3">
+                  {settingsForm.userContextHooks.map((hook, index) => (
+                    <div
+                      key={hook.id}
+                      className="grid gap-3 rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-4"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <input
+                            value={hook.title}
+                            onChange={(event) =>
+                              onUserContextHookChange(hook.id, {
+                                title: event.target.value
+                              })
+                            }
+                            onBlur={onUserContextHookBlur}
+                            placeholder="Hook title"
+                            className="w-full min-w-0 border-none bg-transparent px-0 py-0 text-sm text-[var(--app-text-primary)] outline-none placeholder:text-[var(--app-text-muted)]"
+                          />
+                          <div className="mt-1 text-xs leading-5 text-[var(--app-text-muted)]">
+                            {formatUserContextHookEventDescription(hook.event)}
+                          </div>
+                        </div>
+                        <WorkbenchSwitch
+                          checked={hook.enabled}
+                          disabled={savingSettings}
+                          ariaLabel={`切换 ${hook.title || "hook"} 的启用状态`}
+                          onChange={(checked) =>
+                            onUserContextHookEnabledChange(hook.id, checked)
+                          }
+                        />
+                      </div>
+
+                      <div className="grid gap-2 sm:grid-cols-[minmax(0,220px)_1fr] sm:items-center">
+                        <div className={tertiaryHeadingClassName}>Event</div>
+                        <WorkbenchSelect
+                          value={hook.event}
+                          disabled={savingSettings}
+                          ariaLabel="选择 hook 触发时机"
+                          options={userContextHookEventOptions.map((event) => ({
+                            value: event,
+                            label: formatUserContextHookEventLabel(event)
+                          }))}
+                          onValueChange={(event) =>
+                            onUserContextHookEventChange(
+                              hook.id,
+                              event as UserContextHookRecord["event"]
+                            )
+                          }
+                        />
+                      </div>
+
+                      <label className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
+                        <span className={tertiaryHeadingClassName}>Content</span>
+                        <textarea
+                          value={hook.content}
+                          onChange={(event) =>
+                            onUserContextHookChange(hook.id, {
+                              content: event.target.value
+                            })
+                          }
+                          onBlur={onUserContextHookBlur}
+                          rows={5}
+                          placeholder="写入要在该时机注入的用户 context"
+                          className="w-full rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_78%,transparent)] px-4 py-3 text-sm text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
+                        />
+                      </label>
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="text-[0.72rem] uppercase tracking-[0.14em] text-[var(--app-text-muted)]">
+                          #{index + 1}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => onMoveUserContextHook(hook.id, "up")}
+                          disabled={savingSettings || index === 0}
+                          className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-3 py-1 text-xs text-[var(--app-text-muted)] transition hover:border-[var(--app-border-strong)] hover:text-[var(--app-text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          Up
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onMoveUserContextHook(hook.id, "down")
+                          }
+                          disabled={
+                            savingSettings ||
+                            index === settingsForm.userContextHooks.length - 1
+                          }
+                          className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-3 py-1 text-xs text-[var(--app-text-muted)] transition hover:border-[var(--app-border-strong)] hover:text-[var(--app-text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          Down
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onDeleteUserContextHook(hook.id)}
+                          disabled={savingSettings}
+                          className="rounded-[var(--app-radius-pill)] border border-[var(--app-status-danger)] px-3 py-1 text-xs text-[var(--app-status-danger)] transition hover:bg-[color:color-mix(in_srgb,var(--app-status-danger)_12%,transparent)] disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="text-xs text-[var(--app-text-muted)]">
+                {loadingSettings
+                  ? "正在同步 hooks..."
+                  : savingSettings
+                    ? "正在保存 hooks..."
+                    : "修改会自动保存，并在当前会话的下一次 run 生效"}
               </div>
             </div>
           ) : null}

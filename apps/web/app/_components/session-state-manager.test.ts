@@ -62,8 +62,12 @@ describe("session-state-manager", () => {
   test("marks session as running immediately when submission begins", () => {
     const snapshot = createSessionSnapshot();
     snapshot.context.pendingUserQuestionPayload = {
-      questionText: "先做 CLI 还是 Web？",
-      options: [],
+      questions: [
+        {
+          questionText: "先做 CLI 还是 Web？",
+          options: []
+        }
+      ],
       createdAt: "2026-04-24T00:00:00.000Z"
     };
     const state = beginSessionSubmission(createSessionUiState(snapshot));
@@ -205,17 +209,22 @@ describe("session-state-manager", () => {
       createdAt: "2026-04-26T00:00:01.000Z",
       turnCount: 1,
       question: {
-        questionText: "先做 CLI 还是 Web？",
-        options: [],
+        questions: [
+          {
+            questionText: "先做 CLI 还是 Web？",
+            options: []
+          }
+        ],
         createdAt: "2026-04-26T00:00:01.000Z"
       }
     });
 
     expect(next.submitting).toBe(false);
     expect(next.session?.context.status).toBe("waiting_for_user_question");
-    expect(next.session?.context.pendingUserQuestionPayload?.questionText).toBe(
-      "先做 CLI 还是 Web？"
-    );
+    expect(
+      next.session?.context.pendingUserQuestionPayload?.questions[0]
+        ?.questionText
+    ).toBe("先做 CLI 还是 Web？");
     expect(next.session?.sessionState.loopState).toBe("waiting for input");
   });
 

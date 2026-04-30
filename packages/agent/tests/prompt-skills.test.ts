@@ -13,6 +13,7 @@ import { createSearchTaskBriefTool } from "../src/tools/search-task-brief.js";
 import { createWriteFileTool } from "../src/tools/write-file.js";
 import { createReadFileTool } from "../src/tools/read-file.js";
 import { ToolRegistry } from "../src/tools/registry.js";
+import { resolveUserContextHookSections } from "../src/context-hooks.js";
 import {
   buildPromptRequestMessages,
   compactHistoryBlocks,
@@ -149,6 +150,8 @@ describe("PromptBuilder skill context", () => {
     expect(promptEnvelope.system).toContain(
       "Only rely on skills explicitly listed in the current runtime context"
     );
+    expect(promptEnvelope.system).toContain("@relative/path");
+    expect(promptEnvelope.system).toContain("#skill_name");
     expect(promptEnvelope.runtimeContextMessages).toHaveLength(2);
     expect(JSON.stringify(promptEnvelope.runtimeContextMessages[0])).toContain(
       "Runtime skills for this workspace:"
@@ -199,6 +202,64 @@ describe("PromptBuilder skill context", () => {
         }
       }).cacheKey
     );
+  });
+
+  test("injects user context hooks into runtime context without changing the cache key", () => {
+    const promptBuilder = createPromptBuilder();
+    const session = createSessionSnapshot();
+    const toolRegistry = new ToolRegistry();
+    const firstSections = resolveUserContextHookSections({
+      hooks: [
+        {
+          id: "hook-1",
+          event: "run_started",
+          title: "Profile",
+          content: "先看我的长期偏好。",
+          enabled: true
+        },
+        {
+          id: "hook-2",
+          event: "run_end",
+          title: "Close",
+          content: "结束时补一条 next step。",
+          enabled: true
+        }
+      ],
+      session
+    });
+    const secondSections = resolveUserContextHookSections({
+      hooks: [
+        {
+          id: "hook-1",
+          event: "run_started",
+          title: "Profile",
+          content: "这里换成另一条用户 context。",
+          enabled: true
+        }
+      ],
+      session
+    });
+
+    const first = promptBuilder.build(session, toolRegistry, {
+      contextHooks: firstSections
+    });
+    const second = promptBuilder.build(session, toolRegistry, {
+      contextHooks: secondSections
+    });
+
+    expect(JSON.stringify(first.runtimeContextMessages[0])).toContain(
+      "User context hooks for run start:"
+    );
+    expect(JSON.stringify(first.runtimeContextMessages[0])).toContain(
+      "先看我的长期偏好。"
+    );
+    expect(JSON.stringify(first.runtimeContextMessages[1])).toContain(
+      "User context hooks for run end:"
+    );
+    expect(JSON.stringify(first.runtimeContextMessages[1])).toContain(
+      "结束时补一条 next step。"
+    );
+    expect(first.cacheKey).toBe(second.cacheKey);
   });
 
   test("does not inject current date or time into prompt context", () => {

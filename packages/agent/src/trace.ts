@@ -21,6 +21,7 @@ import type {
   WorkspaceInstructionsDescriptor,
   WorkspaceInstructionsDiagnostic
 } from "./workspace-instructions/index.js";
+import type { ResolvedUserContextHookSection } from "./context-hooks.js";
 import type { JsonValue, SessionSnapshot, ToolResultDetails } from "./types.js";
 
 export interface TracePromptEvent {
@@ -76,6 +77,13 @@ export interface TraceWorkspaceInstructionsLoadedEvent {
   turnCount: number;
   instructions: WorkspaceInstructionsDescriptor | null;
   diagnostics: WorkspaceInstructionsDiagnostic[];
+}
+
+export interface TraceContextHooksLoadedEvent {
+  kind: "context_hooks_loaded";
+  turnCount: number;
+  userId: string;
+  hooks: ResolvedUserContextHookSection[];
 }
 
 export interface TraceMcpLoadedEvent {
@@ -238,6 +246,7 @@ export type TraceEvent =
   | TraceTurnStartEvent
   | TraceSkillsLoadedEvent
   | TraceWorkspaceInstructionsLoadedEvent
+  | TraceContextHooksLoadedEvent
   | TraceMcpLoadedEvent
   | TraceTextEvent
   | TraceThinkingEvent

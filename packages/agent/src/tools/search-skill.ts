@@ -3,18 +3,12 @@ import {
   discoverWorkspaceSkills,
   type SkillDiscoveryDiagnostic
 } from "../skills/index.js";
+import { searchWorkspaceSkills } from "../skills/search.js";
 import { createToolResult, successResult } from "./tool-result.js";
 import type { RuntimeTool } from "./runtime-tool.js";
 
 const DEFAULT_MAX_RESULTS = 8;
 const MAX_RESULTS_LIMIT = 50;
-
-type SkillMatchField = "name" | "description" | "relativePath";
-
-interface SkillSearchMatch extends SkillDescriptor {
-  score: number;
-  matchedFields: SkillMatchField[];
-}
 
 function toSkillJson(skill: SkillDescriptor): Record<string, string> {
   return {
@@ -52,75 +46,6 @@ function normalizeMaxResults(value: unknown): number | null {
   }
 
   return Math.min(Math.floor(value), MAX_RESULTS_LIMIT);
-}
-
-function scoreSkillMatch(
-  skill: SkillDescriptor,
-  query: string
-): SkillSearchMatch | null {
-  const normalizedQuery = query.toLowerCase();
-  const queryTerms = normalizedQuery.split(/\s+/).filter(Boolean);
-  const name = skill.name.toLowerCase();
-  const description = skill.description.toLowerCase();
-  const relativePath = skill.relativePath.toLowerCase();
-
-  let score = 0;
-  const matchedFields = new Set<SkillMatchField>();
-
-  if (name === normalizedQuery) {
-    score += 120;
-    matchedFields.add("name");
-  } else if (name.startsWith(normalizedQuery)) {
-    score += 90;
-    matchedFields.add("name");
-  } else if (name.includes(normalizedQuery)) {
-    score += 70;
-    matchedFields.add("name");
-  }
-
-  if (description.includes(normalizedQuery)) {
-    score += 45;
-    matchedFields.add("description");
-  }
-
-  if (relativePath.includes(normalizedQuery)) {
-    score += 30;
-    matchedFields.add("relativePath");
-  }
-
-  const nameTermMatches = queryTerms.filter((term) =>
-    name.includes(term)
-  ).length;
-  if (nameTermMatches > 0) {
-    score += nameTermMatches * 12;
-    matchedFields.add("name");
-  }
-
-  const descriptionTermMatches = queryTerms.filter((term) =>
-    description.includes(term)
-  ).length;
-  if (descriptionTermMatches > 0) {
-    score += descriptionTermMatches * 6;
-    matchedFields.add("description");
-  }
-
-  const pathTermMatches = queryTerms.filter((term) =>
-    relativePath.includes(term)
-  ).length;
-  if (pathTermMatches > 0) {
-    score += pathTermMatches * 4;
-    matchedFields.add("relativePath");
-  }
-
-  if (score <= 0) {
-    return null;
-  }
-
-  return {
-    ...skill,
-    score,
-    matchedFields: [...matchedFields]
-  };
 }
 
 function formatDisplayText(input: {
@@ -199,16 +124,12 @@ export function createSearchSkillTool(workingDirectory: string): RuntimeTool {
       const maxResults =
         normalizeMaxResults(input.maxResults) ?? DEFAULT_MAX_RESULTS;
       const discovery = await discoverWorkspaceSkills(workingDirectory);
-      const scoredMatches = discovery.skills
-        .map((skill) => scoreSkillMatch(skill, query))
-        .filter((skill): skill is SkillSearchMatch => Boolean(skill))
-        .sort(
-          (left, right) =>
-            right.score - left.score ||
-            left.name.localeCompare(right.name) ||
-            left.relativePath.localeCompare(right.relativePath)
-        );
-      const matches = scoredMatches.slice(0, maxResults);
+      const searchResult = searchWorkspaceSkills({
+        skills: discovery.skills,
+        query,
+        maxResults
+      });
+      const matches = searchResult.matches;
 
       return successResult(
         createToolResult({
@@ -220,9 +141,9 @@ export function createSearchSkillTool(workingDirectory: string): RuntimeTool {
               : "No workspace skills matched the query.",
           data: {
             query,
-            matchCount: scoredMatches.length,
+            matchCount: searchResult.matchCount,
             returnedCount: matches.length,
-            truncated: scoredMatches.length > matches.length,
+            truncated: searchResult.truncated,
             matches: matches.map((skill) => ({
               ...toSkillJson(skill),
               score: skill.score,
@@ -234,7 +155,7 @@ export function createSearchSkillTool(workingDirectory: string): RuntimeTool {
         formatDisplayText({
           query,
           returnedCount: matches.length,
-          totalMatches: scoredMatches.length,
+          totalMatches: searchResult.matchCount,
           diagnostics: discovery.diagnostics
         })
       );
