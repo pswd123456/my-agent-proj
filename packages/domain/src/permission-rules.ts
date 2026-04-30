@@ -76,6 +76,15 @@ export const SETTINGS_PERMISSION_TOOL_OPTIONS = PERMISSION_TOOL_OPTIONS.filter(
     toolName !== "web_fetch"
 ) as readonly string[];
 
+const SHELL_LINE_CONTINUATION_PATTERN = /\\\r?\n[ \t]*/g;
+
+interface AnalyzedShellPattern {
+  canonicalCommand: string;
+  segments: string[];
+  operators: string[];
+  mode: "simple" | "structured" | "exact-only";
+}
+
 function normalizeList(values: unknown): string[] {
   if (!Array.isArray(values)) {
     return [];
@@ -110,6 +119,318 @@ function normalizeToolList(
   }
 
   return normalized.filter((toolName) => allowedTools.has(toolName));
+}
+
+function collapseShellWhitespace(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function flushShellSegment(
+  buffer: string,
+  segments: string[],
+  normalizedSource: string
+): { ok: boolean; nextBuffer: string } {
+  const segment = collapseShellWhitespace(buffer);
+  if (!segment) {
+    return {
+      ok: false,
+      nextBuffer: normalizedSource
+    };
+  }
+
+  segments.push(segment);
+  return {
+    ok: true,
+    nextBuffer: ""
+  };
+}
+
+function analyzeShellPattern(command: string): AnalyzedShellPattern {
+  const normalizedSource = command
+    .replaceAll(SHELL_LINE_CONTINUATION_PATTERN, " ")
+    .trim();
+  if (!normalizedSource) {
+    return {
+      canonicalCommand: "",
+      segments: [],
+      operators: [],
+      mode: "simple"
+    };
+  }
+
+  const exactOnlyFallback = (): AnalyzedShellPattern => ({
+    canonicalCommand: collapseShellWhitespace(normalizedSource),
+    segments: [collapseShellWhitespace(normalizedSource)].filter(Boolean),
+    operators: [],
+    mode: "exact-only"
+  });
+
+  let buffer = "";
+  const segments: string[] = [];
+  const operators: string[] = [];
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+  let escaped = false;
+
+  for (let index = 0; index < normalizedSource.length; index += 1) {
+    const current = normalizedSource[index] ?? "";
+    const next = normalizedSource[index + 1] ?? "";
+
+    if (escaped) {
+      buffer += current;
+      escaped = false;
+      continue;
+    }
+
+    if (current === "\\") {
+      buffer += current;
+      escaped = true;
+      continue;
+    }
+
+    if (inSingleQuote) {
+      buffer += current;
+      if (current === "'") {
+        inSingleQuote = false;
+      }
+      continue;
+    }
+
+    if (inDoubleQuote) {
+      buffer += current;
+      if (current === '"') {
+        inDoubleQuote = false;
+      }
+      continue;
+    }
+
+    if (current === "'") {
+      buffer += current;
+      inSingleQuote = true;
+      continue;
+    }
+
+    if (current === '"') {
+      buffer += current;
+      inDoubleQuote = true;
+      continue;
+    }
+
+    if (
+      current === "`" ||
+      current === ">" ||
+      current === "<" ||
+      (current === "$" && next === "(")
+    ) {
+      return exactOnlyFallback();
+    }
+
+    let operator: string | null = null;
+    let skipNext = false;
+    if (current === "&" && next === "&") {
+      operator = "&&";
+      skipNext = true;
+    } else if (current === "|" && next === "|") {
+      operator = "||";
+      skipNext = true;
+    } else if (current === "|") {
+      operator = "|";
+    } else if (current === ";") {
+      operator = ";";
+    } else if (current === "&") {
+      operator = "&";
+    } else if (current === "\n" || current === "\r") {
+      operator = ";";
+    }
+
+    if (operator) {
+      const flushed = flushShellSegment(buffer, segments, normalizedSource);
+      if (!flushed.ok) {
+        return exactOnlyFallback();
+      }
+      buffer = flushed.nextBuffer;
+      operators.push(operator);
+      if (skipNext) {
+        index += 1;
+      }
+      continue;
+    }
+
+    buffer += current;
+  }
+
+  const finalSegment = collapseShellWhitespace(buffer);
+  if (!finalSegment) {
+    return exactOnlyFallback();
+  }
+  segments.push(finalSegment);
+
+  if (operators.length !== Math.max(0, segments.length - 1)) {
+    return exactOnlyFallback();
+  }
+
+  if (operators.length === 0) {
+    return {
+      canonicalCommand: segments[0] ?? "",
+      segments,
+      operators,
+      mode: "simple"
+    };
+  }
+
+  const canonicalCommand = segments.reduce((result, segment, index) => {
+    if (index === 0) {
+      return segment;
+    }
+    const operator = operators[index - 1] ?? "";
+    return `${result} ${operator} ${segment}`.trim();
+  }, "");
+
+  return {
+    canonicalCommand,
+    segments,
+    operators,
+    mode: "structured"
+  };
+}
+
+function buildSegmentApprovalPattern(
+  segment: string,
+  tokenCount: number
+): string | null {
+  const tokens = segment
+    .trim()
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+  if (tokens.length === 0) {
+    return null;
+  }
+
+  if (tokens.length === 1) {
+    return tokens[0] ?? null;
+  }
+
+  const boundedTokenCount = Math.max(1, tokenCount);
+  const headLength = Math.min(tokens.length, boundedTokenCount);
+  const head = tokens.slice(0, headLength);
+  if (head.length === 0) {
+    return null;
+  }
+
+  if (tokens.length <= headLength) {
+    return head.join(" ");
+  }
+
+  return `${head.join(" ")} *`;
+}
+
+function joinSegmentPatterns(
+  segments: string[],
+  operators: string[],
+  tokenCount: number
+): string | null {
+  if (segments.length === 0) {
+    return null;
+  }
+
+  const segmentPatterns = segments.map((segment) =>
+    buildSegmentApprovalPattern(segment, tokenCount)
+  );
+  if (segmentPatterns.some((pattern) => !pattern)) {
+    return null;
+  }
+
+  return segmentPatterns.reduce((result, pattern, index) => {
+    if (index === 0) {
+      return pattern ?? "";
+    }
+    const operator = operators[index - 1] ?? "";
+    return `${result} ${operator} ${pattern ?? ""}`.trim();
+  }, "");
+}
+
+function globToRegExp(pattern: string): RegExp {
+  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+  const wildcard = escaped.replaceAll("*", ".*");
+  return new RegExp(`^${wildcard}$`);
+}
+
+export function matchesShellCommandPattern(
+  pattern: string,
+  command: string
+): boolean {
+  const patternAnalysis = analyzeShellPattern(pattern);
+  const commandAnalysis = analyzeShellPattern(command);
+  if (!patternAnalysis.canonicalCommand || !commandAnalysis.canonicalCommand) {
+    return false;
+  }
+
+  if (
+    patternAnalysis.mode === "exact-only" ||
+    commandAnalysis.mode === "exact-only"
+  ) {
+    return patternAnalysis.canonicalCommand === commandAnalysis.canonicalCommand;
+  }
+
+  if (patternAnalysis.mode !== commandAnalysis.mode) {
+    return false;
+  }
+
+  if (patternAnalysis.mode === "simple") {
+    return globToRegExp(patternAnalysis.canonicalCommand).test(
+      commandAnalysis.canonicalCommand
+    );
+  }
+
+  if (
+    patternAnalysis.operators.length !== commandAnalysis.operators.length ||
+    patternAnalysis.segments.length !== commandAnalysis.segments.length
+  ) {
+    return false;
+  }
+
+  for (let index = 0; index < patternAnalysis.operators.length; index += 1) {
+    if (patternAnalysis.operators[index] !== commandAnalysis.operators[index]) {
+      return false;
+    }
+  }
+
+  return patternAnalysis.segments.every((segmentPattern, index) =>
+    globToRegExp(segmentPattern).test(commandAnalysis.segments[index] ?? "")
+  );
+}
+
+export function buildShellApprovalPatternCandidates(command: string): string[] {
+  const analysis = analyzeShellPattern(command);
+  if (!analysis.canonicalCommand) {
+    return [];
+  }
+
+  const patterns: string[] = [];
+  const pushPattern = (pattern: string | null) => {
+    const normalizedPattern = pattern?.trim();
+    if (!normalizedPattern || patterns.includes(normalizedPattern)) {
+      return;
+    }
+    patterns.push(normalizedPattern);
+  };
+
+  if (analysis.mode === "simple") {
+    pushPattern(buildSegmentApprovalPattern(analysis.segments[0] ?? "", 1));
+    pushPattern(buildSegmentApprovalPattern(analysis.segments[0] ?? "", 2));
+    pushPattern(buildSegmentApprovalPattern(analysis.segments[0] ?? "", 3));
+    pushPattern(analysis.canonicalCommand);
+    return patterns;
+  }
+
+  if (analysis.mode === "structured") {
+    pushPattern(joinSegmentPatterns(analysis.segments, analysis.operators, 2));
+    pushPattern(joinSegmentPatterns(analysis.segments, analysis.operators, 3));
+  }
+
+  pushPattern(analysis.canonicalCommand);
+  return patterns;
 }
 
 export function createPermissionRuleLists(): PermissionRuleLists {

@@ -51,6 +51,7 @@ export interface SessionSettingsRecord {
   enabledCapabilityPacks: CapabilityPackName[];
   userContextHooks: UserContextHookRecord[];
   debugConversationView: boolean;
+  userCustomPrompt: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -70,6 +71,7 @@ export interface SessionSettingsInput {
   enabledCapabilityPacks?: string[];
   userContextHooks?: UserContextHookRecord[];
   debugConversationView?: boolean;
+  userCustomPrompt?: string;
 }
 
 export function resolveSessionSettingsDefaults(
@@ -100,9 +102,18 @@ export function resolveSessionSettingsDefaults(
     enabledCapabilityPacks: [...DEFAULT_CAPABILITY_PACKS],
     userContextHooks: [],
     debugConversationView: false,
+    userCustomPrompt: "",
     createdAt: timestamp,
     updatedAt: timestamp
   };
+}
+
+export function sanitizeUserCustomPrompt(value: string | undefined): string {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  return value.trim();
 }
 
 export function normalizeCapabilityPacks(
