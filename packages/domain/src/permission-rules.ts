@@ -370,7 +370,9 @@ export function matchesShellCommandPattern(
     patternAnalysis.mode === "exact-only" ||
     commandAnalysis.mode === "exact-only"
   ) {
-    return patternAnalysis.canonicalCommand === commandAnalysis.canonicalCommand;
+    return (
+      patternAnalysis.canonicalCommand === commandAnalysis.canonicalCommand
+    );
   }
 
   if (patternAnalysis.mode !== commandAnalysis.mode) {
@@ -398,6 +400,54 @@ export function matchesShellCommandPattern(
 
   return patternAnalysis.segments.every((segmentPattern, index) =>
     globToRegExp(segmentPattern).test(commandAnalysis.segments[index] ?? "")
+  );
+}
+
+export function matchesShellCommandDenyPatterns(
+  patterns: string[],
+  command: string
+): boolean {
+  const commandAnalysis = analyzeShellPattern(command);
+  if (!commandAnalysis.canonicalCommand) {
+    return false;
+  }
+
+  return patterns.some((pattern) => {
+    if (matchesShellCommandPattern(pattern, command)) {
+      return true;
+    }
+
+    if (commandAnalysis.mode !== "structured") {
+      return false;
+    }
+
+    return commandAnalysis.segments.some((segment) =>
+      matchesShellCommandPattern(pattern, segment)
+    );
+  });
+}
+
+export function matchesShellCommandAllowPatterns(
+  patterns: string[],
+  command: string
+): boolean {
+  const commandAnalysis = analyzeShellPattern(command);
+  if (!commandAnalysis.canonicalCommand) {
+    return false;
+  }
+
+  if (
+    patterns.some((pattern) => matchesShellCommandPattern(pattern, command))
+  ) {
+    return true;
+  }
+
+  if (commandAnalysis.mode !== "structured") {
+    return false;
+  }
+
+  return commandAnalysis.segments.every((segment) =>
+    patterns.some((pattern) => matchesShellCommandPattern(pattern, segment))
   );
 }
 
