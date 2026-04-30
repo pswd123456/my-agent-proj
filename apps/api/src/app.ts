@@ -33,6 +33,7 @@ import {
   DEFAULT_SESSION_SETTINGS_USER_ID,
   SESSION_MAX_TURNS_LIMIT,
   THINKING_EFFORT_OPTIONS,
+  USER_CONTEXT_HOOK_BEHAVIOR_OPTIONS,
   USER_CONTEXT_HOOK_EVENT_OPTIONS,
   normalizeThinkingEffort,
   normalizeCapabilityPacks,
@@ -41,7 +42,10 @@ import {
   sanitizeSessionMaxTurns,
   type SettingsPermissionToolOption
 } from "@ai-app-template/domain";
-import type { SessionSettingsRecord } from "@ai-app-template/domain";
+import type {
+  SessionSettingsRecord,
+  UserContextHookRecord
+} from "@ai-app-template/domain";
 import type {
   BackgroundTaskRepository,
   RoutineRepository,
@@ -120,6 +124,7 @@ const updateUserSettingsBodySchema = z
         z.object({
           id: z.string().min(1),
           event: z.enum(USER_CONTEXT_HOOK_EVENT_OPTIONS),
+          behavior: z.enum(USER_CONTEXT_HOOK_BEHAVIOR_OPTIONS).optional(),
           title: z.string(),
           content: z.string().min(1),
           enabled: z.boolean()
@@ -148,6 +153,23 @@ const updateUserSettingsBodySchema = z
       message: "At least one settings field is required."
     }
   );
+
+function toUserContextHookRecords(
+  hooks: z.infer<typeof updateUserSettingsBodySchema>["userContextHooks"]
+): UserContextHookRecord[] | undefined {
+  if (!Array.isArray(hooks)) {
+    return undefined;
+  }
+
+  return hooks.map((hook) => ({
+    id: hook.id,
+    event: hook.event,
+    ...(hook.behavior ? { behavior: hook.behavior } : {}),
+    title: hook.title,
+    content: hook.content,
+    enabled: hook.enabled
+  }));
+}
 
 const chooseDirectoryBodySchema = z.object({
   startDirectory: z.string().optional()
@@ -762,6 +784,7 @@ export function createApiApp(dependencies: ApiAppDependencies) {
     const userId = resolveUserId(dependencies, c.req.param("userId"));
     const body = updateUserSettingsBodySchema.parse(await c.req.json());
     const requestedModel = resolveRequestedModel(dependencies, body.model);
+    const userContextHooks = toUserContextHookRecords(body.userContextHooks);
     const settings = await dependencies.settingsRepository.update(userId, {
       ...(typeof body.workingDirectory === "string"
         ? {
@@ -799,9 +822,7 @@ export function createApiApp(dependencies: ApiAppDependencies) {
       ...(Array.isArray(body.enabledCapabilityPacks)
         ? { enabledCapabilityPacks: body.enabledCapabilityPacks }
         : {}),
-      ...(Array.isArray(body.userContextHooks)
-        ? { userContextHooks: body.userContextHooks }
-        : {}),
+      ...(userContextHooks ? { userContextHooks } : {}),
       ...(typeof body.debugConversationView === "boolean"
         ? { debugConversationView: body.debugConversationView }
         : {})
