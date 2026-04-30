@@ -4,6 +4,8 @@ import type {
 } from "@ai-app-template/domain";
 import {
   buildShellApprovalPatternCandidates,
+  matchesShellCommandAllowPatterns,
+  matchesShellCommandDenyPatterns,
   matchesShellCommandPattern
 } from "@ai-app-template/domain";
 
@@ -18,14 +20,10 @@ export function matchesPermissionRuleLists(
 ): { allow: boolean; ask: boolean; deny: boolean } {
   const shellCommand = typeof command === "string" ? command : "";
   const shellAllows = shellCommand
-    ? input.shellAllowPatterns.some((pattern) =>
-        matchesShellPattern(pattern, shellCommand)
-      )
+    ? matchesShellCommandAllowPatterns(input.shellAllowPatterns, shellCommand)
     : false;
   const shellDenies = shellCommand
-    ? input.shellDenyPatterns.some((pattern) =>
-        matchesShellPattern(pattern, shellCommand)
-      )
+    ? matchesShellCommandDenyPatterns(input.shellDenyPatterns, shellCommand)
     : false;
 
   const toolAllows = input.toolAllowList.includes(toolName);

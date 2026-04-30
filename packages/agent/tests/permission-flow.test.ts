@@ -201,6 +201,60 @@ describe("Stage 4 permission flow", () => {
     expect(result.deny).toBe(false);
   });
 
+  test("allows structured shell commands when every segment matches an allow pattern", () => {
+    const result = matchesPermissionRuleLists(
+      {
+        shellAllowPatterns: ["cd *", "git add *", "git commit *"],
+        shellDenyPatterns: [],
+        toolAllowList: [],
+        toolAskList: [],
+        toolDenyList: []
+      },
+      "run_shell_command",
+      'cd /Users/boneda/gitrepo/my-agent-proj && git add packages/agent/tests/permission-flow.test.ts && git commit -m "fix permissions"'
+    );
+
+    expect(result.allow).toBe(true);
+    expect(result.ask).toBe(false);
+    expect(result.deny).toBe(false);
+  });
+
+  test("asks for structured shell commands when any segment lacks an allow pattern", () => {
+    const result = matchesPermissionRuleLists(
+      {
+        shellAllowPatterns: ["cd *", "git add *", "git commit *"],
+        shellDenyPatterns: [],
+        toolAllowList: [],
+        toolAskList: [],
+        toolDenyList: []
+      },
+      "run_shell_command",
+      'cd /Users/boneda/gitrepo/my-agent-proj && git add packages/agent/tests/permission-flow.test.ts && git commit -m "fix permissions" && git push'
+    );
+
+    expect(result.allow).toBe(false);
+    expect(result.ask).toBe(false);
+    expect(result.deny).toBe(false);
+  });
+
+  test("denies structured shell commands when any segment matches a deny pattern", () => {
+    const result = matchesPermissionRuleLists(
+      {
+        shellAllowPatterns: ["cd *", "git add *", "git commit *"],
+        shellDenyPatterns: ["git commit *"],
+        toolAllowList: [],
+        toolAskList: [],
+        toolDenyList: []
+      },
+      "run_shell_command",
+      'cd /Users/boneda/gitrepo/my-agent-proj && git add packages/agent/tests/permission-flow.test.ts && git commit -m "fix permissions"'
+    );
+
+    expect(result.allow).toBe(true);
+    expect(result.ask).toBe(false);
+    expect(result.deny).toBe(true);
+  });
+
   test("prefers allow over ask when a tool is present in both lists", () => {
     const result = matchesPermissionRuleLists(
       {
