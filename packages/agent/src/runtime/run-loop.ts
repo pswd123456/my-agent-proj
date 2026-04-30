@@ -167,6 +167,7 @@ export async function runSessionLoop(input: {
   requestOptions?: Partial<Pick<AnthropicMessageRequest, "output_config">>;
   eventSink: RunEventSink | undefined;
   logger?: Logger;
+  emitCompletedRunEvent?: boolean;
 }): Promise<RunSessionResult> {
   let session = input.session;
   const pendingConfirmationAtStart = session.context.pendingConfirmationPayload
@@ -339,6 +340,7 @@ export async function runSessionLoop(input: {
       toolResultCount,
       toolOutputs,
       eventSink: input.eventSink,
+      emitCompletedRunEvent: input.emitCompletedRunEvent,
       appendAssistantMessage: false
     });
 
@@ -398,6 +400,7 @@ export async function runSessionLoop(input: {
       toolResultCount,
       toolOutputs,
       eventSink: input.eventSink,
+      emitCompletedRunEvent: input.emitCompletedRunEvent,
       appendAssistantMessage: false
     });
 
@@ -539,6 +542,7 @@ export async function runSessionLoop(input: {
             toolResultCount,
             toolOutputs,
             eventSink: input.eventSink,
+            emitCompletedRunEvent: input.emitCompletedRunEvent,
             appendAssistantMessage: false,
             clearPendingToolCallIds: false
           });
@@ -1097,6 +1101,7 @@ export async function runSessionLoop(input: {
               toolResultCount,
               toolOutputs,
               eventSink: input.eventSink,
+              emitCompletedRunEvent: input.emitCompletedRunEvent,
               appendAssistantMessage: false,
               clearPendingToolCallIds: false
             });
@@ -1152,7 +1157,8 @@ export async function runSessionLoop(input: {
             toolCallCount,
             toolResultCount,
             toolOutputs,
-            eventSink: input.eventSink
+            eventSink: input.eventSink,
+            emitCompletedRunEvent: input.emitCompletedRunEvent
           });
           return finalizeResultAfterNotificationConsumption(
             result,
@@ -1188,7 +1194,8 @@ export async function runSessionLoop(input: {
             toolCallCount,
             toolResultCount,
             toolOutputs,
-            eventSink: input.eventSink
+            eventSink: input.eventSink,
+            emitCompletedRunEvent: input.emitCompletedRunEvent
           });
           return finalizeResultAfterNotificationConsumption(
             result,
@@ -1244,6 +1251,7 @@ export async function runSessionLoop(input: {
             toolResultCount,
             toolOutputs,
             eventSink: input.eventSink,
+            emitCompletedRunEvent: input.emitCompletedRunEvent,
             appendAssistantMessage: false
           });
           return finalizeResultAfterNotificationConsumption(
@@ -1280,6 +1288,7 @@ export async function runSessionLoop(input: {
           toolResultCount,
           toolOutputs,
           eventSink: input.eventSink,
+          emitCompletedRunEvent: input.emitCompletedRunEvent,
           appendAssistantMessage: false
         });
         return finalizeResultAfterNotificationConsumption(
@@ -1398,7 +1407,7 @@ export async function runSessionLoop(input: {
       toolResultCount,
       toolOutputs
     };
-    if (input.eventSink) {
+    if (input.eventSink && input.emitCompletedRunEvent !== false) {
       await emitRunEvent(
         input.eventSink,
         createRunCompleteEvent({

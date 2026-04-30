@@ -220,6 +220,7 @@ describe("PromptBuilder skill context", () => {
         {
           id: "hook-2",
           event: "run_end",
+          behavior: "message",
           title: "Close",
           content: "结束时补一条 next step。",
           enabled: true
@@ -253,10 +254,10 @@ describe("PromptBuilder skill context", () => {
     expect(JSON.stringify(first.runtimeContextMessages[0])).toContain(
       "先看我的长期偏好。"
     );
-    expect(JSON.stringify(first.runtimeContextMessages[1])).toContain(
+    expect(JSON.stringify(first.runtimeContextMessages)).not.toContain(
       "User context hooks for run end:"
     );
-    expect(JSON.stringify(first.runtimeContextMessages[1])).toContain(
+    expect(JSON.stringify(first.runtimeContextMessages)).not.toContain(
       "结束时补一条 next step。"
     );
     expect(first.cacheKey).toBe(second.cacheKey);

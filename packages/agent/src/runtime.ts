@@ -34,6 +34,7 @@ import type { DelegateAgentService } from "./delegation/index.js";
 import type { BackgroundTaskManager } from "./background-tasks/index.js";
 import { runSessionLoop } from "./runtime/run-loop.js";
 import { DEFAULT_EXECUTION_LEASE_TIMEOUT_MS } from "./session/contracts.js";
+import { resolveUserContextMessageHooks } from "./context-hooks.js";
 
 export interface AgentRuntimeOptions {
   systemLogManager?: SystemLogManager;
@@ -120,6 +121,46 @@ export class AgentRuntime {
         effort: normalizeThinkingEffort(session.context.thinkingEffort)
       }
     };
+  }
+
+  private shouldRunUserMessageHooks(session: SessionSnapshot): boolean {
+    return (
+      !session.context.pendingPermissionRequest &&
+      !session.context.pendingConfirmationPayload &&
+      !session.context.pendingUserQuestionPayload
+    );
+  }
+
+  private resolvePreUserHookMessages(session: SessionSnapshot): string[] {
+    if (!this.shouldRunUserMessageHooks(session)) {
+      return [];
+    }
+
+    const hooks = this.options.userContextHooks ?? [];
+    return [
+      ...resolveUserContextMessageHooks({
+        hooks,
+        session,
+        event: "session_started"
+      }),
+      ...resolveUserContextMessageHooks({
+        hooks,
+        session,
+        event: "run_started"
+      })
+    ].map((hook) => hook.content);
+  }
+
+  private resolvePostUserHookMessages(session: SessionSnapshot): string[] {
+    if (!this.shouldRunUserMessageHooks(session)) {
+      return [];
+    }
+
+    return resolveUserContextMessageHooks({
+      hooks: this.options.userContextHooks ?? [],
+      session,
+      event: "run_end"
+    }).map((hook) => hook.content);
   }
 
   async createSession(
@@ -266,7 +307,7 @@ export class AgentRuntime {
       }, 150);
 
       const requestOptions = this.resolveRequestOptions(session);
-      const runLoopInput = {
+      const runLoopBaseInput = {
         client: this.resolveClient(session.model),
         prepareMessages: (messages: AnthropicMessage[]) =>
           this.sanitizeMessagesForModel(session.model, messages),
@@ -276,8 +317,6 @@ export class AgentRuntime {
         traceManager: this.options.traceManager,
         promptBuilder: this.promptBuilder,
         userContextHooks: this.options.userContextHooks ?? [],
-        session,
-        message: input.message,
         abortSignal: interruptController.signal,
         isInterruptRequested: () =>
           this.options.sessionManager.isInterruptRequested(
@@ -301,7 +340,74 @@ export class AgentRuntime {
         ...(requestOptions ? { requestOptions } : {}),
         ...(runtimeLogger ? { logger: runtimeLogger } : {})
       };
-      const result = await runSessionLoop(runLoopInput);
+      let currentSession = session;
+      let aggregateResult: RunSessionResult | null = null;
+      const appendResult = (result: RunSessionResult): RunSessionResult => {
+        if (!aggregateResult) {
+          aggregateResult = result;
+          return result;
+        }
+
+        aggregateResult = {
+          ...result,
+          toolCallCount: aggregateResult.toolCallCount + result.toolCallCount,
+          toolResultCount:
+            aggregateResult.toolResultCount + result.toolResultCount,
+          toolOutputs: [...aggregateResult.toolOutputs, ...result.toolOutputs]
+        };
+        return aggregateResult;
+      };
+      const runQueuedMessage = async (
+        message: string | undefined,
+        options: { emitCompletedRunEvent?: boolean } = {}
+      ): Promise<RunSessionResult> => {
+        const result = await runSessionLoop({
+          ...runLoopBaseInput,
+          session: currentSession,
+          message,
+          ...(typeof options.emitCompletedRunEvent === "boolean"
+            ? { emitCompletedRunEvent: options.emitCompletedRunEvent }
+            : {})
+        });
+        currentSession = result.session;
+        return appendResult(result);
+      };
+
+      let result: RunSessionResult;
+      if (typeof input.message === "string") {
+        const preHookMessages = this.resolvePreUserHookMessages(session);
+        for (const hookMessage of preHookMessages) {
+          result = await runQueuedMessage(hookMessage, {
+            emitCompletedRunEvent: false
+          });
+          if (result.status !== "completed") {
+            await runtimeLogger?.info("run_completed", {
+              stopReason: result.stopReason,
+              toolCallCount: result.toolCallCount,
+              toolResultCount: result.toolResultCount
+            });
+            return result;
+          }
+        }
+
+        const postHookMessages = this.resolvePostUserHookMessages(session);
+        result = await runQueuedMessage(input.message, {
+          emitCompletedRunEvent: postHookMessages.length === 0
+        });
+        if (result.status === "completed") {
+          for (const [index, hookMessage] of postHookMessages.entries()) {
+            result = await runQueuedMessage(hookMessage, {
+              emitCompletedRunEvent: index === postHookMessages.length - 1
+            });
+            if (result.status !== "completed") {
+              break;
+            }
+          }
+        }
+      } else {
+        result = await runQueuedMessage(input.message);
+      }
+
       await runtimeLogger?.info("run_completed", {
         stopReason: result.stopReason,
         toolCallCount: result.toolCallCount,
