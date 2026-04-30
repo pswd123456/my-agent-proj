@@ -150,6 +150,7 @@ describe("model selection state", () => {
       enabledCapabilityPacks: [],
       userContextHooks: [],
       debugConversationView: false,
+      userCustomPrompt: "",
       createdAt: "2026-04-24T00:00:00.000Z",
       updatedAt: "2026-04-24T00:00:00.000Z"
     });
@@ -180,6 +181,7 @@ describe("model selection state", () => {
         enabledCapabilityPacks: ["workspace"],
         userContextHooks: [],
         debugConversationView: true,
+        userCustomPrompt: "先确认上下文。",
         createdAt: "2026-04-24T00:00:00.000Z",
         updatedAt: "2026-04-24T00:00:00.000Z"
       })
@@ -275,6 +277,7 @@ describe("settings user context hooks", () => {
         }
       ],
       debugConversationView: false,
+      userCustomPrompt: "  保留这条提示。  ",
       createdAt: "2026-04-24T00:00:00.000Z",
       updatedAt: "2026-04-24T00:00:00.000Z"
     });
@@ -288,6 +291,9 @@ describe("settings user context hooks", () => {
       { id: "hook-1", enabled: true },
       { id: "hook-2", enabled: false }
     ]);
+    expect(normalizeSettingsFormState(settingsForm).userCustomPrompt).toBe(
+      "保留这条提示。"
+    );
   });
 
   test("finds the next hook type without reusing an enabled type", () => {

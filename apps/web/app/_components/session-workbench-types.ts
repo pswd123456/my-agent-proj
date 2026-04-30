@@ -53,6 +53,7 @@ export interface SettingsFormState {
   enabledCapabilityPacks: string[];
   userContextHooks: UserContextHookRecord[];
   debugConversationView: boolean;
+  userCustomPrompt: string;
 }
 
 export const capabilityPackOptions = CAPABILITY_PACK_OPTIONS;

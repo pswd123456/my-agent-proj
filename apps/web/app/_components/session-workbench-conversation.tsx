@@ -12,13 +12,14 @@ import {
   type KeyboardEvent as ReactKeyboardEvent
 } from "react";
 
-import type {
-  ModelCatalogEntry,
-  RunStreamEvent,
-  SessionSnapshot,
-  WorkspaceFileSearchResult,
-  WorkspaceSkillSearchResult,
-  WorkspaceFileChangeSummary
+import {
+  buildShellApprovalPatternCandidates,
+  type ModelCatalogEntry,
+  type RunStreamEvent,
+  type SessionSnapshot,
+  type WorkspaceFileSearchResult,
+  type WorkspaceSkillSearchResult,
+  type WorkspaceFileChangeSummary
 } from "@ai-app-template/sdk";
 
 import {
@@ -566,42 +567,13 @@ function escapeTimelineItemKey(key: string): string {
   return key.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 }
 
-function splitShellTokens(command: string): string[] {
-  return command.trim().split(/\s+/).filter(Boolean);
-}
-
 function buildShellApprovalReplies(
   command: string
 ): Array<{ label: string; reply: string }> {
-  const normalizedCommand = command.trim();
-  const tokens = splitShellTokens(normalizedCommand);
-  if (tokens.length === 0) {
-    return [];
-  }
-
-  const patterns = [
-    tokens.length === 1 ? tokens[0] : `${tokens[0]} *`,
-    tokens.length >= 2 ? `${tokens.slice(0, 2).join(" ")} *` : null,
-    tokens.length >= 3 ? `${tokens.slice(0, 3).join(" ")} *` : null,
-    normalizedCommand
-  ];
-
-  const replies: Array<{ label: string; reply: string }> = [];
-  for (const pattern of patterns) {
-    const normalizedPattern = pattern?.trim();
-    if (!normalizedPattern) {
-      continue;
-    }
-
-    const reply = `本会话允许 shell:${normalizedPattern}`;
-    if (replies.some((item) => item.reply === reply)) {
-      continue;
-    }
-
-    replies.push({ label: reply, reply });
-  }
-
-  return replies;
+  return buildShellApprovalPatternCandidates(command).map((pattern) => {
+    const reply = `本会话允许 shell:${pattern}`;
+    return { label: reply, reply };
+  });
 }
 
 function buildPermissionCardText(

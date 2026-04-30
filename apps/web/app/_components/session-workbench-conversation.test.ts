@@ -129,6 +129,27 @@ describe("permission card feedback", () => {
     ]);
   });
 
+  test("keeps shell approval replies operator-aware for chained commands", () => {
+    expect(
+      buildPermissionQuickReplies({
+        ...pendingPermissionRequest,
+        toolName: "run_shell_command",
+        toolInput: {
+          command: "cd packages/agent && rm -rf dist"
+        }
+      })
+    ).toEqual([
+      {
+        label: "本会话允许 shell:cd packages/agent && rm -rf *",
+        reply: "本会话允许 shell:cd packages/agent && rm -rf *"
+      },
+      {
+        label: "本会话允许 shell:cd packages/agent && rm -rf dist",
+        reply: "本会话允许 shell:cd packages/agent && rm -rf dist"
+      }
+    ]);
+  });
+
   test("keeps the request card visible before the user responds", () => {
     const view = buildPermissionCardView({
       pendingPermissionRequest,

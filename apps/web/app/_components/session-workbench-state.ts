@@ -886,7 +886,8 @@ export function toSettingsFormState(
     toolDenyList: [...(settings?.toolDenyList ?? [])],
     enabledCapabilityPacks: [...(settings?.enabledCapabilityPacks ?? [])],
     userContextHooks: [...(settings?.userContextHooks ?? [])],
-    debugConversationView: settings?.debugConversationView ?? false
+    debugConversationView: settings?.debugConversationView ?? false,
+    userCustomPrompt: settings?.userCustomPrompt ?? ""
   };
 }
 
@@ -1021,7 +1022,8 @@ export function normalizeSettingsFormState(
         })
         .filter((hook) => hook.id.length > 0 && hook.content.length > 0)
     ),
-    debugConversationView: form.debugConversationView
+    debugConversationView: form.debugConversationView,
+    userCustomPrompt: form.userCustomPrompt.trim()
   };
 }
 

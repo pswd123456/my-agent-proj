@@ -74,7 +74,8 @@ function createSettingsFormState(): SettingsFormState {
     toolDenyList: [],
     enabledCapabilityPacks: ["workspace"],
     userContextHooks: [],
-    debugConversationView: false
+    debugConversationView: false,
+    userCustomPrompt: ""
   };
 }
 
@@ -195,6 +196,58 @@ describe("session-workbench drawer", () => {
     expect(markup).toContain("git *");
     expect(markup).toContain("bun test *");
     expect(markup).toContain("移除");
+  });
+
+  test("renders the custom prompt field in the settings panel", () => {
+    const settingsForm = createSettingsFormState();
+    settingsForm.userCustomPrompt = "先确认上下文，再动手。";
+
+    const markup = renderToStaticMarkup(
+      createElement(SessionWorkbenchDrawer, {
+        activeSidebarPanel: "settings",
+        currentSession: createSessionSnapshot(),
+        loadingSession: false,
+        submitting: false,
+        resettingRoutines: false,
+        settingsMeta: "user cli-user",
+        settingsStatusText: "",
+        settingsForm,
+        permissionTools,
+        loadingSettings: false,
+        savingSettings: false,
+        clearingSessionHistory: false,
+        clearHistoryErrorText: null,
+        choosingWorkingDirectory: false,
+        pendingPermissionToolName: null,
+        weekDates: [],
+        groupedRoutines,
+        inspectorProjection: createInspectorProjection(),
+        activeTab: "prompt",
+        onResetAllRoutines: () => {},
+        onSelectTab: () => {},
+        onSettingsFormChange: () => {},
+        onSettingsBlur: () => {},
+        onChooseWorkingDirectory: () => {},
+        onClearSessionHistory: () => {},
+        onSettingsYoloModeChange: () => {},
+        onSettingsDebugConversationViewChange: () => {},
+        onSettingsPermissionToolToggle: () => {},
+        onSettingsCapabilityPackToggle: () => {},
+        onSettingsShellAllowPatternRemove: () => {},
+        onAddUserContextHook: () => {},
+        onUserContextHookChange: () => {},
+        onUserContextHookBlur: () => {},
+        onUserContextHookEnabledChange: () => {},
+        onUserContextHookEventChange: () => {},
+        onUserContextHookBehaviorChange: () => {},
+        onDeleteUserContextHook: () => {},
+        onMoveUserContextHook: () => {}
+      })
+    );
+
+    expect(markup).toContain("Custom Prompt");
+    expect(markup).toContain("先确认上下文，再动手。");
+    expect(markup).toContain("适合放长期偏好、回答约束或固定执行提醒");
   });
 
   test("renders the hooks panel with saved hook items", () => {

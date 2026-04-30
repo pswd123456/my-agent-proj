@@ -1168,7 +1168,8 @@ export function SessionWorkbench() {
           toolDenyList: normalizedForm.toolDenyList,
           enabledCapabilityPacks: normalizedForm.enabledCapabilityPacks,
           userContextHooks: normalizedForm.userContextHooks,
-          debugConversationView: normalizedForm.debugConversationView
+          debugConversationView: normalizedForm.debugConversationView,
+          userCustomPrompt: normalizedForm.userCustomPrompt
         }
       );
       const updated = updatedPayload.settings;

@@ -34,6 +34,16 @@ const sectionHeadingClassName =
   "text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]";
 const tertiaryHeadingClassName =
   "text-[0.68rem] uppercase tracking-[0.14em] text-[var(--app-text-muted)]";
+const sectionDividerClassName =
+  "grid gap-3 border-t border-[color:color-mix(in_srgb,var(--app-border-subtle)_74%,transparent)] pt-5 first:border-t-0 first:pt-0";
+const fieldRowClassName =
+  "grid gap-3 sm:grid-cols-[minmax(0,176px)_1fr] sm:items-start";
+const fieldLabelClassName = "grid gap-1 pr-2";
+const fieldTitleClassName = "text-sm text-[var(--app-text-primary)]";
+const fieldDescriptionClassName =
+  "text-xs leading-5 text-[var(--app-text-muted)]";
+const insetSurfaceClassName =
+  "rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_86%,var(--app-bg-muted)_14%)]";
 
 function formatToolOptionLabel(toolName: string): string {
   return toolName.replaceAll("_", " ");
@@ -137,6 +147,57 @@ function splitEditablePatternLines(value: string): string[] {
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
+}
+
+interface DrawerSectionProps {
+  eyebrow: string;
+  title: string;
+  description?: string;
+  children: ReactNode;
+}
+
+function DrawerSection({
+  eyebrow,
+  title,
+  description,
+  children
+}: DrawerSectionProps) {
+  return (
+    <section className={sectionDividerClassName}>
+      <div className="grid gap-1.5">
+        <div className={sectionHeadingClassName}>{eyebrow}</div>
+        <div className="text-base font-medium text-[var(--app-text-primary)]">
+          {title}
+        </div>
+        {description ? (
+          <div className="max-w-[44rem] text-sm leading-6 text-[var(--app-text-muted)]">
+            {description}
+          </div>
+        ) : null}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+interface DrawerFieldProps {
+  label: string;
+  description?: string;
+  children: ReactNode;
+}
+
+function DrawerField({ label, description, children }: DrawerFieldProps) {
+  return (
+    <div className={fieldRowClassName}>
+      <div className={fieldLabelClassName}>
+        <div className={fieldTitleClassName}>{label}</div>
+        {description ? (
+          <div className={fieldDescriptionClassName}>{description}</div>
+        ) : null}
+      </div>
+      <div className="grid gap-2.5">{children}</div>
+    </div>
+  );
 }
 
 interface SessionWorkbenchDrawerProps {
@@ -278,9 +339,9 @@ export function SessionWorkbenchDrawer({
         }
         headerActions={headerActions}
       >
-        <div className="grid min-h-0 min-w-0 gap-3">
+        <div className="grid min-h-0 min-w-0 gap-5">
           {activeSidebarPanel === "settings" ? (
-            <div className="grid gap-3">
+            <div className="grid gap-5">
               <div
                 className={getSoftBlockClass(
                   "text-sm leading-6 text-[var(--app-text-secondary)]"
@@ -291,100 +352,111 @@ export function SessionWorkbenchDrawer({
               </div>
 
               {currentSession ? (
-                <div className="grid gap-2">
-                  <div className={sectionHeadingClassName}>Current Session</div>
-                  <div className="rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm text-[var(--app-text-secondary)]">
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div>
-                        <div className="text-[0.68rem] uppercase tracking-[0.14em] text-[var(--app-text-muted)]">
-                          Model
-                        </div>
-                        <div className="mt-2 break-all font-mono text-xs leading-6 text-[var(--app-text-primary)]">
-                          {currentSession.model}
-                        </div>
+                <DrawerSection
+                  eyebrow="Current Session"
+                  title="当前会话"
+                  description="这里显示当前会话已经生效的关键上下文，方便和默认设置区分开看。"
+                >
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className={`${insetSurfaceClassName} px-4 py-3`}>
+                      <div className={tertiaryHeadingClassName}>Model</div>
+                      <div className="mt-2 break-all font-mono text-xs leading-6 text-[var(--app-text-primary)]">
+                        {currentSession.model}
                       </div>
-                      <div>
-                        <div className="text-[0.68rem] uppercase tracking-[0.14em] text-[var(--app-text-muted)]">
-                          Task Brief Path
-                        </div>
-                        <div className="mt-2 break-all font-mono text-xs leading-6 text-[var(--app-text-primary)]">
-                          {currentSession.context.taskBriefPath ?? "--"}
-                        </div>
+                    </div>
+                    <div className={`${insetSurfaceClassName} px-4 py-3`}>
+                      <div className={tertiaryHeadingClassName}>
+                        Task Brief Path
+                      </div>
+                      <div className="mt-2 break-all font-mono text-xs leading-6 text-[var(--app-text-primary)]">
+                        {currentSession.context.taskBriefPath ?? "--"}
                       </div>
                     </div>
                   </div>
-                </div>
+                </DrawerSection>
               ) : null}
 
               {currentSession ? (
-                <div className="grid gap-2">
-                  <div className={tertiaryHeadingClassName}>History</div>
-                  <button
-                    type="button"
-                    onClick={onClearSessionHistory}
-                    disabled={
-                      loadingSettings ||
-                      savingSettings ||
-                      clearingSessionHistory ||
-                      !currentSession
-                    }
-                    className="rounded-[var(--app-radius-pill)] border border-[var(--app-status-danger)] px-4 py-3 text-left text-[0.72rem] uppercase tracking-[0.14em] text-[var(--app-status-danger)] transition hover:bg-[color:color-mix(in_srgb,var(--app-status-danger)_12%,transparent)] disabled:cursor-not-allowed disabled:opacity-50"
+                <DrawerSection
+                  eyebrow="History"
+                  title="会话记录"
+                  description="清空历史后会重新开始，但默认设置会保留。"
+                >
+                  <DrawerField
+                    label="清除历史"
+                    description="删除所有会话记录，仅保留当前默认设置。"
                   >
-                    {clearingSessionHistory ? "清除中..." : "清除历史会话"}
-                  </button>
-                  <div className="text-xs leading-6 text-[var(--app-text-muted)]">
-                    删除所有会话记录，保留当前设置并重新开始。
-                  </div>
-                  {clearHistoryErrorText ? (
-                    <div className="rounded-[var(--app-radius-lg)] border border-[var(--app-status-danger)]/40 bg-[color:color-mix(in_srgb,var(--app-status-danger)_10%,transparent)] px-3 py-2 text-xs leading-6 text-[var(--app-status-danger)]">
-                      {clearHistoryErrorText}
-                    </div>
-                  ) : null}
-                </div>
+                    <button
+                      type="button"
+                      onClick={onClearSessionHistory}
+                      disabled={
+                        loadingSettings ||
+                        savingSettings ||
+                        clearingSessionHistory ||
+                        !currentSession
+                      }
+                      className="rounded-[var(--app-radius-pill)] border border-[var(--app-status-danger)] px-4 py-3 text-left text-[0.72rem] uppercase tracking-[0.14em] text-[var(--app-status-danger)] transition hover:bg-[color:color-mix(in_srgb,var(--app-status-danger)_12%,transparent)] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {clearingSessionHistory ? "清除中..." : "清除历史会话"}
+                    </button>
+                    {clearHistoryErrorText ? (
+                      <div className="rounded-[var(--app-radius-lg)] border border-[var(--app-status-danger)]/40 bg-[color:color-mix(in_srgb,var(--app-status-danger)_10%,transparent)] px-3 py-2 text-xs leading-6 text-[var(--app-status-danger)]">
+                        {clearHistoryErrorText}
+                      </div>
+                    ) : null}
+                  </DrawerField>
+                </DrawerSection>
               ) : null}
 
-              <label className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
-                <span className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
-                  Default Working Directory
-                </span>
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <input
-                    value={settingsForm.workingDirectory}
-                    onChange={(event) =>
-                      onSettingsFormChange({
-                        workingDirectory: event.target.value
-                      })
-                    }
-                    onBlur={onSettingsBlur}
-                    placeholder="agent-workspace"
-                    className="min-w-0 flex-1 rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
-                  />
-                  <button
-                    type="button"
-                    onClick={onChooseWorkingDirectory}
-                    disabled={
-                      loadingSettings ||
-                      savingSettings ||
-                      choosingWorkingDirectory
-                    }
-                    className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-4 py-3 text-[0.72rem] uppercase tracking-[0.14em] text-[var(--app-text-secondary)] transition hover:border-[var(--app-border-accent)] hover:text-[var(--app-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {choosingWorkingDirectory ? "选择中..." : "选择目录"}
-                  </button>
-                </div>
-                <span className="text-xs leading-6 text-[var(--app-text-muted)]">
-                  留空会回到 repo 根下的
-                  `agent-workspace/`。可以直接输入绝对路径， 也可以选择 repo
-                  外的目录作为默认 cwd。
-                </span>
-              </label>
+              <DrawerSection
+                eyebrow="Workspace"
+                title="默认工作目录"
+                description="新会话会从这里启动；留空时仍回到仓库内的默认工作区。"
+              >
+                <DrawerField
+                  label="Working Directory"
+                  description="支持直接输入绝对路径，也可以用目录选择器挑选 repo 外的位置。"
+                >
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <input
+                      value={settingsForm.workingDirectory}
+                      onChange={(event) =>
+                        onSettingsFormChange({
+                          workingDirectory: event.target.value
+                        })
+                      }
+                      onBlur={onSettingsBlur}
+                      placeholder="agent-workspace"
+                      className="min-w-0 flex-1 rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
+                    />
+                    <button
+                      type="button"
+                      onClick={onChooseWorkingDirectory}
+                      disabled={
+                        loadingSettings ||
+                        savingSettings ||
+                        choosingWorkingDirectory
+                      }
+                      className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-4 py-3 text-[0.72rem] uppercase tracking-[0.14em] text-[var(--app-text-secondary)] transition hover:border-[var(--app-border-accent)] hover:text-[var(--app-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {choosingWorkingDirectory ? "选择中..." : "选择目录"}
+                    </button>
+                  </div>
+                  <div className={fieldDescriptionClassName}>
+                    留空会回到 repo 根下的 `agent-workspace/`。
+                  </div>
+                </DrawerField>
+              </DrawerSection>
 
-              <div className="grid gap-2">
-                <div className={sectionHeadingClassName}>Shell Permission</div>
-                <div className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
-                  <span className={tertiaryHeadingClassName}>
-                    Allow Patterns
-                  </span>
+              <DrawerSection
+                eyebrow="Shell Permission"
+                title="Shell 权限"
+                description="把常见命令模式放进 allow 或 deny，运行时就不会每次都从头判断。"
+              >
+                <DrawerField
+                  label="Allow Patterns"
+                  description="每行一条规则，保存后会作为默认允许模式。"
+                >
                   {shellAllowPatternLines.length > 0 ? (
                     <div className="flex flex-wrap gap-2">
                       {shellAllowPatternLines.map((pattern) => (
@@ -409,7 +481,9 @@ export function SessionWorkbenchDrawer({
                       ))}
                     </div>
                   ) : (
-                    <div className="rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-xs leading-5 text-[var(--app-text-muted)]">
+                    <div
+                      className={`${insetSurfaceClassName} px-4 py-3 text-xs leading-5 text-[var(--app-text-muted)]`}
+                    >
                       还没有保存的 allow patterns。
                     </div>
                   )}
@@ -424,11 +498,11 @@ export function SessionWorkbenchDrawer({
                     rows={3}
                     className="w-full rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
                   />
-                </div>
-                <label className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
-                  <span className={tertiaryHeadingClassName}>
-                    Deny Patterns
-                  </span>
+                </DrawerField>
+                <DrawerField
+                  label="Deny Patterns"
+                  description="每行一条规则，命中后会直接阻止执行。"
+                >
                   <textarea
                     value={settingsForm.shellDenyPatterns}
                     onChange={(event) =>
@@ -440,166 +514,225 @@ export function SessionWorkbenchDrawer({
                     rows={3}
                     className="w-full rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
                   />
-                </label>
-              </div>
+                </DrawerField>
+              </DrawerSection>
 
-              <div className="grid gap-2">
-                <div className={sectionHeadingClassName}>Execution</div>
-                <label className="flex items-center justify-between gap-3 rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm text-[var(--app-text-secondary)]">
-                  <div>
-                    <div className="text-sm text-[var(--app-text-primary)]">
-                      YOLO
-                    </div>
-                    <div className="mt-1 text-xs leading-5 text-[var(--app-text-muted)]">
-                      打开后，除 shell / network 外的工具都会直接执行； shell /
-                      network 仍在运行时单独审批。
-                    </div>
-                  </div>
-                  <WorkbenchSwitch
-                    checked={settingsForm.yoloMode}
-                    ariaLabel="切换 YOLO 默认设置"
-                    onChange={onSettingsYoloModeChange}
-                  />
-                </label>
-
-                <label className="flex items-center justify-between gap-3 rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm text-[var(--app-text-secondary)]">
-                  <div>
-                    <div className="text-sm text-[var(--app-text-primary)]">
-                      调试对话视图
-                    </div>
-                    <div className="mt-1 text-xs leading-5 text-[var(--app-text-muted)]">
-                      显示完整 turns、thinking、工具调用和结果。
-                    </div>
-                  </div>
-                  <WorkbenchSwitch
-                    checked={settingsForm.debugConversationView}
-                    ariaLabel="切换调试对话视图默认设置"
-                    onChange={onSettingsDebugConversationViewChange}
-                  />
-                </label>
-
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <label className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
-                    <span className={tertiaryHeadingClassName}>
-                      Context Window
-                    </span>
-                    <input
-                      value={settingsForm.contextWindow}
-                      onChange={(event) =>
-                        onSettingsFormChange({
-                          contextWindow: event.target.value
-                        })
-                      }
-                      onBlur={onSettingsBlur}
-                      inputMode="numeric"
-                      className="w-full rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
-                    />
-                  </label>
-                  <label className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
-                    <span className={tertiaryHeadingClassName}>Max Turns</span>
-                    <input
-                      value={settingsForm.maxTurns}
-                      onChange={(event) =>
-                        onSettingsFormChange({ maxTurns: event.target.value })
-                      }
-                      onBlur={onSettingsBlur}
-                      inputMode="numeric"
-                      className="w-full rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
-                    />
-                  </label>
-                </div>
-              </div>
-
-              <div className="grid gap-3">
-                <div className={sectionHeadingClassName}>Capabilities</div>
-                <div className="grid gap-2">
-                  {capabilityPackOptions.map((pack) => {
-                    const checked =
-                      settingsForm.enabledCapabilityPacks.includes(pack);
-                    return (
-                      <label
-                        key={pack}
-                        className="flex items-start gap-3 rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm text-[var(--app-text-secondary)]"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => onSettingsCapabilityPackToggle(pack)}
-                          className="mt-1 h-4 w-4 accent-[var(--app-border-accent)]"
-                        />
-                        <div>
-                          <div className="text-sm text-[var(--app-text-primary)]">
-                            {formatCapabilityPackLabel(pack)}
-                          </div>
-                          <div className="mt-1 text-xs leading-5 text-[var(--app-text-muted)]">
-                            {formatCapabilityPackDescription(pack)}
-                          </div>
-                        </div>
-                      </label>
-                    );
-                  })}
-                </div>
-                <div className="grid gap-2">
-                  <div className={tertiaryHeadingClassName}>
-                    Tool Permission
-                  </div>
-                  <div className="text-xs leading-5 text-[var(--app-text-muted)]">
-                    shell / network
-                    不在这里配置。它们会在运行时按命令或请求单独确认。
-                  </div>
-                  {visiblePermissionTools.map((tool) => {
-                    const pinnedByYolo = settingsForm.yoloMode;
-                    const decision = pinnedByYolo
-                      ? "allow"
-                      : settingsForm.toolDenyList.includes(tool.name)
-                        ? "deny"
-                        : settingsForm.toolAllowList.includes(tool.name)
-                          ? "allow"
-                          : "ask";
-                    return (
-                      <div
-                        key={tool.name}
-                        className="flex items-center justify-between gap-3 rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3"
-                      >
-                        <div>
-                          <div className="text-sm text-[var(--app-text-primary)]">
-                            {formatToolOptionLabel(tool.name)}
-                          </div>
-                          <div className="mt-1 text-xs leading-5 text-[var(--app-text-muted)]">
-                            {pinnedByYolo
-                              ? "YOLO 已启用，当前会话内固定允许。"
-                              : tool.name}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {(["allow", "ask", "deny"] as const).map((target) => (
-                            <button
-                              key={target}
-                              type="button"
-                              disabled={pinnedByYolo}
-                              onClick={() =>
-                                onSettingsPermissionToolToggle(
-                                  tool.name,
-                                  target
-                                )
-                              }
-                              className={`rounded-[var(--app-radius-pill)] border px-3 py-1 text-xs transition ${
-                                decision === target
-                                  ? "border-[var(--app-border-accent)] bg-[var(--app-bg-elevated)] text-[var(--app-text-primary)]"
-                                  : "border-[var(--app-border-subtle)] text-[var(--app-text-muted)] hover:border-[var(--app-border-strong)] hover:text-[var(--app-text-primary)]"
-                              }`}
-                            >
-                              {target}
-                            </button>
-                          ))}
-                        </div>
+              <DrawerSection
+                eyebrow="Execution"
+                title="执行行为"
+                description="这里控制默认执行方式、上下文预算，以及调试信息的展示深度。"
+              >
+                <DrawerField
+                  label="Runtime Toggles"
+                  description="这两项会影响新会话默认的执行与展示方式。"
+                >
+                  <label
+                    className={`flex items-center justify-between gap-3 px-4 py-3 text-sm text-[var(--app-text-secondary)] ${insetSurfaceClassName}`}
+                  >
+                    <div>
+                      <div className="text-sm text-[var(--app-text-primary)]">
+                        YOLO
                       </div>
-                    );
-                  })}
-                </div>
-              </div>
+                      <div className="mt-1 text-xs leading-5 text-[var(--app-text-muted)]">
+                        打开后，除 shell / network 外的工具都会直接执行；shell /
+                        network 仍在运行时单独审批。
+                      </div>
+                    </div>
+                    <WorkbenchSwitch
+                      checked={settingsForm.yoloMode}
+                      ariaLabel="切换 YOLO 默认设置"
+                      onChange={onSettingsYoloModeChange}
+                    />
+                  </label>
 
-              <div className="text-xs text-[var(--app-text-muted)]">
+                  <label
+                    className={`flex items-center justify-between gap-3 px-4 py-3 text-sm text-[var(--app-text-secondary)] ${insetSurfaceClassName}`}
+                  >
+                    <div>
+                      <div className="text-sm text-[var(--app-text-primary)]">
+                        调试对话视图
+                      </div>
+                      <div className="mt-1 text-xs leading-5 text-[var(--app-text-muted)]">
+                        显示完整 turns、thinking、工具调用和结果。
+                      </div>
+                    </div>
+                    <WorkbenchSwitch
+                      checked={settingsForm.debugConversationView}
+                      ariaLabel="切换调试对话视图默认设置"
+                      onChange={onSettingsDebugConversationViewChange}
+                    />
+                  </label>
+                </DrawerField>
+
+                <DrawerField
+                  label="Budget"
+                  description={`为长上下文和连续多轮预留默认预算；Max Turns 上限为 ${MAX_TURNS_LIMIT}。`}
+                >
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
+                      <span className={tertiaryHeadingClassName}>
+                        Context Window
+                      </span>
+                      <input
+                        value={settingsForm.contextWindow}
+                        onChange={(event) =>
+                          onSettingsFormChange({
+                            contextWindow: event.target.value
+                          })
+                        }
+                        onBlur={onSettingsBlur}
+                        inputMode="numeric"
+                        className="w-full rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
+                      />
+                    </label>
+                    <label className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
+                      <span className={tertiaryHeadingClassName}>
+                        Max Turns
+                      </span>
+                      <input
+                        value={settingsForm.maxTurns}
+                        onChange={(event) =>
+                          onSettingsFormChange({ maxTurns: event.target.value })
+                        }
+                        onBlur={onSettingsBlur}
+                        inputMode="numeric"
+                        className="w-full rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
+                      />
+                    </label>
+                  </div>
+                </DrawerField>
+              </DrawerSection>
+
+              <DrawerSection
+                eyebrow="Custom Prompt"
+                title="长期提示"
+                description="适合放长期偏好、回答约束或固定执行提醒。"
+              >
+                <DrawerField
+                  label="Prompt"
+                  description="保存后会在下一次 run 生效。"
+                >
+                  <textarea
+                    value={settingsForm.userCustomPrompt}
+                    onChange={(event) =>
+                      onSettingsFormChange({
+                        userCustomPrompt: event.target.value
+                      })
+                    }
+                    onBlur={onSettingsBlur}
+                    rows={6}
+                    placeholder="写一段长期有效的偏好、回答约束或执行提醒。"
+                    className="w-full rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
+                  />
+                </DrawerField>
+              </DrawerSection>
+
+              <DrawerSection
+                eyebrow="Capabilities"
+                title="能力与工具权限"
+                description="先决定默认启用哪些能力包，再细调各工具的默认询问策略。"
+              >
+                <DrawerField
+                  label="Capability Packs"
+                  description="只显示当前启用能力包对应的工具权限配置。"
+                >
+                  <div className="grid gap-2">
+                    {capabilityPackOptions.map((pack) => {
+                      const checked =
+                        settingsForm.enabledCapabilityPacks.includes(pack);
+                      return (
+                        <label
+                          key={pack}
+                          className={`flex items-start gap-3 px-4 py-3 text-sm text-[var(--app-text-secondary)] ${insetSurfaceClassName}`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() =>
+                              onSettingsCapabilityPackToggle(pack)
+                            }
+                            className="mt-1 h-4 w-4 accent-[var(--app-border-accent)]"
+                          />
+                          <div>
+                            <div className="text-sm text-[var(--app-text-primary)]">
+                              {formatCapabilityPackLabel(pack)}
+                            </div>
+                            <div className="mt-1 text-xs leading-5 text-[var(--app-text-muted)]">
+                              {formatCapabilityPackDescription(pack)}
+                            </div>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </DrawerField>
+                <DrawerField
+                  label="Tool Permission"
+                  description="shell / network 不在这里配置，它们会在运行时按命令或请求单独确认。"
+                >
+                  {visiblePermissionTools.length === 0 ? (
+                    <div
+                      className={`${insetSurfaceClassName} px-4 py-3 text-xs leading-5 text-[var(--app-text-muted)]`}
+                    >
+                      当前没有需要单独配置的工具权限。
+                    </div>
+                  ) : (
+                    visiblePermissionTools.map((tool) => {
+                      const pinnedByYolo = settingsForm.yoloMode;
+                      const decision = pinnedByYolo
+                        ? "allow"
+                        : settingsForm.toolDenyList.includes(tool.name)
+                          ? "deny"
+                          : settingsForm.toolAllowList.includes(tool.name)
+                            ? "allow"
+                            : "ask";
+                      return (
+                        <div
+                          key={tool.name}
+                          className={`flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between ${insetSurfaceClassName}`}
+                        >
+                          <div>
+                            <div className="text-sm text-[var(--app-text-primary)]">
+                              {formatToolOptionLabel(tool.name)}
+                            </div>
+                            <div className="mt-1 text-xs leading-5 text-[var(--app-text-muted)]">
+                              {pinnedByYolo
+                                ? "YOLO 已启用，当前会话内固定允许。"
+                                : tool.name}
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            {(["allow", "ask", "deny"] as const).map(
+                              (target) => (
+                                <button
+                                  key={target}
+                                  type="button"
+                                  disabled={pinnedByYolo}
+                                  onClick={() =>
+                                    onSettingsPermissionToolToggle(
+                                      tool.name,
+                                      target
+                                    )
+                                  }
+                                  className={`rounded-[var(--app-radius-pill)] border px-3 py-1 text-xs transition ${
+                                    decision === target
+                                      ? "border-[var(--app-border-accent)] bg-[var(--app-bg-elevated)] text-[var(--app-text-primary)]"
+                                      : "border-[var(--app-border-subtle)] text-[var(--app-text-muted)] hover:border-[var(--app-border-strong)] hover:text-[var(--app-text-primary)]"
+                                  }`}
+                                >
+                                  {target}
+                                </button>
+                              )
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </DrawerField>
+              </DrawerSection>
+
+              <div className="rounded-[var(--app-radius-lg)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_72%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_72%,transparent)] px-4 py-3 text-xs text-[var(--app-text-muted)]">
                 {loadingSettings
                   ? "正在同步设置..."
                   : savingSettings
