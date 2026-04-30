@@ -163,6 +163,13 @@ function renderFileContent(input: {
   return input.hasFinalNewline ? `${joined}${input.newline}` : joined;
 }
 
+function createPatchPositionHint(): string {
+  return [
+    "Check the @@ header oldStart and leading context lines:",
+    "oldStart must point at the first hunk body line in the current file, including unchanged blank lines."
+  ].join(" ");
+}
+
 function applyFilePatchToLines(input: {
   filePatch: UnifiedFilePatch;
   originalLines: string[];
@@ -192,10 +199,13 @@ function applyFilePatchToLines(input: {
       if (line.kind === "context") {
         if (input.originalLines[cursor] !== line.text) {
           throw new Error(
-            `Patch context mismatch in ${input.filePatch.targetPath} near line ${Math.max(
-              1,
-              hunk.oldStart
-            )}.`
+            [
+              `Patch context mismatch in ${input.filePatch.targetPath} near line ${Math.max(
+                1,
+                hunk.oldStart
+              )}.`,
+              createPatchPositionHint()
+            ].join(" ")
           );
         }
         nextLines.push(line.text);
@@ -208,10 +218,13 @@ function applyFilePatchToLines(input: {
       if (line.kind === "delete") {
         if (input.originalLines[cursor] !== line.text) {
           throw new Error(
-            `Patch deletion mismatch in ${input.filePatch.targetPath} near line ${Math.max(
-              1,
-              hunk.oldStart
-            )}.`
+            [
+              `Patch deletion mismatch in ${input.filePatch.targetPath} near line ${Math.max(
+                1,
+                hunk.oldStart
+              )}.`,
+              createPatchPositionHint()
+            ].join(" ")
           );
         }
         cursor += 1;
@@ -223,9 +236,16 @@ function applyFilePatchToLines(input: {
       producedNewLines += 1;
     }
 
-    if (consumedOldLines !== hunk.oldCount || producedNewLines !== hunk.newCount) {
+    if (
+      consumedOldLines !== hunk.oldCount ||
+      producedNewLines !== hunk.newCount
+    ) {
       throw new Error(
-        `Patch hunk counts did not match for ${input.filePatch.targetPath}.`
+        [
+          `Patch hunk counts did not match for ${input.filePatch.targetPath}.`,
+          `Header says old=${hunk.oldCount}, new=${hunk.newCount}; hunk body consumes old=${consumedOldLines}, produces new=${producedNewLines}.`,
+          "Fix the @@ header counts or remove extra hunk body lines."
+        ].join(" ")
       );
     }
   }

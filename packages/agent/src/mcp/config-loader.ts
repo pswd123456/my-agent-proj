@@ -14,11 +14,15 @@ import type {
 const MCP_CONFIG_DIRECTORY = ".agent";
 const MCP_CONFIG_FILE_NAME = ".config.toml";
 
+export interface WorkspaceMcpConfigLoadOptions {
+  resolveEnvironment?: boolean;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function toConfigPath(workingDirectory: string): string {
+export function getWorkspaceMcpConfigPath(workingDirectory: string): string {
   return path.join(
     path.resolve(workingDirectory),
     MCP_CONFIG_DIRECTORY,
@@ -53,12 +57,18 @@ function stripDuplicateServerSections(rawContent: string): string {
 
   for (const line of lines) {
     const headerMatch =
-      line.match(/^\s*\[mcp_servers\.(?:"([^"]+)"|'([^']+)'|([^\].]+))\]\s*$/) ??
-      null;
+      line.match(
+        /^\s*\[mcp_servers\.(?:"([^"]+)"|'([^']+)'|([^\].]+))\]\s*$/
+      ) ?? null;
     const anyHeaderMatch = line.match(/^\s*\[([^\]]+)\]\s*$/) ?? null;
 
     if (headerMatch) {
-      const serverName = (headerMatch[1] ?? headerMatch[2] ?? headerMatch[3] ?? "").trim();
+      const serverName = (
+        headerMatch[1] ??
+        headerMatch[2] ??
+        headerMatch[3] ??
+        ""
+      ).trim();
       if (seenServerNames.has(serverName)) {
         skippedServerName = serverName;
         continue;
@@ -110,9 +120,48 @@ function validateStringArray(value: unknown): string[] | null {
   return value;
 }
 
-function validateStringRecord(
-  value: unknown
-): Record<string, string> | null {
+function validateOptionalEnabled(
+  serverName: string,
+  value: Record<string, unknown>
+): boolean | WorkspaceMcpConfigDiagnostic {
+  if (typeof value.enabled === "undefined") {
+    return true;
+  }
+
+  if (typeof value.enabled !== "boolean") {
+    return buildDiagnostic({
+      scope: "server",
+      code: "invalid_field",
+      serverName,
+      message: "MCP server enabled must be a boolean."
+    });
+  }
+
+  return value.enabled;
+}
+
+function validateOptionalDisabledTools(
+  serverName: string,
+  value: Record<string, unknown>
+): string[] | WorkspaceMcpConfigDiagnostic {
+  if (typeof value.disabled_tools === "undefined") {
+    return [];
+  }
+
+  const disabledTools = validateStringArray(value.disabled_tools);
+  if (!disabledTools) {
+    return buildDiagnostic({
+      scope: "server",
+      code: "invalid_field",
+      serverName,
+      message: "MCP server disabled_tools must be an array of strings."
+    });
+  }
+
+  return [...new Set(disabledTools.map((item) => item.trim()).filter(Boolean))];
+}
+
+function validateStringRecord(value: unknown): Record<string, string> | null {
   if (!isRecord(value)) {
     return null;
   }
@@ -125,6 +174,24 @@ function validateStringRecord(
     next[key] = item;
   }
 
+  return next;
+}
+
+const ENV_REFERENCE_PATTERN =
+  /^\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))$/;
+
+function resolveEnvironmentReferences(
+  record: Record<string, string>
+): Record<string, string> {
+  const next: Record<string, string> = {};
+  for (const [key, value] of Object.entries(record)) {
+    const match = value.match(ENV_REFERENCE_PATTERN);
+    const envName = match?.[1] ?? match?.[2];
+    next[key] =
+      envName && typeof process.env[envName] === "string"
+        ? process.env[envName]
+        : value;
+  }
   return next;
 }
 
@@ -149,15 +216,28 @@ function validateUnknownFields(
 
 function parseStdioServer(
   serverName: string,
-  value: Record<string, unknown>
+  value: Record<string, unknown>,
+  options?: WorkspaceMcpConfigLoadOptions
 ): WorkspaceMcpStdioServerConfig | WorkspaceMcpConfigDiagnostic {
   const unknownFields = validateUnknownFields(serverName, value, [
     "command",
     "args",
-    "env"
+    "env",
+    "enabled",
+    "disabled_tools"
   ]);
   if (unknownFields) {
     return unknownFields;
+  }
+
+  const enabled = validateOptionalEnabled(serverName, value);
+  if (typeof enabled !== "boolean") {
+    return enabled;
+  }
+
+  const disabledTools = validateOptionalDisabledTools(serverName, value);
+  if (!Array.isArray(disabledTools)) {
+    return disabledTools;
   }
 
   if (typeof value.command !== "string" || value.command.trim().length === 0) {
@@ -194,9 +274,14 @@ function parseStdioServer(
   return {
     name: serverName,
     transport: "stdio",
+    enabled,
+    disabledTools,
     command: value.command.trim(),
     args,
-    env
+    env:
+      options?.resolveEnvironment === false
+        ? env
+        : resolveEnvironmentReferences(env)
   };
 }
 
@@ -206,10 +291,22 @@ function parseHttpServer(
 ): WorkspaceMcpHttpServerConfig | WorkspaceMcpConfigDiagnostic {
   const unknownFields = validateUnknownFields(serverName, value, [
     "url",
-    "headers"
+    "headers",
+    "enabled",
+    "disabled_tools"
   ]);
   if (unknownFields) {
     return unknownFields;
+  }
+
+  const enabled = validateOptionalEnabled(serverName, value);
+  if (typeof enabled !== "boolean") {
+    return enabled;
+  }
+
+  const disabledTools = validateOptionalDisabledTools(serverName, value);
+  if (!Array.isArray(disabledTools)) {
+    return disabledTools;
   }
 
   if (typeof value.url !== "string" || value.url.trim().length === 0) {
@@ -256,6 +353,8 @@ function parseHttpServer(
   return {
     name: serverName,
     transport: "http",
+    enabled,
+    disabledTools,
     url: value.url.trim(),
     headers
   };
@@ -263,7 +362,8 @@ function parseHttpServer(
 
 function parseServerConfig(
   serverName: string,
-  rawValue: unknown
+  rawValue: unknown,
+  options?: WorkspaceMcpConfigLoadOptions
 ): WorkspaceMcpServerConfig | WorkspaceMcpConfigDiagnostic {
   if (!isRecord(rawValue)) {
     return buildDiagnostic({
@@ -287,14 +387,15 @@ function parseServerConfig(
   }
 
   return hasCommand
-    ? parseStdioServer(serverName, rawValue)
+    ? parseStdioServer(serverName, rawValue, options)
     : parseHttpServer(serverName, rawValue);
 }
 
 export async function loadWorkspaceMcpConfig(
-  workingDirectory: string
+  workingDirectory: string,
+  options?: WorkspaceMcpConfigLoadOptions
 ): Promise<WorkspaceMcpConfigLoadResult> {
-  const configPath = toConfigPath(workingDirectory);
+  const configPath = getWorkspaceMcpConfigPath(workingDirectory);
 
   let rawContent: string;
   try {
@@ -397,7 +498,11 @@ export async function loadWorkspaceMcpConfig(
       continue;
     }
 
-    const parsedServer = parseServerConfig(serverName, root[serverName]);
+    const parsedServer = parseServerConfig(
+      serverName,
+      root[serverName],
+      options
+    );
     if ("transport" in parsedServer) {
       servers.push(parsedServer);
       continue;

@@ -33,6 +33,7 @@ import { DEFAULT_EXECUTION_LEASE_TIMEOUT_MS } from "./contracts.js";
 import {
   cloneSnapshot,
   createSnapshot,
+  forceStopSnapshot,
   isSessionSnapshot,
   resolveWorkingDirectory
 } from "./shared.js";
@@ -457,6 +458,8 @@ export function serializeBlock(block: ConversationBlock): {
 }
 
 export class PostgresSessionManager implements SessionManager {
+  private readonly forceStoppedRunIds = new Map<string, Set<string>>();
+
   constructor(private readonly db: ProductDatabaseClient) {}
 
   async createSession(
@@ -620,10 +623,56 @@ export class PostgresSessionManager implements SessionManager {
     return this.getSession(sessionId);
   }
 
+  async forceStop(sessionId: string): Promise<SessionSnapshot | null> {
+    const session = await this.getSession(sessionId);
+    if (!session) {
+      return null;
+    }
+
+    const nextSnapshot = forceStopSnapshot(session);
+    const stoppedAt = new Date().toISOString();
+    const activeRunRows = await this.db
+      .select({
+        activeRunId: agentSessions.activeRunId
+      })
+      .from(agentSessions)
+      .where(eq(agentSessions.id, sessionId))
+      .limit(1);
+    const activeRunId = activeRunRows[0]?.activeRunId;
+    if (activeRunId) {
+      const runIds = this.forceStoppedRunIds.get(sessionId) ?? new Set<string>();
+      runIds.add(activeRunId);
+      this.forceStoppedRunIds.set(sessionId, runIds);
+    }
+
+    await this.db
+      .update(agentSessions)
+      .set({
+        status: nextSnapshot.context.status,
+        pendingPermissionRequest: null,
+        pendingConfirmationPayload: null,
+        pendingUserQuestionPayload: null,
+        loopState: nextSnapshot.sessionState.loopState,
+        lastError: null,
+        pendingToolCallIds: [],
+        interruptRequested: false,
+        activeRunId: null,
+        activeRunStartedAt: null,
+        updatedAt: stoppedAt
+      })
+      .where(eq(agentSessions.id, sessionId));
+
+    return this.getSession(sessionId);
+  }
+
   async isInterruptRequested(
     sessionId: string,
     runId: string
   ): Promise<boolean> {
+    if (this.forceStoppedRunIds.get(sessionId)?.has(runId)) {
+      return true;
+    }
+
     const rows = await this.db
       .select({
         interruptRequested: agentSessions.interruptRequested
@@ -835,6 +884,7 @@ export class PostgresSessionManager implements SessionManager {
     runId: string
   ): Promise<SessionSnapshot | null> {
     const releasedAt = new Date().toISOString();
+    this.forceStoppedRunIds.get(sessionId)?.delete(runId);
     await this.db
       .update(agentSessions)
       .set({

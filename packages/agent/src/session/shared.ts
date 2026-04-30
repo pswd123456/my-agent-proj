@@ -228,6 +228,27 @@ export function cloneSnapshot(snapshot: SessionSnapshot): SessionSnapshot {
   };
 }
 
+export function forceStopSnapshot(snapshot: SessionSnapshot): SessionSnapshot {
+  return cloneSnapshot({
+    ...snapshot,
+    context: {
+      ...snapshot.context,
+      status: "waiting_for_user_input",
+      pendingPermissionRequest: null,
+      pendingConfirmationPayload: null,
+      pendingUserQuestionPayload: null,
+      pendingConflictSummary: null
+    },
+    sessionState: {
+      ...snapshot.sessionState,
+      loopState: "interrupted",
+      lastError: null,
+      pendingToolCallIds: [],
+      interruptRequested: false
+    }
+  });
+}
+
 function resolveCurrentDateContext(now = new Date()): string {
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, "0");

@@ -17,6 +17,7 @@ import type { SessionManager } from "./contracts.js";
 import {
   cloneSnapshot,
   createSnapshot,
+  forceStopSnapshot,
   isSessionSnapshot,
   resolveWorkingDirectory
 } from "./shared.js";
@@ -26,6 +27,7 @@ export class FileSessionManager implements SessionManager {
     string,
     { runId: string; startedAt: number; interruptRequested: boolean }
   >();
+  private readonly forceStoppedRunIds = new Map<string, Set<string>>();
 
   constructor(private readonly baseDirectory: string) {}
 
@@ -196,10 +198,30 @@ export class FileSessionManager implements SessionManager {
     }));
   }
 
+  async forceStop(sessionId: string): Promise<SessionSnapshot | null> {
+    const session = await this.getSession(sessionId);
+    if (!session) {
+      return null;
+    }
+
+    const current = this.activeRuns.get(sessionId);
+    if (current) {
+      const runIds = this.forceStoppedRunIds.get(sessionId) ?? new Set<string>();
+      runIds.add(current.runId);
+      this.forceStoppedRunIds.set(sessionId, runIds);
+      this.activeRuns.delete(sessionId);
+    }
+    return this.saveSession(forceStopSnapshot(session));
+  }
+
   async isInterruptRequested(
     sessionId: string,
     runId: string
   ): Promise<boolean> {
+    if (this.forceStoppedRunIds.get(sessionId)?.has(runId)) {
+      return true;
+    }
+
     const current = this.activeRuns.get(sessionId);
     return current?.runId === runId && current.interruptRequested === true;
   }
@@ -374,6 +396,7 @@ export class FileSessionManager implements SessionManager {
     sessionId: string,
     runId: string
   ): Promise<SessionSnapshot | null> {
+    this.forceStoppedRunIds.get(sessionId)?.delete(runId);
     const current = this.activeRuns.get(sessionId);
     if (current?.runId === runId) {
       this.activeRuns.delete(sessionId);

@@ -125,13 +125,29 @@ url = "${httpServer.url}"
             name: "local_echo",
             transport: "stdio",
             status: "loaded",
-            toolNames: [localEchoTool]
+            toolNames: [localEchoTool],
+            tools: [
+              {
+                name: "echo",
+                runtimeName: localEchoTool,
+                description: "Echo the provided message.",
+                enabled: true
+              }
+            ]
           },
           {
             name: "remote_echo",
             transport: "http",
             status: "loaded",
-            toolNames: [remoteEchoTool]
+            toolNames: [remoteEchoTool],
+            tools: [
+              {
+                name: "echo",
+                runtimeName: remoteEchoTool,
+                description: "Echo the provided message.",
+                enabled: true
+              }
+            ]
           }
         ]);
         expect(result.tools.map((tool) => tool.name)).toEqual([
@@ -178,13 +194,22 @@ url = "http://127.0.0.1:1"
               name: "good",
               transport: "stdio",
               status: "loaded",
-              toolNames: [goodEchoTool]
+              toolNames: [goodEchoTool],
+              tools: [
+                {
+                  name: "echo",
+                  runtimeName: goodEchoTool,
+                  description: "Echo the provided message.",
+                  enabled: true
+                }
+              ]
             },
             expect.objectContaining({
               name: "bad",
               transport: "http",
               status: "failed",
-              toolNames: []
+              toolNames: [],
+              tools: []
             })
           ])
         );
@@ -229,6 +254,67 @@ args = ["${fixtureScript.replaceAll("\\", "\\\\")}"]
         const toolNames = result.tools.map((tool) => tool.name);
         expect(toolNames).toHaveLength(2);
         expect(new Set(toolNames).size).toBe(2);
+      } finally {
+        await result.dispose();
+      }
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("skips disabled servers and disabled child tools", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const fixtureScript = path.resolve(
+      import.meta.dir,
+      "fixtures/mcp-echo-stdio.ts"
+    );
+
+    try {
+      await writeConfig(
+        workspaceRoot,
+        `
+[mcp_servers.disabled_server]
+enabled = false
+command = "${process.execPath.replaceAll("\\", "\\\\")}"
+args = ["${fixtureScript.replaceAll("\\", "\\\\")}"]
+
+[mcp_servers.local_echo]
+command = "${process.execPath.replaceAll("\\", "\\\\")}"
+args = ["${fixtureScript.replaceAll("\\", "\\\\")}"]
+disabled_tools = ["echo"]
+`.trim()
+      );
+
+      const result = await loadWorkspaceMcpTools(workspaceRoot);
+      const localEchoTool = namespaceMcpToolName("local_echo", "echo");
+
+      try {
+        expect(result.tools).toEqual([]);
+        expect(result.servers).toEqual(
+          expect.arrayContaining([
+            {
+              name: "disabled_server",
+              transport: "stdio",
+              status: "disabled",
+              toolNames: [],
+              tools: []
+            },
+            {
+              name: "local_echo",
+              transport: "stdio",
+              status: "loaded",
+              toolNames: [],
+              tools: [
+                {
+                  name: "echo",
+                  runtimeName: localEchoTool,
+                  description: "Echo the provided message.",
+                  enabled: false
+                }
+              ]
+            }
+          ])
+        );
       } finally {
         await result.dispose();
       }

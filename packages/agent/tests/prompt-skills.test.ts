@@ -631,6 +631,20 @@ describe("PromptBuilder skill context", () => {
     }
   });
 
+  test("emphasizes read before edit in the stable system prompt", () => {
+    const promptBuilder = createPromptBuilder();
+    const session = createSessionSnapshot();
+    const promptEnvelope = promptBuilder.build(session, new ToolRegistry());
+
+    expect(promptEnvelope.system).toContain("Read before edit");
+    expect(promptEnvelope.system).toContain(
+      "call read_file for that exact path"
+    );
+    expect(promptEnvelope.system).toContain(
+      "Content from search_skill, load_skill, search_text, git_diff"
+    );
+  });
+
   test("renders none when no skills are available", () => {
     const promptBuilder = createPromptBuilder();
     const session = createSessionSnapshot();

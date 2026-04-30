@@ -62,31 +62,6 @@ describe("ToolRegistry stage4 metadata contract", () => {
     ]);
   });
 
-  test("registers the web tool pack separately from workspace tools", () => {
-    const registry = createDefaultToolRegistry({
-      workingDirectory: "/tmp/workspace",
-      routineRepository: createMemoryRoutineRepository(),
-      enabledCapabilityPacks: ["web"]
-    });
-
-    expect(registry.list().map((tool) => tool.name)).toEqual([
-      "ask_user_question",
-      "delegate_agent",
-      "edit_task_brief",
-      "get_current_time",
-      "get_task_brief",
-      "get_todo_list",
-      "manage_capability_packs",
-      "read_task_brief",
-      "replace_task_brief",
-      "replace_todo_list",
-      "search_task_brief",
-      "update_todo_items",
-      "web_fetch",
-      "web_search"
-    ]);
-  });
-
   test("mounts lsp tools only when the lsp capability pack is enabled", () => {
     const enabledRegistry = createDefaultToolRegistry({
       workingDirectory: "/tmp/workspace",
@@ -118,7 +93,7 @@ describe("ToolRegistry stage4 metadata contract", () => {
     const disabledRegistry = createDefaultToolRegistry({
       workingDirectory: "/tmp/workspace",
       routineRepository: createMemoryRoutineRepository(),
-      enabledCapabilityPacks: ["workspace", "schedule", "web"]
+      enabledCapabilityPacks: ["workspace", "schedule"]
     });
 
     expect(disabledRegistry.get("lsp_hover")).toBeUndefined();

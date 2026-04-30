@@ -17,6 +17,7 @@ export interface SessionManager {
   listSessions(): Promise<SessionSnapshot[]>;
   isExecutionActive(sessionId: string): Promise<boolean>;
   requestInterrupt(sessionId: string): Promise<SessionSnapshot | null>;
+  forceStop(sessionId: string): Promise<SessionSnapshot | null>;
   isInterruptRequested(sessionId: string, runId: string): Promise<boolean>;
   deleteSession(sessionId: string): Promise<boolean>;
   saveSession(snapshot: SessionSnapshot): Promise<SessionSnapshot>;

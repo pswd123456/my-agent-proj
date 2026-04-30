@@ -112,6 +112,8 @@ headers = { Authorization = "Bearer token" }
         {
           name: "local_echo",
           transport: "stdio",
+          enabled: true,
+          disabledTools: [],
           command: "node",
           args: ["server.js"],
           env: { TOKEN: "abc" }
@@ -119,8 +121,83 @@ headers = { Authorization = "Bearer token" }
         {
           name: "remote_echo",
           transport: "http",
+          enabled: true,
+          disabledTools: [],
           url: "https://example.com/mcp",
           headers: { Authorization: "Bearer token" }
+        }
+      ]);
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("resolves explicit stdio env references from the process environment", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const originalValue = process.env.FIRECRAWL_API_KEY;
+    process.env.FIRECRAWL_API_KEY = "fc-test-key";
+
+    try {
+      await writeConfig(
+        workspaceRoot,
+        `
+[mcp_servers.firecrawl]
+command = "npx"
+args = ["-y", "firecrawl-mcp"]
+env = { FIRECRAWL_API_KEY = "$FIRECRAWL_API_KEY" }
+`.trim()
+      );
+
+      const result = await loadWorkspaceMcpConfig(workspaceRoot);
+
+      expect(result.diagnostics).toEqual([]);
+      expect(result.servers).toEqual([
+        {
+          name: "firecrawl",
+          transport: "stdio",
+          enabled: true,
+          disabledTools: [],
+          command: "npx",
+          args: ["-y", "firecrawl-mcp"],
+          env: { FIRECRAWL_API_KEY: "fc-test-key" }
+        }
+      ]);
+    } finally {
+      if (typeof originalValue === "string") {
+        process.env.FIRECRAWL_API_KEY = originalValue;
+      } else {
+        delete process.env.FIRECRAWL_API_KEY;
+      }
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("parses MCP server and tool enabled state", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+
+    try {
+      await writeConfig(
+        workspaceRoot,
+        `
+[mcp_servers.local_echo]
+enabled = false
+command = "node"
+disabled_tools = ["echo", "status", "echo"]
+`.trim()
+      );
+
+      const result = await loadWorkspaceMcpConfig(workspaceRoot);
+
+      expect(result.diagnostics).toEqual([]);
+      expect(result.servers).toEqual([
+        {
+          name: "local_echo",
+          transport: "stdio",
+          enabled: false,
+          disabledTools: ["echo", "status"],
+          command: "node",
+          args: [],
+          env: {}
         }
       ]);
     } finally {

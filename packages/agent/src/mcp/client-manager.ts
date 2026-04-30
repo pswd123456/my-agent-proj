@@ -90,13 +90,23 @@ async function connectServer(
 
     await client.connect(transport as Transport);
     const listedTools = await client.listTools();
-    const runtimeTools = listedTools.tools.map((definition) =>
-      createMcpRuntimeTool({
+    const disabledTools = new Set(serverConfig.disabledTools);
+    const toolEntries = listedTools.tools.map((definition) => {
+      const runtimeTool = createMcpRuntimeTool({
         serverName: serverConfig.name,
         definition,
         client
-      })
-    );
+      });
+      const enabled = !disabledTools.has(definition.name);
+      return {
+        definition,
+        runtimeTool,
+        enabled
+      };
+    });
+    const runtimeTools = toolEntries
+      .filter((entry) => entry.enabled)
+      .map((entry) => entry.runtimeTool);
 
     return {
       client,
@@ -106,7 +116,16 @@ async function connectServer(
         name: serverConfig.name,
         transport: serverConfig.transport,
         status: "loaded",
-        toolNames: runtimeTools.map((tool) => tool.name)
+        toolNames: runtimeTools.map((tool) => tool.name),
+        tools: toolEntries.map((entry) => ({
+          name: entry.definition.name,
+          runtimeName: entry.runtimeTool.name,
+          description:
+            entry.definition.description?.trim() ||
+            entry.definition.title?.trim() ||
+            null,
+          enabled: entry.enabled
+        }))
       }
     };
   } catch (error) {
@@ -126,6 +145,17 @@ export async function loadWorkspaceMcpTools(
   const summaries: WorkspaceMcpServerLoadSummary[] = [];
 
   for (const serverConfig of config.servers) {
+    if (!serverConfig.enabled) {
+      summaries.push({
+        name: serverConfig.name,
+        transport: serverConfig.transport,
+        status: "disabled",
+        toolNames: [],
+        tools: []
+      });
+      continue;
+    }
+
     try {
       const connected = await connectServer(workingDirectory, serverConfig);
       connectedServers.push(connected);
@@ -138,6 +168,7 @@ export async function loadWorkspaceMcpTools(
         transport: serverConfig.transport,
         status: "failed",
         toolNames: [],
+        tools: [],
         error: message
       });
     }

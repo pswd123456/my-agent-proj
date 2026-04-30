@@ -24,14 +24,17 @@ import type { ToolExecutionContext } from "./runtime-tool.js";
 
 const APPLY_PATCH_DESCRIPTION = [
   "Apply a standard unified diff patch to one or more workspace files after approval.",
-  "Existing files MUST be read with read_file in this session before modification or deletion.",
-  "Patch hunks must match the current file exactly, including blank lines; hunk counts must equal context+deleted lines for old and context+added lines for new."
+  "Read before edit: existing files MUST have current session file state from read_file before modification or deletion; search/load tool content does not count.",
+  "Patch hunks must match the current file exactly, including blank lines; oldStart is the 1-based line of the first hunk body line.",
+  "hunk counts must equal context+deleted lines for old and context+added lines for new."
 ].join(" ");
 
 const PATCH_INPUT_DESCRIPTION = [
-  "Complete unified diff text. Use --- a/path and +++ b/path, then @@ -oldStart,oldCount +newStart,newCount @@.",
-  "Lines in a hunk start with: space for unchanged context, - for deletion, + for addition. An unchanged blank line is a single leading space.",
+  "Complete unified diff text. Use --- a/path and +++ b/path, then @@ -oldStart,oldCount +newStart,newCount @@. oldStart is the 1-based line number of the first hunk body line in the current file.",
+  "Each hunk body line starts with exactly one prefix: space for unchanged context, - for deletion, + for addition. An unchanged blank line is a single leading space followed by nothing.",
+  "Counts: oldCount = context + deleted lines; newCount = context + added lines. Include blank context lines in both counts.",
   "Example modify: --- a/file.txt\\n+++ b/file.txt\\n@@ -1,2 +1,3 @@\\n one\\n two\\n+three",
+  "Example delete with leading blank context: --- a/file.md\\n+++ b/file.md\\n@@ -15,6 +15,5 @@\\n \\n line A\\n line B\\n-old line\\n \\n heading",
   "Example create: --- /dev/null\\n+++ b/new.txt\\n@@ -0,0 +1,2 @@\\n+one\\n+two"
 ].join(" ");
 

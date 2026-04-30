@@ -180,8 +180,10 @@ describe("find_files", () => {
 describe("apply_patch", () => {
   test("schema explains exact hunk counts and patch examples", () => {
     const tool = createApplyPatchTool("/tmp/workspace");
+    expect(tool.description).toContain("Read before edit");
     expect(tool.description).toContain("hunk counts");
     expect(tool.description).toContain("blank lines");
+    expect(tool.description).toContain("oldStart is the 1-based line");
 
     const patchSchema = tool.inputSchema.properties?.patch;
     if (
@@ -196,7 +198,16 @@ describe("apply_patch", () => {
     expect(patchSchema.description).toContain(
       "@@ -oldStart,oldCount +newStart,newCount @@"
     );
+    expect(patchSchema.description).toContain(
+      "oldStart is the 1-based line number"
+    );
+    expect(patchSchema.description).toContain(
+      "oldCount = context + deleted lines"
+    );
     expect(patchSchema.description).toContain("Example modify");
+    expect(patchSchema.description).toContain(
+      "Example delete with leading blank context"
+    );
     expect(patchSchema.description).toContain("Example create");
     expect(patchSchema.description).toContain("single leading space");
   });
@@ -357,6 +368,76 @@ describe("apply_patch", () => {
     expect(result.state).toBe("failed");
     expect(result.result.code).toBe("FILE_WRITE_REQUIRES_READ");
     await expect(readFile(targetPath, "utf8")).resolves.toBe("one\ntwo\n");
+  });
+
+  test("explains mismatched hunk counts with header and body counts", async () => {
+    const workspace = await createWorkspace();
+    await writeFile(path.join(workspace, "alpha.txt"), "one\ntwo\nthree\n");
+    const sessionMessages = await createReadMessages({
+      workspace,
+      toolCallId: "read-alpha",
+      path: "alpha.txt"
+    });
+
+    const result = await createApplyPatchTool(workspace).execute(
+      {
+        patch: [
+          "--- a/alpha.txt",
+          "+++ b/alpha.txt",
+          "@@ -1,2 +1,1 @@",
+          " one",
+          "-two",
+          " three"
+        ].join("\n")
+      },
+      createContext(workspace, { sessionMessages })
+    );
+
+    expect(result.state).toBe("failed");
+    expect(result.result.code).toBe("PATCH_APPLY_FAILED");
+    expect(result.content).toContain(
+      "Header says old=2, new=1; hunk body consumes old=3, produces new=2."
+    );
+    expect(result.content).toContain(
+      "Fix the @@ header counts or remove extra hunk body lines."
+    );
+  });
+
+  test("explains context mismatch with oldStart guidance", async () => {
+    const workspace = await createWorkspace();
+    await writeFile(
+      path.join(workspace, "alpha.md"),
+      "\nline A\nline B\nold line\n\nheading\n"
+    );
+    const sessionMessages = await createReadMessages({
+      workspace,
+      toolCallId: "read-alpha",
+      path: "alpha.md"
+    });
+
+    const result = await createApplyPatchTool(workspace).execute(
+      {
+        patch: [
+          "--- a/alpha.md",
+          "+++ b/alpha.md",
+          "@@ -2,6 +2,5 @@",
+          " ",
+          " line A",
+          " line B",
+          "-old line",
+          " ",
+          " heading"
+        ].join("\n")
+      },
+      createContext(workspace, { sessionMessages })
+    );
+
+    expect(result.state).toBe("failed");
+    expect(result.result.code).toBe("PATCH_APPLY_FAILED");
+    expect(result.content).toContain(
+      "oldStart must point at the first hunk body line"
+    );
+    expect(result.content).toContain("including unchanged blank lines");
   });
 
   test("fails when a patched file changed after the previous session read", async () => {

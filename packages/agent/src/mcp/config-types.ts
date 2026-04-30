@@ -15,6 +15,8 @@ export interface WorkspaceMcpConfigDiagnostic {
 export interface WorkspaceMcpStdioServerConfig {
   name: string;
   transport: "stdio";
+  enabled: boolean;
+  disabledTools: string[];
   command: string;
   args: string[];
   env: Record<string, string>;
@@ -23,6 +25,8 @@ export interface WorkspaceMcpStdioServerConfig {
 export interface WorkspaceMcpHttpServerConfig {
   name: string;
   transport: "http";
+  enabled: boolean;
+  disabledTools: string[];
   url: string;
   headers: Record<string, string>;
 }
@@ -41,9 +45,17 @@ export interface WorkspaceMcpConfigLoadResult {
 export interface WorkspaceMcpServerLoadSummary {
   name: string;
   transport: WorkspaceMcpTransportKind;
-  status: "loaded" | "failed";
+  status: "loaded" | "failed" | "disabled";
   toolNames: string[];
+  tools?: WorkspaceMcpToolLoadSummary[];
   error?: string;
+}
+
+export interface WorkspaceMcpToolLoadSummary {
+  name: string;
+  runtimeName: string;
+  description: string | null;
+  enabled: boolean;
 }
 
 export interface WorkspaceMcpLoadResult {

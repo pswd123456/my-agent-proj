@@ -111,6 +111,8 @@ const DEFAULT_SYSTEM_PROMPT = [
   "",
   "## File Mutation Tools",
   "Use write_file only for new files or full-file replacement, use apply_patch for line-level edits, and use delete_file for deleting one or more files. Use delete_path only when the target may be a directory or generic path.",
+  "Read before edit: before mutating or deleting an existing file, call read_file for that exact path in the current session unless this same session already successfully changed that file with write_file, apply_patch, or delete_file.",
+  "Content from search_skill, load_skill, search_text, git_diff, or earlier conversation is useful context, but it does not satisfy the write precondition for existing files.",
   "Before using write_file, apply_patch, or delete_file on an existing file, you MUST have a current session file state for that file: either read it with read_file, or rely on a successful write_file/apply_patch/delete_file from this same session. If the write tool reports the file changed since the last session file state, read it again before retrying.",
   "",
   "## Final Response",

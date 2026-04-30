@@ -47,8 +47,6 @@ import { createSearchSkillTool } from "./search-skill.js";
 import { createSearchTaskBriefTool } from "./search-task-brief.js";
 import { createSearchTextTool } from "./search-text.js";
 import { createUpdateTodoItemsTool } from "./update-todo-items.js";
-import { createWebFetchTool } from "./web-fetch.js";
-import { createWebSearchTool } from "./web-search.js";
 import { createWriteFileTool } from "./write-file.js";
 import type { RuntimeTool } from "./runtime-tool.js";
 
@@ -202,17 +200,6 @@ export function createScheduleToolRegistry(options: {
   ]);
 }
 
-export function createWebToolRegistry(options?: {
-  env?: NodeJS.ProcessEnv;
-}): ToolRegistry {
-  return registerTools(new ToolRegistry(), [
-    options?.env
-      ? createWebSearchTool({ env: options.env })
-      : createWebSearchTool(),
-    createWebFetchTool()
-  ]);
-}
-
 export function createLspToolRegistry(options: {
   workingDirectory: string;
   lspServerManager?: LspServerManager;
@@ -239,15 +226,6 @@ export function createDefaultToolRegistry(options: {
   }
   if (enabled.has("schedule")) {
     for (const tool of createScheduleToolRegistry(options).list()) {
-      registry.register(tool);
-    }
-  }
-  if (enabled.has("web")) {
-    for (const tool of
-      (options.env
-        ? createWebToolRegistry({ env: options.env })
-        : createWebToolRegistry()
-      ).list()) {
       registry.register(tool);
     }
   }
@@ -281,13 +259,6 @@ export function listSettingsPermissionToolOptions(options: {
 
   for (const tool of createScheduleToolRegistry(options).list()) {
     const option = toSettingsPermissionToolOption(tool, "schedule");
-    if (option) {
-      tools.set(option.name, option);
-    }
-  }
-
-  for (const tool of createWebToolRegistry({ env: process.env }).list()) {
-    const option = toSettingsPermissionToolOption(tool, "web");
     if (option) {
       tools.set(option.name, option);
     }
