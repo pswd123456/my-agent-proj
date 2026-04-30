@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  hasActiveExecutionLease,
   serializeBlock,
   toSessionContext,
   toConversationBlock,
@@ -8,6 +9,7 @@ import {
   type SessionMessageRow
 } from "../src/session/postgres-session-manager.js";
 import { isConversationBlock } from "../src/session/shared.js";
+import { DEFAULT_EXECUTION_LEASE_TIMEOUT_MS } from "../src/session/contracts.js";
 
 describe("toIsoString", () => {
   test("preserves timestamps that already include a timezone", () => {
@@ -214,5 +216,39 @@ describe("toIsoString", () => {
     expect(sessionContext.fullCompactionState?.promptVersion).toBe(
       "full-compaction-v1"
     );
+  });
+});
+
+describe("hasActiveExecutionLease", () => {
+  test("treats a recent execution lease as active", () => {
+    expect(
+      hasActiveExecutionLease({
+        activeRunId: "run-1",
+        activeRunStartedAt: "2026-04-30T00:00:00.000Z",
+        now: Date.parse("2026-04-30T00:10:00.000Z")
+      })
+    ).toBe(true);
+  });
+
+  test("treats a stale execution lease as inactive", () => {
+    expect(
+      hasActiveExecutionLease({
+        activeRunId: "run-1",
+        activeRunStartedAt: "2026-04-30T00:00:00.000Z",
+        now:
+          Date.parse("2026-04-30T00:00:00.000Z") +
+          DEFAULT_EXECUTION_LEASE_TIMEOUT_MS +
+          1
+      })
+    ).toBe(false);
+  });
+
+  test("does not keep a missing start timestamp active forever", () => {
+    expect(
+      hasActiveExecutionLease({
+        activeRunId: "run-1",
+        activeRunStartedAt: null
+      })
+    ).toBe(false);
   });
 });

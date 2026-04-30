@@ -8,7 +8,9 @@ import {
   collectWorkspaceFileChangesFromRun,
   getRunFileChangesAggregateState,
   getSelectedWorkspaceFileChanges,
-  mergeRunFileChangesStates
+  mergeRunFileChangesStates,
+  shouldApplySelectedSessionResponse,
+  shouldApplySessionListResponse
 } from "./session-workbench";
 
 const runCompleteWithFileChanges: Extract<
@@ -289,5 +291,69 @@ describe("session-workbench run file changes", () => {
       selectedFileIndexes: [],
       errorText: "stale"
     });
+  });
+});
+
+describe("session-workbench session list response guard", () => {
+  test("accepts the latest settled session list response", () => {
+    expect(
+      shouldApplySessionListResponse({
+        requestVersion: 4,
+        currentVersion: 4,
+        mutationInFlight: false
+      })
+    ).toBe(true);
+  });
+
+  test("rejects a stale response after the session list version changes", () => {
+    expect(
+      shouldApplySessionListResponse({
+        requestVersion: 4,
+        currentVersion: 5,
+        mutationInFlight: false
+      })
+    ).toBe(false);
+  });
+
+  test("rejects responses while a destructive session mutation is in flight", () => {
+    expect(
+      shouldApplySessionListResponse({
+        requestVersion: 4,
+        currentVersion: 4,
+        mutationInFlight: true
+      })
+    ).toBe(false);
+  });
+});
+
+describe("session-workbench selected session response guard", () => {
+  test("accepts the latest selected session response when no mutation is active", () => {
+    expect(
+      shouldApplySelectedSessionResponse({
+        expectedSessionId: "session-1",
+        currentSessionId: "session-1",
+        mutationInFlight: false
+      })
+    ).toBe(true);
+  });
+
+  test("rejects a stale selected session response after selection changes", () => {
+    expect(
+      shouldApplySelectedSessionResponse({
+        expectedSessionId: "session-1",
+        currentSessionId: "session-2",
+        mutationInFlight: false
+      })
+    ).toBe(false);
+  });
+
+  test("rejects selected session responses while a destructive mutation is in flight", () => {
+    expect(
+      shouldApplySelectedSessionResponse({
+        expectedSessionId: "session-1",
+        currentSessionId: "session-1",
+        mutationInFlight: true
+      })
+    ).toBe(false);
   });
 });

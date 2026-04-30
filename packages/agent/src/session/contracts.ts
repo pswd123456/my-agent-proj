@@ -9,6 +9,8 @@ export interface AcquireExecutionOptions {
   staleAfterMs?: number;
 }
 
+export const DEFAULT_EXECUTION_LEASE_TIMEOUT_MS = 30 * 60_000;
+
 export interface SessionManager {
   createSession(input?: CreateSessionInput): Promise<SessionSnapshot>;
   getSession(sessionId: string): Promise<SessionSnapshot | null>;

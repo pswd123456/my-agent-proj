@@ -32,6 +32,7 @@ import type { RunEventSink } from "./events.js";
 import type { DelegateAgentService } from "./delegation/index.js";
 import type { BackgroundTaskManager } from "./background-tasks/index.js";
 import { runSessionLoop } from "./runtime/run-loop.js";
+import { DEFAULT_EXECUTION_LEASE_TIMEOUT_MS } from "./session/contracts.js";
 
 export interface AgentRuntimeOptions {
   systemLogManager?: SystemLogManager;
@@ -221,6 +222,9 @@ export class AgentRuntime {
       sessionId: input.sessionId,
       runId
     });
+    const executionLeaseTimeoutMs =
+      this.options.executionLeaseTimeoutMs ??
+      DEFAULT_EXECUTION_LEASE_TIMEOUT_MS;
     await runtimeLogger?.info("run_started", {
       hasMessage: typeof input.message === "string",
       permissionReply: input.permissionReply ?? null
@@ -230,9 +234,7 @@ export class AgentRuntime {
       input.sessionId,
       {
         runId,
-        ...(typeof this.options.executionLeaseTimeoutMs === "number"
-          ? { staleAfterMs: this.options.executionLeaseTimeoutMs }
-          : {})
+        staleAfterMs: executionLeaseTimeoutMs
       }
     );
     if (!acquiredSession) {

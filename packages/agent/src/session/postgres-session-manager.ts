@@ -28,6 +28,7 @@ import type {
   ToolResultDetails
 } from "../types.js";
 import type { SessionManager } from "./contracts.js";
+import { DEFAULT_EXECUTION_LEASE_TIMEOUT_MS } from "./contracts.js";
 import {
   cloneSnapshot,
   createSnapshot,
@@ -185,6 +186,37 @@ export function toIsoString(value: string | Date): string {
   return new Date(
     hasExplicitTimeZone ? parsedValue : `${normalized}Z`
   ).toISOString();
+}
+
+export function hasActiveExecutionLease(input: {
+  activeRunId: string | null;
+  activeRunStartedAt: string | Date | null;
+  now?: number;
+  staleAfterMs?: number;
+}): boolean {
+  if (!input.activeRunId) {
+    return false;
+  }
+
+  const staleAfterMs =
+    typeof input.staleAfterMs === "number"
+      ? input.staleAfterMs
+      : DEFAULT_EXECUTION_LEASE_TIMEOUT_MS;
+  if (!Number.isFinite(staleAfterMs) || staleAfterMs < 0) {
+    return true;
+  }
+
+  if (!input.activeRunStartedAt) {
+    return false;
+  }
+
+  const startedAtMs = new Date(input.activeRunStartedAt).getTime();
+  if (!Number.isFinite(startedAtMs)) {
+    return false;
+  }
+
+  const now = input.now ?? Date.now();
+  return now - startedAtMs < staleAfterMs;
 }
 
 export function toConversationBlock(row: SessionMessageRow): ConversationBlock {
@@ -550,13 +582,18 @@ export class PostgresSessionManager implements SessionManager {
   async isExecutionActive(sessionId: string): Promise<boolean> {
     const rows = await this.db
       .select({
-        isActive: sql<boolean>`${agentSessions.activeRunId} is not null`
+        activeRunId: agentSessions.activeRunId,
+        activeRunStartedAt: agentSessions.activeRunStartedAt
       })
       .from(agentSessions)
       .where(eq(agentSessions.id, sessionId))
       .limit(1);
 
-    return rows[0]?.isActive ?? false;
+    const row = rows[0];
+    return hasActiveExecutionLease({
+      activeRunId: row?.activeRunId ?? null,
+      activeRunStartedAt: row?.activeRunStartedAt ?? null
+    });
   }
 
   async requestInterrupt(sessionId: string): Promise<SessionSnapshot | null> {

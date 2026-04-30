@@ -84,6 +84,7 @@ interface SessionWorkbenchDrawerProps {
   loadingSettings: boolean;
   savingSettings: boolean;
   clearingSessionHistory: boolean;
+  clearHistoryErrorText: string | null;
   choosingWorkingDirectory: boolean;
   pendingPermissionToolName: string | null;
   weekDates: string[];
@@ -119,6 +120,7 @@ export function SessionWorkbenchDrawer({
   loadingSettings,
   savingSettings,
   clearingSessionHistory,
+  clearHistoryErrorText,
   choosingWorkingDirectory,
   pendingPermissionToolName,
   weekDates,
@@ -229,6 +231,11 @@ export function SessionWorkbenchDrawer({
                   <div className="text-xs leading-6 text-[var(--app-text-muted)]">
                     删除所有会话记录，保留当前设置并重新开始。
                   </div>
+                  {clearHistoryErrorText ? (
+                    <div className="rounded-[var(--app-radius-lg)] border border-[var(--app-status-danger)]/40 bg-[color:color-mix(in_srgb,var(--app-status-danger)_10%,transparent)] px-3 py-2 text-xs leading-6 text-[var(--app-status-danger)]">
+                      {clearHistoryErrorText}
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
 

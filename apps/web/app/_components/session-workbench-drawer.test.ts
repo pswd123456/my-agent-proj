@@ -1,0 +1,136 @@
+import { describe, expect, test } from "bun:test";
+import type {
+  RoutineRecord,
+  SessionSnapshot,
+  SettingsPermissionToolOption
+} from "@ai-app-template/sdk";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+
+import type { InspectorProjection } from "./session-message-manager";
+import { SessionWorkbenchDrawer } from "./session-workbench-drawer";
+import type { SettingsFormState } from "./session-workbench-types";
+
+function createSessionSnapshot(): SessionSnapshot {
+  return {
+    sessionId: "session-1",
+    workingDirectory: "/tmp/workspace",
+    model: "MiniMax-M2.7",
+    contextWindow: 200_000,
+    maxTurns: 50,
+    context: {
+      userId: "user-1",
+      status: "waiting_for_user_input",
+      currentDateContext: "2026-04-30",
+      yoloMode: false,
+      planModeEnabled: false,
+      thinkingEffort: "medium",
+      taskBriefPath: null,
+      workspaceEscapeAllowed: false,
+      shellAllowPatterns: [],
+      shellDenyPatterns: [],
+      toolAllowList: [],
+      toolAskList: [],
+      toolDenyList: [],
+      enabledCapabilityPacks: ["workspace"],
+      activeBackgroundTaskCount: 0,
+      pendingPermissionRequest: null,
+      pendingConfirmationPayload: null,
+      pendingUserQuestionPayload: null,
+      pendingBackgroundNotifications: [],
+      todoState: null,
+      fullCompactionState: null,
+      pendingConflictSummary: null,
+      firstUserMessage: null,
+      lastUserMessage: null
+    },
+    messages: [],
+    sessionState: {
+      loopState: "waiting for input",
+      turnCount: 0,
+      lastError: null,
+      pendingToolCallIds: [],
+      interruptRequested: false,
+      historyCompactionsSinceFullCompaction: 0
+    },
+    inputTokensCount: 0,
+    promptCacheKey: "",
+    updatedAt: "2026-04-30T00:00:00.000Z"
+  };
+}
+
+function createSettingsFormState(): SettingsFormState {
+  return {
+    workingDirectory: "/tmp/workspace",
+    model: "MiniMax-M2.7",
+    thinkingEffort: "medium",
+    yoloMode: false,
+    contextWindow: "200000",
+    maxTurns: "50",
+    shellAllowPatterns: "",
+    shellDenyPatterns: "",
+    toolAllowList: [],
+    toolAskList: [],
+    toolDenyList: [],
+    enabledCapabilityPacks: ["workspace"],
+    debugConversationView: false
+  };
+}
+
+function createInspectorProjection(): InspectorProjection {
+  return {
+    inspectorEvents: [],
+    promptEvents: [],
+    latestPromptEvent: undefined,
+    thinkingEvents: [],
+    toolRows: [],
+    turnUsageByTurnCount: new Map()
+  };
+}
+
+const permissionTools: SettingsPermissionToolOption[] = [];
+const groupedRoutines = new Map<string, RoutineRecord[]>();
+
+describe("session-workbench drawer", () => {
+  test("shows clear-history failures in the settings panel", () => {
+    const markup = renderToStaticMarkup(
+      createElement(SessionWorkbenchDrawer, {
+        activeSidebarPanel: "settings",
+        currentSession: createSessionSnapshot(),
+        loadingSession: false,
+        submitting: false,
+        resettingRoutines: false,
+        settingsMeta: "user cli-user",
+        settingsStatusText: "",
+        settingsForm: createSettingsFormState(),
+        permissionTools,
+        loadingSettings: false,
+        savingSettings: false,
+        clearingSessionHistory: false,
+        clearHistoryErrorText:
+          "One or more sessions are currently running. Wait for active runs to finish before clearing history.",
+        choosingWorkingDirectory: false,
+        pendingPermissionToolName: null,
+        weekDates: [],
+        groupedRoutines,
+        inspectorProjection: createInspectorProjection(),
+        activeTab: "prompt",
+        onResetAllRoutines: () => {},
+        onSelectTab: () => {},
+        onSettingsFormChange: () => {},
+        onSettingsBlur: () => {},
+        onChooseWorkingDirectory: () => {},
+        onClearSessionHistory: () => {},
+        onSettingsYoloModeChange: () => {},
+        onSettingsDebugConversationViewChange: () => {},
+        onSettingsPermissionToolToggle: () => {},
+        onSettingsCapabilityPackToggle: () => {}
+      })
+    );
+
+    expect(markup).toContain("清除历史会话");
+    expect(markup).toContain(
+      "One or more sessions are currently running. Wait for active runs to finish before clearing history."
+    );
+  });
+});

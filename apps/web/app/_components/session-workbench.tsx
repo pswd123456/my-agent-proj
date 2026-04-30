@@ -92,6 +92,27 @@ const SESSION_LIST_REFRESH_INTERVAL_MS = 5_000;
 
 export type RunFileChangesState = RunFileChangesView;
 
+export function shouldApplySessionListResponse(input: {
+  requestVersion: number;
+  currentVersion: number;
+  mutationInFlight: boolean;
+}): boolean {
+  return (
+    !input.mutationInFlight && input.requestVersion === input.currentVersion
+  );
+}
+
+export function shouldApplySelectedSessionResponse(input: {
+  expectedSessionId: string;
+  currentSessionId: string | null;
+  mutationInFlight: boolean;
+}): boolean {
+  return (
+    !input.mutationInFlight &&
+    input.expectedSessionId === input.currentSessionId
+  );
+}
+
 export function getRunFileChangesAggregateState(
   fileStates: Array<"applied" | "undone">
 ): RunFileChangesState["state"] {
@@ -307,6 +328,8 @@ export function SessionWorkbench() {
   const selectedSessionIdRef = useRef<string | null>(null);
   const preferredUserIdRef = useRef<string | null>(null);
   const backgroundRefreshInFlightRef = useRef(false);
+  const sessionListRefreshVersionRef = useRef(0);
+  const sessionListMutationInFlightRef = useRef(false);
 
   const [sessionRegistry, setSessionRegistry] = useState(() =>
     createSessionRegistryState()
@@ -336,6 +359,9 @@ export function SessionWorkbench() {
     null
   );
   const [clearingSessionHistory, setClearingSessionHistory] = useState(false);
+  const [clearHistoryErrorText, setClearHistoryErrorText] = useState<
+    string | null
+  >(null);
   const [resettingRoutines, setResettingRoutines] = useState(false);
   const [userSettings, setUserSettings] =
     useState<SessionSettingsRecord | null>(null);
@@ -407,6 +433,16 @@ export function SessionWorkbench() {
     setActiveSidebarPanel(clearActiveSidebarPanel());
   }
 
+  function beginSessionListMutation() {
+    sessionListMutationInFlightRef.current = true;
+    sessionListRefreshVersionRef.current += 1;
+  }
+
+  function endSessionListMutation() {
+    sessionListMutationInFlightRef.current = false;
+    sessionListRefreshVersionRef.current += 1;
+  }
+
   useEffect(() => {
     let cancelled = false;
 
@@ -416,12 +452,31 @@ export function SessionWorkbench() {
 
       try {
         const modelsResultPromise = apiClient.listModels().catch(() => null);
+        const listRequestVersion = sessionListRefreshVersionRef.current;
         let snapshots = await apiClient.listSessions();
+        if (
+          cancelled ||
+          !shouldApplySessionListResponse({
+            requestVersion: listRequestVersion,
+            currentVersion: sessionListRefreshVersionRef.current,
+            mutationInFlight: sessionListMutationInFlightRef.current
+          })
+        ) {
+          return;
+        }
         if (!snapshots.length) {
-          const created = await apiClient.createSession(
-            getCreateSessionPayload()
-          );
-          snapshots = [created];
+          beginSessionListMutation();
+          try {
+            const created = await apiClient.createSession(
+              getCreateSessionPayload()
+            );
+            if (cancelled) {
+              return;
+            }
+            snapshots = [created];
+          } finally {
+            endSessionListMutation();
+          }
         }
 
         const modelsResult = await modelsResultPromise;
@@ -482,7 +537,14 @@ export function SessionWorkbench() {
           apiClient.getUserSettingsPayload(session.context.userId)
         ]);
 
-        if (cancelled) {
+        if (
+          cancelled ||
+          !shouldApplySelectedSessionResponse({
+            expectedSessionId: sessionId,
+            currentSessionId: selectedSessionIdRef.current,
+            mutationInFlight: sessionListMutationInFlightRef.current
+          })
+        ) {
           return;
         }
 
@@ -552,7 +614,13 @@ export function SessionWorkbench() {
             } | null>(null)
       ]);
 
-      if (selectedSessionIdRef.current !== sessionId) {
+      if (
+        !shouldApplySelectedSessionResponse({
+          expectedSessionId: sessionId,
+          currentSessionId: selectedSessionIdRef.current,
+          mutationInFlight: sessionListMutationInFlightRef.current
+        })
+      ) {
         return;
       }
 
@@ -591,6 +659,7 @@ export function SessionWorkbench() {
     const intervalId = window.setInterval(() => {
       if (
         backgroundRefreshInFlightRef.current ||
+        sessionListMutationInFlightRef.current ||
         selectedSessionIdRef.current !== sessionId
       ) {
         return;
@@ -624,9 +693,23 @@ export function SessionWorkbench() {
     }
 
     const intervalId = window.setInterval(() => {
+      if (sessionListMutationInFlightRef.current) {
+        return;
+      }
+
+      const requestVersion = sessionListRefreshVersionRef.current;
       void apiClient
         .listSessions()
         .then((snapshots) => {
+          if (
+            !shouldApplySessionListResponse({
+              requestVersion,
+              currentVersion: sessionListRefreshVersionRef.current,
+              mutationInFlight: sessionListMutationInFlightRef.current
+            })
+          ) {
+            return;
+          }
           setSessionRegistry((current) => replaceSessions(current, snapshots));
         })
         .catch(() => undefined);
@@ -660,7 +743,9 @@ export function SessionWorkbench() {
     try {
       setCreatingSession(true);
       setErrorText(null);
+      beginSessionListMutation();
       const session = await apiClient.createSession(getCreateSessionPayload());
+      selectedSessionIdRef.current = session.sessionId;
       setSessionRegistry((current) =>
         upsertSession(selectSession(current, session.sessionId), session)
       );
@@ -674,12 +759,14 @@ export function SessionWorkbench() {
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : String(error));
     } finally {
+      endSessionListMutation();
       setCreatingSession(false);
     }
   }
 
   function handleSelectSession(sessionId: string) {
     focusConversationView();
+    selectedSessionIdRef.current = sessionId;
     setSessionRegistry((current) => selectSession(current, sessionId));
     setRunFileChanges([]);
     setMessageManagerState(resetMessageManagerState());
@@ -698,6 +785,10 @@ export function SessionWorkbench() {
     setErrorText(null);
 
     try {
+      beginSessionListMutation();
+      if (selectedSessionId === sessionId) {
+        selectedSessionIdRef.current = null;
+      }
       await apiClient.deleteSession(sessionId);
       const refreshedSessions = await apiClient.listSessions();
       setSessionRegistry((current) =>
@@ -709,6 +800,7 @@ export function SessionWorkbench() {
       }
 
       const nextSessionId = refreshedSessions[0]?.sessionId ?? null;
+      selectedSessionIdRef.current = nextSessionId;
       setSessionRegistry((current) => clearCurrentSession(current));
       setSessionUiState((current) => setSessionSnapshot(current, null));
       setTraceRecords([]);
@@ -725,6 +817,7 @@ export function SessionWorkbench() {
       const newSession = await apiClient.createSession(
         getCreateSessionPayload()
       );
+      selectedSessionIdRef.current = newSession.sessionId;
       setSessionRegistry(
         hydrateSelectedSession(createSessionRegistryState(), newSession)
       );
@@ -733,6 +826,7 @@ export function SessionWorkbench() {
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : String(error));
     } finally {
+      endSessionListMutation();
       setDeletingSessionId(null);
     }
   }
@@ -750,9 +844,12 @@ export function SessionWorkbench() {
     }
 
     setClearingSessionHistory(true);
+    setClearHistoryErrorText(null);
     setErrorText(null);
 
     try {
+      beginSessionListMutation();
+      selectedSessionIdRef.current = null;
       await apiClient.clearSessionHistory();
       setSessionRegistry(createSessionRegistryState());
       setSessionUiState((current) => setSessionSnapshot(current, null));
@@ -764,6 +861,7 @@ export function SessionWorkbench() {
       const newSession = await apiClient.createSession(
         getCreateSessionPayload()
       );
+      selectedSessionIdRef.current = newSession.sessionId;
       setSessionRegistry(
         hydrateSelectedSession(createSessionRegistryState(), newSession)
       );
@@ -771,8 +869,12 @@ export function SessionWorkbench() {
       setRunFileChanges(buildRunFileChangesStatesFromSession(newSession));
       router.replace(`/?sessionId=${newSession.sessionId}`, { scroll: false });
     } catch (error) {
-      setErrorText(error instanceof Error ? error.message : String(error));
+      const nextErrorText =
+        error instanceof Error ? error.message : String(error);
+      setClearHistoryErrorText(nextErrorText);
+      setErrorText(nextErrorText);
     } finally {
+      endSessionListMutation();
       setClearingSessionHistory(false);
     }
   }
@@ -1523,6 +1625,7 @@ export function SessionWorkbench() {
               loadingSettings={loadingSettings}
               savingSettings={savingSettings}
               clearingSessionHistory={clearingSessionHistory}
+              clearHistoryErrorText={clearHistoryErrorText}
               choosingWorkingDirectory={choosingWorkingDirectory}
               pendingPermissionToolName={pendingPermissionToolName}
               weekDates={weekDates}
