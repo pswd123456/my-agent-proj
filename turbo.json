@@ -21,6 +21,7 @@
         "ANTHROPIC_MODEL",
         "ANTHROPIC_MAX_TOKENS",
         "MAX_TOKENS",
+        "FIRECRAWL_API_KEY",
         "DEEPSEEK_API_KEY",
         "DEEPSEEK_BASE_URL",
         "DEFAULT_AGENT_MODEL",
