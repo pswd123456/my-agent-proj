@@ -15,7 +15,6 @@ Run `git status` at the repo root. Separate results into:
 
 - **Modified** (worktree `M` or staged `M`): already-tracked files with changes.
 - **Untracked** (`??`): new files not yet tracked.
-- Ignore deleted files unless the user explicitly wants them.
 
 ### 2. Group by logical area
 
