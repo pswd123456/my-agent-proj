@@ -70,6 +70,10 @@ export function getConversationScrollIntent(
     return "none";
   }
 
+  if (!previous) {
+    return "follow-latest-item";
+  }
+
   if (previous?.latestTurnAnchorKey !== next.latestTurnAnchorKey) {
     return next.latestTurnAnchorKey
       ? "align-latest-turn"

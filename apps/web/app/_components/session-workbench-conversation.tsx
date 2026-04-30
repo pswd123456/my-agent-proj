@@ -44,9 +44,14 @@ import {
   buildConversationScrollSnapshot,
   getConversationScrollIntent,
   getConversationResizeAutoFollowIntent,
-  updateConversationAutoFollowState
+  updateConversationAutoFollowState,
+  type ConversationScrollSnapshot
 } from "./session-workbench-scroll";
-import { getTimelineEventKey, type TimelineItem } from "./session-timeline";
+import {
+  getTimelineEventKey,
+  type TimelineItem,
+  type TimelineUserHookMetadata
+} from "./session-timeline";
 import type { TurnUsageSummary } from "./session-workbench-types";
 import {
   formatCacheUsage,
@@ -150,7 +155,7 @@ interface TypewriterTextContentProps {
   onAnimationComplete?: (itemKey: string) => void;
 }
 
-type MessageRole = "user" | "assistant";
+type MessageRole = "user" | "assistant" | "hook";
 
 interface ComposerSelectionRange {
   start: number;
@@ -355,6 +360,25 @@ function UnifiedDiffBlock({ diff }: { diff: string }) {
   );
 }
 
+function DiffCollapseButton({
+  onClick,
+  ariaLabel = "收起 diff"
+}: {
+  onClick: () => void;
+  ariaLabel?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={ariaLabel}
+      className="mt-2 w-full rounded-[var(--app-radius-md)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_68%,transparent)] px-3 py-2 text-xs font-medium text-[var(--app-text-secondary)] transition hover:border-[var(--app-border-accent)] hover:text-[var(--app-text-primary)]"
+    >
+      收起
+    </button>
+  );
+}
+
 interface BackgroundNotificationCopySource {
   summary: string;
   content: string;
@@ -469,9 +493,12 @@ function MessageRoleLabel({
   role: MessageRole;
   timestamp?: string | undefined;
 }) {
+  const roleLabel =
+    role === "user" ? "USER" : role === "hook" ? "HOOK" : "ASSISTANT";
+
   return (
     <div className="flex items-center gap-2 font-mono text-[0.65rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
-      <span>{role === "user" ? "USER" : "ASSISTANT"}</span>
+      <span>{roleLabel}</span>
       {timestamp ? (
         <span className="tracking-[0.08em]">{formatTimestamp(timestamp)}</span>
       ) : null}
@@ -528,6 +555,12 @@ interface ComposerActionView {
   buttonType: "submit" | "interrupt";
   disabled: boolean;
 }
+
+type ComposerEnterKeyIntent =
+  | "submit"
+  | "newline"
+  | "select-command"
+  | "ignore";
 
 function escapeTimelineItemKey(key: string): string {
   return key.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
@@ -738,6 +771,23 @@ export function buildComposerActionView(input: {
   };
 }
 
+export function getComposerEnterKeyIntent(input: {
+  key: string;
+  shiftKey: boolean;
+  isComposing: boolean;
+  commandMenuOpen?: boolean;
+}): ComposerEnterKeyIntent {
+  if (input.key !== "Enter" || input.isComposing) {
+    return "ignore";
+  }
+
+  if (input.shiftKey) {
+    return "newline";
+  }
+
+  return input.commandMenuOpen ? "select-command" : "submit";
+}
+
 export function getUserQuestionKey(
   payload: SessionSnapshot["context"]["pendingUserQuestionPayload"]
 ): string | null {
@@ -826,6 +876,42 @@ function renderUserMessageBlock(
     <div key={block.id} className="flex flex-col items-end gap-1">
       <MessageRoleLabel role="user" timestamp={block.createdAt} />
       <div className={getBubbleClass("user")}>{block.content}</div>
+    </div>
+  );
+}
+
+function getHookEventLabel(event: TimelineUserHookMetadata["event"]): string {
+  if (event === "session_started") {
+    return "SESSION START";
+  }
+
+  if (event === "run_started") {
+    return "RUN START";
+  }
+
+  return "RUN END";
+}
+
+function renderHookMessageBlock(
+  block: Extract<SessionSnapshot["messages"][number], { kind: "user" }>,
+  metadata: TimelineUserHookMetadata
+) {
+  return (
+    <div key={block.id} className="flex flex-col items-end gap-1">
+      <MessageRoleLabel role="hook" timestamp={block.createdAt} />
+      <div className="ml-auto max-w-[88%] rounded-[var(--app-radius-md)] rounded-br-sm border border-[color:color-mix(in_srgb,var(--app-border-accent)_68%,var(--app-border-subtle)_32%)] bg-[color:color-mix(in_srgb,var(--app-border-accent)_10%,var(--app-bg-elevated)_90%)] px-4 py-3 text-sm leading-7 text-[var(--app-text-primary)]">
+        <div className="mb-1 flex min-w-0 flex-wrap items-center gap-2 font-mono text-[0.66rem] uppercase tracking-[0.16em] text-[var(--app-text-muted)]">
+          <span className="text-[var(--app-status-success)]">
+            {getHookEventLabel(metadata.event)}
+          </span>
+          {metadata.title ? (
+            <span className="min-w-0 truncate tracking-[0.08em]">
+              {metadata.title}
+            </span>
+          ) : null}
+        </div>
+        <div>{block.content}</div>
+      </div>
     </div>
   );
 }
@@ -998,9 +1084,14 @@ function renderToolResultBlock(
 
 function renderConversationBlock(
   block: SessionSnapshot["messages"][number],
-  timestampedAssistantMessageIds: Set<string>
+  timestampedAssistantMessageIds: Set<string>,
+  userHook?: TimelineUserHookMetadata
 ) {
   if (block.kind === "user") {
+    if (userHook) {
+      return renderHookMessageBlock(block, userHook);
+    }
+
     return renderUserMessageBlock(block);
   }
 
@@ -1478,7 +1569,11 @@ function renderTimelineItem(
     return renderPendingUserMessage(item.text, item.createdAt);
   }
 
-  return renderConversationBlock(item.block, timestampedAssistantMessageIds);
+  return renderConversationBlock(
+    item.block,
+    timestampedAssistantMessageIds,
+    item.userHook
+  );
 }
 
 function renderCompactToolItem(
@@ -1566,6 +1661,7 @@ function renderCompactToolItem(
                   <UnifiedDiffBlock diff={file.diff} />
                 </section>
               ))}
+              <DiffCollapseButton onClick={() => onToggleExpanded(item.key)} />
             </div>
           ) : (
             <div className="grid gap-3">
@@ -1742,6 +1838,10 @@ function renderRunFileChangesPanel(input: {
               >
                 <div className="min-h-0 overflow-hidden">
                   <UnifiedDiffBlock diff={file.diff} />
+                  <DiffCollapseButton
+                    onClick={() => onToggleFile(fileKey)}
+                    ariaLabel={`收起 ${file.path} 的 diff`}
+                  />
                 </div>
               </div>
             </section>
@@ -2091,7 +2191,10 @@ export function SessionWorkbenchConversationPanel({
   const quickActionsRef = useRef<HTMLDivElement | null>(null);
   const conversationViewportRef = useRef<HTMLDivElement | null>(null);
   const timelineContentRef = useRef<HTMLDivElement | null>(null);
-  const previousScrollSnapshotRef = useRef(buildConversationScrollSnapshot([]));
+  const previousScrollSnapshotRef = useRef<ConversationScrollSnapshot | null>(
+    null
+  );
+  const pendingSessionEntryBottomScrollRef = useRef(false);
   const autoFollowLatestRef = useRef(true);
   const isProgrammaticScrollRef = useRef(false);
   const previousViewportScrollTopRef = useRef(0);
@@ -2354,6 +2457,33 @@ export function SessionWorkbenchConversationPanel({
     }
   );
 
+  const scrollConversationViewportToBottom = useEffectEvent(() => {
+    const viewport = conversationViewportRef.current;
+    if (!viewport) {
+      return;
+    }
+
+    const nextScrollTop = Math.max(
+      0,
+      viewport.scrollHeight - viewport.clientHeight
+    );
+
+    if (Math.abs(viewport.scrollTop - nextScrollTop) < 1) {
+      previousViewportScrollTopRef.current = viewport.scrollTop;
+      return;
+    }
+
+    isProgrammaticScrollRef.current = true;
+    viewport.scrollTop = nextScrollTop;
+    previousViewportScrollTopRef.current = nextScrollTop;
+
+    window.requestAnimationFrame(() => {
+      isProgrammaticScrollRef.current = false;
+      previousViewportScrollTopRef.current =
+        conversationViewportRef.current?.scrollTop ?? nextScrollTop;
+    });
+  });
+
   const keepLatestTurnInView = useEffectEvent(() => {
     if (!autoFollowLatestRef.current) {
       return;
@@ -2467,6 +2597,34 @@ export function SessionWorkbenchConversationPanel({
   function handleComposerKeyDown(
     event: ReactKeyboardEvent<HTMLTextAreaElement>
   ) {
+    const enterIntent = getComposerEnterKeyIntent({
+      key: event.key,
+      shiftKey: event.shiftKey,
+      isComposing: event.nativeEvent.isComposing,
+      commandMenuOpen: Boolean(composerSuggestions)
+    });
+
+    if (enterIntent === "select-command") {
+      event.preventDefault();
+      if (composerSuggestions?.items.length) {
+        void handleComposerSuggestionSelect(
+          composerSuggestions.items[composerActiveIndex] ??
+            composerSuggestions.items[0]!
+        );
+      }
+      return;
+    }
+
+    if (enterIntent === "submit") {
+      event.preventDefault();
+      event.currentTarget.form?.requestSubmit();
+      return;
+    }
+
+    if (enterIntent === "newline") {
+      return;
+    }
+
     if (!composerSuggestions) {
       return;
     }
@@ -2501,10 +2659,7 @@ export function SessionWorkbenchConversationPanel({
       return;
     }
 
-    if (
-      (event.key === "Enter" || event.key === "Tab") &&
-      composerSuggestions.items.length > 0
-    ) {
+    if (event.key === "Tab" && composerSuggestions.items.length > 0) {
       event.preventDefault();
       void handleComposerSuggestionSelect(
         composerSuggestions.items[composerActiveIndex] ??
@@ -2721,18 +2876,22 @@ export function SessionWorkbenchConversationPanel({
     }));
   }, [message]);
 
-  useEffect(() => {
-    previousScrollSnapshotRef.current = buildConversationScrollSnapshot([]);
+  useLayoutEffect(() => {
+    previousScrollSnapshotRef.current = null;
+    pendingSessionEntryBottomScrollRef.current = true;
     previousViewportScrollTopRef.current = 0;
     autoFollowLatestRef.current = true;
     skipNextResizeAutoFollowRef.current = false;
     pendingCollapsedFlowScrollTargetRef.current = null;
     pendingAssistantRevealSkipKeyRef.current = null;
+    clearPendingResizeAutoFollowSkip();
+    clearPendingSmoothScrollReset();
+  }, [currentSession?.sessionId, debugConversationView]);
+
+  useEffect(() => {
     setComposerSuggestions(null);
     setComposerActiveIndex(0);
     setComposerFocused(false);
-    clearPendingResizeAutoFollowSkip();
-    clearPendingSmoothScrollReset();
   }, [currentSession?.sessionId, debugConversationView]);
 
   useEffect(() => {
@@ -2743,6 +2902,18 @@ export function SessionWorkbenchConversationPanel({
   }, []);
 
   useLayoutEffect(() => {
+    if (pendingSessionEntryBottomScrollRef.current) {
+      if (!scrollSnapshot.latestItemKey) {
+        previousScrollSnapshotRef.current = scrollSnapshot;
+        return;
+      }
+
+      pendingSessionEntryBottomScrollRef.current = false;
+      scrollConversationViewportToBottom();
+      previousScrollSnapshotRef.current = scrollSnapshot;
+      return;
+    }
+
     const intent = getConversationScrollIntent({
       previous: previousScrollSnapshotRef.current,
       next: scrollSnapshot,

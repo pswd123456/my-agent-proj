@@ -1,5 +1,7 @@
 import {
   CAPABILITY_PACK_OPTIONS,
+  USER_CONTEXT_HOOK_BEHAVIOR_OPTIONS,
+  USER_CONTEXT_HOOK_CONTEXT_EVENT_OPTIONS,
   USER_CONTEXT_HOOK_EVENT_OPTIONS,
   type UserContextHookRecord
 } from "@ai-app-template/sdk";
@@ -54,4 +56,8 @@ export interface SettingsFormState {
 }
 
 export const capabilityPackOptions = CAPABILITY_PACK_OPTIONS;
+export const userContextHookBehaviorOptions =
+  USER_CONTEXT_HOOK_BEHAVIOR_OPTIONS;
+export const userContextHookContextEventOptions =
+  USER_CONTEXT_HOOK_CONTEXT_EVENT_OPTIONS;
 export const userContextHookEventOptions = USER_CONTEXT_HOOK_EVENT_OPTIONS;

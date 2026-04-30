@@ -126,11 +126,13 @@ describe("session-workbench drawer", () => {
         onSettingsDebugConversationViewChange: () => {},
         onSettingsPermissionToolToggle: () => {},
         onSettingsCapabilityPackToggle: () => {},
+        onSettingsShellAllowPatternRemove: () => {},
         onAddUserContextHook: () => {},
         onUserContextHookChange: () => {},
         onUserContextHookBlur: () => {},
         onUserContextHookEnabledChange: () => {},
         onUserContextHookEventChange: () => {},
+        onUserContextHookBehaviorChange: () => {},
         onDeleteUserContextHook: () => {},
         onMoveUserContextHook: () => {}
       })
@@ -140,6 +142,59 @@ describe("session-workbench drawer", () => {
     expect(markup).toContain(
       "One or more sessions are currently running. Wait for active runs to finish before clearing history."
     );
+  });
+
+  test("renders saved shell allow patterns in the settings panel", () => {
+    const settingsForm = createSettingsFormState();
+    settingsForm.shellAllowPatterns = "git *\nbun test *";
+
+    const markup = renderToStaticMarkup(
+      createElement(SessionWorkbenchDrawer, {
+        activeSidebarPanel: "settings",
+        currentSession: createSessionSnapshot(),
+        loadingSession: false,
+        submitting: false,
+        resettingRoutines: false,
+        settingsMeta: "user cli-user",
+        settingsStatusText: "",
+        settingsForm,
+        permissionTools,
+        loadingSettings: false,
+        savingSettings: false,
+        clearingSessionHistory: false,
+        clearHistoryErrorText: null,
+        choosingWorkingDirectory: false,
+        pendingPermissionToolName: null,
+        weekDates: [],
+        groupedRoutines,
+        inspectorProjection: createInspectorProjection(),
+        activeTab: "prompt",
+        onResetAllRoutines: () => {},
+        onSelectTab: () => {},
+        onSettingsFormChange: () => {},
+        onSettingsBlur: () => {},
+        onChooseWorkingDirectory: () => {},
+        onClearSessionHistory: () => {},
+        onSettingsYoloModeChange: () => {},
+        onSettingsDebugConversationViewChange: () => {},
+        onSettingsPermissionToolToggle: () => {},
+        onSettingsCapabilityPackToggle: () => {},
+        onSettingsShellAllowPatternRemove: () => {},
+        onAddUserContextHook: () => {},
+        onUserContextHookChange: () => {},
+        onUserContextHookBlur: () => {},
+        onUserContextHookEnabledChange: () => {},
+        onUserContextHookEventChange: () => {},
+        onUserContextHookBehaviorChange: () => {},
+        onDeleteUserContextHook: () => {},
+        onMoveUserContextHook: () => {}
+      })
+    );
+
+    expect(markup).toContain("Allow Patterns");
+    expect(markup).toContain("git *");
+    expect(markup).toContain("bun test *");
+    expect(markup).toContain("移除");
   });
 
   test("renders the hooks panel with saved hook items", () => {
@@ -185,17 +240,19 @@ describe("session-workbench drawer", () => {
         onSettingsDebugConversationViewChange: () => {},
         onSettingsPermissionToolToggle: () => {},
         onSettingsCapabilityPackToggle: () => {},
+        onSettingsShellAllowPatternRemove: () => {},
         onAddUserContextHook: () => {},
         onUserContextHookChange: () => {},
         onUserContextHookBlur: () => {},
         onUserContextHookEnabledChange: () => {},
         onUserContextHookEventChange: () => {},
+        onUserContextHookBehaviorChange: () => {},
         onDeleteUserContextHook: () => {},
         onMoveUserContextHook: () => {}
       })
     );
 
-    expect(markup).toContain("为不同 runtime 时机注入用户 context");
+    expect(markup).toContain("配置 context 注入或自动发送消息");
     expect(markup).toContain("Wrap up");
     expect(markup).toContain("结束时补一个 next step。");
     expect(markup).toContain("1/1 enabled");

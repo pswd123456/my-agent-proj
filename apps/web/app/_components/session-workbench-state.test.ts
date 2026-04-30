@@ -6,12 +6,17 @@ import {
   buildSessionSettingsPatchFromUserSettings,
   buildSessionSidebarRows,
   applyStreamEventToSession,
+  appendPatternLine,
   canInterruptSessionExecution,
+  enforceSingleEnabledUserContextHookType,
   getAutoCollapsedSessionIds,
+  getNextAvailableUserContextHookType,
   getSessionSidebarPageIndex,
   getVisibleSessionSidebarRows,
   getSessionDisplayState,
   mergeSessionSummary,
+  normalizeSettingsFormState,
+  removePatternLine,
   resolveSelectedModelId,
   toSettingsFormState
 } from "./session-workbench-state";
@@ -187,6 +192,119 @@ describe("model selection state", () => {
       toolAskList: ["write_file"],
       toolDenyList: ["delete_path"],
       enabledCapabilityPacks: ["workspace"]
+    });
+  });
+});
+
+describe("settings shell patterns", () => {
+  test("appends one permission-approved pattern without duplicating existing lines", () => {
+    expect(appendPatternLine("git *\nls *", "git *")).toBe("git *\nls *");
+    expect(appendPatternLine("git *\nls *", " bun * ")).toBe(
+      "git *\nls *\nbun *"
+    );
+  });
+
+  test("removes one allow pattern from the editable settings text", () => {
+    expect(removePatternLine("git *\nls *\nbun *", "ls *")).toBe(
+      "git *\nbun *"
+    );
+  });
+});
+
+describe("settings user context hooks", () => {
+  test("keeps the priority hook enabled when resolving duplicate active types", () => {
+    expect(
+      enforceSingleEnabledUserContextHookType(
+        [
+          {
+            id: "hook-1",
+            event: "run_started",
+            behavior: "context",
+            title: "Old",
+            content: "旧 context。",
+            enabled: true
+          },
+          {
+            id: "hook-2",
+            event: "run_started",
+            behavior: "context",
+            title: "New",
+            content: "新 context。",
+            enabled: true
+          }
+        ],
+        "hook-2"
+      ).map((hook) => ({ id: hook.id, enabled: hook.enabled }))
+    ).toEqual([
+      { id: "hook-1", enabled: false },
+      { id: "hook-2", enabled: true }
+    ]);
+  });
+
+  test("normalizes duplicate active hook types before saving settings", () => {
+    const settingsForm = toSettingsFormState({
+      userId: "user-1",
+      workingDirectory: "agent-workspace",
+      model: "MiniMax-M2.7",
+      thinkingEffort: "high",
+      yoloMode: false,
+      contextWindow: 200_000,
+      maxTurns: 50,
+      shellAllowPatterns: [],
+      shellDenyPatterns: [],
+      toolAllowList: [],
+      toolAskList: [],
+      toolDenyList: [],
+      enabledCapabilityPacks: [],
+      userContextHooks: [
+        {
+          id: "hook-1",
+          event: "run_started",
+          behavior: "context",
+          title: "One",
+          content: "第一条。",
+          enabled: true
+        },
+        {
+          id: "hook-2",
+          event: "run_started",
+          behavior: "context",
+          title: "Two",
+          content: "第二条。",
+          enabled: true
+        }
+      ],
+      debugConversationView: false,
+      createdAt: "2026-04-24T00:00:00.000Z",
+      updatedAt: "2026-04-24T00:00:00.000Z"
+    });
+
+    expect(
+      normalizeSettingsFormState(settingsForm).userContextHooks.map((hook) => ({
+        id: hook.id,
+        enabled: hook.enabled
+      }))
+    ).toEqual([
+      { id: "hook-1", enabled: true },
+      { id: "hook-2", enabled: false }
+    ]);
+  });
+
+  test("finds the next hook type without reusing an enabled type", () => {
+    expect(
+      getNextAvailableUserContextHookType([
+        {
+          id: "hook-1",
+          event: "session_started",
+          behavior: "context",
+          title: "Session",
+          content: "会话开始。",
+          enabled: true
+        }
+      ])
+    ).toEqual({
+      behavior: "context",
+      event: "run_started"
     });
   });
 });

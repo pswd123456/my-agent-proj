@@ -1,7 +1,8 @@
 import type {
   RunStreamEvent,
   SessionSnapshot,
-  TraceRecord
+  TraceRecord,
+  UserContextHookRecord
 } from "@ai-app-template/sdk";
 
 import {
@@ -495,6 +496,7 @@ export function buildMessageManagerProjection(input: {
   traceRecords: TraceRecord[];
   debugConversationView: boolean;
   state: MessageManagerState;
+  userContextHooks?: UserContextHookRecord[];
 }): MessageManagerProjection {
   const historyEvents = flattenTraceRecords(input.traceRecords);
   const inspectorEvents = input.state.streamEvents.length
@@ -521,7 +523,10 @@ export function buildMessageManagerProjection(input: {
     messages: input.session?.messages ?? [],
     historyEvents,
     streamEvents: input.state.streamEvents,
-    pendingUserMessage: input.state.pendingUserMessage
+    pendingUserMessage: input.state.pendingUserMessage,
+    ...(input.userContextHooks
+      ? { userContextHooks: input.userContextHooks }
+      : {})
   });
   const conversationItems = buildConversationViewItems({
     timelineItems,

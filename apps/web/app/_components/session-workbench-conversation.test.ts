@@ -8,6 +8,7 @@ import {
   getBackgroundNotificationHeadline,
   buildPermissionQuickReplies,
   buildComposerActionView,
+  getComposerEnterKeyIntent,
   buildConfirmationCardView,
   getCompactToolFileChangeRows,
   buildPermissionCardView,
@@ -265,6 +266,51 @@ describe("permission card feedback", () => {
 });
 
 describe("composer action view", () => {
+  test("submits on plain Enter and keeps Shift+Enter as a newline", () => {
+    expect(
+      getComposerEnterKeyIntent({
+        key: "Enter",
+        shiftKey: false,
+        isComposing: false
+      })
+    ).toBe("submit");
+    expect(
+      getComposerEnterKeyIntent({
+        key: "Enter",
+        shiftKey: true,
+        isComposing: false
+      })
+    ).toBe("newline");
+  });
+
+  test("uses Enter to select a command while the command menu is open", () => {
+    expect(
+      getComposerEnterKeyIntent({
+        key: "Enter",
+        shiftKey: false,
+        isComposing: false,
+        commandMenuOpen: true
+      })
+    ).toBe("select-command");
+  });
+
+  test("does not submit while IME composition is active", () => {
+    expect(
+      getComposerEnterKeyIntent({
+        key: "Enter",
+        shiftKey: false,
+        isComposing: true
+      })
+    ).toBe("ignore");
+    expect(
+      getComposerEnterKeyIntent({
+        key: "Tab",
+        shiftKey: false,
+        isComposing: false
+      })
+    ).toBe("ignore");
+  });
+
   test("switches the send button to stop while the run is active", () => {
     const view = buildComposerActionView({
       canInterrupt: true,

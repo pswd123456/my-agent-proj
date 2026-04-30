@@ -106,6 +106,20 @@ describe("conversation scroll helpers", () => {
     expect(intent).toBe("follow-latest-item");
   });
 
+  test("follows the latest item when a session is first entered", () => {
+    const intent = getConversationScrollIntent({
+      previous: null,
+      next: {
+        latestItemKey: "message-assistant-3",
+        latestTurnAnchorKey: "event-turn-start-3",
+        latestTurnStartKey: "event-turn-start-3"
+      },
+      followLatest: true
+    });
+
+    expect(intent).toBe("follow-latest-item");
+  });
+
   test("aligns the newest turn to the top when a fresh turn arrives", () => {
     const intent = getConversationScrollIntent({
       previous: {

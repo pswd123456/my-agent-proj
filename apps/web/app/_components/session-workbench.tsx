@@ -24,10 +24,14 @@ import {
   canInterruptSessionExecution,
   findReusableNewSessionSummary,
   groupRoutinesByDate,
+  appendPatternLine,
   normalizeContextWindow,
   normalizeMaxTurns,
   normalizeSettingsFormState,
   patchSettingsForm,
+  removePatternLine,
+  enforceSingleEnabledUserContextHookType,
+  getNextAvailableUserContextHookType,
   resolveSelectedModelId,
   resolveSelectedThinkingEffort,
   splitPatternLines,
@@ -269,12 +273,7 @@ function appendShellAllowPattern(
   currentPatterns: string,
   nextPattern: string
 ): string {
-  const patterns = splitPatternLines(currentPatterns);
-  if (patterns.includes(nextPattern)) {
-    return patterns.join("\n");
-  }
-
-  return [...patterns, nextPattern].join("\n");
+  return appendPatternLine(currentPatterns, nextPattern);
 }
 
 export function collectWorkspaceFileChangesFromRun(
@@ -1200,6 +1199,21 @@ export function SessionWorkbench() {
     setSettingsForm((current) => patchSettingsForm(current, patch));
   }
 
+  async function handleSettingsShellAllowPatternRemove(pattern: string) {
+    if (savingSettings) {
+      return;
+    }
+
+    const nextForm = patchSettingsForm(settingsForm, {
+      shellAllowPatterns: removePatternLine(
+        settingsForm.shellAllowPatterns,
+        pattern
+      )
+    });
+    setSettingsForm(nextForm);
+    await handleSaveUserSettings(nextForm);
+  }
+
   function updateUserContextHookList(
     updater: (
       hooks: SettingsFormState["userContextHooks"]
@@ -1215,20 +1229,28 @@ export function SessionWorkbench() {
       return;
     }
 
-    setSettingsForm((current) =>
-      patchSettingsForm(current, {
+    setSettingsForm((current) => {
+      const hookType = getNextAvailableUserContextHookType(
+        current.userContextHooks
+      );
+      if (!hookType) {
+        return current;
+      }
+
+      return patchSettingsForm(current, {
         userContextHooks: [
           ...current.userContextHooks,
           {
             id: crypto.randomUUID(),
-            event: "run_started",
+            behavior: hookType.behavior,
+            event: hookType.event,
             title: "",
             content: "",
             enabled: true
           }
         ]
-      })
-    );
+      });
+    });
   }
 
   function handleUserContextHookChange(
@@ -1253,7 +1275,12 @@ export function SessionWorkbench() {
     }
 
     const nextForm = updateUserContextHookList((hooks) =>
-      hooks.map((hook) => (hook.id === hookId ? { ...hook, enabled } : hook))
+      enforceSingleEnabledUserContextHookType(
+        hooks.map((hook) =>
+          hook.id === hookId ? { ...hook, enabled } : hook
+        ),
+        enabled ? hookId : undefined
+      )
     );
     setSettingsForm(nextForm);
     await handleSaveUserSettings(nextForm);
@@ -1268,7 +1295,40 @@ export function SessionWorkbench() {
     }
 
     const nextForm = updateUserContextHookList((hooks) =>
-      hooks.map((hook) => (hook.id === hookId ? { ...hook, event } : hook))
+      enforceSingleEnabledUserContextHookType(
+        hooks.map((hook) => (hook.id === hookId ? { ...hook, event } : hook)),
+        hookId
+      )
+    );
+    setSettingsForm(nextForm);
+    await handleSaveUserSettings(nextForm);
+  }
+
+  async function handleUserContextHookBehaviorChange(
+    hookId: string,
+    behavior: NonNullable<
+      SettingsFormState["userContextHooks"][number]["behavior"]
+    >
+  ) {
+    if (savingSettings) {
+      return;
+    }
+
+    const nextForm = updateUserContextHookList((hooks) =>
+      enforceSingleEnabledUserContextHookType(
+        hooks.map((hook) =>
+          hook.id === hookId
+            ? {
+                ...hook,
+                behavior,
+                ...(behavior === "context" && hook.event === "run_end"
+                  ? { event: "run_started" as const }
+                  : {})
+              }
+            : hook
+        ),
+        hookId
+      )
     );
     setSettingsForm(nextForm);
     await handleSaveUserSettings(nextForm);
@@ -1611,12 +1671,14 @@ export function SessionWorkbench() {
         session: currentSession,
         traceRecords,
         debugConversationView: settingsForm.debugConversationView,
-        state: messageManagerState
+        state: messageManagerState,
+        userContextHooks: settingsForm.userContextHooks
       }),
     [
       currentSession,
       traceRecords,
       settingsForm.debugConversationView,
+      settingsForm.userContextHooks,
       messageManagerState
     ]
   );
@@ -1809,6 +1871,9 @@ export function SessionWorkbench() {
               onSettingsCapabilityPackToggle={(packName) =>
                 void handleSettingsCapabilityPackToggle(packName)
               }
+              onSettingsShellAllowPatternRemove={(pattern) =>
+                void handleSettingsShellAllowPatternRemove(pattern)
+              }
               onAddUserContextHook={handleAddUserContextHook}
               onUserContextHookChange={handleUserContextHookChange}
               onUserContextHookBlur={() => void handleSaveUserSettings()}
@@ -1817,6 +1882,9 @@ export function SessionWorkbench() {
               }
               onUserContextHookEventChange={(hookId, event) =>
                 void handleUserContextHookEventChange(hookId, event)
+              }
+              onUserContextHookBehaviorChange={(hookId, behavior) =>
+                void handleUserContextHookBehaviorChange(hookId, behavior)
               }
               onDeleteUserContextHook={(hookId) =>
                 void handleDeleteUserContextHook(hookId)

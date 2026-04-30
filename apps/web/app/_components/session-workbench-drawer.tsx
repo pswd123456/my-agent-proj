@@ -13,6 +13,8 @@ import type {
 import {
   capabilityPackOptions,
   MAX_TURNS_LIMIT,
+  userContextHookBehaviorOptions,
+  userContextHookContextEventOptions,
   userContextHookEventOptions,
   type InspectorTabId,
   type SettingsFormState,
@@ -75,16 +77,48 @@ function formatUserContextHookEventLabel(
   return "Run End";
 }
 
+function getUserContextHookBehavior(
+  hook: UserContextHookRecord
+): NonNullable<UserContextHookRecord["behavior"]> {
+  return hook.behavior ?? (hook.event === "run_end" ? "message" : "context");
+}
+
+function getUserContextHookEventOptions(hook: UserContextHookRecord) {
+  return getUserContextHookBehavior(hook) === "context"
+    ? userContextHookContextEventOptions
+    : userContextHookEventOptions;
+}
+
+function formatUserContextHookBehaviorLabel(
+  behavior: NonNullable<UserContextHookRecord["behavior"]>
+): string {
+  if (behavior === "context") {
+    return "Context";
+  }
+
+  return "Send Message";
+}
+
+function formatUserContextHookBehaviorDescription(
+  hook: UserContextHookRecord
+): string {
+  if (getUserContextHookBehavior(hook) === "context") {
+    return "在 prompt runtime context 中注入。";
+  }
+
+  return "作为一条用户消息按时机执行。";
+}
+
 function formatUserContextHookEventDescription(
   event: UserContextHookRecord["event"]
 ): string {
   if (event === "session_started") {
-    return "只在会话第一次 run 时生效。";
+    return "只在会话第一次 run 时触发。";
   }
   if (event === "run_started") {
-    return "每次 run 开始时作为通用上下文注入。";
+    return "每次 run 开始时触发。";
   }
-  return "用于收束最终答复，只在准备结束本次 run 时应用。";
+  return "用户消息完成后触发。";
 }
 
 function getVisiblePermissionTools(
@@ -96,6 +130,13 @@ function getVisiblePermissionTools(
   return permissionTools.filter((tool) =>
     tool.capabilityPack ? enabled.has(tool.capabilityPack) : true
   );
+}
+
+function splitEditablePatternLines(value: string): string[] {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
 }
 
 interface SessionWorkbenchDrawerProps {
@@ -131,6 +172,7 @@ interface SessionWorkbenchDrawerProps {
     target: "allow" | "ask" | "deny"
   ) => void;
   onSettingsCapabilityPackToggle: (packName: string) => void;
+  onSettingsShellAllowPatternRemove: (pattern: string) => void;
   onAddUserContextHook: () => void;
   onUserContextHookChange: (
     hookId: string,
@@ -141,6 +183,10 @@ interface SessionWorkbenchDrawerProps {
   onUserContextHookEventChange: (
     hookId: string,
     event: UserContextHookRecord["event"]
+  ) => void;
+  onUserContextHookBehaviorChange: (
+    hookId: string,
+    behavior: NonNullable<UserContextHookRecord["behavior"]>
   ) => void;
   onDeleteUserContextHook: (hookId: string) => void;
   onMoveUserContextHook: (hookId: string, direction: "up" | "down") => void;
@@ -177,11 +223,13 @@ export function SessionWorkbenchDrawer({
   onSettingsDebugConversationViewChange,
   onSettingsPermissionToolToggle,
   onSettingsCapabilityPackToggle,
+  onSettingsShellAllowPatternRemove,
   onAddUserContextHook,
   onUserContextHookChange,
   onUserContextHookBlur,
   onUserContextHookEnabledChange,
   onUserContextHookEventChange,
+  onUserContextHookBehaviorChange,
   onDeleteUserContextHook,
   onMoveUserContextHook,
   headerActions
@@ -194,6 +242,9 @@ export function SessionWorkbenchDrawer({
     permissionTools,
     settingsForm.enabledCapabilityPacks
   );
+  const shellAllowPatternLines = splitEditablePatternLines(
+    settingsForm.shellAllowPatterns
+  );
 
   return (
     <div className="flex min-h-0 min-w-0 flex-col">
@@ -203,27 +254,27 @@ export function SessionWorkbenchDrawer({
             ? "Settings"
             : activeSidebarPanel === "hooks"
               ? "Hooks"
-            : activeSidebarPanel === "calendar"
-              ? "Calendar"
-              : "Inspector"
+              : activeSidebarPanel === "calendar"
+                ? "Calendar"
+                : "Inspector"
         }
         title={
           activeSidebarPanel === "settings"
             ? "用户默认设置"
             : activeSidebarPanel === "hooks"
               ? "Hooks"
-            : activeSidebarPanel === "calendar"
-              ? "日程视图"
-              : "调试详情"
+              : activeSidebarPanel === "calendar"
+                ? "日程视图"
+                : "调试详情"
         }
         meta={
           activeSidebarPanel === "settings"
             ? settingsMeta
             : activeSidebarPanel === "hooks"
               ? `${settingsForm.userContextHooks.filter((hook) => hook.enabled).length}/${settingsForm.userContextHooks.length} enabled`
-            : activeSidebarPanel === "calendar"
-              ? (currentSession?.context.currentDateContext ?? "--")
-              : `${inspectorProjection.inspectorEvents.length} events`
+              : activeSidebarPanel === "calendar"
+                ? (currentSession?.context.currentDateContext ?? "--")
+                : `${inspectorProjection.inspectorEvents.length} events`
         }
         headerActions={headerActions}
       >
@@ -330,10 +381,38 @@ export function SessionWorkbenchDrawer({
 
               <div className="grid gap-2">
                 <div className={sectionHeadingClassName}>Shell Permission</div>
-                <label className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
+                <div className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
                   <span className={tertiaryHeadingClassName}>
                     Allow Patterns
                   </span>
+                  {shellAllowPatternLines.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {shellAllowPatternLines.map((pattern) => (
+                        <span
+                          key={pattern}
+                          className="inline-flex max-w-full items-center gap-2 rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-3 py-1.5 text-xs text-[var(--app-text-secondary)]"
+                        >
+                          <span className="min-w-0 break-all font-mono">
+                            {pattern}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onSettingsShellAllowPatternRemove(pattern)
+                            }
+                            disabled={loadingSettings || savingSettings}
+                            className="shrink-0 text-[var(--app-text-muted)] transition hover:text-[var(--app-status-danger)] disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            移除
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-xs leading-5 text-[var(--app-text-muted)]">
+                      还没有保存的 allow patterns。
+                    </div>
+                  )}
                   <textarea
                     value={settingsForm.shellAllowPatterns}
                     onChange={(event) =>
@@ -345,7 +424,7 @@ export function SessionWorkbenchDrawer({
                     rows={3}
                     className="w-full rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
                   />
-                </label>
+                </div>
                 <label className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
                   <span className={tertiaryHeadingClassName}>
                     Deny Patterns
@@ -539,8 +618,8 @@ export function SessionWorkbenchDrawer({
                   "text-sm leading-6 text-[var(--app-text-secondary)]"
                 )}
               >
-                为不同 runtime 时机注入用户 context。修改后会自动保存，并在下一次
-                run 生效。
+                为不同 runtime 时机配置 context
+                注入或自动发送消息。修改后会自动保存，并在下一次 run 生效。
               </div>
 
               <div className="flex items-center justify-between gap-3">
@@ -561,7 +640,7 @@ export function SessionWorkbenchDrawer({
                     "text-sm leading-6 text-[var(--app-text-muted)]"
                   )}
                 >
-                  还没有 hooks。先加一条 run_started 或 run_end 试试。
+                  还没有 hooks。先加一条 run_started 试试。
                 </div>
               ) : (
                 <div className="grid gap-3">
@@ -584,6 +663,7 @@ export function SessionWorkbenchDrawer({
                             className="w-full min-w-0 border-none bg-transparent px-0 py-0 text-sm text-[var(--app-text-primary)] outline-none placeholder:text-[var(--app-text-muted)]"
                           />
                           <div className="mt-1 text-xs leading-5 text-[var(--app-text-muted)]">
+                            {formatUserContextHookBehaviorDescription(hook)}{" "}
                             {formatUserContextHookEventDescription(hook.event)}
                           </div>
                         </div>
@@ -598,15 +678,41 @@ export function SessionWorkbenchDrawer({
                       </div>
 
                       <div className="grid gap-2 sm:grid-cols-[minmax(0,220px)_1fr] sm:items-center">
+                        <div className={tertiaryHeadingClassName}>Behavior</div>
+                        <WorkbenchSelect
+                          value={getUserContextHookBehavior(hook)}
+                          disabled={savingSettings}
+                          ariaLabel="选择 hook 行为"
+                          options={userContextHookBehaviorOptions.map(
+                            (behavior) => ({
+                              value: behavior,
+                              label:
+                                formatUserContextHookBehaviorLabel(behavior)
+                            })
+                          )}
+                          onValueChange={(behavior) =>
+                            onUserContextHookBehaviorChange(
+                              hook.id,
+                              behavior as NonNullable<
+                                UserContextHookRecord["behavior"]
+                              >
+                            )
+                          }
+                        />
+                      </div>
+
+                      <div className="grid gap-2 sm:grid-cols-[minmax(0,220px)_1fr] sm:items-center">
                         <div className={tertiaryHeadingClassName}>Event</div>
                         <WorkbenchSelect
                           value={hook.event}
                           disabled={savingSettings}
                           ariaLabel="选择 hook 触发时机"
-                          options={userContextHookEventOptions.map((event) => ({
-                            value: event,
-                            label: formatUserContextHookEventLabel(event)
-                          }))}
+                          options={getUserContextHookEventOptions(hook).map(
+                            (event) => ({
+                              value: event,
+                              label: formatUserContextHookEventLabel(event)
+                            })
+                          )}
                           onValueChange={(event) =>
                             onUserContextHookEventChange(
                               hook.id,
@@ -617,7 +723,9 @@ export function SessionWorkbenchDrawer({
                       </div>
 
                       <label className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
-                        <span className={tertiaryHeadingClassName}>Content</span>
+                        <span className={tertiaryHeadingClassName}>
+                          Content
+                        </span>
                         <textarea
                           value={hook.content}
                           onChange={(event) =>
@@ -646,9 +754,7 @@ export function SessionWorkbenchDrawer({
                         </button>
                         <button
                           type="button"
-                          onClick={() =>
-                            onMoveUserContextHook(hook.id, "down")
-                          }
+                          onClick={() => onMoveUserContextHook(hook.id, "down")}
                           disabled={
                             savingSettings ||
                             index === settingsForm.userContextHooks.length - 1

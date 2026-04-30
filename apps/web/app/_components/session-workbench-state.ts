@@ -5,7 +5,12 @@ import type {
   SessionSettingsRecord,
   SessionSnapshot,
   SessionSummary,
-  TraceRecord
+  TraceRecord,
+  UserContextHookRecord
+} from "@ai-app-template/sdk";
+import {
+  USER_CONTEXT_HOOK_TYPES,
+  getUserContextHookTypeKey
 } from "@ai-app-template/sdk";
 
 import {
@@ -928,6 +933,59 @@ export function patchSettingsForm(
   };
 }
 
+export function enforceSingleEnabledUserContextHookType<
+  T extends UserContextHookRecord
+>(hooks: T[], priorityHookId?: string): T[] {
+  const priorityHook =
+    typeof priorityHookId === "string"
+      ? hooks.find((hook) => hook.id === priorityHookId)
+      : undefined;
+  const orderedHooks = priorityHook
+    ? [priorityHook, ...hooks.filter((hook) => hook.id !== priorityHook.id)]
+    : hooks;
+  const enabledTypeKeys = new Set<string>();
+  const enabledHookIds = new Set<string>();
+
+  for (const hook of orderedHooks) {
+    if (!hook.enabled) {
+      continue;
+    }
+
+    const typeKey = getUserContextHookTypeKey(hook);
+    if (enabledTypeKeys.has(typeKey)) {
+      continue;
+    }
+
+    enabledTypeKeys.add(typeKey);
+    enabledHookIds.add(hook.id);
+  }
+
+  return hooks.map((hook) =>
+    hook.enabled && !enabledHookIds.has(hook.id)
+      ? { ...hook, enabled: false }
+      : hook
+  );
+}
+
+export function getNextAvailableUserContextHookType(
+  hooks: UserContextHookRecord[]
+): {
+  behavior: NonNullable<UserContextHookRecord["behavior"]>;
+  event: UserContextHookRecord["event"];
+} | null {
+  const enabledTypeKeys = new Set(
+    hooks
+      .filter((hook) => hook.enabled)
+      .map((hook) => getUserContextHookTypeKey(hook))
+  );
+
+  return (
+    USER_CONTEXT_HOOK_TYPES.find(
+      (hookType) => !enabledTypeKeys.has(getUserContextHookTypeKey(hookType))
+    ) ?? null
+  );
+}
+
 export function normalizeSettingsFormState(
   form: SettingsFormState
 ): SettingsFormState {
@@ -944,14 +1002,25 @@ export function normalizeSettingsFormState(
     toolAskList: normalizeList(form.toolAskList),
     toolDenyList: normalizeList(form.toolDenyList),
     enabledCapabilityPacks: normalizeList(form.enabledCapabilityPacks),
-    userContextHooks: form.userContextHooks
-      .map((hook) => ({
-        ...hook,
-        id: hook.id.trim(),
-        title: hook.title.trim(),
-        content: hook.content.trim()
-      }))
-      .filter((hook) => hook.id.length > 0 && hook.content.length > 0),
+    userContextHooks: enforceSingleEnabledUserContextHookType(
+      form.userContextHooks
+        .map((hook) => {
+          const behavior =
+            hook.behavior ?? (hook.event === "run_end" ? "message" : "context");
+          return {
+            ...hook,
+            behavior,
+            event:
+              behavior === "context" && hook.event === "run_end"
+                ? "run_started"
+                : hook.event,
+            id: hook.id.trim(),
+            title: hook.title.trim(),
+            content: hook.content.trim()
+          };
+        })
+        .filter((hook) => hook.id.length > 0 && hook.content.length > 0)
+    ),
     debugConversationView: form.debugConversationView
   };
 }
@@ -979,6 +1048,29 @@ export function normalizeList(values: string[]): string[] {
 
 export function splitPatternLines(value: string): string[] {
   return normalizeList(value.split(/\r?\n/));
+}
+
+export function appendPatternLine(
+  currentPatterns: string,
+  nextPattern: string
+): string {
+  const normalizedPattern = nextPattern.trim();
+  const patterns = splitPatternLines(currentPatterns);
+  if (!normalizedPattern || patterns.includes(normalizedPattern)) {
+    return patterns.join("\n");
+  }
+
+  return [...patterns, normalizedPattern].join("\n");
+}
+
+export function removePatternLine(
+  currentPatterns: string,
+  targetPattern: string
+): string {
+  const normalizedTarget = targetPattern.trim();
+  return splitPatternLines(currentPatterns)
+    .filter((pattern) => pattern !== normalizedTarget)
+    .join("\n");
 }
 
 export function groupRoutinesByDate(

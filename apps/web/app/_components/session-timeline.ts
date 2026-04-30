@@ -1,4 +1,13 @@
-import type { RunStreamEvent, SessionSnapshot } from "@ai-app-template/sdk";
+import type {
+  RunStreamEvent,
+  SessionSnapshot,
+  UserContextHookRecord
+} from "@ai-app-template/sdk";
+
+export interface TimelineUserHookMetadata {
+  event: UserContextHookRecord["event"];
+  title: string;
+}
 
 export type TimelineItem =
   | {
@@ -12,6 +21,7 @@ export type TimelineItem =
       key: string;
       createdAt: string;
       block: SessionSnapshot["messages"][number];
+      userHook?: TimelineUserHookMetadata;
     }
   | {
       type: "pending-user";
@@ -24,6 +34,8 @@ interface PendingUserMessage {
   text: string;
   createdAt: string;
 }
+
+type MessageHookMetadataByContent = Map<string, TimelineUserHookMetadata>;
 
 function hasPersistedMatchForPendingUser(input: {
   messages: SessionSnapshot["messages"];
@@ -190,6 +202,155 @@ function compareByCreatedAt(
   return left.createdAt.localeCompare(right.createdAt);
 }
 
+function inferHookBehavior(
+  hook: UserContextHookRecord
+): UserContextHookRecord["behavior"] {
+  return hook.behavior ?? (hook.event === "run_end" ? "message" : "context");
+}
+
+function buildMessageHookMetadataByContent(
+  hooks: UserContextHookRecord[] | undefined
+): MessageHookMetadataByContent {
+  const metadataByContent: MessageHookMetadataByContent = new Map();
+
+  for (const hook of hooks ?? []) {
+    const content = hook.content.trim();
+    if (!hook.enabled || inferHookBehavior(hook) !== "message" || !content) {
+      continue;
+    }
+
+    if (!metadataByContent.has(content)) {
+      metadataByContent.set(content, {
+        event: hook.event,
+        title: hook.title.trim()
+      });
+    }
+  }
+
+  return metadataByContent;
+}
+
+function getUserHookMetadata(
+  block: SessionSnapshot["messages"][number],
+  metadataByContent: MessageHookMetadataByContent
+): TimelineUserHookMetadata | undefined {
+  if (block.kind !== "user") {
+    return undefined;
+  }
+
+  return metadataByContent.get(block.content.trim());
+}
+
+function toMessageTimelineItem(
+  block: SessionSnapshot["messages"][number],
+  metadataByContent: MessageHookMetadataByContent
+): Extract<TimelineItem, { type: "message" }> {
+  const userHook = getUserHookMetadata(block, metadataByContent);
+
+  return {
+    type: "message",
+    key: `message-${block.id}`,
+    createdAt: block.createdAt,
+    block,
+    ...(userHook ? { userHook } : {})
+  };
+}
+
+function getPreUserHookMetadata(item: TimelineItem) {
+  return item.type === "message" &&
+    item.block.kind === "user" &&
+    item.userHook &&
+    item.userHook.event !== "run_end"
+    ? item.userHook
+    : null;
+}
+
+function getPostUserHookMetadata(item: TimelineItem) {
+  return item.type === "message" &&
+    item.block.kind === "user" &&
+    item.userHook?.event === "run_end"
+    ? item.userHook
+    : null;
+}
+
+function compareTimelineItems(
+  left: TimelineItem,
+  right: TimelineItem,
+  pendingUserMessage: PendingUserMessage | null | undefined
+): number {
+  if (!pendingUserMessage) {
+    return compareByCreatedAt(left, right);
+  }
+
+  const pendingKey = `pending-user-${pendingUserMessage.createdAt}`;
+  const leftIsPending = left.type === "pending-user" && left.key === pendingKey;
+  const rightIsPending =
+    right.type === "pending-user" && right.key === pendingKey;
+
+  if (leftIsPending && !rightIsPending) {
+    if (
+      getPreUserHookMetadata(right) &&
+      right.createdAt >= pendingUserMessage.createdAt
+    ) {
+      return 1;
+    }
+
+    if (
+      getPostUserHookMetadata(right) &&
+      right.createdAt >= pendingUserMessage.createdAt
+    ) {
+      return -1;
+    }
+  }
+
+  if (rightIsPending && !leftIsPending) {
+    if (
+      getPreUserHookMetadata(left) &&
+      left.createdAt >= pendingUserMessage.createdAt
+    ) {
+      return -1;
+    }
+
+    if (
+      getPostUserHookMetadata(left) &&
+      left.createdAt >= pendingUserMessage.createdAt
+    ) {
+      return 1;
+    }
+  }
+
+  return compareByCreatedAt(left, right);
+}
+
+function isCurrentPendingUserItem(
+  item: TimelineItem,
+  pendingUserMessage: PendingUserMessage | null | undefined
+): boolean {
+  if (!pendingUserMessage) {
+    return false;
+  }
+
+  return (
+    item.type === "pending-user" &&
+    item.key === `pending-user-${pendingUserMessage.createdAt}`
+  );
+}
+
+function hasCurrentPreUserHookItems(
+  items: TimelineItem[],
+  pendingUserMessage: PendingUserMessage | null | undefined
+): boolean {
+  if (!pendingUserMessage) {
+    return false;
+  }
+
+  return items.some(
+    (item) =>
+      Boolean(getPreUserHookMetadata(item)) &&
+      item.createdAt >= pendingUserMessage.createdAt
+  );
+}
+
 function compareEventsChronologically(
   left: RunStreamEvent,
   right: RunStreamEvent
@@ -316,14 +477,12 @@ function compareEventsForTimeline(
 
 function buildMessageTimeline(
   messages: SessionSnapshot["messages"],
-  pendingUserMessage: PendingUserMessage | null | undefined
+  pendingUserMessage: PendingUserMessage | null | undefined,
+  metadataByContent: MessageHookMetadataByContent
 ): TimelineItem[] {
-  const items: TimelineItem[] = messages.map((block) => ({
-    type: "message",
-    key: `message-${block.id}`,
-    createdAt: block.createdAt,
-    block
-  }));
+  const items: TimelineItem[] = messages.map((block) =>
+    toMessageTimelineItem(block, metadataByContent)
+  );
 
   if (
     pendingUserMessage &&
@@ -337,7 +496,9 @@ function buildMessageTimeline(
     });
   }
 
-  return items.sort(compareByCreatedAt);
+  return items.sort((left, right) =>
+    compareTimelineItems(left, right, pendingUserMessage)
+  );
 }
 
 function matchesConversationBlock(
@@ -423,7 +584,11 @@ export function buildTimelineItems(input: {
   historyEvents: RunStreamEvent[];
   streamEvents: RunStreamEvent[];
   pendingUserMessage?: PendingUserMessage | null;
+  userContextHooks?: UserContextHookRecord[];
 }): TimelineItem[] {
+  const metadataByContent = buildMessageHookMetadataByContent(
+    input.userContextHooks
+  );
   const visibleEventsByKey = new Map<string, RunStreamEvent>();
   const permissionEventKeysByToolCallId = new Map<string, string>();
 
@@ -473,7 +638,11 @@ export function buildTimelineItems(input: {
   );
 
   if (visibleEvents.length === 0) {
-    return buildMessageTimeline(input.messages, input.pendingUserMessage);
+    return buildMessageTimeline(
+      input.messages,
+      input.pendingUserMessage,
+      metadataByContent
+    );
   }
 
   const consumedMessageIds = new Set<string>();
@@ -498,12 +667,7 @@ export function buildTimelineItems(input: {
         { kind: "user" }
       > => block.kind === "user"
     )
-    .map((block) => ({
-      type: "message",
-      key: `message-${block.id}`,
-      createdAt: block.createdAt,
-      block
-    }));
+    .map((block) => toMessageTimelineItem(block, metadataByContent));
 
   if (
     input.pendingUserMessage &&
@@ -520,7 +684,9 @@ export function buildTimelineItems(input: {
     });
   }
 
-  userItems.sort(compareByCreatedAt);
+  userItems.sort((left, right) =>
+    compareTimelineItems(left, right, input.pendingUserMessage)
+  );
 
   const turnStartEvents = visibleEvents.filter(
     (event): event is Extract<RunStreamEvent, { kind: "turn_start" }> =>
@@ -528,6 +694,8 @@ export function buildTimelineItems(input: {
   );
   const usersByTurnStart = new Map<string, TimelineItem[]>();
   const orphanUsers: TimelineItem[] = [];
+  const shouldDeferPendingUser =
+    hasCurrentPreUserHookItems(userItems, input.pendingUserMessage);
   let turnStartIndex = 0;
 
   for (const userItem of userItems) {
@@ -540,6 +708,13 @@ export function buildTimelineItems(input: {
 
     const nextTurnStart = turnStartEvents[turnStartIndex];
     if (!nextTurnStart) {
+      if (
+        shouldDeferPendingUser &&
+        isCurrentPendingUserItem(userItem, input.pendingUserMessage)
+      ) {
+        continue;
+      }
+
       orphanUsers.push(userItem);
       continue;
     }
@@ -557,12 +732,7 @@ export function buildTimelineItems(input: {
       .filter(
         (block) => block.kind !== "user" && !consumedMessageIds.has(block.id)
       )
-      .map((block) => ({
-        type: "message" as const,
-        key: `message-${block.id}`,
-        createdAt: block.createdAt,
-        block
-      }))
+      .map((block) => toMessageTimelineItem(block, metadataByContent))
   ].sort(compareByCreatedAt);
 
   const items: TimelineItem[] = [];

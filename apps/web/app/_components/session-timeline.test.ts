@@ -615,6 +615,140 @@ describe("buildTimelineItems", () => {
     ).toEqual(["turn_start", "thinking", "assistant_text", "tool_call"]);
   });
 
+  test("renders active message hook runs before the pending user message", () => {
+    const hookUser: Extract<
+      SessionSnapshot["messages"][number],
+      { kind: "user" }
+    > = {
+      id: "hook-user-1",
+      kind: "user",
+      content: "先检查默认上下文。",
+      createdAt: "2026-04-21T18:46:03.100Z"
+    };
+    const hookAssistantEvent: Extract<
+      RunStreamEvent,
+      { kind: "assistant_text" }
+    > = {
+      kind: "assistant_text",
+      sessionId: "session-1",
+      createdAt: "2026-04-21T18:46:04.000Z",
+      turnCount: 1,
+      assistantMessageId: "assistant-hook-1",
+      text: "hook 已处理。"
+    };
+    const userTurnStart: Extract<RunStreamEvent, { kind: "turn_start" }> = {
+      ...turnStart,
+      createdAt: "2026-04-21T18:46:05.000Z",
+      turnCount: 2
+    };
+    const userThinkingEvent: Extract<RunStreamEvent, { kind: "thinking" }> = {
+      ...thinkingEvent,
+      createdAt: "2026-04-21T18:46:05.500Z",
+      turnCount: 2,
+      thinkingMessageId: "thinking-user-1",
+      signature: "sig-user-1",
+      text: "开始处理用户消息。"
+    };
+
+    const items = buildTimelineItems({
+      messages: [hookUser],
+      historyEvents: [turnStart, hookAssistantEvent, userTurnStart],
+      streamEvents: [userThinkingEvent],
+      pendingUserMessage: {
+        createdAt: "2026-04-21T18:46:03.000Z",
+        text: "这是用户原始消息。"
+      },
+      userContextHooks: [
+        {
+          id: "run-start-hook",
+          event: "run_started",
+          behavior: "message",
+          title: "默认上下文",
+          content: hookUser.content,
+          enabled: true
+        }
+      ]
+    });
+
+    expect(
+      items.map((item) => {
+        if (item.type === "event") {
+          return item.event.kind;
+        }
+
+        if (item.type === "pending-user") {
+          return "pending-user";
+        }
+
+        return item.userHook
+          ? `hook:${item.userHook.event}:${item.block.kind}`
+          : item.block.kind;
+      })
+    ).toEqual([
+      "turn_start",
+      "hook:run_started:user",
+      "assistant_text",
+      "turn_start",
+      "pending-user",
+      "thinking"
+    ]);
+  });
+
+  test("defers the pending user message while a pre-user hook run is still active", () => {
+    const hookUser: Extract<
+      SessionSnapshot["messages"][number],
+      { kind: "user" }
+    > = {
+      id: "hook-user-active",
+      kind: "user",
+      content: "先检查默认上下文。",
+      createdAt: "2026-04-21T18:46:03.100Z"
+    };
+    const hookThinkingEvent: Extract<RunStreamEvent, { kind: "thinking" }> = {
+      ...thinkingEvent,
+      createdAt: "2026-04-21T18:46:03.500Z",
+      thinkingMessageId: "thinking-hook-active",
+      signature: "sig-hook-active",
+      text: "正在执行 hook。"
+    };
+
+    const items = buildTimelineItems({
+      messages: [hookUser],
+      historyEvents: [turnStart],
+      streamEvents: [hookThinkingEvent],
+      pendingUserMessage: {
+        createdAt: "2026-04-21T18:46:03.000Z",
+        text: "这是用户原始消息。"
+      },
+      userContextHooks: [
+        {
+          id: "run-start-hook",
+          event: "run_started",
+          behavior: "message",
+          title: "默认上下文",
+          content: hookUser.content,
+          enabled: true
+        }
+      ]
+    });
+
+    expect(
+      items.map((item) => {
+        if (item.type === "event") {
+          return item.event.kind;
+        }
+
+        if (item.type === "pending-user") {
+          return "pending-user";
+        }
+
+        return item.userHook
+          ? `hook:${item.userHook.event}:${item.block.kind}`
+          : item.block.kind;
+      })
+    ).toEqual(["turn_start", "hook:run_started:user", "thinking"]);
+  });
+
   test("keeps later runs separate when the provider reuses turnCount values", () => {
     const secondUser: Extract<
       SessionSnapshot["messages"][number],
