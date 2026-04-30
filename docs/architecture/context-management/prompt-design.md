@@ -82,12 +82,17 @@ prefix message 带 `cache_control: { type: "ephemeral" }`，并参与当前 `cac
    - 用来给模型一组只属于本轮 planning 态的执行规则
    - 当前会强调：todo 工具不可用、优先通过 `search_task_brief / read_task_brief / edit_task_brief / replace_task_brief` 维护 brief、普通 workspace 文件写工具不可用
 
-2. workspace instructions
+2. user custom prompt
+   - 来自 user settings 里的 `userCustomPrompt`
+   - 只作为 runtime context 注入，不进入 `system`、`prefixMessages` 或 `cacheKey`
+   - 适合承载长期偏好、回答约束或固定执行提醒
+
+3. workspace instructions
    - 从 `session.workingDirectory/AGENTS.md` 读取的工作区根指令
    - 由 workspace instructions manager 负责扫描和诊断，prompt builder 只负责渲染
    - 不进入 `prefixMessages` 或 `cacheKey`，避免工作区指令变化影响稳定前缀
 
-3. user context hooks
+4. user context hooks
    - 来自 user settings 里的 `userContextHooks`
    - `behavior: "context"` 的 hook 由 runtime 在每次 run 开始时解析，只进入 `runtimeContextMessages`
    - context 注入当前只支持 `session_started`、`run_started` 两个时机；`run_end` 只支持 message hook
@@ -96,17 +101,17 @@ prefix message 带 `cache_control: { type: "ephemeral" }`，并参与当前 `cac
 
 `behavior: "message"` 的 hook 不进入 prompt runtime context，而是作为真实用户消息排入 runtime：`session_started` 与 `run_started` 会在用户消息发送给模型前先执行，`run_end` 会在用户消息完成后执行。`session_started` message hook 也只在当前 session 的第一次 run 触发。
 
-4. workspace skills
+5. workspace skills
    - 从 `session.workingDirectory/.agent/skills/` 发现的 skill metadata
    - prompt 当前只暴露模型做技能选择需要的元信息
    - 具体 skill 正文通过 `search_skill` / `load_skill` 按需读取，而不是整篇预注入
 
-5. full compaction continuation summary
+6. full compaction continuation summary
    - 只在 `session.context.fullCompactionState` 存在时注入
    - 内容来自最近一次 full compaction 生成的 continuation summary
    - 不进入 `prefixMessages` 或 `cacheKey`
 
-6. runtime context
+7. runtime context
    - working directory
    - pending confirmation payload
    - pending user question payload
