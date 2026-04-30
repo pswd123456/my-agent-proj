@@ -252,6 +252,7 @@ export const agentSettings = pgTable("agent_settings", {
   debugConversationView: boolean("debug_conversation_view")
     .notNull()
     .default(false),
+  userCustomPrompt: text("user_custom_prompt").notNull().default(""),
   createdAt: timestamp("created_at", {
     mode: "string",
     withTimezone: true

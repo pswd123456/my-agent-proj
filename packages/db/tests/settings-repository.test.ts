@@ -34,6 +34,7 @@ describe("MemorySettingsRepository", () => {
     ]);
     expect(settings.userContextHooks).toEqual([]);
     expect(settings.debugConversationView).toBe(false);
+    expect(settings.userCustomPrompt).toBe("");
   });
 
   test("uses injected settings permission tools for defaults and normalization", async () => {
@@ -64,7 +65,8 @@ describe("MemorySettingsRepository", () => {
       yoloMode: true,
       contextWindow: 123_456,
       maxTurns: 88,
-      debugConversationView: true
+      debugConversationView: true,
+      userCustomPrompt: "先确认上下文，再动手。"
     });
 
     const userA = await repository.getOrCreate("user-a");
@@ -77,6 +79,7 @@ describe("MemorySettingsRepository", () => {
     expect(userA.maxTurns).toBe(88);
     expect(userA.userContextHooks).toEqual([]);
     expect(userA.debugConversationView).toBe(true);
+    expect(userA.userCustomPrompt).toBe("先确认上下文，再动手。");
 
     expect(userB.workingDirectory).toBe(DEFAULT_SESSION_WORKING_DIRECTORY);
     expect(userB.model).toBe(DEFAULT_SESSION_MODEL);
@@ -85,6 +88,7 @@ describe("MemorySettingsRepository", () => {
     expect(userB.maxTurns).toBe(DEFAULT_SESSION_MAX_TURNS);
     expect(userB.userContextHooks).toEqual([]);
     expect(userB.debugConversationView).toBe(false);
+    expect(userB.userCustomPrompt).toBe("");
   });
 
   test("round-trips normalized user context hooks", async () => {
@@ -200,6 +204,7 @@ describe("MemorySettingsRepository", () => {
       user_context_hooks:
         '[{"id":"hook-1","event":"run_started","title":"Profile","content":"先看偏好","enabled":true}]',
       debug_conversation_view: true,
+      user_custom_prompt: "默认先检查上下文。",
       createdAt: "2026-04-23T00:00:00.000Z",
       updatedAt: "2026-04-23T01:00:00.000Z"
     } as never);
@@ -220,5 +225,6 @@ describe("MemorySettingsRepository", () => {
       }
     ]);
     expect(settings.debugConversationView).toBe(true);
+    expect(settings.userCustomPrompt).toBe("默认先检查上下文。");
   });
 });

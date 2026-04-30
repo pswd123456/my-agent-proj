@@ -12,6 +12,7 @@ import {
   normalizeSettingsPermissionRules,
   normalizeUserContextHooks,
   resolveSessionSettingsDefaults,
+  sanitizeUserCustomPrompt,
   sanitizeContextWindow,
   sanitizeSessionMaxTurns
 } from "@ai-app-template/domain";
@@ -111,6 +112,10 @@ export function mapSettingsRow(
       row.debugConversationView ??
       (row as { debug_conversation_view?: boolean }).debug_conversation_view ??
       false,
+    userCustomPrompt: sanitizeUserCustomPrompt(
+      row.userCustomPrompt ??
+        (row as { user_custom_prompt?: string }).user_custom_prompt
+    ),
     createdAt: toIsoString(row.createdAt),
     updatedAt: toIsoString(row.updatedAt)
   };
@@ -171,6 +176,9 @@ function buildPatchedSettings(
     ...(typeof patch.debugConversationView === "boolean"
       ? { debugConversationView: patch.debugConversationView }
       : {}),
+    ...(typeof patch.userCustomPrompt === "string"
+      ? { userCustomPrompt: sanitizeUserCustomPrompt(patch.userCustomPrompt) }
+      : {}),
     updatedAt: new Date().toISOString()
   };
 }
@@ -208,6 +216,7 @@ export class PostgresSettingsRepository implements SettingsRepository {
         enabledCapabilityPacks: defaults.enabledCapabilityPacks,
         userContextHooks: defaults.userContextHooks,
         debugConversationView: defaults.debugConversationView,
+        userCustomPrompt: defaults.userCustomPrompt,
         createdAt: defaults.createdAt,
         updatedAt: defaults.updatedAt
       })
@@ -251,6 +260,7 @@ export class PostgresSettingsRepository implements SettingsRepository {
         enabledCapabilityPacks: next.enabledCapabilityPacks,
         userContextHooks: next.userContextHooks,
         debugConversationView: next.debugConversationView,
+        userCustomPrompt: next.userCustomPrompt,
         createdAt: next.createdAt,
         updatedAt: next.updatedAt
       })
@@ -271,6 +281,7 @@ export class PostgresSettingsRepository implements SettingsRepository {
           enabledCapabilityPacks: next.enabledCapabilityPacks,
           userContextHooks: next.userContextHooks,
           debugConversationView: next.debugConversationView,
+          userCustomPrompt: next.userCustomPrompt,
           updatedAt: next.updatedAt
         }
       })
