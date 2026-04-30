@@ -6,7 +6,9 @@ import type {
   SessionSnapshot,
   SessionSummary,
   TraceRecord,
-  UserContextHookRecord
+  UserContextHookRecord,
+  UserSettingsMcpPayload,
+  WorkspaceMcpServerConfig
 } from "@ai-app-template/sdk";
 import {
   USER_CONTEXT_HOOK_TYPES,
@@ -17,6 +19,8 @@ import {
   DEFAULT_CONTEXT_WINDOW,
   DEFAULT_MAX_TURNS,
   MAX_TURNS_LIMIT,
+  type SettingsMcpFormState,
+  type SettingsMcpServerFormState,
   type SettingsFormState,
   type TurnUsageSummary
 } from "./session-workbench-types";
@@ -645,20 +649,24 @@ export function canInterruptSessionExecution(input: {
     return true;
   }
 
-  const displayState = getSessionDisplayState({
-    loopState: session.sessionState.loopState,
-    status: session.context.status,
-    pendingToolCallIds: session.sessionState.pendingToolCallIds,
-    interruptRequested: session.sessionState.interruptRequested,
-    pendingPermission: Boolean(session.context.pendingPermissionRequest),
-    pendingConfirmation: Boolean(session.context.pendingConfirmationPayload),
-    pendingUserQuestion: Boolean(session.context.pendingUserQuestionPayload),
-    pendingBackgroundNotificationCount:
-      session.context.pendingBackgroundNotifications?.length ?? 0,
-    activeBackgroundTaskCount: session.context.activeBackgroundTaskCount ?? 0
-  });
+  if (
+    session.sessionState.loopState === "interrupted" ||
+    session.sessionState.loopState === "failed" ||
+    session.sessionState.loopState === "completed" ||
+    session.context.status === "failed" ||
+    session.context.status === "completed"
+  ) {
+    return false;
+  }
 
-  if (!displayState.isActiveExecution) {
+  const isIdle =
+    session.sessionState.loopState === "waiting for input" &&
+    session.context.status === "waiting_for_user_input" &&
+    session.sessionState.pendingToolCallIds.length === 0 &&
+    !session.context.pendingPermissionRequest &&
+    !session.context.pendingConfirmationPayload &&
+    !session.context.pendingUserQuestionPayload;
+  if (isIdle) {
     return false;
   }
 
@@ -889,6 +897,161 @@ export function toSettingsFormState(
     debugConversationView: settings?.debugConversationView ?? false,
     userCustomPrompt: settings?.userCustomPrompt ?? ""
   };
+}
+
+function formatRecordText(record: Record<string, string>): string {
+  return Object.entries(record)
+    .map(([key, value]) => `${key}=${value}`)
+    .join("\n");
+}
+
+function formatMcpServerFormState(
+  server: WorkspaceMcpServerConfig,
+  statuses: NonNullable<UserSettingsMcpPayload["serverStatuses"]>,
+  index: number
+): SettingsMcpServerFormState {
+  const status = statuses.find((item) => item.name === server.name);
+  if (server.transport === "stdio") {
+    return {
+      id: `${server.name || "stdio"}-${index}`,
+      name: server.name,
+      transport: "stdio",
+      enabled: server.enabled,
+      disabledTools: [...server.disabledTools],
+      status: status?.status ?? "unknown",
+      tools: status?.tools ?? [],
+      error: status?.error ?? null,
+      command: server.command,
+      args: server.args.join("\n"),
+      env: formatRecordText(server.env),
+      url: "",
+      headers: ""
+    };
+  }
+
+  return {
+    id: `${server.name || "http"}-${index}`,
+    name: server.name,
+    transport: "http",
+    enabled: server.enabled,
+    disabledTools: [...server.disabledTools],
+    status: status?.status ?? "unknown",
+    tools: status?.tools ?? [],
+    error: status?.error ?? null,
+    command: "",
+    args: "",
+    env: "",
+    url: server.url,
+    headers: formatRecordText(server.headers)
+  };
+}
+
+export function toSettingsMcpFormState(
+  payload: UserSettingsMcpPayload | null
+): SettingsMcpFormState {
+  return {
+    workingDirectory: payload?.workingDirectory ?? "",
+    configPath: payload?.configPath ?? "",
+    foundConfig: payload?.foundConfig ?? false,
+    diagnostics: payload?.diagnostics ?? [],
+    servers: (payload?.servers ?? []).map((server, index) =>
+      formatMcpServerFormState(server, payload?.serverStatuses ?? [], index)
+    )
+  };
+}
+
+export function createEmptyMcpServerFormState(
+  transport: "stdio" | "http" = "stdio"
+): SettingsMcpServerFormState {
+  return {
+    id: crypto.randomUUID(),
+    name: "",
+    transport,
+    enabled: true,
+    disabledTools: [],
+    status: "unknown",
+    tools: [],
+    error: null,
+    command: "",
+    args: "",
+    env: "",
+    url: "",
+    headers: ""
+  };
+}
+
+function splitMcpLines(value: string): string[] {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+export function parseMcpRecordText(value: string): Record<string, string> {
+  const record: Record<string, string> = {};
+  for (const line of splitMcpLines(value)) {
+    const separatorIndex = line.indexOf("=");
+    if (separatorIndex <= 0) {
+      throw new Error(`MCP key-value line must use KEY=value: ${line}`);
+    }
+
+    const key = line.slice(0, separatorIndex).trim();
+    if (!key) {
+      throw new Error(`MCP key-value line is missing a key: ${line}`);
+    }
+    record[key] = line.slice(separatorIndex + 1).trim();
+  }
+  return record;
+}
+
+export function buildMcpServersFromForm(
+  form: SettingsMcpFormState
+): WorkspaceMcpServerConfig[] {
+  const servers: WorkspaceMcpServerConfig[] = [];
+  const names = new Set<string>();
+
+  for (const server of form.servers) {
+    const name = server.name.trim();
+    if (!name) {
+      throw new Error("MCP server name is required.");
+    }
+    if (names.has(name)) {
+      throw new Error(`MCP server name is duplicated: ${name}`);
+    }
+    names.add(name);
+
+    if (server.transport === "stdio") {
+      const command = server.command.trim();
+      if (!command) {
+        throw new Error(`MCP stdio server ${name} requires a command.`);
+      }
+      servers.push({
+        name,
+        transport: "stdio",
+        enabled: server.enabled,
+        disabledTools: [...new Set(server.disabledTools)],
+        command,
+        args: splitMcpLines(server.args),
+        env: parseMcpRecordText(server.env)
+      });
+      continue;
+    }
+
+    const url = server.url.trim();
+    if (!url) {
+      throw new Error(`MCP HTTP server ${name} requires a URL.`);
+    }
+    servers.push({
+      name,
+      transport: "http",
+      enabled: server.enabled,
+      disabledTools: [...new Set(server.disabledTools)],
+      url,
+      headers: parseMcpRecordText(server.headers)
+    });
+  }
+
+  return servers;
 }
 
 export function buildSessionSettingsPatchFromUserSettings(

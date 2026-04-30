@@ -723,9 +723,9 @@ export function buildComposerActionView(input: {
 }): ComposerActionView {
   if (input.interrupting) {
     return {
-      buttonLabel: "停止中...",
+      buttonLabel: "强制结束",
       buttonType: "interrupt",
-      disabled: true
+      disabled: false
     };
   }
 

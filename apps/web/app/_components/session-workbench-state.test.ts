@@ -5,6 +5,7 @@ import type { SessionSnapshot, SessionSummary } from "@ai-app-template/sdk";
 import {
   buildSessionSettingsPatchFromUserSettings,
   buildSessionSidebarRows,
+  buildMcpServersFromForm,
   applyStreamEventToSession,
   appendPatternLine,
   canInterruptSessionExecution,
@@ -18,6 +19,7 @@ import {
   normalizeSettingsFormState,
   removePatternLine,
   resolveSelectedModelId,
+  toSettingsMcpFormState,
   toSettingsFormState
 } from "./session-workbench-state";
 import { toSessionSummary } from "@ai-app-template/sdk";
@@ -117,9 +119,46 @@ describe("canInterruptSessionExecution", () => {
     ).toBe(true);
   });
 
-  test("returns false for a waiting permission pause", () => {
+  test("returns true for a waiting permission pause", () => {
     const session = createSessionSnapshot();
     session.context.status = "waiting_for_permission";
+
+    expect(
+      canInterruptSessionExecution({
+        session,
+        submitting: false
+      })
+    ).toBe(true);
+  });
+
+  test("returns false for an idle session", () => {
+    const session = createSessionSnapshot();
+
+    expect(
+      canInterruptSessionExecution({
+        session,
+        submitting: false
+      })
+    ).toBe(false);
+  });
+
+  test("returns false after a session has been interrupted", () => {
+    const session = createSessionSnapshot();
+    session.context.status = "waiting_for_user_input";
+    session.sessionState.loopState = "interrupted";
+
+    expect(
+      canInterruptSessionExecution({
+        session,
+        submitting: false
+      })
+    ).toBe(false);
+  });
+
+  test("returns false after a session has failed", () => {
+    const session = createSessionSnapshot();
+    session.context.status = "failed";
+    session.sessionState.loopState = "failed";
 
     expect(
       canInterruptSessionExecution({
@@ -195,6 +234,66 @@ describe("model selection state", () => {
       toolDenyList: ["delete_path"],
       enabledCapabilityPacks: ["workspace"]
     });
+  });
+});
+
+describe("MCP settings state", () => {
+  test("round-trips server and child tool enabled state", () => {
+    const form = toSettingsMcpFormState({
+      workingDirectory: "/tmp/workspace",
+      configPath: "/tmp/workspace/.agent/.config.toml",
+      foundConfig: true,
+      diagnostics: [],
+      servers: [
+        {
+          name: "local_echo",
+          transport: "stdio",
+          enabled: true,
+          disabledTools: ["write"],
+          command: "node",
+          args: ["server.js"],
+          env: { TOKEN: "$TOKEN" }
+        }
+      ],
+      serverStatuses: [
+        {
+          name: "local_echo",
+          transport: "stdio",
+          status: "loaded",
+          toolNames: ["mcp__local_echo__local_echo__echo__echo"],
+          tools: [
+            {
+              name: "echo",
+              runtimeName: "mcp__local_echo__local_echo__echo__echo",
+              description: "Echo the message.",
+              enabled: true
+            },
+            {
+              name: "write",
+              runtimeName: "mcp__local_echo__local_echo__write__write",
+              description: null,
+              enabled: false
+            }
+          ]
+        }
+      ]
+    });
+
+    expect(form.servers[0]?.tools.map((tool) => tool.name)).toEqual([
+      "echo",
+      "write"
+    ]);
+    expect(buildMcpServersFromForm(form)).toEqual([
+      {
+        name: "local_echo",
+        transport: "stdio",
+        enabled: true,
+        disabledTools: ["write"],
+        command: "node",
+        args: ["server.js"],
+        env: { TOKEN: "$TOKEN" }
+      }
+    ]);
   });
 });
 

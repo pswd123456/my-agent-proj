@@ -18,6 +18,7 @@ import {
   userContextHookEventOptions,
   type InspectorTabId,
   type SettingsFormState,
+  type SettingsMcpFormState,
   type SidebarPanelId
 } from "./session-workbench-types";
 import {
@@ -56,9 +57,6 @@ function formatCapabilityPackLabel(packName: string): string {
   if (packName === "schedule") {
     return "Schedule";
   }
-  if (packName === "web") {
-    return "Web";
-  }
   return packName;
 }
 
@@ -69,10 +67,22 @@ function formatCapabilityPackDescription(packName: string): string {
   if (packName === "schedule") {
     return "日程创建、编辑、查询与冲突确认相关能力。";
   }
-  if (packName === "web") {
-    return "网页搜索与静态网页正文抓取。";
-  }
   return packName;
+}
+
+function formatMcpStatusLabel(
+  status: SettingsMcpFormState["servers"][number]["status"]
+): string {
+  if (status === "loaded") {
+    return "loaded";
+  }
+  if (status === "failed") {
+    return "failed";
+  }
+  if (status === "disabled") {
+    return "disabled";
+  }
+  return "not checked";
 }
 
 function formatUserContextHookEventLabel(
@@ -209,9 +219,13 @@ interface SessionWorkbenchDrawerProps {
   settingsMeta: string;
   settingsStatusText: string;
   settingsForm: SettingsFormState;
+  settingsMcpForm: SettingsMcpFormState;
   permissionTools: SettingsPermissionToolOption[];
   loadingSettings: boolean;
   savingSettings: boolean;
+  loadingMcpSettings: boolean;
+  savingMcpSettings: boolean;
+  mcpSettingsErrorText: string | null;
   clearingSessionHistory: boolean;
   clearHistoryErrorText: string | null;
   choosingWorkingDirectory: boolean;
@@ -234,6 +248,23 @@ interface SessionWorkbenchDrawerProps {
   ) => void;
   onSettingsCapabilityPackToggle: (packName: string) => void;
   onSettingsShellAllowPatternRemove: (pattern: string) => void;
+  onAddMcpServer: () => void;
+  onMcpServerChange: (
+    serverId: string,
+    patch: Partial<SettingsMcpFormState["servers"][number]>
+  ) => void;
+  onMcpServerTransportChange: (
+    serverId: string,
+    transport: SettingsMcpFormState["servers"][number]["transport"]
+  ) => void;
+  onMcpServerEnabledChange: (serverId: string, enabled: boolean) => void;
+  onMcpToolEnabledChange: (
+    serverId: string,
+    toolName: string,
+    enabled: boolean
+  ) => void;
+  onDeleteMcpServer: (serverId: string) => void;
+  onMcpSettingsBlur: () => void;
   onAddUserContextHook: () => void;
   onUserContextHookChange: (
     hookId: string,
@@ -263,9 +294,13 @@ export function SessionWorkbenchDrawer({
   settingsMeta,
   settingsStatusText,
   settingsForm,
+  settingsMcpForm,
   permissionTools,
   loadingSettings,
   savingSettings,
+  loadingMcpSettings,
+  savingMcpSettings,
+  mcpSettingsErrorText,
   clearingSessionHistory,
   clearHistoryErrorText,
   choosingWorkingDirectory,
@@ -285,6 +320,13 @@ export function SessionWorkbenchDrawer({
   onSettingsPermissionToolToggle,
   onSettingsCapabilityPackToggle,
   onSettingsShellAllowPatternRemove,
+  onAddMcpServer,
+  onMcpServerChange,
+  onMcpServerTransportChange,
+  onMcpServerEnabledChange,
+  onMcpToolEnabledChange,
+  onDeleteMcpServer,
+  onMcpSettingsBlur,
   onAddUserContextHook,
   onUserContextHookChange,
   onUserContextHookBlur,
@@ -446,6 +488,283 @@ export function SessionWorkbenchDrawer({
                     留空会回到 repo 根下的 `agent-workspace/`。
                   </div>
                 </DrawerField>
+              </DrawerSection>
+
+              <DrawerSection
+                eyebrow="MCP"
+                title="MCP 服务与工具"
+                description="管理当前默认工作目录下的 MCP server，并选择本轮运行可挂载的子工具。"
+              >
+                <div className="grid gap-3">
+                  <div className={`${insetSurfaceClassName} px-4 py-3`}>
+                    <div className={tertiaryHeadingClassName}>Config Path</div>
+                    <div className="mt-2 break-all font-mono text-xs leading-6 text-[var(--app-text-primary)]">
+                      {settingsMcpForm.configPath || "--"}
+                    </div>
+                    <div className="mt-1 text-xs leading-5 text-[var(--app-text-muted)]">
+                      {loadingMcpSettings
+                        ? "正在读取 MCP 配置..."
+                        : settingsMcpForm.foundConfig
+                          ? "已找到配置文件。"
+                          : "还没有 MCP 配置文件。"}
+                    </div>
+                  </div>
+
+                  {settingsMcpForm.diagnostics.length > 0 ? (
+                    <div className="grid gap-2">
+                      {settingsMcpForm.diagnostics.map((diagnostic, index) => (
+                        <div
+                          key={`${diagnostic.code}-${diagnostic.serverName ?? "file"}-${index}`}
+                          className="rounded-[var(--app-radius-lg)] border border-[var(--app-status-danger)]/40 bg-[color:color-mix(in_srgb,var(--app-status-danger)_10%,transparent)] px-3 py-2 text-xs leading-5 text-[var(--app-status-danger)]"
+                        >
+                          {diagnostic.serverName
+                            ? `${diagnostic.serverName}: ${diagnostic.message}`
+                            : diagnostic.message}
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  <div className="flex items-center justify-between gap-3">
+                    <div className={sectionHeadingClassName}>Servers</div>
+                    <button
+                      type="button"
+                      onClick={onAddMcpServer}
+                      disabled={loadingMcpSettings || savingMcpSettings}
+                      className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-4 py-2 text-[0.72rem] uppercase tracking-[0.14em] text-[var(--app-text-secondary)] transition hover:border-[var(--app-border-accent)] hover:text-[var(--app-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Add Server
+                    </button>
+                  </div>
+
+                  {settingsMcpForm.servers.length === 0 ? (
+                    <div
+                      className={`${insetSurfaceClassName} px-4 py-3 text-xs leading-5 text-[var(--app-text-muted)]`}
+                    >
+                      当前工作目录还没有 MCP server。
+                    </div>
+                  ) : (
+                    settingsMcpForm.servers.map((server) => (
+                      <div
+                        key={server.id}
+                        className="grid gap-3 rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-4"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <input
+                              value={server.name}
+                              onChange={(event) =>
+                                onMcpServerChange(server.id, {
+                                  name: event.target.value
+                                })
+                              }
+                              onBlur={onMcpSettingsBlur}
+                              placeholder="server name"
+                              className="w-full min-w-0 border-none bg-transparent px-0 py-0 text-sm text-[var(--app-text-primary)] outline-none placeholder:text-[var(--app-text-muted)]"
+                            />
+                            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs leading-5 text-[var(--app-text-muted)]">
+                              <span>{server.transport}</span>
+                              <span>·</span>
+                              <span>{formatMcpStatusLabel(server.status)}</span>
+                              <span>·</span>
+                              <span>
+                                {
+                                  server.tools.filter((tool) => tool.enabled)
+                                    .length
+                                }
+                                /{server.tools.length} tools
+                              </span>
+                            </div>
+                          </div>
+                          <WorkbenchSwitch
+                            checked={server.enabled}
+                            disabled={loadingMcpSettings || savingMcpSettings}
+                            ariaLabel={`切换 ${server.name || "MCP server"} 的启用状态`}
+                            onChange={(checked) =>
+                              onMcpServerEnabledChange(server.id, checked)
+                            }
+                          />
+                        </div>
+
+                        {server.error ? (
+                          <div className="rounded-[var(--app-radius-lg)] border border-[var(--app-status-danger)]/40 bg-[color:color-mix(in_srgb,var(--app-status-danger)_10%,transparent)] px-3 py-2 text-xs leading-5 text-[var(--app-status-danger)]">
+                            {server.error}
+                          </div>
+                        ) : null}
+
+                        <div className="grid gap-2 sm:grid-cols-[minmax(0,160px)_1fr] sm:items-center">
+                          <div className={tertiaryHeadingClassName}>
+                            Transport
+                          </div>
+                          <WorkbenchSelect
+                            value={server.transport}
+                            disabled={loadingMcpSettings || savingMcpSettings}
+                            ariaLabel="选择 MCP transport"
+                            options={[
+                              { value: "stdio", label: "stdio" },
+                              { value: "http", label: "http" }
+                            ]}
+                            onValueChange={(transport) =>
+                              onMcpServerTransportChange(
+                                server.id,
+                                transport as SettingsMcpFormState["servers"][number]["transport"]
+                              )
+                            }
+                          />
+                        </div>
+
+                        {server.transport === "stdio" ? (
+                          <div className="grid gap-3">
+                            <label className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
+                              <span className={tertiaryHeadingClassName}>
+                                Command
+                              </span>
+                              <input
+                                value={server.command}
+                                onChange={(event) =>
+                                  onMcpServerChange(server.id, {
+                                    command: event.target.value
+                                  })
+                                }
+                                onBlur={onMcpSettingsBlur}
+                                className="w-full rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_78%,transparent)] px-4 py-3 text-sm text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
+                              />
+                            </label>
+                            <label className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
+                              <span className={tertiaryHeadingClassName}>
+                                Args
+                              </span>
+                              <textarea
+                                value={server.args}
+                                onChange={(event) =>
+                                  onMcpServerChange(server.id, {
+                                    args: event.target.value
+                                  })
+                                }
+                                onBlur={onMcpSettingsBlur}
+                                rows={2}
+                                className="w-full rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_78%,transparent)] px-4 py-3 text-sm text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
+                              />
+                            </label>
+                            <label className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
+                              <span className={tertiaryHeadingClassName}>
+                                Env
+                              </span>
+                              <textarea
+                                value={server.env}
+                                onChange={(event) =>
+                                  onMcpServerChange(server.id, {
+                                    env: event.target.value
+                                  })
+                                }
+                                onBlur={onMcpSettingsBlur}
+                                rows={2}
+                                className="w-full rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_78%,transparent)] px-4 py-3 text-sm text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
+                              />
+                            </label>
+                          </div>
+                        ) : (
+                          <div className="grid gap-3">
+                            <label className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
+                              <span className={tertiaryHeadingClassName}>
+                                URL
+                              </span>
+                              <input
+                                value={server.url}
+                                onChange={(event) =>
+                                  onMcpServerChange(server.id, {
+                                    url: event.target.value
+                                  })
+                                }
+                                onBlur={onMcpSettingsBlur}
+                                className="w-full rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_78%,transparent)] px-4 py-3 text-sm text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
+                              />
+                            </label>
+                            <label className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
+                              <span className={tertiaryHeadingClassName}>
+                                Headers
+                              </span>
+                              <textarea
+                                value={server.headers}
+                                onChange={(event) =>
+                                  onMcpServerChange(server.id, {
+                                    headers: event.target.value
+                                  })
+                                }
+                                onBlur={onMcpSettingsBlur}
+                                rows={2}
+                                className="w-full rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_78%,transparent)] px-4 py-3 text-sm text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
+                              />
+                            </label>
+                          </div>
+                        )}
+
+                        <div className="grid gap-2">
+                          <div className={tertiaryHeadingClassName}>Tools</div>
+                          {server.tools.length === 0 ? (
+                            <div className="rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_72%,transparent)] px-3 py-2 text-xs leading-5 text-[var(--app-text-muted)]">
+                              {server.status === "disabled"
+                                ? "server 已关闭，启用后会刷新子工具列表。"
+                                : "还没有可列出的子工具。"}
+                            </div>
+                          ) : (
+                            server.tools.map((tool) => (
+                              <label
+                                key={tool.runtimeName}
+                                className="flex items-start justify-between gap-3 rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_72%,transparent)] px-3 py-2"
+                              >
+                                <div className="min-w-0">
+                                  <div className="break-all font-mono text-xs text-[var(--app-text-primary)]">
+                                    {tool.name}
+                                  </div>
+                                  <div className="mt-1 break-all text-xs leading-5 text-[var(--app-text-muted)]">
+                                    {tool.description ?? tool.runtimeName}
+                                  </div>
+                                </div>
+                                <WorkbenchSwitch
+                                  checked={tool.enabled}
+                                  disabled={
+                                    loadingMcpSettings || savingMcpSettings
+                                  }
+                                  ariaLabel={`切换 MCP tool ${tool.name} 的启用状态`}
+                                  onChange={(checked) =>
+                                    onMcpToolEnabledChange(
+                                      server.id,
+                                      tool.name,
+                                      checked
+                                    )
+                                  }
+                                />
+                              </label>
+                            ))
+                          )}
+                        </div>
+
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="text-xs text-[var(--app-text-muted)]">
+                            {savingMcpSettings
+                              ? "正在保存 MCP 设置..."
+                              : "保存后下一次 run 生效"}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => onDeleteMcpServer(server.id)}
+                            disabled={loadingMcpSettings || savingMcpSettings}
+                            className="rounded-[var(--app-radius-pill)] border border-[var(--app-status-danger)] px-3 py-1 text-xs text-[var(--app-status-danger)] transition hover:bg-[color:color-mix(in_srgb,var(--app-status-danger)_12%,transparent)] disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+
+                  {mcpSettingsErrorText ? (
+                    <div className="rounded-[var(--app-radius-lg)] border border-[var(--app-status-danger)]/40 bg-[color:color-mix(in_srgb,var(--app-status-danger)_10%,transparent)] px-3 py-2 text-xs leading-5 text-[var(--app-status-danger)]">
+                      {mcpSettingsErrorText}
+                    </div>
+                  ) : null}
+                </div>
               </DrawerSection>
 
               <DrawerSection

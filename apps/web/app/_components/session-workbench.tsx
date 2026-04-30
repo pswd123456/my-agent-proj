@@ -21,8 +21,10 @@ import {
 
 import {
   buildWeekRange,
+  buildMcpServersFromForm,
   buildSessionSettingsPatchFromUserSettings,
   canInterruptSessionExecution,
+  createEmptyMcpServerFormState,
   findReusableNewSessionSummary,
   groupRoutinesByDate,
   appendPatternLine,
@@ -36,6 +38,7 @@ import {
   resolveSelectedModelId,
   resolveSelectedThinkingEffort,
   splitPatternLines,
+  toSettingsMcpFormState,
   toSettingsFormState
 } from "./session-workbench-state";
 import {
@@ -86,6 +89,7 @@ import {
   clearActiveSidebarPanel,
   type InspectorTabId,
   type SettingsFormState,
+  type SettingsMcpFormState,
   type SidebarPanelId
 } from "./session-workbench-types";
 
@@ -408,8 +412,16 @@ export function SessionWorkbench() {
   const [settingsForm, setSettingsForm] = useState<SettingsFormState>(
     toSettingsFormState(null)
   );
+  const [settingsMcpForm, setSettingsMcpForm] = useState<SettingsMcpFormState>(
+    toSettingsMcpFormState(null)
+  );
   const [loadingSettings, setLoadingSettings] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
+  const [loadingMcpSettings, setLoadingMcpSettings] = useState(false);
+  const [savingMcpSettings, setSavingMcpSettings] = useState(false);
+  const [mcpSettingsErrorText, setMcpSettingsErrorText] = useState<
+    string | null
+  >(null);
   const [choosingWorkingDirectory, setChoosingWorkingDirectory] =
     useState(false);
   const [pendingPermissionToolName, setPendingPermissionToolName] = useState<
@@ -559,19 +571,22 @@ export function SessionWorkbench() {
     async function hydrateSession(sessionId: string) {
       setLoadingSession(true);
       setLoadingSettings(true);
+      setLoadingMcpSettings(true);
       setErrorText(null);
 
       try {
         const session = await apiClient.getSession(sessionId);
         const week = buildWeekRange(session.context.currentDateContext);
-        const [trace, routinesResult, settingsPayload] = await Promise.all([
-          apiClient.getSessionTrace(sessionId),
-          apiClient.listSessionRoutines(sessionId, {
-            startDate: week.startDate,
-            endDate: week.endDate
-          }),
-          apiClient.getUserSettingsPayload(session.context.userId)
-        ]);
+        const [trace, routinesResult, settingsPayload, mcpPayload] =
+          await Promise.all([
+            apiClient.getSessionTrace(sessionId),
+            apiClient.listSessionRoutines(sessionId, {
+              startDate: week.startDate,
+              endDate: week.endDate
+            }),
+            apiClient.getUserSettingsPayload(session.context.userId),
+            apiClient.getUserSettingsMcp(session.context.userId)
+          ]);
 
         if (
           cancelled ||
@@ -590,6 +605,8 @@ export function SessionWorkbench() {
         setUserSettings(settingsPayload.settings);
         setPermissionTools(settingsPayload.permissionTools);
         setSettingsForm(toSettingsFormState(settingsPayload.settings));
+        setSettingsMcpForm(toSettingsMcpFormState(mcpPayload));
+        setMcpSettingsErrorText(null);
         setMaxTurns(String(session.maxTurns));
         setSessionRegistry((current) =>
           hydrateSelectedSession(current, session)
@@ -608,6 +625,7 @@ export function SessionWorkbench() {
         if (!cancelled) {
           setLoadingSession(false);
           setLoadingSettings(false);
+          setLoadingMcpSettings(false);
         }
       }
     }
@@ -631,24 +649,29 @@ export function SessionWorkbench() {
 
     if (showLoadingSettings) {
       setLoadingSettings(true);
+      setLoadingMcpSettings(syncSettings);
     }
 
     try {
       const session = await apiClient.getSession(sessionId);
       const week = buildWeekRange(session.context.currentDateContext);
-      const [trace, routinesResult, settingsPayload] = await Promise.all([
-        apiClient.getSessionTrace(sessionId),
-        apiClient.listSessionRoutines(sessionId, {
-          startDate: week.startDate,
-          endDate: week.endDate
-        }),
-        syncSettings
-          ? apiClient.getUserSettingsPayload(session.context.userId)
-          : Promise.resolve<{
-              settings: SessionSettingsRecord;
-              permissionTools: SettingsPermissionToolOption[];
-            } | null>(null)
-      ]);
+      const [trace, routinesResult, settingsPayload, mcpPayload] =
+        await Promise.all([
+          apiClient.getSessionTrace(sessionId),
+          apiClient.listSessionRoutines(sessionId, {
+            startDate: week.startDate,
+            endDate: week.endDate
+          }),
+          syncSettings
+            ? apiClient.getUserSettingsPayload(session.context.userId)
+            : Promise.resolve<{
+                settings: SessionSettingsRecord;
+                permissionTools: SettingsPermissionToolOption[];
+              } | null>(null),
+          syncSettings
+            ? apiClient.getUserSettingsMcp(session.context.userId)
+            : Promise.resolve(null)
+        ]);
 
       if (
         !shouldApplySelectedSessionResponse({
@@ -668,6 +691,10 @@ export function SessionWorkbench() {
         setPermissionTools(settingsPayload.permissionTools);
         setSettingsForm(toSettingsFormState(settingsPayload.settings));
       }
+      if (mcpPayload) {
+        setSettingsMcpForm(toSettingsMcpFormState(mcpPayload));
+        setMcpSettingsErrorText(null);
+      }
       setMaxTurns(String(session.maxTurns));
       setSessionRegistry((current) => hydrateSelectedSession(current, session));
       setRunFileChanges((current) =>
@@ -682,6 +709,7 @@ export function SessionWorkbench() {
     } finally {
       if (showLoadingSettings) {
         setLoadingSettings(false);
+        setLoadingMcpSettings(false);
       }
     }
   }
@@ -1061,7 +1089,7 @@ export function SessionWorkbench() {
     setErrorText(null);
 
     try {
-      const result = await apiClient.interruptSessionExecution(sessionId);
+      const result = await apiClient.forceStopSessionExecution(sessionId);
       setSessionUiState((current) =>
         setSessionSnapshot(current, result.session)
       );
@@ -1218,6 +1246,15 @@ export function SessionWorkbench() {
       setUserSettings(updated);
       setPermissionTools(updatedPayload.permissionTools);
       setSettingsForm(toSettingsFormState(updated));
+      try {
+        const mcpPayload = await apiClient.getUserSettingsMcp(targetUserId);
+        setSettingsMcpForm(toSettingsMcpFormState(mcpPayload));
+        setMcpSettingsErrorText(null);
+      } catch (error) {
+        setMcpSettingsErrorText(
+          error instanceof Error ? error.message : String(error)
+        );
+      }
 
       if (currentSession && currentSession.context.userId === targetUserId) {
         const syncedSession = await apiClient.updateSessionSettings(
@@ -1255,6 +1292,133 @@ export function SessionWorkbench() {
     });
     setSettingsForm(nextForm);
     await handleSaveUserSettings(nextForm);
+  }
+
+  function handleAddMcpServer() {
+    if (savingMcpSettings) {
+      return;
+    }
+
+    setSettingsMcpForm((current) => ({
+      ...current,
+      servers: [...current.servers, createEmptyMcpServerFormState()]
+    }));
+  }
+
+  function handleMcpServerChange(
+    serverId: string,
+    patch: Partial<SettingsMcpFormState["servers"][number]>
+  ) {
+    setSettingsMcpForm((current) => ({
+      ...current,
+      servers: current.servers.map((server) =>
+        server.id === serverId ? { ...server, ...patch } : server
+      )
+    }));
+  }
+
+  function handleMcpServerTransportChange(
+    serverId: string,
+    transport: SettingsMcpFormState["servers"][number]["transport"]
+  ) {
+    setSettingsMcpForm((current) => ({
+      ...current,
+      servers: current.servers.map((server) =>
+        server.id === serverId ? { ...server, transport } : server
+      )
+    }));
+  }
+
+  async function handleMcpServerEnabledChange(
+    serverId: string,
+    enabled: boolean
+  ) {
+    if (savingMcpSettings) {
+      return;
+    }
+
+    const nextForm = {
+      ...settingsMcpForm,
+      servers: settingsMcpForm.servers.map((server) =>
+        server.id === serverId ? { ...server, enabled } : server
+      )
+    };
+    setSettingsMcpForm(nextForm);
+    await handleSaveMcpSettings(nextForm);
+  }
+
+  async function handleMcpToolEnabledChange(
+    serverId: string,
+    toolName: string,
+    enabled: boolean
+  ) {
+    if (savingMcpSettings) {
+      return;
+    }
+
+    const nextForm = {
+      ...settingsMcpForm,
+      servers: settingsMcpForm.servers.map((server) => {
+        if (server.id !== serverId) {
+          return server;
+        }
+
+        const disabledTools = enabled
+          ? server.disabledTools.filter((name) => name !== toolName)
+          : Array.from(new Set([...server.disabledTools, toolName]));
+        return {
+          ...server,
+          disabledTools,
+          tools: server.tools.map((tool) =>
+            tool.name === toolName ? { ...tool, enabled } : tool
+          )
+        };
+      })
+    };
+    setSettingsMcpForm(nextForm);
+    await handleSaveMcpSettings(nextForm);
+  }
+
+  async function handleDeleteMcpServer(serverId: string) {
+    if (savingMcpSettings) {
+      return;
+    }
+
+    const nextForm = {
+      ...settingsMcpForm,
+      servers: settingsMcpForm.servers.filter(
+        (server) => server.id !== serverId
+      )
+    };
+    setSettingsMcpForm(nextForm);
+    await handleSaveMcpSettings(nextForm);
+  }
+
+  async function handleSaveMcpSettings(
+    nextForm: SettingsMcpFormState = settingsMcpForm
+  ): Promise<boolean> {
+    const targetUserId = currentSession?.context.userId ?? userSettings?.userId;
+    if (!targetUserId || savingMcpSettings) {
+      return false;
+    }
+
+    setSavingMcpSettings(true);
+    setMcpSettingsErrorText(null);
+
+    try {
+      const payload = await apiClient.updateUserSettingsMcp(targetUserId, {
+        servers: buildMcpServersFromForm(nextForm)
+      });
+      setSettingsMcpForm(toSettingsMcpFormState(payload));
+      return true;
+    } catch (error) {
+      setMcpSettingsErrorText(
+        error instanceof Error ? error.message : String(error)
+      );
+      return false;
+    } finally {
+      setSavingMcpSettings(false);
+    }
   }
 
   function updateUserContextHookList(
@@ -1319,9 +1483,7 @@ export function SessionWorkbench() {
 
     const nextForm = updateUserContextHookList((hooks) =>
       enforceSingleEnabledUserContextHookType(
-        hooks.map((hook) =>
-          hook.id === hookId ? { ...hook, enabled } : hook
-        ),
+        hooks.map((hook) => (hook.id === hookId ? { ...hook, enabled } : hook)),
         enabled ? hookId : undefined
       )
     );
@@ -1883,9 +2045,13 @@ export function SessionWorkbench() {
               settingsMeta={settingsMeta}
               settingsStatusText={settingsStatusText}
               settingsForm={settingsForm}
+              settingsMcpForm={settingsMcpForm}
               permissionTools={permissionTools}
               loadingSettings={loadingSettings}
               savingSettings={savingSettings}
+              loadingMcpSettings={loadingMcpSettings}
+              savingMcpSettings={savingMcpSettings}
+              mcpSettingsErrorText={mcpSettingsErrorText}
               clearingSessionHistory={clearingSessionHistory}
               clearHistoryErrorText={clearHistoryErrorText}
               choosingWorkingDirectory={choosingWorkingDirectory}
@@ -1917,6 +2083,19 @@ export function SessionWorkbench() {
               onSettingsShellAllowPatternRemove={(pattern) =>
                 void handleSettingsShellAllowPatternRemove(pattern)
               }
+              onAddMcpServer={handleAddMcpServer}
+              onMcpServerChange={handleMcpServerChange}
+              onMcpServerTransportChange={handleMcpServerTransportChange}
+              onMcpServerEnabledChange={(serverId, enabled) =>
+                void handleMcpServerEnabledChange(serverId, enabled)
+              }
+              onMcpToolEnabledChange={(serverId, toolName, enabled) =>
+                void handleMcpToolEnabledChange(serverId, toolName, enabled)
+              }
+              onDeleteMcpServer={(serverId) =>
+                void handleDeleteMcpServer(serverId)
+              }
+              onMcpSettingsBlur={() => void handleSaveMcpSettings()}
               onAddUserContextHook={handleAddUserContextHook}
               onUserContextHookChange={handleUserContextHookChange}
               onUserContextHookBlur={() => void handleSaveUserSettings()}

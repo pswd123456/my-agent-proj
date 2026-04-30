@@ -9,7 +9,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import type { InspectorProjection } from "./session-message-manager";
 import { SessionWorkbenchDrawer } from "./session-workbench-drawer";
-import type { SettingsFormState } from "./session-workbench-types";
+import type {
+  SettingsFormState,
+  SettingsMcpFormState
+} from "./session-workbench-types";
 
 function createSessionSnapshot(): SessionSnapshot {
   return {
@@ -79,6 +82,16 @@ function createSettingsFormState(): SettingsFormState {
   };
 }
 
+function createSettingsMcpFormState(): SettingsMcpFormState {
+  return {
+    workingDirectory: "/tmp/workspace",
+    configPath: "/tmp/workspace/.agent/.config.toml",
+    foundConfig: true,
+    diagnostics: [],
+    servers: []
+  };
+}
+
 function createInspectorProjection(): InspectorProjection {
   return {
     inspectorEvents: [],
@@ -105,9 +118,13 @@ describe("session-workbench drawer", () => {
         settingsMeta: "user cli-user",
         settingsStatusText: "",
         settingsForm: createSettingsFormState(),
+        settingsMcpForm: createSettingsMcpFormState(),
         permissionTools,
         loadingSettings: false,
         savingSettings: false,
+        loadingMcpSettings: false,
+        savingMcpSettings: false,
+        mcpSettingsErrorText: null,
         clearingSessionHistory: false,
         clearHistoryErrorText:
           "One or more sessions are currently running. Wait for active runs to finish before clearing history.",
@@ -128,6 +145,13 @@ describe("session-workbench drawer", () => {
         onSettingsPermissionToolToggle: () => {},
         onSettingsCapabilityPackToggle: () => {},
         onSettingsShellAllowPatternRemove: () => {},
+        onAddMcpServer: () => {},
+        onMcpServerChange: () => {},
+        onMcpServerTransportChange: () => {},
+        onMcpServerEnabledChange: () => {},
+        onMcpToolEnabledChange: () => {},
+        onDeleteMcpServer: () => {},
+        onMcpSettingsBlur: () => {},
         onAddUserContextHook: () => {},
         onUserContextHookChange: () => {},
         onUserContextHookBlur: () => {},
@@ -159,9 +183,13 @@ describe("session-workbench drawer", () => {
         settingsMeta: "user cli-user",
         settingsStatusText: "",
         settingsForm,
+        settingsMcpForm: createSettingsMcpFormState(),
         permissionTools,
         loadingSettings: false,
         savingSettings: false,
+        loadingMcpSettings: false,
+        savingMcpSettings: false,
+        mcpSettingsErrorText: null,
         clearingSessionHistory: false,
         clearHistoryErrorText: null,
         choosingWorkingDirectory: false,
@@ -181,6 +209,13 @@ describe("session-workbench drawer", () => {
         onSettingsPermissionToolToggle: () => {},
         onSettingsCapabilityPackToggle: () => {},
         onSettingsShellAllowPatternRemove: () => {},
+        onAddMcpServer: () => {},
+        onMcpServerChange: () => {},
+        onMcpServerTransportChange: () => {},
+        onMcpServerEnabledChange: () => {},
+        onMcpToolEnabledChange: () => {},
+        onDeleteMcpServer: () => {},
+        onMcpSettingsBlur: () => {},
         onAddUserContextHook: () => {},
         onUserContextHookChange: () => {},
         onUserContextHookBlur: () => {},
@@ -212,9 +247,13 @@ describe("session-workbench drawer", () => {
         settingsMeta: "user cli-user",
         settingsStatusText: "",
         settingsForm,
+        settingsMcpForm: createSettingsMcpFormState(),
         permissionTools,
         loadingSettings: false,
         savingSettings: false,
+        loadingMcpSettings: false,
+        savingMcpSettings: false,
+        mcpSettingsErrorText: null,
         clearingSessionHistory: false,
         clearHistoryErrorText: null,
         choosingWorkingDirectory: false,
@@ -234,6 +273,13 @@ describe("session-workbench drawer", () => {
         onSettingsPermissionToolToggle: () => {},
         onSettingsCapabilityPackToggle: () => {},
         onSettingsShellAllowPatternRemove: () => {},
+        onAddMcpServer: () => {},
+        onMcpServerChange: () => {},
+        onMcpServerTransportChange: () => {},
+        onMcpServerEnabledChange: () => {},
+        onMcpToolEnabledChange: () => {},
+        onDeleteMcpServer: () => {},
+        onMcpSettingsBlur: () => {},
         onAddUserContextHook: () => {},
         onUserContextHookChange: () => {},
         onUserContextHookBlur: () => {},
@@ -272,9 +318,13 @@ describe("session-workbench drawer", () => {
         settingsMeta: "user cli-user",
         settingsStatusText: "",
         settingsForm,
+        settingsMcpForm: createSettingsMcpFormState(),
         permissionTools,
         loadingSettings: false,
         savingSettings: false,
+        loadingMcpSettings: false,
+        savingMcpSettings: false,
+        mcpSettingsErrorText: null,
         clearingSessionHistory: false,
         clearHistoryErrorText: null,
         choosingWorkingDirectory: false,
@@ -294,6 +344,13 @@ describe("session-workbench drawer", () => {
         onSettingsPermissionToolToggle: () => {},
         onSettingsCapabilityPackToggle: () => {},
         onSettingsShellAllowPatternRemove: () => {},
+        onAddMcpServer: () => {},
+        onMcpServerChange: () => {},
+        onMcpServerTransportChange: () => {},
+        onMcpServerEnabledChange: () => {},
+        onMcpToolEnabledChange: () => {},
+        onDeleteMcpServer: () => {},
+        onMcpSettingsBlur: () => {},
         onAddUserContextHook: () => {},
         onUserContextHookChange: () => {},
         onUserContextHookBlur: () => {},

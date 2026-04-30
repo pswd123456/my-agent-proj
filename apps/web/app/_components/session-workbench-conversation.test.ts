@@ -344,7 +344,7 @@ describe("composer action view", () => {
     expect(view.buttonLabel).toBe("停止执行");
   });
 
-  test("shows stopping feedback in the same button after interrupt is requested", () => {
+  test("keeps the stop button clickable after interrupt is requested", () => {
     const view = buildComposerActionView({
       canInterrupt: true,
       interrupting: true,
@@ -352,8 +352,8 @@ describe("composer action view", () => {
     });
 
     expect(view.buttonType).toBe("interrupt");
-    expect(view.disabled).toBe(true);
-    expect(view.buttonLabel).toBe("停止中...");
+    expect(view.disabled).toBe(false);
+    expect(view.buttonLabel).toBe("强制结束");
   });
 
   test("falls back to the send button when there is no active run", () => {
