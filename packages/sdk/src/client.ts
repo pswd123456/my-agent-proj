@@ -112,6 +112,7 @@ export interface UpdateUserSettingsPayload {
   enabledCapabilityPacks?: string[];
   userContextHooks?: UserContextHookRecord[];
   debugConversationView?: boolean;
+  userCustomPrompt?: string;
 }
 
 export interface UserSettingsPayload {

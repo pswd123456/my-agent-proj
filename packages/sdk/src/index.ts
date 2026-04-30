@@ -12,6 +12,8 @@ export type {
   UserContextHookRecord
 } from "@ai-app-template/domain";
 export {
+  buildShellApprovalPatternCandidates,
+  matchesShellCommandPattern,
   CAPABILITY_PACK_OPTIONS,
   PERMISSION_TOOL_OPTIONS,
   SETTINGS_PERMISSION_TOOL_OPTIONS,
