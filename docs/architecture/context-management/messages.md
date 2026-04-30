@@ -36,13 +36,14 @@ messages 管理要解决两个问题：
 
 ## tool call 与 permission 的关系
 
-当前 `executeToolAction()` 会先把 `tool call` block 写入 `session.messages`，再做 permission check。
+当前主循环会先把模型返回的同轮 `tool call` block 写入 `session.messages`，再进入工具 prepare / permission check。直接调用 `executeToolAction()` 的测试或辅助路径也会遵循同样顺序，除非显式传入 `skipAppendToolCall` 来复用已有 pending tool call。
 
 这意味着：
 
 - 如果 permission 直接 block，会追加一个错误 `tool result`
 - 如果 permission 进入 ask user，会保留已经写入的 `tool call`，并把 pending request 写入 session context
-- 用户批准后，runtime 通过 `skipAppendToolCall` 复用之前的 tool call，再追加真实 tool result
+- 用户批准后，runtime 复用之前的 pending tool call，再追加真实 tool result
+- 如果同轮有多个连续并发安全工具，runtime 可以并行执行它们，但结果仍按原始 tool call 顺序写回
 
 这是当前实现事实，不代表长期唯一选择。后续如果要收紧“未批准 tool call 是否进入模型可见历史”，应单独设计 pending tool proposal 状态，而不是直接删除现有 block 写入。
 

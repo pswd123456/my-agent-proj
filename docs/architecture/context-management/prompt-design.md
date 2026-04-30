@@ -75,7 +75,7 @@ prefix message 带 `cache_control: { type: "ephemeral" }`，并参与当前 `cac
 
 ## runtimeContextMessages
 
-`runtimeContextMessages` 放每次执行才需要的上下文，并在层内按相对稳定到易变排序，当前包括六类：
+`runtimeContextMessages` 放每次执行才需要的上下文，并在层内按相对稳定到易变排序，当前包括七类：
 
 1. plan mode prompt
    - 只在当前 session 开启 `plan mode` 时注入

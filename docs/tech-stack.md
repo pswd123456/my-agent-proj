@@ -8,7 +8,7 @@
 - Web：`Next.js 16` + `React 19` + `Tailwind CSS 4`
 - API：`Hono` + `Zod`
 - Worker：`apps/worker` 轮询 `background_tasks` 并复用 agent runtime
-- Agent：仓库内自定义 runtime loop + Anthropic-compatible 模型服务（MiniMax / DeepSeek）
+- Agent：仓库内自定义 runtime loop + Anthropic-compatible 模型服务（`MiniMax-M2.7` / `deepseek-v4-pro` / `deepseek-v4-flash`）
 - 数据层：`PostgreSQL` + `Drizzle ORM` + `postgres` 驱动
 
 ## 判断现状时看哪里
@@ -16,6 +16,7 @@
 - API 装配：`apps/api/src/index.ts`
 - API 契约：`apps/api/src/app.ts`
 - runtime/provider：`packages/agent/src/`
+- 模型目录与默认模型：`packages/agent/src/models/service.ts`
 - session 默认值：`packages/domain/src/session-settings.ts`
 - 数据表：`packages/db/src/schema.ts`
 

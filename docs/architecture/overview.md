@@ -21,7 +21,7 @@
 - session 默认工作目录是仓库根下的 `agent-workspace/`；如果用户设置或新建 session 时显式指定了其他目录，也可以落在 repo 外
 - session 默认 `contextWindow` 是 `200000`
 - session 默认 `maxTurns` 是 `50`，接口允许的上限是 `200`
-- 默认启用的 capability packs 是 `workspace`、`schedule` 和 `web`
+- 默认启用的 capability packs 是 `workspace`、`schedule`、`web` 和 `lsp`
 - session settings 的解析顺序是 `explicit override > user settings > repo default`
 - detached background task 使用独立 child session 或 shell worker 执行，不与 parent session 共用消息历史
 - 工作区 runtime 上下文还会按次读取 `session.workingDirectory` 下的工作区输入：
@@ -32,6 +32,7 @@
   - 其中 `.agent/plans/` 是运行时产物与用户可编辑 artifact，其余是运行时输入
 - 用户级 settings 已持久化到 `agent_settings`，当前包含：
   - `model`
+  - `thinkingEffort`
   - `workingDirectory`
   - `yoloMode`
   - `contextWindow`
@@ -41,6 +42,7 @@
   - `enabledCapabilityPacks`
   - `userContextHooks`
   - `debugConversationView`
+  - `userCustomPrompt`
 
 当前权限语义里，`yoloMode` 会自动放行除 `run_shell_command` / `make_http_request` 之外的所有工具；shell / network 不走用户级 tool allow/ask/deny 配置，仍然在运行时单独审批。
 
@@ -49,9 +51,14 @@
 当前 API 不只是 session create/execute：
 
 - `GET /health`
+- `GET /`
 - `GET /models`
 - `GET/POST /sessions`
+- `DELETE /sessions/history`
 - `GET/PATCH/DELETE /sessions/:sessionId`
+- `PATCH /sessions/:sessionId/settings`
+- `GET /sessions/:sessionId/workspace-files/search`
+- `GET /sessions/:sessionId/skills/search`
 - `POST /sessions/:sessionId/execute`
 - `POST /sessions/:sessionId/execute/stream`
 - `POST /sessions/:sessionId/interrupt`
@@ -60,6 +67,7 @@
 - `POST /sessions/:sessionId/recover`
 - `GET /sessions/:sessionId/trace`
 - `GET /system-logs`
+- `POST /directory-picker`
 - `GET/PATCH /users/:userId/settings`
 - `GET /sessions/:sessionId/routines`
 - `POST /sessions/:sessionId/routines/reset`
@@ -72,6 +80,7 @@
 - 任务主记录保存在 `background_tasks`
 - 每次执行尝试保存在 `background_task_runs`
 - 当前支持 `agent_session` 与 `shell_command` 两类执行后端
+- 领域模型里还保留 `cron_job` 这个 task kind，但当前 API / worker 主链路真正会创建和处理的是 `subagent`、`shell_command` 与 `session_wakeup`
 - `apps/worker` 负责轮询和执行这些任务，`packages/agent/src/background-tasks/` 负责通用 orchestration，`packages/agent/src/delegation/` 负责主 agent 发起与回复 delegated subagent
 - 当前没有公开 background task API，也没有 cron tool surface；`subagent` 是内部任务类型，不是对外 HTTP 接口
 
@@ -79,8 +88,10 @@
 
 - API 装配：`apps/api/src/index.ts`
 - worker 装配：`apps/worker/src/index.ts`
+- 模型目录与默认模型：`packages/agent/src/models/service.ts`
 - session 默认值：`packages/domain/src/session-settings.ts`
 - tool surface：`packages/agent/src/tools/registry.ts`
+- tool 编排：`packages/agent/src/runtime/run-loop.ts`、`packages/agent/src/runtime/tool-execution.ts`
 - background task：`packages/agent/src/background-tasks/`
 - delegation：`packages/agent/src/delegation/`
 - 工作区 `.agent/` 配置：`docs/architecture/workspace-agent-config.md`
@@ -91,7 +102,11 @@
 
 - 想先建立全局认知：读 `docs/architecture/diagram.md`
 - 想判断主线与专项能力边界：读 `docs/architecture/capability-packs.md`
+- 想确认 API 契约、runtime 装配与 SDK 侧 transport 边界：读 `docs/architecture/api-and-sdk-boundary.md`
+- 想确认工具调用、权限等待、工具结果持久化和并发执行边界：读 `docs/architecture/tool-orchestration.md`
 - 想确认后台任务、子代理和 worker 链路：读 `docs/architecture/background-tasks-and-delegation.md`
+- 想确认 session/settings/background task 的持久化归属：读 `docs/architecture/persistence-and-session-state.md`
+- 想从产品层理解 `apps/web` 和 shared UI 层怎么协作：读 `docs/architecture/frontend-workbench.md`
 - 想确认目录职责和模块归属：读 `docs/architecture/workspace-structure.md`
 - 想确认工作区 `.agent/skills/` 和 `.agent/.config.toml` 的边界：读 `docs/architecture/workspace-agent-config.md`
 - 想确认 plan mode、task brief artifact 和只读 planning 边界：读 `docs/architecture/context-management/plan-mode.md`

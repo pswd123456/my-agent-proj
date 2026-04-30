@@ -50,8 +50,10 @@
 
 ### 模型兼容性
 
-- 当前模型目录包含 `MiniMax-M2.7` 与 `deepseek-v4-pro`
+- 当前模型目录包含 `MiniMax-M2.7`、`deepseek-v4-pro` 和 `deepseek-v4-flash`
+- 默认模型优先取 `DEFAULT_AGENT_MODEL` / `AGENT_MODEL`；若未显式指定，则按已配置 provider 顺序回退到第一个可用模型
 - `deepseek-v4-pro` 走 DeepSeek 官方 Anthropic-compatible endpoint 时支持 `thinking`
+- `deepseek-v4-flash` 也走 DeepSeek 官方 Anthropic-compatible endpoint，并支持当前同一套 `thinkingEffort` 选项
 - 对 DeepSeek 的 `thinking + tool_use` 多轮续传，上一轮 assistant message 中的 signed `thinking` block 必须原样回放；去掉后 provider 会返回 `400`
 - 本地验证中，DeepSeek 在 `thinking` 模式下若显式传 `tool_choice: { type: "tool", name: ... }` 可能返回 `deepseek-reasoner does not support this tool_choice`；当前优先使用 `tool_choice: auto`
 

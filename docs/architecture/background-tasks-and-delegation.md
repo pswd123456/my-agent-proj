@@ -9,7 +9,7 @@
 - `packages/agent/src/delegation/` 负责主 agent 发起、查询和回复 delegated subagent
 - `packages/domain` 和 `packages/db` 负责后台任务与 delegate 相关的领域模型和持久化
 
-它不是通用队列系统，也不是 cron 平台。当前只覆盖 agent 需要的 detached subagent、后台 shell 命令，以及少量后台任务状态流转。
+它不是通用队列系统，也不是 cron 平台。当前只覆盖 agent 需要的 detached subagent、后台 shell 命令、主会话唤醒，以及少量后台任务状态流转。
 
 ## 关键模块
 
@@ -34,19 +34,21 @@ packages/db/src/schema.ts
 
 ## 当前任务模型
 
-现在的后台任务 kind 有四类：
+领域模型里现在定义了四类后台任务 kind：
 
 - `cron_job`
 - `subagent`
 - `session_wakeup`
 - `shell_command`
 
+其中当前 API / worker 主链路真正会创建和处理的是 `subagent`、`session_wakeup` 和 `shell_command`；`cron_job` 目前只保留在领域模型与仓储测试里，还没有接入可运行主链路。
+
 当前真正落地的执行后端有两类：
 
 - `agent_session`：用独立 child session 跑 detached subagent / session wakeup
 - `shell_command`：用 detached worker 子进程跑后台 shell 命令
 
-`cron_job` 还没有对外 HTTP 接口。
+`cron_job` 目前既没有对外 HTTP 接口，也没有 worker 执行装配。
 
 ## 运行链路
 

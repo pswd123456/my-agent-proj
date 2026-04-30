@@ -89,6 +89,7 @@
 | messages 回放   | `ConversationBlock[]` 转 Anthropic-compatible messages                     | [Messages 管理](./messages.md)                        |
 | history compact | 超过 `contextWindow * 0.95` 后先压缩较早历史，必要时再进入 full compaction | [Compact 机制](./compaction.md)                       |
 | tool result     | 默认完整写入 session，不做统一 runtime 截断                                | [Tool Result 上下文](./tool-results.md)               |
+| tool 编排       | tool call 的 prepare / permission / execute / persist 边界                 | [Tool 编排与执行边界](../tool-orchestration.md)       |
 | prompt 分层     | `system + prefix + messages + runtime context + dynamic prompt + tools`    | [Prompt 设计](./prompt-design.md)                     |
 | 前端消息编排    | `session.messages + trace + stream overlay` 统一收口成前端 projection      | [前端 Message Manager](./frontend-message-manager.md) |
 | planning 态     | session 级 `plan mode` + task brief artifact + 文件写拦截                  | [Plan Mode](./plan-mode.md)                           |
