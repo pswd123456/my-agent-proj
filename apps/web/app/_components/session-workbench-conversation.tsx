@@ -2183,6 +2183,7 @@ export function SessionWorkbenchConversationPanel({
   const [permissionCardFeedback, setPermissionCardFeedback] =
     useState<PermissionCardFeedback | null>(null);
   const [persistShellApproval, setPersistShellApproval] = useState(false);
+  const persistShellApprovalRef = useRef(false);
   const [activeUserQuestionIndex, setActiveUserQuestionIndex] = useState(0);
   const [userQuestionReplies, setUserQuestionReplies] = useState<string[]>([]);
   const [expandedRunFileKeys, setExpandedRunFileKeys] = useState<Set<string>>(
@@ -2699,6 +2700,7 @@ export function SessionWorkbenchConversationPanel({
   }, [permissionCardFeedback, permissionRequestKey]);
 
   useEffect(() => {
+    persistShellApprovalRef.current = false;
     setPersistShellApproval(false);
   }, [permissionRequestKey]);
 
@@ -3187,9 +3189,11 @@ export function SessionWorkbenchConversationPanel({
                               <input
                                 type="checkbox"
                                 checked={persistShellApproval}
-                                onChange={(event) =>
-                                  setPersistShellApproval(event.target.checked)
-                                }
+                                onChange={(event) => {
+                                  persistShellApprovalRef.current =
+                                    event.target.checked;
+                                  setPersistShellApproval(event.target.checked);
+                                }}
                                 disabled={submitting}
                                 className="h-4 w-4 accent-[var(--app-border-accent)] disabled:cursor-not-allowed disabled:opacity-50"
                               />
@@ -3213,7 +3217,7 @@ export function SessionWorkbenchConversationPanel({
                                   void onPermissionQuickReply(option.reply, {
                                     persistShellApproval:
                                       isShellPermissionRequest &&
-                                      persistShellApproval
+                                      persistShellApprovalRef.current
                                   });
                                 }}
                                 disabled={submitting}
