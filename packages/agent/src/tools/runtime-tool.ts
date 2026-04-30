@@ -97,6 +97,10 @@ export interface RuntimeTool {
     input: Record<string, JsonValue>,
     context: ToolExecutionContext
   ): Promise<ToolPermissionRequest | null>;
+  isConcurrencySafe?(
+    input: Record<string, JsonValue>,
+    context: ToolExecutionContext
+  ): boolean;
   validate(input: Record<string, JsonValue>): ToolValidationResult;
   execute(
     input: Record<string, JsonValue>,

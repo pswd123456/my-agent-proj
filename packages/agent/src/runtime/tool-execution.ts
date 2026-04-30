@@ -4,8 +4,13 @@ import type { RunEventSink } from "../events.js";
 import type { BackgroundTaskManager } from "../background-tasks/index.js";
 import type { DelegateAgentService } from "../delegation/index.js";
 import type { SessionManager } from "../session.js";
-import type { TraceManager } from "../trace.js";
-import type { JsonValue, RunSessionResult, SessionSnapshot } from "../types.js";
+import type { TraceEvent, TraceManager } from "../trace.js";
+import type {
+  JsonValue,
+  RunSessionResult,
+  SessionSnapshot,
+  ToolResultDetails
+} from "../types.js";
 import type { ToolRegistry } from "../tools/registry.js";
 import type { ToolExecutionContext } from "../tools/runtime-tool.js";
 import { buildToolCallBlock, buildToolResultBlock } from "./blocks.js";
@@ -21,6 +26,34 @@ export type ExecuteToolActionResult =
   | {
       kind: "permission_request";
       session: SessionSnapshot;
+      request: NonNullable<
+        SessionSnapshot["context"]["pendingPermissionRequest"]
+      >;
+    };
+
+export interface ToolActionCompletion {
+  toolCallId: string;
+  toolName: string;
+  responseGroupId?: string;
+  output: RunSessionResult["toolOutputs"][number];
+  lastError: string | null;
+  traceEvents: TraceEvent[];
+}
+
+export interface PreparedToolActionReady {
+  kind: "ready";
+  isConcurrencySafe: boolean;
+  execute(): Promise<ToolActionCompletion>;
+}
+
+export type PreparedToolAction =
+  | PreparedToolActionReady
+  | {
+      kind: "completed";
+      completion: ToolActionCompletion;
+    }
+  | {
+      kind: "permission_request";
       request: NonNullable<
         SessionSnapshot["context"]["pendingPermissionRequest"]
       >;
@@ -94,6 +127,265 @@ function createToolExecutionContext(input: {
   };
 }
 
+function buildToolActionCompletion(input: {
+  turnCount: number;
+  toolCallId: string;
+  toolName: string;
+  responseGroupId?: string;
+  content: string;
+  isError: boolean;
+  displayText: string;
+  details?: ToolResultDetails;
+  lastError: string | null;
+  traceEvents?: TraceEvent[];
+}): ToolActionCompletion {
+  const toolResultEvent: TraceEvent = {
+    kind: "tool_result",
+    turnCount: input.turnCount,
+    toolCallId: input.toolCallId,
+    toolName: input.toolName,
+    output: input.content,
+    isError: input.isError,
+    displayText: input.displayText,
+    ...(input.details ? { details: input.details } : {})
+  };
+
+  return {
+    toolCallId: input.toolCallId,
+    toolName: input.toolName,
+    ...(input.responseGroupId
+      ? { responseGroupId: input.responseGroupId }
+      : {}),
+    output: {
+      toolCallId: input.toolCallId,
+      toolName: input.toolName,
+      content: input.content,
+      displayText: input.displayText,
+      isError: input.isError,
+      ...(input.details ? { details: input.details } : {})
+    },
+    lastError: input.lastError,
+    traceEvents: [...(input.traceEvents ?? []), toolResultEvent]
+  };
+}
+
+function resolveConcurrencySafety(input: {
+  tool: NonNullable<ReturnType<ToolRegistry["get"]>>;
+  toolInput: Record<string, JsonValue>;
+  executionContext: ToolExecutionContext;
+}): boolean {
+  if (typeof input.tool.isConcurrencySafe === "function") {
+    try {
+      return input.tool.isConcurrencySafe(
+        input.toolInput,
+        input.executionContext
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  return input.tool.isReadOnly;
+}
+
+export async function persistToolActionCompletion(input: {
+  sessionManager: SessionManager;
+  traceManager: TraceManager | undefined;
+  eventSink: RunEventSink | undefined;
+  session: SessionSnapshot;
+  completion: ToolActionCompletion;
+}): Promise<SessionSnapshot> {
+  let session = await input.sessionManager.appendBlock(
+    input.session.sessionId,
+    buildToolResultBlock({
+      id: input.completion.toolCallId,
+      name: input.completion.toolName,
+      content: input.completion.output.content,
+      isError: input.completion.output.isError,
+      ...(input.completion.output.details
+        ? { details: input.completion.output.details }
+        : {}),
+      ...(input.completion.responseGroupId
+        ? { responseGroupId: input.completion.responseGroupId }
+        : {})
+    })
+  );
+  session = await input.sessionManager.setLastError(
+    session.sessionId,
+    input.completion.lastError
+  );
+
+  for (const event of input.completion.traceEvents) {
+    await emitTraceEvent({
+      traceManager: input.traceManager,
+      eventSink: input.eventSink,
+      sessionId: session.sessionId,
+      event
+    });
+  }
+
+  return session;
+}
+
+export async function prepareToolAction(input: {
+  sessionManager: SessionManager;
+  routineRepository: RoutineRepository;
+  toolRegistry: ToolRegistry;
+  delegateAgentService?: DelegateAgentService;
+  backgroundTaskManager?: BackgroundTaskManager;
+  session: SessionSnapshot;
+  turnCount: number;
+  toolCallId: string;
+  toolName: string;
+  toolInput: Record<string, JsonValue>;
+  responseGroupId?: string;
+  skipPermissionCheck?: boolean;
+  abortSignal?: AbortSignal;
+  allowWorkspaceEscape?: boolean;
+}): Promise<PreparedToolAction> {
+  const tool = input.toolRegistry.get(input.toolName);
+  if (!tool) {
+    const errorText = `Unknown tool: ${input.toolName}`;
+    return {
+      kind: "completed",
+      completion: buildToolActionCompletion({
+        turnCount: input.turnCount,
+        toolCallId: input.toolCallId,
+        toolName: input.toolName,
+        ...(input.responseGroupId
+          ? { responseGroupId: input.responseGroupId }
+          : {}),
+        content: errorText,
+        isError: true,
+        displayText: `[${input.toolName}] failed\n- ${errorText}`,
+        lastError: errorText
+      })
+    };
+  }
+
+  const validation = tool.validate(input.toolInput);
+  if (!validation.ok) {
+    const validationText = JSON.stringify(
+      {
+        ok: false,
+        code: "INVALID_TOOL_INPUT",
+        message: "Tool input validation failed.",
+        validationErrors: validation.issues ?? []
+      },
+      null,
+      2
+    );
+    return {
+      kind: "completed",
+      completion: buildToolActionCompletion({
+        turnCount: input.turnCount,
+        toolCallId: input.toolCallId,
+        toolName: input.toolName,
+        ...(input.responseGroupId
+          ? { responseGroupId: input.responseGroupId }
+          : {}),
+        content: validationText,
+        isError: true,
+        displayText: `[${input.toolName}] invalid input`,
+        lastError: "Tool input validation failed."
+      })
+    };
+  }
+
+  const validatedInput = (validation.value ?? input.toolInput) as Record<
+    string,
+    JsonValue
+  >;
+  const executionContext = createToolExecutionContext({
+    session: input.session,
+    routineRepository: input.routineRepository,
+    sessionManager: input.sessionManager,
+    ...(input.delegateAgentService
+      ? { delegateAgentService: input.delegateAgentService }
+      : {}),
+    ...(input.backgroundTaskManager
+      ? { backgroundTaskManager: input.backgroundTaskManager }
+      : {}),
+    tool,
+    ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
+    ...(typeof input.allowWorkspaceEscape === "boolean"
+      ? { allowWorkspaceEscape: input.allowWorkspaceEscape }
+      : {})
+  });
+  const permissionCheck = input.skipPermissionCheck
+    ? { decision: "allow" as const }
+    : await checkToolPermission({
+        toolCallId: input.toolCallId,
+        tool,
+        toolInput: validatedInput,
+        ...(input.responseGroupId
+          ? { responseGroupId: input.responseGroupId }
+          : {}),
+        executionContext
+      });
+
+  if (permissionCheck.decision === "block") {
+    return {
+      kind: "completed",
+      completion: buildToolActionCompletion({
+        turnCount: input.turnCount,
+        toolCallId: input.toolCallId,
+        toolName: input.toolName,
+        ...(input.responseGroupId
+          ? { responseGroupId: input.responseGroupId }
+          : {}),
+        content: permissionCheck.content,
+        isError: true,
+        displayText: permissionCheck.displayText,
+        lastError: permissionCheck.reason,
+        traceEvents: [
+          {
+            kind: "permission_blocked",
+            turnCount: input.turnCount,
+            toolCallId: input.toolCallId,
+            toolName: input.toolName,
+            reason: permissionCheck.reason
+          }
+        ]
+      })
+    };
+  }
+
+  if (permissionCheck.decision === "ask_user") {
+    return {
+      kind: "permission_request",
+      request: permissionCheck.request
+    };
+  }
+
+  return {
+    kind: "ready",
+    isConcurrencySafe: resolveConcurrencySafety({
+      tool,
+      toolInput: validatedInput,
+      executionContext
+    }),
+    async execute() {
+      const result = await tool.execute(validatedInput, executionContext);
+
+      return buildToolActionCompletion({
+        turnCount: input.turnCount,
+        toolCallId: input.toolCallId,
+        toolName: input.toolName,
+        ...(input.responseGroupId
+          ? { responseGroupId: input.responseGroupId }
+          : {}),
+        content: result.content,
+        isError: result.state === "failed",
+        displayText: result.displayText,
+        ...(result.details ? { details: result.details } : {}),
+        lastError:
+          result.state === "failed" ? (result.error ?? result.content) : null
+      });
+    }
+  };
+}
+
 export async function executeToolAction(input: {
   sessionManager: SessionManager;
   routineRepository: RoutineRepository;
@@ -140,195 +432,34 @@ export async function executeToolAction(input: {
     });
   }
 
-  const tool = input.toolRegistry.get(input.toolName);
-  if (!tool) {
-    const errorText = `Unknown tool: ${input.toolName}`;
-    session = await input.sessionManager.appendBlock(
-      session.sessionId,
-      buildToolResultBlock({
-        id: input.toolCallId,
-        name: input.toolName,
-        content: errorText,
-        isError: true,
-        ...(input.responseGroupId
-          ? { responseGroupId: input.responseGroupId }
-          : {})
-      })
-    );
-    session = await input.sessionManager.setLastError(
-      session.sessionId,
-      errorText
-    );
-    await emitTraceEvent({
-      traceManager: input.traceManager,
-      eventSink: input.eventSink,
-      sessionId: session.sessionId,
-      event: {
-        kind: "tool_result",
-        turnCount: input.turnCount,
-        toolCallId: input.toolCallId,
-        toolName: input.toolName,
-        output: errorText,
-        isError: true,
-        displayText: `[${input.toolName}] failed\n- ${errorText}`
-      }
-    });
-    return {
-      kind: "completed",
-      session,
-      output: {
-        toolCallId: input.toolCallId,
-        toolName: input.toolName,
-        content: errorText,
-        displayText: `[${input.toolName}] failed\n- ${errorText}`,
-        isError: true
-      }
-    };
-  }
-
-  const validation = tool.validate(input.toolInput);
-  if (!validation.ok) {
-    const validationText = JSON.stringify(
-      {
-        ok: false,
-        code: "INVALID_TOOL_INPUT",
-        message: "Tool input validation failed.",
-        validationErrors: validation.issues ?? []
-      },
-      null,
-      2
-    );
-    session = await input.sessionManager.appendBlock(
-      session.sessionId,
-      buildToolResultBlock({
-        id: input.toolCallId,
-        name: input.toolName,
-        content: validationText,
-        isError: true,
-        ...(input.responseGroupId
-          ? { responseGroupId: input.responseGroupId }
-          : {})
-      })
-    );
-    session = await input.sessionManager.setLastError(
-      session.sessionId,
-      "Tool input validation failed."
-    );
-    await emitTraceEvent({
-      traceManager: input.traceManager,
-      eventSink: input.eventSink,
-      sessionId: session.sessionId,
-      event: {
-        kind: "tool_result",
-        turnCount: input.turnCount,
-        toolCallId: input.toolCallId,
-        toolName: input.toolName,
-        output: validationText,
-        isError: true,
-        displayText: `[${input.toolName}] invalid input`
-      }
-    });
-    return {
-      kind: "completed",
-      session,
-      output: {
-        toolCallId: input.toolCallId,
-        toolName: input.toolName,
-        content: validationText,
-        displayText: `[${input.toolName}] invalid input`,
-        isError: true
-      }
-    };
-  }
-
-  const executionContext = createToolExecutionContext({
-    session,
-    routineRepository: input.routineRepository,
+  const prepared = await prepareToolAction({
     sessionManager: input.sessionManager,
+    routineRepository: input.routineRepository,
+    toolRegistry: input.toolRegistry,
     ...(input.delegateAgentService
       ? { delegateAgentService: input.delegateAgentService }
       : {}),
     ...(input.backgroundTaskManager
       ? { backgroundTaskManager: input.backgroundTaskManager }
       : {}),
-    tool,
+    session,
+    turnCount: input.turnCount,
+    toolCallId: input.toolCallId,
+    toolName: input.toolName,
+    toolInput: input.toolInput,
+    ...(input.responseGroupId
+      ? { responseGroupId: input.responseGroupId }
+      : {}),
+    ...(input.skipPermissionCheck
+      ? { skipPermissionCheck: input.skipPermissionCheck }
+      : {}),
     ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
     ...(typeof input.allowWorkspaceEscape === "boolean"
       ? { allowWorkspaceEscape: input.allowWorkspaceEscape }
       : {})
   });
-  const permissionCheck = input.skipPermissionCheck
-    ? { decision: "allow" as const }
-    : await checkToolPermission({
-        toolCallId: input.toolCallId,
-        tool,
-        toolInput: (validation.value ?? input.toolInput) as Record<
-          string,
-          JsonValue
-        >,
-        ...(input.responseGroupId
-          ? { responseGroupId: input.responseGroupId }
-          : {}),
-        executionContext
-      });
 
-  if (permissionCheck.decision === "block") {
-    session = await input.sessionManager.appendBlock(
-      session.sessionId,
-      buildToolResultBlock({
-        id: input.toolCallId,
-        name: input.toolName,
-        content: permissionCheck.content,
-        isError: true,
-        ...(input.responseGroupId
-          ? { responseGroupId: input.responseGroupId }
-          : {})
-      })
-    );
-    session = await input.sessionManager.setLastError(
-      session.sessionId,
-      permissionCheck.reason
-    );
-    await emitTraceEvent({
-      traceManager: input.traceManager,
-      eventSink: input.eventSink,
-      sessionId: session.sessionId,
-      event: {
-        kind: "permission_blocked",
-        turnCount: input.turnCount,
-        toolCallId: input.toolCallId,
-        toolName: input.toolName,
-        reason: permissionCheck.reason
-      }
-    });
-    await emitTraceEvent({
-      traceManager: input.traceManager,
-      eventSink: input.eventSink,
-      sessionId: session.sessionId,
-      event: {
-        kind: "tool_result",
-        turnCount: input.turnCount,
-        toolCallId: input.toolCallId,
-        toolName: input.toolName,
-        output: permissionCheck.content,
-        isError: true,
-        displayText: permissionCheck.displayText
-      }
-    });
-    return {
-      kind: "completed",
-      session,
-      output: {
-        toolCallId: input.toolCallId,
-        toolName: input.toolName,
-        content: permissionCheck.content,
-        displayText: permissionCheck.displayText,
-        isError: true
-      }
-    };
-  }
-
-  if (permissionCheck.decision === "ask_user") {
+  if (prepared.kind === "permission_request") {
     const pendingToolCallIds =
       session.sessionState.pendingToolCallIds.length > 0
         ? [...session.sessionState.pendingToolCallIds]
@@ -338,7 +469,7 @@ export async function executeToolAction(input: {
     }
     session = await input.sessionManager.updateContext(session.sessionId, {
       status: "waiting_for_permission",
-      pendingPermissionRequest: permissionCheck.request
+      pendingPermissionRequest: prepared.request
     });
     session = await input.sessionManager.setPendingToolCallIds(
       session.sessionId,
@@ -354,64 +485,31 @@ export async function executeToolAction(input: {
         turnCount: input.turnCount,
         toolCallId: input.toolCallId,
         toolName: input.toolName,
-        request: permissionCheck.request
+        request: prepared.request
       }
     });
     return {
       kind: "permission_request",
       session,
-      request: permissionCheck.request
+      request: prepared.request
     };
   }
 
-  const result = await tool.execute(
-    (validation.value ?? input.toolInput) as Record<string, JsonValue>,
-    executionContext
-  );
-
-  session = await input.sessionManager.appendBlock(
-    session.sessionId,
-    buildToolResultBlock({
-      id: input.toolCallId,
-      name: input.toolName,
-      content: result.content,
-      isError: result.state === "failed",
-      ...(result.details ? { details: result.details } : {}),
-      ...(input.responseGroupId
-        ? { responseGroupId: input.responseGroupId }
-        : {})
-    })
-  );
-  session = await input.sessionManager.setLastError(
-    session.sessionId,
-    result.state === "failed" ? (result.error ?? result.content) : null
-  );
-  await emitTraceEvent({
+  const completion =
+    prepared.kind === "completed"
+      ? prepared.completion
+      : await prepared.execute();
+  session = await persistToolActionCompletion({
+    sessionManager: input.sessionManager,
     traceManager: input.traceManager,
     eventSink: input.eventSink,
-    sessionId: session.sessionId,
-    event: {
-      kind: "tool_result",
-      turnCount: input.turnCount,
-      toolCallId: input.toolCallId,
-      toolName: input.toolName,
-      output: result.content,
-      isError: result.state === "failed",
-      displayText: result.displayText,
-      ...(result.details ? { details: result.details } : {})
-    }
+    session,
+    completion
   });
 
   return {
     kind: "completed",
     session,
-    output: {
-      toolCallId: input.toolCallId,
-      toolName: input.toolName,
-      content: result.content,
-      displayText: result.displayText,
-      isError: result.state === "failed",
-      ...(result.details ? { details: result.details } : {})
-    }
+    output: completion.output
   };
 }

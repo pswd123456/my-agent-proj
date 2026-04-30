@@ -52,7 +52,11 @@ import { completeInterruptedRun } from "./interrupt.js";
 import { handlePendingPermissionReply } from "./permission.js";
 import { appendTrace, emitRunEvent, emitTraceEvent } from "./run-events.js";
 import { preparePromptWithCompaction } from "./compaction.js";
-import { executeToolAction } from "./tool-execution.js";
+import {
+  executeToolAction,
+  persistToolActionCompletion,
+  prepareToolAction
+} from "./tool-execution.js";
 import { handlePendingUserQuestionReply } from "./user-question.js";
 
 interface StreamedAssistantSnapshot {
@@ -412,6 +416,167 @@ export async function runSessionLoop(input: {
     );
   }
 
+  async function executeToolCallsWithOrchestration(inputForExecution: {
+    toolCalls: Array<{
+      id: string;
+      name: string;
+      input: Record<string, JsonValue>;
+      responseGroupId?: string;
+    }>;
+    turnCount: number;
+    notificationIds: string[];
+  }): Promise<RunSessionResult | null> {
+    let index = 0;
+
+    while (index < inputForExecution.toolCalls.length) {
+      const batch = [];
+      let scanIndex = index;
+
+      while (scanIndex < inputForExecution.toolCalls.length) {
+        const toolCall = inputForExecution.toolCalls[scanIndex]!;
+        const prepared = await prepareToolAction({
+          sessionManager: input.sessionManager,
+          routineRepository: input.routineRepository,
+          toolRegistry: input.toolRegistry,
+          ...(input.delegateAgentService
+            ? { delegateAgentService: input.delegateAgentService }
+            : {}),
+          ...(input.backgroundTaskManager
+            ? { backgroundTaskManager: input.backgroundTaskManager }
+            : {}),
+          session,
+          turnCount: inputForExecution.turnCount,
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+          toolInput: toolCall.input,
+          ...(toolCall.responseGroupId
+            ? { responseGroupId: toolCall.responseGroupId }
+            : {}),
+          ...(input.abortSignal ? { abortSignal: input.abortSignal } : {})
+        });
+
+        if (prepared.kind !== "ready" || !prepared.isConcurrencySafe) {
+          break;
+        }
+
+        batch.push(prepared);
+        scanIndex += 1;
+      }
+
+      if (batch.length > 0) {
+        const completions = await Promise.all(
+          batch.map((prepared) => prepared.execute())
+        );
+
+        for (const completion of completions) {
+          session = await persistToolActionCompletion({
+            sessionManager: input.sessionManager,
+            traceManager: input.traceManager,
+            eventSink: input.eventSink,
+            session,
+            completion
+          });
+          toolCallCount += 1;
+          toolResultCount += 1;
+          toolOutputs.push(completion.output);
+
+          const pausedForActiveDelegate =
+            await maybePauseForAcceptedBackgroundTask({
+              output: completion.output,
+              turnCount: inputForExecution.turnCount,
+              notificationIds: inputForExecution.notificationIds
+            });
+          if (pausedForActiveDelegate) {
+            return pausedForActiveDelegate;
+          }
+
+          {
+            const interrupted = await maybeCompleteInterrupted();
+            if (interrupted) {
+              return interrupted;
+            }
+          }
+        }
+
+        index = scanIndex;
+        continue;
+      }
+
+      const toolCall = inputForExecution.toolCalls[index]!;
+      const executed = await executeToolAction({
+        sessionManager: input.sessionManager,
+        routineRepository: input.routineRepository,
+        toolRegistry: input.toolRegistry,
+        ...(input.delegateAgentService
+          ? { delegateAgentService: input.delegateAgentService }
+          : {}),
+        ...(input.backgroundTaskManager
+          ? { backgroundTaskManager: input.backgroundTaskManager }
+          : {}),
+        traceManager: input.traceManager,
+        session,
+        turnCount: inputForExecution.turnCount,
+        toolCallId: toolCall.id,
+        toolName: toolCall.name,
+        toolInput: toolCall.input,
+        ...(toolCall.responseGroupId
+          ? { responseGroupId: toolCall.responseGroupId }
+          : {}),
+        eventSink: input.eventSink,
+        skipAppendToolCall: true,
+        ...(input.abortSignal ? { abortSignal: input.abortSignal } : {})
+      });
+      session = executed.session;
+      toolCallCount += 1;
+      if (executed.kind === "permission_request") {
+        const result = await completeLocally({
+          sessionManager: input.sessionManager,
+          traceManager: input.traceManager,
+          session,
+          turnCount: inputForExecution.turnCount,
+          loopState: "waiting for input",
+          finalAnswer: "",
+          stopReason: "tool_use",
+          toolCallCount,
+          toolResultCount,
+          toolOutputs,
+          eventSink: input.eventSink,
+          emitCompletedRunEvent: input.emitCompletedRunEvent,
+          appendAssistantMessage: false,
+          clearPendingToolCallIds: false
+        });
+        return finalizeResultAfterNotificationConsumption(
+          result,
+          inputForExecution.turnCount,
+          inputForExecution.notificationIds
+        );
+      }
+
+      toolResultCount += 1;
+      toolOutputs.push(executed.output);
+
+      const pausedForActiveDelegate = await maybePauseForAcceptedBackgroundTask({
+        output: executed.output,
+        turnCount: inputForExecution.turnCount,
+        notificationIds: inputForExecution.notificationIds
+      });
+      if (pausedForActiveDelegate) {
+        return pausedForActiveDelegate;
+      }
+
+      {
+        const interrupted = await maybeCompleteInterrupted();
+        if (interrupted) {
+          return interrupted;
+        }
+      }
+
+      index += 1;
+    }
+
+    return null;
+  }
+
   try {
     if (pendingPermissionAtStart && input.message) {
       const handled = await handlePendingPermissionReply({
@@ -503,75 +668,13 @@ export async function runSessionLoop(input: {
       session.sessionState.pendingToolCallIds.length > 0
     ) {
       const pendingToolCalls = getUnresolvedPendingToolCalls(session);
-
-      for (const toolCall of pendingToolCalls) {
-        const executed = await executeToolAction({
-          sessionManager: input.sessionManager,
-          routineRepository: input.routineRepository,
-          toolRegistry: input.toolRegistry,
-          ...(input.delegateAgentService
-            ? { delegateAgentService: input.delegateAgentService }
-            : {}),
-          ...(input.backgroundTaskManager
-            ? { backgroundTaskManager: input.backgroundTaskManager }
-            : {}),
-          traceManager: input.traceManager,
-          session,
-          turnCount: Math.max(1, carriedTurnCount),
-          toolCallId: toolCall.id,
-          toolName: toolCall.name,
-          toolInput: toolCall.input,
-          ...(toolCall.responseGroupId
-            ? { responseGroupId: toolCall.responseGroupId }
-            : {}),
-          eventSink: input.eventSink,
-          skipAppendToolCall: true,
-          ...(input.abortSignal ? { abortSignal: input.abortSignal } : {})
-        });
-        session = executed.session;
-        toolCallCount += 1;
-        if (executed.kind === "permission_request") {
-          const result = await completeLocally({
-            sessionManager: input.sessionManager,
-            traceManager: input.traceManager,
-            session,
-            turnCount: Math.max(1, carriedTurnCount),
-            loopState: "waiting for input",
-            finalAnswer: "",
-            stopReason: "tool_use",
-            toolCallCount,
-            toolResultCount,
-            toolOutputs,
-            eventSink: input.eventSink,
-            emitCompletedRunEvent: input.emitCompletedRunEvent,
-            appendAssistantMessage: false,
-            clearPendingToolCallIds: false
-          });
-          return finalizeResultAfterNotificationConsumption(
-            result,
-            Math.max(1, carriedTurnCount)
-          );
-        }
-
-        toolResultCount += 1;
-        toolOutputs.push(executed.output);
-
-        const pausedForActiveDelegate =
-          await maybePauseForAcceptedBackgroundTask({
-            output: executed.output,
-            turnCount: Math.max(1, carriedTurnCount),
-            notificationIds: visibleBackgroundNotificationIds
-          });
-        if (pausedForActiveDelegate) {
-          return pausedForActiveDelegate;
-        }
-
-        {
-          const interrupted = await maybeCompleteInterrupted();
-          if (interrupted) {
-            return interrupted;
-          }
-        }
+      const resumedExecution = await executeToolCallsWithOrchestration({
+        toolCalls: pendingToolCalls,
+        turnCount: Math.max(1, carriedTurnCount),
+        notificationIds: visibleBackgroundNotificationIds
+      });
+      if (resumedExecution) {
+        return resumedExecution;
       }
 
       session =
@@ -1068,73 +1171,18 @@ export async function runSessionLoop(input: {
           });
         }
 
-        for (const toolCall of resolvedToolCalls) {
-          const executed = await executeToolAction({
-            sessionManager: input.sessionManager,
-            routineRepository: input.routineRepository,
-            toolRegistry: input.toolRegistry,
-            ...(input.delegateAgentService
-              ? { delegateAgentService: input.delegateAgentService }
-              : {}),
-            ...(input.backgroundTaskManager
-              ? { backgroundTaskManager: input.backgroundTaskManager }
-              : {}),
-            traceManager: input.traceManager,
-            session,
-            turnCount,
-            toolCallId: toolCall.id,
-            toolName: toolCall.name,
-            toolInput: toolCall.input as Record<string, JsonValue>,
-            ...(responseGroupId ? { responseGroupId } : {}),
-            eventSink: input.eventSink,
-            skipAppendToolCall: true,
-            ...(input.abortSignal ? { abortSignal: input.abortSignal } : {})
-          });
-          session = executed.session;
-          toolCallCount += 1;
-          if (executed.kind === "permission_request") {
-            const result = await completeLocally({
-              sessionManager: input.sessionManager,
-              traceManager: input.traceManager,
-              session,
-              turnCount,
-              loopState: "waiting for input",
-              finalAnswer: "",
-              stopReason: stopReason ?? "tool_use",
-              toolCallCount,
-              toolResultCount,
-              toolOutputs,
-              eventSink: input.eventSink,
-              emitCompletedRunEvent: input.emitCompletedRunEvent,
-              appendAssistantMessage: false,
-              clearPendingToolCallIds: false
-            });
-            return finalizeResultAfterNotificationConsumption(
-              result,
-              turnCount,
-              notificationIdsVisibleThisTurn
-            );
-          }
-
-          toolResultCount += 1;
-          toolOutputs.push(executed.output);
-
-          const pausedForActiveDelegate =
-            await maybePauseForAcceptedBackgroundTask({
-              output: executed.output,
-              turnCount,
-              notificationIds: notificationIdsVisibleThisTurn
-            });
-          if (pausedForActiveDelegate) {
-            return pausedForActiveDelegate;
-          }
-
-          {
-            const interrupted = await maybeCompleteInterrupted();
-            if (interrupted) {
-              return interrupted;
-            }
-          }
+        const executionResult = await executeToolCallsWithOrchestration({
+          toolCalls: resolvedToolCalls.map((toolCall) => ({
+            id: toolCall.id,
+            name: toolCall.name,
+            input: toolCall.input as Record<string, JsonValue>,
+            ...(responseGroupId ? { responseGroupId } : {})
+          })),
+          turnCount,
+          notificationIds: notificationIdsVisibleThisTurn
+        });
+        if (executionResult) {
+          return executionResult;
         }
 
         session =
