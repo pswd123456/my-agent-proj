@@ -119,6 +119,13 @@ describe("MemorySettingsRepository", () => {
           title: "Blank",
           content: "   ",
           enabled: true
+        },
+        {
+          id: "hook-4",
+          event: "run_started",
+          title: "Duplicate type",
+          content: "同一类型只能同时启用一条。",
+          enabled: true
         }
       ]
     });
@@ -136,6 +143,13 @@ describe("MemorySettingsRepository", () => {
         event: "run_end",
         title: "Wrap up",
         content: "结尾给一个简短 next step。",
+        enabled: false
+      },
+      {
+        id: "hook-4",
+        event: "run_started",
+        title: "Duplicate type",
+        content: "同一类型只能同时启用一条。",
         enabled: false
       }
     ]);
