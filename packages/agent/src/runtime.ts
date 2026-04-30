@@ -50,6 +50,7 @@ export interface AgentRuntimeOptions {
   traceManager?: TraceManager;
   promptBuilder?: PromptBuilder;
   userContextHooks?: UserContextHookRecord[];
+  userCustomPrompt?: string;
   maxTurns?: number;
   maxTokens?: number;
   toolChoice?: AnthropicToolChoice;
@@ -336,6 +337,9 @@ export class AgentRuntime {
           : {}),
         ...(this.options.backgroundTaskManager
           ? { backgroundTaskManager: this.options.backgroundTaskManager }
+          : {}),
+        ...(typeof this.options.userCustomPrompt === "string"
+          ? { userCustomPrompt: this.options.userCustomPrompt }
           : {}),
         ...(requestOptions ? { requestOptions } : {}),
         ...(runtimeLogger ? { logger: runtimeLogger } : {})

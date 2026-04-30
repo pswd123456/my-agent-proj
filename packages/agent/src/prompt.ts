@@ -67,6 +67,7 @@ export interface PromptBuilderOptions {
 export interface PromptRuntimeContext {
   currentTurnCount?: number;
   maxTurns?: number;
+  userCustomPrompt?: string;
   contextHooks?: ResolvedUserContextHookSection[];
   workspaceInstructions?: WorkspaceInstructionsDescriptor | null;
 }
@@ -513,6 +514,27 @@ function createUserContextHookMessages(
   }));
 }
 
+function createUserCustomPromptContextMessage(
+  userCustomPrompt: string | undefined
+): AnthropicMessage | null {
+  const content = userCustomPrompt?.trim() ?? "";
+  if (content.length === 0) {
+    return null;
+  }
+
+  return {
+    role: "user",
+    content: [
+      {
+        type: "text",
+        text: ["User custom prompt from default settings:", "", content].join(
+          "\n"
+        )
+      }
+    ]
+  };
+}
+
 function createPlanModePromptMessage(
   session: SessionSnapshot,
   tools: AnthropicToolDefinition[]
@@ -935,6 +957,9 @@ export class PromptBuilder {
       createRuntimeContextMessages(session, runtimeContext);
     const fullCompactionContextMessage =
       createFullCompactionContextMessage(session);
+    const userCustomPromptContextMessage = createUserCustomPromptContextMessage(
+      runtimeContext.userCustomPrompt
+    );
     const workspaceInstructionsContextMessage =
       createWorkspaceInstructionsContextMessage(
         runtimeContext.workspaceInstructions
@@ -958,6 +983,9 @@ export class PromptBuilder {
       messages: baseMessages,
       runtimeContextMessages: [
         ...(planModePromptMessage ? [planModePromptMessage] : []),
+        ...(userCustomPromptContextMessage
+          ? [userCustomPromptContextMessage]
+          : []),
         ...(workspaceInstructionsContextMessage
           ? [workspaceInstructionsContextMessage]
           : []),

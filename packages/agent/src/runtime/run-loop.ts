@@ -156,6 +156,7 @@ export async function runSessionLoop(input: {
   traceManager: TraceManager | undefined;
   promptBuilder: PromptBuilder;
   userContextHooks: UserContextHookRecord[];
+  userCustomPrompt?: string;
   session: SessionSnapshot;
   message: string | undefined;
   abortSignal?: AbortSignal;
@@ -620,6 +621,9 @@ export async function runSessionLoop(input: {
         runtimeContext: {
           currentTurnCount: turnCount,
           maxTurns: input.maxTurns,
+          ...(typeof input.userCustomPrompt === "string"
+            ? { userCustomPrompt: input.userCustomPrompt }
+            : {}),
           contextHooks: resolvedContextHooks,
           workspaceInstructions: workspaceInstructions.instructions
         },

@@ -263,6 +263,27 @@ describe("PromptBuilder skill context", () => {
     expect(first.cacheKey).toBe(second.cacheKey);
   });
 
+  test("injects user custom prompt into runtime context without changing the cache key", () => {
+    const promptBuilder = createPromptBuilder();
+    const session = createSessionSnapshot();
+    const toolRegistry = new ToolRegistry();
+
+    const first = promptBuilder.build(session, toolRegistry, {
+      userCustomPrompt: "先确认当前仓库状态，再决定是否修改文件。"
+    });
+    const second = promptBuilder.build(session, toolRegistry, {
+      userCustomPrompt: "这里换成另一条默认偏好。"
+    });
+
+    expect(JSON.stringify(first.runtimeContextMessages[0])).toContain(
+      "User custom prompt from default settings:"
+    );
+    expect(JSON.stringify(first.runtimeContextMessages[0])).toContain(
+      "先确认当前仓库状态，再决定是否修改文件。"
+    );
+    expect(first.cacheKey).toBe(second.cacheKey);
+  });
+
   test("does not inject current date or time into prompt context", () => {
     const promptBuilder = createPromptBuilder();
     const session = createSessionSnapshot();

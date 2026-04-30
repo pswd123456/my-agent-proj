@@ -147,6 +147,60 @@ describe("Stage 4 permission flow", () => {
     expect(result.deny).toBe(false);
   });
 
+  test("matches shell allow patterns across escaped newlines in one command", () => {
+    const result = matchesPermissionRuleLists(
+      {
+        shellAllowPatterns: ["git add *"],
+        shellDenyPatterns: [],
+        toolAllowList: [],
+        toolAskList: [],
+        toolDenyList: []
+      },
+      "run_shell_command",
+      "git add apps/web/app.tsx \\\n  apps/web/app.test.tsx"
+    );
+
+    expect(result.allow).toBe(true);
+    expect(result.ask).toBe(false);
+    expect(result.deny).toBe(false);
+  });
+
+  test("does not let a single-command allow pattern bypass chained shell operators", () => {
+    const result = matchesPermissionRuleLists(
+      {
+        shellAllowPatterns: ["cd *"],
+        shellDenyPatterns: [],
+        toolAllowList: [],
+        toolAskList: [],
+        toolDenyList: []
+      },
+      "run_shell_command",
+      "cd packages/agent && rm -rf dist"
+    );
+
+    expect(result.allow).toBe(false);
+    expect(result.ask).toBe(false);
+    expect(result.deny).toBe(false);
+  });
+
+  test("matches structured shell allow patterns when the operator chain also matches", () => {
+    const result = matchesPermissionRuleLists(
+      {
+        shellAllowPatterns: ["git add * && git diff --cached *"],
+        shellDenyPatterns: [],
+        toolAllowList: [],
+        toolAskList: [],
+        toolDenyList: []
+      },
+      "run_shell_command",
+      "git add apps/web/app.tsx \\\n  apps/web/app.test.tsx && git diff --cached -- apps/web/"
+    );
+
+    expect(result.allow).toBe(true);
+    expect(result.ask).toBe(false);
+    expect(result.deny).toBe(false);
+  });
+
   test("prefers allow over ask when a tool is present in both lists", () => {
     const result = matchesPermissionRuleLists(
       {
@@ -865,6 +919,7 @@ describe("Stage 4 permission flow", () => {
         toolCallId: "call-shell",
         toolName: "run_shell_command",
         toolInput: {
+          action: "start",
           command: "pwd"
         },
         eventSink: undefined
@@ -874,7 +929,7 @@ describe("Stage 4 permission flow", () => {
         throw new Error("expected shell permission request");
       }
       expect(shellRequest.request.family).toBe("workspace-shell");
-      expect(shellRequest.request.permissionProfile).toBe("always-ask-user");
+      expect(shellRequest.request.permissionProfile).toBe("destructive-only");
     } finally {
       await rm(outsidePath, { force: true });
       await rm(workspaceRoot, { recursive: true, force: true });
@@ -1021,6 +1076,7 @@ describe("Stage 4 permission flow", () => {
         toolCallId: "call-shell",
         toolName: "run_shell_command",
         toolInput: {
+          action: "start",
           command: "ls -la ../"
         },
         eventSink: undefined
@@ -1226,6 +1282,7 @@ describe("Stage 4 permission flow", () => {
         toolCallId: "call-yolo-shell",
         toolName: "run_shell_command",
         toolInput: {
+          action: "start",
           command: "pwd"
         },
         eventSink: undefined
