@@ -9,8 +9,11 @@ import {
   createRunTraceEvent,
   discoverWorkspaceSkills,
   invertUnifiedPatch,
+  loadWorkspaceMcpTools,
   ModelUnavailableError,
   parseUnifiedPatch,
+  readManageableWorkspaceMcpConfig,
+  replaceWorkspaceMcpConfigServers,
   searchWorkspaceFiles,
   searchWorkspaceSkills,
   UnsupportedModelError,
@@ -173,8 +176,48 @@ function toUserContextHookRecords(
   }));
 }
 
+function hasDuplicateMcpServerNames(
+  servers: z.infer<typeof updateMcpServersBodySchema>["servers"]
+): boolean {
+  const seen = new Set<string>();
+  for (const server of servers) {
+    const name = server.name.trim();
+    if (seen.has(name)) {
+      return true;
+    }
+    seen.add(name);
+  }
+  return false;
+}
+
 const chooseDirectoryBodySchema = z.object({
   startDirectory: z.string().optional()
+});
+
+const mcpStringRecordSchema = z.record(z.string(), z.string());
+
+const updateMcpServerSchema = z.discriminatedUnion("transport", [
+  z.object({
+    name: z.string().trim().min(1),
+    transport: z.literal("stdio"),
+    enabled: z.boolean().optional(),
+    disabledTools: z.array(z.string()).optional(),
+    command: z.string().trim().min(1),
+    args: z.array(z.string()).optional(),
+    env: mcpStringRecordSchema.optional()
+  }),
+  z.object({
+    name: z.string().trim().min(1),
+    transport: z.literal("http"),
+    enabled: z.boolean().optional(),
+    disabledTools: z.array(z.string()).optional(),
+    url: z.string().trim().url(),
+    headers: mcpStringRecordSchema.optional()
+  })
+]);
+
+const updateMcpServersBodySchema = z.object({
+  servers: z.array(updateMcpServerSchema)
 });
 
 const searchWorkspaceQuerySchema = z.object({
@@ -255,6 +298,21 @@ function buildSettingsPermissionMetadata(
     workingDirectory: dependencies.buildWorkingDirectory(),
     routineRepository: dependencies.routineRepository
   });
+}
+
+async function buildUserSettingsMcpPayload(workingDirectory: string) {
+  const config = await readManageableWorkspaceMcpConfig(workingDirectory);
+  const loadResult = await loadWorkspaceMcpTools(workingDirectory);
+
+  try {
+    return {
+      workingDirectory,
+      ...config,
+      serverStatuses: loadResult.servers
+    };
+  } finally {
+    await loadResult.dispose();
+  }
 }
 
 function resolveDefaultModel(
@@ -782,6 +840,47 @@ export function createApiApp(dependencies: ApiAppDependencies) {
     });
   });
 
+  app.get("/users/:userId/settings/mcp", async (c) => {
+    const userId = resolveUserId(dependencies, c.req.param("userId"));
+    const settings = await dependencies.settingsRepository.getOrCreate(userId);
+    return c.json(await buildUserSettingsMcpPayload(settings.workingDirectory));
+  });
+
+  app.put("/users/:userId/settings/mcp", async (c) => {
+    const userId = resolveUserId(dependencies, c.req.param("userId"));
+    const settings = await dependencies.settingsRepository.getOrCreate(userId);
+    const body = updateMcpServersBodySchema.parse(await c.req.json());
+    if (hasDuplicateMcpServerNames(body.servers)) {
+      return c.json({ error: "MCP server names must be unique." }, 400);
+    }
+
+    const servers = body.servers.map((server) =>
+      server.transport === "stdio"
+        ? {
+            name: server.name.trim(),
+            transport: "stdio" as const,
+            enabled: server.enabled ?? true,
+            disabledTools: server.disabledTools ?? [],
+            command: server.command.trim(),
+            args: server.args ?? [],
+            env: server.env ?? {}
+          }
+        : {
+            name: server.name.trim(),
+            transport: "http" as const,
+            enabled: server.enabled ?? true,
+            disabledTools: server.disabledTools ?? [],
+            url: server.url.trim(),
+            headers: server.headers ?? {}
+          }
+    );
+    await replaceWorkspaceMcpConfigServers(
+      settings.workingDirectory,
+      servers
+    );
+    return c.json(await buildUserSettingsMcpPayload(settings.workingDirectory));
+  });
+
   app.patch("/users/:userId/settings", async (c) => {
     const userId = resolveUserId(dependencies, c.req.param("userId"));
     const body = updateUserSettingsBodySchema.parse(await c.req.json());
@@ -1054,19 +1153,56 @@ export function createApiApp(dependencies: ApiAppDependencies) {
     const sessionId = c.req.param("sessionId");
     const session =
       await dependencies.sessionManager.requestInterrupt(sessionId);
-    if (!session) {
-      return c.json(
-        {
-          error:
-            "Session is not currently running. Only the active run can be interrupted."
-        },
-        409
-      );
+    if (session) {
+      return c.json({
+        sessionId,
+        accepted: true,
+        mode: "interrupt_requested",
+        session
+      });
     }
+
+    const stoppedSession = await dependencies.sessionManager.forceStop(
+      sessionId
+    );
+    if (!stoppedSession) {
+      return c.json({ error: "Session not found." }, 404);
+    }
+
+    await logApiEvent({
+      logger: dependencies.apiLogger,
+      requestId,
+      event: "session_force_stopped_without_active_run",
+      sessionId
+    });
 
     return c.json({
       sessionId,
       accepted: true,
+      mode: "force_stopped",
+      session: stoppedSession
+    });
+  });
+
+  app.post("/sessions/:sessionId/force-stop", async (c) => {
+    const requestId = getRequestId(c);
+    const sessionId = c.req.param("sessionId");
+    const session = await dependencies.sessionManager.forceStop(sessionId);
+    if (!session) {
+      return c.json({ error: "Session not found." }, 404);
+    }
+
+    await logApiEvent({
+      logger: dependencies.apiLogger,
+      requestId,
+      event: "session_force_stopped",
+      sessionId
+    });
+
+    return c.json({
+      sessionId,
+      accepted: true,
+      mode: "force_stopped",
       session
     });
   });

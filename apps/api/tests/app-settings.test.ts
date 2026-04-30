@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -158,7 +158,6 @@ describe("createApiApp settings bootstrap", () => {
     expect(session.context.enabledCapabilityPacks).toEqual([
       "workspace",
       "schedule",
-      "web",
       "lsp"
     ]);
   });
@@ -339,11 +338,71 @@ describe("createApiApp settings bootstrap", () => {
       payload.permissionTools.some((tool) => tool.name === "run_shell_command")
     ).toBe(false);
     expect(
-      payload.permissionTools.some((tool) => tool.name === "web_search")
-    ).toBe(false);
-    expect(
       payload.permissionTools.some((tool) => tool.name === "lsp_hover")
     ).toBe(true);
+  });
+
+  test("returns MCP server statuses and child tool enabled state", async () => {
+    const { app } = await createTestApp();
+    const workingDirectory = await mkdtemp(
+      path.join(os.tmpdir(), "api-settings-mcp-")
+    );
+    const fixtureScript = path.resolve(
+      import.meta.dir,
+      "../../../packages/agent/tests/fixtures/mcp-echo-stdio.ts"
+    );
+
+    try {
+      const settingsResponse = await app.request(
+        "/users/stage5-mcp-user/settings",
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ workingDirectory })
+        }
+      );
+      expect(settingsResponse.status).toBe(200);
+
+      const updateResponse = await app.request(
+        "/users/stage5-mcp-user/settings/mcp",
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            servers: [
+              {
+                name: "local_echo",
+                transport: "stdio",
+                enabled: true,
+                disabledTools: ["echo"],
+                command: process.execPath,
+                args: [fixtureScript]
+              }
+            ]
+          })
+        }
+      );
+      expect(updateResponse.status).toBe(200);
+      const payload = (await updateResponse.json()) as {
+        servers: Array<{ name: string; disabledTools: string[] }>;
+        serverStatuses: Array<{
+          name: string;
+          status: string;
+          toolNames: string[];
+          tools?: Array<{ name: string; enabled: boolean }>;
+        }>;
+      };
+
+      expect(payload.servers[0]?.disabledTools).toEqual(["echo"]);
+      expect(payload.serverStatuses[0]).toMatchObject({
+        name: "local_echo",
+        status: "loaded",
+        toolNames: [],
+        tools: [{ name: "echo", enabled: false }]
+      });
+    } finally {
+      await rm(workingDirectory, { recursive: true, force: true });
+    }
   });
 
   test("updates the current session model through session settings", async () => {
@@ -519,7 +578,9 @@ describe("createApiApp settings bootstrap", () => {
       userId: "stage5-clear-history-user"
     });
 
-    const childSnapshot = await sessionManager.getSession(childSession.sessionId);
+    const childSnapshot = await sessionManager.getSession(
+      childSession.sessionId
+    );
     expect(childSnapshot).not.toBeNull();
     await sessionManager.saveSession({
       ...childSnapshot!,
