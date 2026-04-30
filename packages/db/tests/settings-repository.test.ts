@@ -29,7 +29,6 @@ describe("MemorySettingsRepository", () => {
     expect(settings.enabledCapabilityPacks).toEqual([
       "workspace",
       "schedule",
-      "web",
       "lsp"
     ]);
     expect(settings.userContextHooks).toEqual([]);
