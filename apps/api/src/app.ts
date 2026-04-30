@@ -131,7 +131,8 @@ const updateUserSettingsBodySchema = z
         })
       )
       .optional(),
-    debugConversationView: z.boolean().optional()
+    debugConversationView: z.boolean().optional(),
+    userCustomPrompt: z.string().optional()
   })
   .refine(
     (value) =>
@@ -148,7 +149,8 @@ const updateUserSettingsBodySchema = z
       Array.isArray(value.toolDenyList) ||
       Array.isArray(value.enabledCapabilityPacks) ||
       Array.isArray(value.userContextHooks) ||
-      typeof value.debugConversationView === "boolean",
+      typeof value.debugConversationView === "boolean" ||
+      typeof value.userCustomPrompt === "string",
     {
       message: "At least one settings field is required."
     }
@@ -825,6 +827,9 @@ export function createApiApp(dependencies: ApiAppDependencies) {
       ...(userContextHooks ? { userContextHooks } : {}),
       ...(typeof body.debugConversationView === "boolean"
         ? { debugConversationView: body.debugConversationView }
+        : {}),
+      ...(typeof body.userCustomPrompt === "string"
+        ? { userCustomPrompt: body.userCustomPrompt }
         : {})
     });
     return c.json({ settings, permissionTools: settingsPermissionTools });

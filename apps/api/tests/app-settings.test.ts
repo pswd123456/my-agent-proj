@@ -187,7 +187,8 @@ describe("createApiApp settings bootstrap", () => {
               enabled: true
             }
           ],
-          debugConversationView: true
+          debugConversationView: true,
+          userCustomPrompt: "先确认用户上下文，再回答。"
         })
       }
     );
@@ -196,11 +197,15 @@ describe("createApiApp settings bootstrap", () => {
     const updatePayload = (await updateResponse.json()) as {
       settings: {
         debugConversationView: boolean;
+        userCustomPrompt: string;
         userContextHooks: Array<{ id: string }>;
       };
       permissionTools: Array<{ name: string }>;
     };
     expect(updatePayload.settings.debugConversationView).toBe(true);
+    expect(updatePayload.settings.userCustomPrompt).toBe(
+      "先确认用户上下文，再回答。"
+    );
     expect(updatePayload.settings.userContextHooks).toEqual([
       expect.objectContaining({ id: "hook-1" })
     ]);

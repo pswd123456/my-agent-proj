@@ -119,6 +119,7 @@ async function createRuntime(session: SessionSnapshot) {
       }),
       promptBuilder,
       userContextHooks: settings.userContextHooks,
+      userCustomPrompt: settings.userCustomPrompt,
       maxTurns: 50,
       maxTokens,
       ...(toolChoice ? { toolChoice } : {})
