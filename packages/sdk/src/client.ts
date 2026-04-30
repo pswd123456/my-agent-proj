@@ -3,6 +3,9 @@ import type {
   RunStreamEvent,
   SessionSnapshot,
   TraceRecord,
+  WorkspaceMcpConfigDiagnostic,
+  WorkspaceMcpServerConfig,
+  WorkspaceMcpServerLoadSummary,
   WorkspaceFileChangeSummary
 } from "@ai-app-template/agent";
 import type {
@@ -69,6 +72,7 @@ export interface ListModelsResult {
 export interface InterruptSessionResult {
   sessionId: string;
   accepted: true;
+  mode?: "interrupt_requested" | "force_stopped";
   session: SessionSnapshot;
 }
 
@@ -118,6 +122,19 @@ export interface UpdateUserSettingsPayload {
 export interface UserSettingsPayload {
   settings: SessionSettingsRecord;
   permissionTools: SettingsPermissionToolOption[];
+}
+
+export interface UserSettingsMcpPayload {
+  workingDirectory: string;
+  configPath: string;
+  foundConfig: boolean;
+  servers: WorkspaceMcpServerConfig[];
+  serverStatuses: WorkspaceMcpServerLoadSummary[];
+  diagnostics: WorkspaceMcpConfigDiagnostic[];
+}
+
+export interface UpdateUserSettingsMcpPayload {
+  servers: WorkspaceMcpServerConfig[];
 }
 
 export interface ChooseDirectoryInput {
@@ -492,6 +509,35 @@ export class ApiClient {
     )) as ChooseDirectoryResult;
   }
 
+  async getUserSettingsMcp(userId: string): Promise<UserSettingsMcpPayload> {
+    const response = await this.fetchImpl(
+      appendCacheBust(buildUrl(this.baseUrl, `/users/${userId}/settings/mcp`)),
+      {
+        cache: "no-store"
+      }
+    );
+    return (await ensureOk(response).then((result) =>
+      result.json()
+    )) as UserSettingsMcpPayload;
+  }
+
+  async updateUserSettingsMcp(
+    userId: string,
+    input: UpdateUserSettingsMcpPayload
+  ): Promise<UserSettingsMcpPayload> {
+    const response = await this.fetchImpl(
+      buildUrl(this.baseUrl, `/users/${userId}/settings/mcp`),
+      {
+        method: "PUT",
+        headers: toJsonHeaders(),
+        body: JSON.stringify(input)
+      }
+    );
+    return (await ensureOk(response).then((result) =>
+      result.json()
+    )) as UserSettingsMcpPayload;
+  }
+
   async searchSessionWorkspaceFiles(
     sessionId: string,
     input: { query: string; limit?: number }
@@ -598,6 +644,20 @@ export class ApiClient {
   ): Promise<InterruptSessionResult> {
     const response = await this.fetchImpl(
       buildUrl(this.baseUrl, `/sessions/${sessionId}/interrupt`),
+      {
+        method: "POST"
+      }
+    );
+    return (await ensureOk(response).then((result) =>
+      result.json()
+    )) as InterruptSessionResult;
+  }
+
+  async forceStopSessionExecution(
+    sessionId: string
+  ): Promise<InterruptSessionResult> {
+    const response = await this.fetchImpl(
+      buildUrl(this.baseUrl, `/sessions/${sessionId}/force-stop`),
       {
         method: "POST"
       }

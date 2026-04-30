@@ -3,6 +3,10 @@ export type {
   RunStreamEvent,
   SessionSnapshot,
   TraceRecord,
+  WorkspaceMcpConfigDiagnostic,
+  WorkspaceMcpServerConfig,
+  WorkspaceMcpServerLoadSummary,
+  WorkspaceMcpToolLoadSummary,
   WorkspaceFileChangeSummary
 } from "@ai-app-template/agent";
 export type {
@@ -38,8 +42,10 @@ export type {
   SessionFileChangeActionResult,
   SessionSummary,
   StreamSessionExecutionInput,
+  UserSettingsMcpPayload,
   UserSettingsPayload,
   UpdateSessionSettingsPayload,
+  UpdateUserSettingsMcpPayload,
   UpdateUserSettingsPayload,
   WorkspaceFileSearchItem,
   WorkspaceFileSearchResult,
