@@ -13,7 +13,9 @@ import {
 import {
   buildTimelineItems,
   getTimelineEventKey,
-  type TimelineItem
+  type TimelineItem,
+  type TimelinePendingHookRun,
+  type TimelineUserHookMetadata
 } from "./session-timeline";
 import {
   collectToolRows,
@@ -28,10 +30,16 @@ export type PendingUserMessage = {
   text: string;
 };
 
+export interface PendingPreUserHooks {
+  runCount: number;
+  hooks: TimelineUserHookMetadata[];
+}
+
 export interface MessageManagerState {
   streamEvents: RunStreamEvent[];
   recentAssistantEventKeys: Set<string>;
   pendingUserMessage: PendingUserMessage | null;
+  pendingPreUserHooks: PendingPreUserHooks | null;
   expandedItemKeys: Set<string>;
   autoCollapsingItemKeys: Set<string>;
   seenCollapsedFlowKeys: Set<string>;
@@ -48,6 +56,10 @@ export type MessageLedgerEntry =
     }
   | {
       source: "pending-user";
+      item: TimelineItem;
+    }
+  | {
+      source: "pending-hook";
       item: TimelineItem;
     };
 
@@ -91,7 +103,11 @@ export interface MessageManagerProjection {
 }
 
 export type MessageManagerAction =
-  | { type: "begin-run"; message: PendingUserMessage }
+  | {
+      type: "begin-run";
+      message: PendingUserMessage;
+      pendingPreUserHooks?: PendingPreUserHooks | null;
+    }
   | { type: "append-stream-event"; event: RunStreamEvent }
   | { type: "finish-run" }
   | { type: "mark-animation-complete"; key: string }
@@ -106,6 +122,7 @@ export function createMessageManagerState(): MessageManagerState {
     streamEvents: [],
     recentAssistantEventKeys: new Set(),
     pendingUserMessage: null,
+    pendingPreUserHooks: null,
     expandedItemKeys: new Set(),
     autoCollapsingItemKeys: new Set(),
     seenCollapsedFlowKeys: new Set()
@@ -114,13 +131,17 @@ export function createMessageManagerState(): MessageManagerState {
 
 export function beginMessageManagerRun(
   state: MessageManagerState,
-  message: PendingUserMessage
+  input: {
+    message: PendingUserMessage;
+    pendingPreUserHooks?: PendingPreUserHooks | null;
+  }
 ): MessageManagerState {
   return {
     ...state,
     streamEvents: [],
     recentAssistantEventKeys: new Set(),
-    pendingUserMessage: message
+    pendingUserMessage: input.message,
+    pendingPreUserHooks: input.pendingPreUserHooks ?? null
   };
 }
 
@@ -157,7 +178,8 @@ export function finishMessageManagerRun(
 
   return {
     ...state,
-    pendingUserMessage: null
+    pendingUserMessage: null,
+    pendingPreUserHooks: null
   };
 }
 
@@ -255,6 +277,13 @@ function toMessageLedgerEntries(
   streamEventKeys: Set<string>
 ): MessageLedgerEntry[] {
   return timelineItems.map((item) => {
+    if (item.type === "pending-hook") {
+      return {
+        source: "pending-hook",
+        item
+      };
+    }
+
     if (item.type === "pending-user") {
       return {
         source: "pending-user",
@@ -491,6 +520,47 @@ function getNewlyCollapsedFlowKeys(input: {
     .filter((key) => !input.seenCollapsedFlowKeys.has(key));
 }
 
+function countStreamTurnStarts(events: RunStreamEvent[]): number {
+  return events.filter((event) => event.kind === "turn_start").length;
+}
+
+function shouldShowPendingPreUserHooks(
+  state: MessageManagerState
+): boolean {
+  if (!state.pendingPreUserHooks) {
+    return false;
+  }
+
+  return countStreamTurnStarts(state.streamEvents) <= state.pendingPreUserHooks.runCount;
+}
+
+function toTimelinePendingHookRun(
+  state: MessageManagerState
+): TimelinePendingHookRun | null {
+  if (
+    !shouldShowPendingPreUserHooks(state) ||
+    !state.pendingPreUserHooks ||
+    !state.pendingUserMessage
+  ) {
+    return null;
+  }
+
+  return {
+    createdAt: state.pendingUserMessage.createdAt,
+    hooks: state.pendingPreUserHooks.hooks
+  };
+}
+
+function getVisiblePendingUserMessage(
+  state: MessageManagerState
+): PendingUserMessage | null {
+  if (shouldShowPendingPreUserHooks(state)) {
+    return null;
+  }
+
+  return state.pendingUserMessage;
+}
+
 export function buildMessageManagerProjection(input: {
   session: SessionSnapshot | null;
   traceRecords: TraceRecord[];
@@ -523,9 +593,12 @@ export function buildMessageManagerProjection(input: {
     messages: input.session?.messages ?? [],
     historyEvents,
     streamEvents: input.state.streamEvents,
-    pendingUserMessage: input.state.pendingUserMessage,
+    pendingUserMessage: getVisiblePendingUserMessage(input.state),
     ...(input.userContextHooks
       ? { userContextHooks: input.userContextHooks }
+      : {}),
+    ...(toTimelinePendingHookRun(input.state)
+      ? { pendingHookRun: toTimelinePendingHookRun(input.state) }
       : {})
   });
   const conversationItems = buildConversationViewItems({

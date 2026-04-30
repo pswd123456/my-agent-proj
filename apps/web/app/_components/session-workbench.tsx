@@ -13,6 +13,7 @@ import {
   type SettingsPermissionToolOption,
   type SessionSettingsRecord,
   type TraceRecord,
+  type UserContextHookRecord,
   type WorkspaceFileSearchResult,
   type WorkspaceSkillSearchResult,
   type WorkspaceFileChangeSummary
@@ -95,6 +96,40 @@ const apiClient = createApiClient({
 const SESSION_RAIL_COLLAPSED_STORAGE_KEY = "workbench-session-rail-collapsed";
 const ACTIVE_SESSION_REFRESH_INTERVAL_MS = 3_000;
 const SESSION_LIST_REFRESH_INTERVAL_MS = 5_000;
+
+function inferUserContextHookBehavior(
+  hook: Pick<UserContextHookRecord, "event" | "behavior">
+): NonNullable<UserContextHookRecord["behavior"]> {
+  return hook.behavior ?? (hook.event === "run_end" ? "message" : "context");
+}
+
+function resolvePendingPreUserHooks(input: {
+  hooks: UserContextHookRecord[];
+  session: SessionSnapshot | null;
+}) {
+  const isFirstRun = input.session?.context.firstUserMessage == null;
+  const hooks = input.hooks
+    .filter((hook) => hook.enabled)
+    .filter((hook) => inferUserContextHookBehavior(hook) === "message")
+    .filter(
+      (hook) =>
+        hook.event === "run_started" ||
+        (hook.event === "session_started" && isFirstRun)
+    )
+    .map((hook) => ({
+      event: hook.event,
+      title: hook.title.trim()
+    }));
+
+  if (hooks.length === 0) {
+    return null;
+  }
+
+  return {
+    runCount: hooks.length,
+    hooks
+  };
+}
 
 export type RunFileChangesState = RunFileChangesView;
 
@@ -893,10 +928,17 @@ export function SessionWorkbench() {
 
     setMaxTurns(String(nextMaxTurns));
     if (!(options?.permissionReply ?? false)) {
+      const pendingPreUserHooks = resolvePendingPreUserHooks({
+        hooks: settingsForm.userContextHooks,
+        session: currentSession
+      });
       setMessageManagerState((current) =>
         beginMessageManagerRun(current, {
-          createdAt: new Date().toISOString(),
-          text: nextMessage
+          message: {
+            createdAt: new Date().toISOString(),
+            text: nextMessage
+          },
+          pendingPreUserHooks
         })
       );
     }

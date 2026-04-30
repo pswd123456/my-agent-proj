@@ -98,6 +98,10 @@ function compactKinds(
       return "pending-user";
     }
 
+    if (item.item.type === "pending-hook") {
+      return "pending-hook";
+    }
+
     return item.item.block.kind;
   });
 }
@@ -165,8 +169,10 @@ describe("session-message-manager", () => {
   test("hides pending user echo once the submitted user message is persisted", () => {
     let state = createMessageManagerState();
     state = beginMessageManagerRun(state, {
-      createdAt: "2026-04-27T00:00:01.000Z",
-      text: "今天要花两个小时开会"
+      message: {
+        createdAt: "2026-04-27T00:00:01.000Z",
+        text: "今天要花两个小时开会"
+      }
     });
     state = appendMessageManagerEvent(state, {
       kind: "turn_start",
@@ -197,6 +203,34 @@ describe("session-message-manager", () => {
     });
 
     expect(compactKinds(projection)).toEqual(["user"]);
+  });
+
+  test("shows a pending hook phase before the user message when pre-user hooks are active", () => {
+    let state = createMessageManagerState();
+    state = beginMessageManagerRun(state, {
+      message: {
+        createdAt: "2026-04-27T00:00:01.000Z",
+        text: "先处理这个请求"
+      },
+      pendingPreUserHooks: {
+        runCount: 1,
+        hooks: [
+          {
+            event: "run_started",
+            title: "默认上下文"
+          }
+        ]
+      }
+    });
+
+    const projection = buildMessageManagerProjection({
+      session: createSession([]),
+      traceRecords: [],
+      debugConversationView: false,
+      state
+    });
+
+    expect(compactKinds(projection)).toEqual(["pending-hook"]);
   });
 
   test("merges tool call, permission, and tool result into one compact execution item", () => {
@@ -437,8 +471,10 @@ describe("session-message-manager", () => {
     );
 
     const nextRunState = beginMessageManagerRun(state, {
-      createdAt: "2026-04-27T00:00:10.000Z",
-      text: "再看一下明天"
+      message: {
+        createdAt: "2026-04-27T00:00:10.000Z",
+        text: "再看一下明天"
+      }
     });
 
     const nextRunProjection = buildMessageManagerProjection({
@@ -510,8 +546,10 @@ describe("session-message-manager", () => {
 
   test("does not treat unregistered tool-heavy history as newly collapsed during the next run", () => {
     let state = beginMessageManagerRun(createMessageManagerState(), {
-      createdAt: "2026-04-27T00:00:10.000Z",
-      text: "继续看一下"
+      message: {
+        createdAt: "2026-04-27T00:00:10.000Z",
+        text: "继续看一下"
+      }
     });
     const session = createSession([
       userBlock("user-1", "先读几个文件", "2026-04-27T00:00:01.000Z"),

@@ -51,6 +51,7 @@ import {
 import {
   getTimelineEventKey,
   type TimelineItem,
+  type TimelinePendingHookRun,
   type TimelineUserHookMetadata
 } from "./session-timeline";
 import type { TurnUsageSummary } from "./session-workbench-types";
@@ -888,6 +889,34 @@ function renderHookMessageBlock(
   );
 }
 
+function renderPendingHookRun(
+  hookRun: TimelinePendingHookRun,
+  createdAt: string
+) {
+  return (
+    <div key={`pending-hook-${createdAt}`} className="flex flex-col items-end gap-1">
+      <MessageRoleLabel role="hook" timestamp={createdAt} />
+      <div className="ml-auto flex max-w-[88%] flex-col gap-2 rounded-[var(--app-radius-md)] rounded-br-sm border border-[color:color-mix(in_srgb,var(--app-border-accent)_68%,var(--app-border-subtle)_32%)] bg-[color:color-mix(in_srgb,var(--app-border-accent)_10%,var(--app-bg-elevated)_90%)] px-4 py-3 text-sm leading-7 text-[var(--app-text-primary)]">
+        <div className="flex items-center gap-2 font-mono text-[0.66rem] uppercase tracking-[0.16em] text-[var(--app-text-muted)]">
+          <span className="text-[var(--app-status-success)]">HOOK ACTIVE</span>
+          <span className="tracking-[0.08em]">生效中</span>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {hookRun.hooks.map((hook, index) => (
+            <span
+              key={`${hook.event}-${hook.title || index}`}
+              className="rounded-full border border-[color:color-mix(in_srgb,var(--app-border-subtle)_70%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_40%,transparent)] px-2.5 py-1 font-mono text-[0.66rem] uppercase tracking-[0.14em] text-[var(--app-text-secondary)]"
+            >
+              {getHookEventLabel(hook.event)}
+              {hook.title ? ` · ${hook.title}` : ""}
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TypewriterTextContent({
   content,
   itemKey,
@@ -1539,6 +1568,10 @@ function renderTimelineItem(
 
   if (item.type === "pending-user") {
     return renderPendingUserMessage(item.text, item.createdAt);
+  }
+
+  if (item.type === "pending-hook") {
+    return renderPendingHookRun(item.hookRun, item.createdAt);
   }
 
   return renderConversationBlock(

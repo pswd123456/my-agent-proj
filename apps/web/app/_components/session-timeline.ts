@@ -9,6 +9,11 @@ export interface TimelineUserHookMetadata {
   title: string;
 }
 
+export interface TimelinePendingHookRun {
+  createdAt: string;
+  hooks: TimelineUserHookMetadata[];
+}
+
 export type TimelineItem =
   | {
       type: "event";
@@ -28,6 +33,12 @@ export type TimelineItem =
       key: string;
       createdAt: string;
       text: string;
+    }
+  | {
+      type: "pending-hook";
+      key: string;
+      createdAt: string;
+      hookRun: TimelinePendingHookRun;
     };
 
 interface PendingUserMessage {
@@ -478,11 +489,21 @@ function compareEventsForTimeline(
 function buildMessageTimeline(
   messages: SessionSnapshot["messages"],
   pendingUserMessage: PendingUserMessage | null | undefined,
-  metadataByContent: MessageHookMetadataByContent
+  metadataByContent: MessageHookMetadataByContent,
+  pendingHookRun: TimelinePendingHookRun | null | undefined
 ): TimelineItem[] {
   const items: TimelineItem[] = messages.map((block) =>
     toMessageTimelineItem(block, metadataByContent)
   );
+
+  if (pendingHookRun) {
+    items.push({
+      type: "pending-hook",
+      key: `pending-hook-${pendingHookRun.createdAt}`,
+      createdAt: pendingHookRun.createdAt,
+      hookRun: pendingHookRun
+    });
+  }
 
   if (
     pendingUserMessage &&
@@ -585,6 +606,7 @@ export function buildTimelineItems(input: {
   streamEvents: RunStreamEvent[];
   pendingUserMessage?: PendingUserMessage | null;
   userContextHooks?: UserContextHookRecord[];
+  pendingHookRun?: TimelinePendingHookRun | null;
 }): TimelineItem[] {
   const metadataByContent = buildMessageHookMetadataByContent(
     input.userContextHooks
@@ -641,7 +663,8 @@ export function buildTimelineItems(input: {
     return buildMessageTimeline(
       input.messages,
       input.pendingUserMessage,
-      metadataByContent
+      metadataByContent,
+      input.pendingHookRun
     );
   }
 
@@ -727,6 +750,16 @@ export function buildTimelineItems(input: {
   }
 
   const standaloneItems: TimelineItem[] = [
+    ...(input.pendingHookRun
+      ? [
+          {
+            type: "pending-hook" as const,
+            key: `pending-hook-${input.pendingHookRun.createdAt}`,
+            createdAt: input.pendingHookRun.createdAt,
+            hookRun: input.pendingHookRun
+          }
+        ]
+      : []),
     ...orphanUsers,
     ...input.messages
       .filter(
