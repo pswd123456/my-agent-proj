@@ -211,4 +211,82 @@ describe("skill tools", () => {
       await rm(workspace, { recursive: true, force: true });
     }
   });
+
+  test("hidden workspace skills stay unavailable to search_skill and load_skill", async () => {
+    const workspace = await createWorkspace();
+
+    try {
+      const visibleDir = path.join(workspace, ".agent", "skills", "planner");
+      const hiddenDir = path.join(workspace, ".agent", "skills", "repo-reader");
+      await mkdir(visibleDir, { recursive: true });
+      await mkdir(hiddenDir, { recursive: true });
+      await writeFile(
+        path.join(visibleDir, "SKILL.md"),
+        [
+          "---",
+          "name: schedule_planner",
+          "description: Plan schedules and summarize conflicts.",
+          "---"
+        ].join("\n"),
+        "utf8"
+      );
+      await writeFile(
+        path.join(hiddenDir, "SKILL.md"),
+        [
+          "---",
+          "name: repo_reader",
+          "description: Read repository structure before implementation.",
+          "---"
+        ].join("\n"),
+        "utf8"
+      );
+
+      const workspaceSkillSettings = [
+        {
+          skillName: "repo_reader",
+          enabled: false
+        }
+      ] as const;
+      const searchResult = await createSearchSkillTool(
+        workspace,
+        workspaceSkillSettings
+      ).execute(
+        {
+          query: "repo"
+        },
+        createContext(workspace)
+      );
+      expect(searchResult.state).toBe("success");
+      expect(searchResult.result.data).toMatchObject({
+        matchCount: 0,
+        returnedCount: 0,
+        matches: []
+      });
+
+      const loadResult = await createLoadSkillTool(
+        workspace,
+        workspaceSkillSettings
+      ).execute(
+        {
+          skillName: "repo_reader"
+        },
+        createContext(workspace)
+      );
+      expect(loadResult.state).toBe("failed");
+      expect(loadResult.result).toMatchObject({
+        code: "SKILL_NOT_FOUND",
+        data: {
+          requestedSkillName: "repo_reader",
+          availableSkills: [
+            {
+              name: "schedule_planner",
+              relativePath: ".agent/skills/planner/SKILL.md"
+            }
+          ]
+        }
+      });
+    } finally {
+      await rm(workspace, { recursive: true, force: true });
+    }
+  });
 });

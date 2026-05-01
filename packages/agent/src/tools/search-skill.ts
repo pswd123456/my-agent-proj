@@ -1,6 +1,9 @@
+import type { WorkspaceSkillSettingRecord } from "@ai-app-template/domain";
+
 import type { SkillDescriptor } from "../skills/index.js";
 import {
   discoverWorkspaceSkills,
+  filterWorkspaceSkills,
   type SkillDiscoveryDiagnostic
 } from "../skills/index.js";
 import { searchWorkspaceSkills } from "../skills/search.js";
@@ -63,7 +66,10 @@ function formatDisplayText(input: {
   ].join("\n");
 }
 
-export function createSearchSkillTool(workingDirectory: string): RuntimeTool {
+export function createSearchSkillTool(
+  workingDirectory: string,
+  workspaceSkillSettings: readonly WorkspaceSkillSettingRecord[] = []
+): RuntimeTool {
   return {
     name: "search_skill",
     description:
@@ -124,8 +130,12 @@ export function createSearchSkillTool(workingDirectory: string): RuntimeTool {
       const maxResults =
         normalizeMaxResults(input.maxResults) ?? DEFAULT_MAX_RESULTS;
       const discovery = await discoverWorkspaceSkills(workingDirectory);
+      const visibleSkills = filterWorkspaceSkills(
+        discovery.skills,
+        workspaceSkillSettings
+      );
       const searchResult = searchWorkspaceSkills({
-        skills: discovery.skills,
+        skills: visibleSkills,
         query,
         maxResults
       });

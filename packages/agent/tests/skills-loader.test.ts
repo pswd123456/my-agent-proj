@@ -3,7 +3,10 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { discoverWorkspaceSkills } from "../src/skills/index.js";
+import {
+  discoverWorkspaceSkills,
+  filterWorkspaceSkills
+} from "../src/skills/index.js";
 
 async function createWorkspaceRoot(): Promise<string> {
   return mkdtemp(path.join(tmpdir(), "agent-skills-"));
@@ -151,6 +154,55 @@ describe("discoverWorkspaceSkills", () => {
           relativePath: ".agent/skills/b-skill/SKILL.md",
           reason: "duplicate_name",
           message: "Duplicate skill name ignored: repo_reader"
+        }
+      ]);
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("filters discovered skills through workspace skill settings", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const repoReaderDir = path.join(workspaceRoot, ".agent/skills/repo-reader");
+    const plannerDir = path.join(workspaceRoot, ".agent/skills/planner");
+
+    try {
+      await mkdir(repoReaderDir, { recursive: true });
+      await mkdir(plannerDir, { recursive: true });
+      await writeFile(
+        path.join(repoReaderDir, "SKILL.md"),
+        [
+          "---",
+          "name: repo_reader",
+          "description: Read repository structure before implementation.",
+          "---"
+        ].join("\n"),
+        "utf8"
+      );
+      await writeFile(
+        path.join(plannerDir, "SKILL.md"),
+        [
+          "---",
+          "name: schedule_planner",
+          "description: Plan schedules and summarize conflicts.",
+          "---"
+        ].join("\n"),
+        "utf8"
+      );
+
+      const result = await discoverWorkspaceSkills(workspaceRoot);
+      expect(
+        filterWorkspaceSkills(result.skills, [
+          {
+            skillName: "repo_reader",
+            enabled: false
+          }
+        ])
+      ).toEqual([
+        {
+          name: "schedule_planner",
+          description: "Plan schedules and summarize conflicts.",
+          relativePath: ".agent/skills/planner/SKILL.md"
         }
       ]);
     } finally {

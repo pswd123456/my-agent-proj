@@ -2,8 +2,13 @@ import { promises as fs } from "node:fs";
 
 import { z } from "zod";
 
+import type { WorkspaceSkillSettingRecord } from "@ai-app-template/domain";
+
 import type { SkillDescriptor } from "../skills/index.js";
-import { discoverWorkspaceSkills } from "../skills/index.js";
+import {
+  discoverWorkspaceSkills,
+  filterWorkspaceSkills
+} from "../skills/index.js";
 import { normalizeWorkspacePath } from "./workspace.js";
 import {
   createToolResult,
@@ -203,7 +208,10 @@ function formatFailureDisplayText(input: {
   ].join("\n");
 }
 
-export function createLoadSkillTool(workingDirectory: string): RuntimeTool {
+export function createLoadSkillTool(
+  workingDirectory: string,
+  workspaceSkillSettings: readonly WorkspaceSkillSettingRecord[] = []
+): RuntimeTool {
   return {
     name: "load_skill",
     description:
@@ -246,7 +254,11 @@ export function createLoadSkillTool(workingDirectory: string): RuntimeTool {
     async execute(input, context) {
       const parsed = schema.parse(input);
       const discovery = await discoverWorkspaceSkills(workingDirectory);
-      const skill = resolveRequestedSkill(discovery.skills, parsed);
+      const visibleSkills = filterWorkspaceSkills(
+        discovery.skills,
+        workspaceSkillSettings
+      );
+      const skill = resolveRequestedSkill(visibleSkills, parsed);
 
       if (!skill) {
         return failureResult(
@@ -258,7 +270,7 @@ export function createLoadSkillTool(workingDirectory: string): RuntimeTool {
             data: {
               requestedSkillName: parsed.skillName ?? null,
               requestedPath: parsed.path ?? null,
-              availableSkills: discovery.skills.map((item) => ({
+              availableSkills: visibleSkills.map((item) => ({
                 name: item.name,
                 relativePath: item.relativePath
               })),

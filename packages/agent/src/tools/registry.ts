@@ -4,7 +4,8 @@ import type { RoutineRepository } from "@ai-app-template/db";
 import {
   DEFAULT_CAPABILITY_PACKS,
   type CapabilityPackName,
-  type SettingsPermissionToolOption
+  type SettingsPermissionToolOption,
+  type WorkspaceSkillSettingRecord
 } from "@ai-app-template/domain";
 
 import type { LspServerManager } from "../lsp/index.js";
@@ -162,6 +163,7 @@ export function createPlanningToolRegistry(): ToolRegistry {
 
 export function createWorkspaceToolRegistry(options: {
   workingDirectory: string;
+  workspaceSkillSettings?: readonly WorkspaceSkillSettingRecord[];
 }): ToolRegistry {
   return registerTools(new ToolRegistry(), [
     createApplyPatchTool(options.workingDirectory),
@@ -180,8 +182,11 @@ export function createWorkspaceToolRegistry(options: {
     createGitDiffCachedTool(),
     createRunShellCommandTool(),
     createMakeHttpRequestTool(),
-    createSearchSkillTool(options.workingDirectory),
-    createLoadSkillTool(options.workingDirectory)
+    createSearchSkillTool(
+      options.workingDirectory,
+      options.workspaceSkillSettings
+    ),
+    createLoadSkillTool(options.workingDirectory, options.workspaceSkillSettings)
   ]);
 }
 
@@ -212,6 +217,7 @@ export function createDefaultToolRegistry(options: {
   routineRepository: RoutineRepository;
   lspServerManager?: LspServerManager;
   enabledCapabilityPacks?: readonly string[];
+  workspaceSkillSettings?: readonly WorkspaceSkillSettingRecord[];
   env?: NodeJS.ProcessEnv;
 }): ToolRegistry {
   const registry = createPlanningToolRegistry();

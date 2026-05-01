@@ -5,8 +5,9 @@ import type { Logger, SystemLogManager } from "./system-log.js";
 import type { RoutineRepository } from "@ai-app-template/db";
 import {
   DEFAULT_SESSION_MODEL,
+  normalizeThinkingEffort,
   type UserContextHookRecord,
-  normalizeThinkingEffort
+  type WorkspaceSkillSettingRecord
 } from "@ai-app-template/domain";
 
 import type {
@@ -50,6 +51,7 @@ export interface AgentRuntimeOptions {
   traceManager?: TraceManager;
   promptBuilder?: PromptBuilder;
   userContextHooks?: UserContextHookRecord[];
+  workspaceSkillSettings?: WorkspaceSkillSettingRecord[];
   userCustomPrompt?: string;
   maxTurns?: number;
   maxTokens?: number;
@@ -318,6 +320,7 @@ export class AgentRuntime {
         traceManager: this.options.traceManager,
         promptBuilder: this.promptBuilder,
         userContextHooks: this.options.userContextHooks ?? [],
+        workspaceSkillSettings: this.options.workspaceSkillSettings ?? [],
         abortSignal: interruptController.signal,
         isInterruptRequested: () =>
           this.options.sessionManager.isInterruptRequested(

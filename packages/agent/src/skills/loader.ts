@@ -1,6 +1,11 @@
 import { promises as fs, type Dirent } from "node:fs";
 import path from "node:path";
 
+import {
+  isWorkspaceSkillEnabled,
+  type WorkspaceSkillSettingRecord
+} from "@ai-app-template/domain";
+
 import type {
   SkillDescriptor,
   SkillDiscoveryDiagnostic,
@@ -231,4 +236,11 @@ export async function loadWorkspaceSkills(
 ): Promise<SkillDescriptor[]> {
   const result = await discoverWorkspaceSkills(workingDirectory);
   return result.skills;
+}
+
+export function filterWorkspaceSkills(
+  skills: readonly SkillDescriptor[],
+  settings: readonly WorkspaceSkillSettingRecord[]
+): SkillDescriptor[] {
+  return skills.filter((skill) => isWorkspaceSkillEnabled(settings, skill.name));
 }

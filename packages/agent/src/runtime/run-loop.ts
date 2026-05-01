@@ -21,7 +21,10 @@ import {
   type PromptBuilder
 } from "../prompt.js";
 import type { SessionManager } from "../session.js";
-import { discoverWorkspaceSkills } from "../skills/index.js";
+import {
+  discoverWorkspaceSkills,
+  filterWorkspaceSkills
+} from "../skills/index.js";
 import { createWorkspaceInstructionsManager } from "../workspace-instructions/index.js";
 import type { TraceManager } from "../trace.js";
 import type { Logger } from "../system-log.js";
@@ -33,7 +36,10 @@ import { scheduleBackgroundTaskPollWakeup } from "../background-tasks/orchestrat
 import { consumeBackgroundNotifications } from "../background-tasks/notifications.js";
 import { readAcceptedBackgroundTaskHandle } from "../background-tasks/task-handle.js";
 import type { ToolRegistry } from "../tools/registry.js";
-import type { UserContextHookRecord } from "@ai-app-template/domain";
+import type {
+  UserContextHookRecord,
+  WorkspaceSkillSettingRecord
+} from "@ai-app-template/domain";
 import {
   buildAssistantBlockContent,
   buildAssistantThinkingBlockContent,
@@ -160,6 +166,7 @@ export async function runSessionLoop(input: {
   traceManager: TraceManager | undefined;
   promptBuilder: PromptBuilder;
   userContextHooks: UserContextHookRecord[];
+  workspaceSkillSettings: WorkspaceSkillSettingRecord[];
   userCustomPrompt?: string;
   session: SessionSnapshot;
   message: string | undefined;
@@ -190,6 +197,10 @@ export async function runSessionLoop(input: {
     );
   const discoveredSkills = await discoverWorkspaceSkills(
     session.workingDirectory
+  );
+  const visibleSkills = filterWorkspaceSkills(
+    discoveredSkills.skills,
+    input.workspaceSkillSettings
   );
   const resolvedContextHooks = resolveUserContextHookSections({
     hooks: input.userContextHooks,
@@ -730,7 +741,7 @@ export async function runSessionLoop(input: {
           contextHooks: resolvedContextHooks,
           workspaceInstructions: workspaceInstructions.instructions
         },
-        skills: discoveredSkills.skills,
+        skills: visibleSkills,
         ...(typeof input.maxTokens === "number"
           ? { maxTokens: input.maxTokens }
           : {})
@@ -750,7 +761,7 @@ export async function runSessionLoop(input: {
         event: {
           kind: "skills_loaded",
           turnCount,
-          skills: discoveredSkills.skills,
+          skills: visibleSkills,
           diagnostics: discoveredSkills.diagnostics
         }
       });
