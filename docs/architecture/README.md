@@ -12,6 +12,7 @@
 - [Firecrawl Web 接入](./firecrawl-web.md)
 - [架构图](./diagram.md)
 - [Context 管理](./context-management/README.md)
+- [折叠消息块 Hydration 回归](./context-management/collapsed-flow-hydration.md)
 - [技术栈选择](./tech-stack.md)
 - [工作目录与模块分层](./workspace-structure.md)
 - [后台任务与 delegation](./background-tasks-and-delegation.md)
@@ -32,6 +33,7 @@
 - 想快速建立全局心智模型时，接着读 [架构图](./diagram.md)
 - 做 messages、compact、tool result 或 prompt 分层相关工作时，读 [Context 管理](./context-management/README.md)
 - 做前端 workbench 的消息 dedupe、折叠、stream overlay 或 inspector 编排时，也从 [Context 管理](./context-management/README.md) 进入
+- 如果问题表现为折叠消息块在 session hydrate 后消失，直接读 [折叠消息块 Hydration 回归](./context-management/collapsed-flow-hydration.md)
 - 做 session 级 planning、task brief 或 plan mode 权限边界时，也从 [Context 管理](./context-management/README.md) 进入
 - 做依赖选型、provider 接入或运行时边界判断时，读 [技术栈选择](./tech-stack.md)
 - 做目录规划、模块归属、文档同步或新增模块时，读 [工作目录与模块分层](./workspace-structure.md)

@@ -21,6 +21,7 @@
 - [Todo 文档目录](./todo/README.md)
 - [主线与能力包](./architecture/capability-packs.md)
 - [Context 管理](./architecture/context-management/README.md)
+- [折叠消息块 Hydration 回归](./architecture/context-management/collapsed-flow-hydration.md)
 - [设计系统总览](./design-system/README.md)
 
 ## 使用建议
@@ -37,6 +38,7 @@
 - 如果要判断“仓库主线是什么、哪些只是专项能力”，优先看 `docs/architecture/capability-packs.md`
 - 做 messages 管理、compact、tool result 上下文或 prompt 分层时，优先看 `docs/architecture/context-management/`
 - 做前端 workbench 的消息 dedupe、折叠、stream overlay 或 inspector 编排时，也优先看 `docs/architecture/context-management/`
+- 如果问题表现为折叠消息块在切换 session 后闪一下再消失，直接看 `docs/architecture/context-management/collapsed-flow-hydration.md`
 - 做 workbench 本身的前端状态分层、shared UI 包边界或 session 页面编排时，优先看 `docs/architecture/frontend-workbench.md`
 - 做模型目录、默认模型或 `thinkingEffort` 支持判断时，优先看 `docs/architecture/tech-stack.md` 和 `packages/agent/src/models/service.ts`
 - 做 UI、一致性、tokens、组件策略、页面模板相关工作时，从 `docs/design-system/` 开始

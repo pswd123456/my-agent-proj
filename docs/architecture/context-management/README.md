@@ -92,6 +92,7 @@
 | tool 编排       | tool call 的 prepare / permission / execute / persist 边界                 | [Tool 编排与执行边界](../tool-orchestration.md)       |
 | prompt 分层     | `system + prefix + messages + runtime context + dynamic prompt + tools`    | [Prompt 设计](./prompt-design.md)                     |
 | 前端消息编排    | `session.messages + trace + stream overlay` 统一收口成前端 projection      | [前端 Message Manager](./frontend-message-manager.md) |
+| 折叠消息块回归  | session hydrate 后 compact 折叠块被 trace 元事件打散的根因与防回归约束     | [折叠消息块 Hydration 回归](./collapsed-flow-hydration.md) |
 | planning 态     | session 级 `plan mode` + task brief artifact + 文件写拦截                  | [Plan Mode](./plan-mode.md)                           |
 
 ## 新增上下文的决策顺序

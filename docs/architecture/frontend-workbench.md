@@ -175,6 +175,11 @@
 
 Workbench 总体架构文档只描述它在系统里的位置，不重复 message manager 的细节实现。
 
+如果问题表现为“切换 session 后折叠块先出现、随后又消失”，优先看：
+
+- [前端 Message Manager](./context-management/frontend-message-manager.md)
+- [折叠消息块 Hydration 回归](./context-management/collapsed-flow-hydration.md)
+
 ## 设计边界
 
 ### 适合留在 `apps/web` 的
