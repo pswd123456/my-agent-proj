@@ -10,6 +10,7 @@ import {
   type RoutineRecord,
   type RunStreamEvent,
   type SessionSnapshot,
+  type SessionWorkspaceGitStatus,
   type SettingsPermissionToolOption,
   type SessionSettingsRecord,
   type TraceRecord,
@@ -104,6 +105,15 @@ const apiClient = createApiClient({
 const SESSION_RAIL_COLLAPSED_STORAGE_KEY = "workbench-session-rail-collapsed";
 const ACTIVE_SESSION_REFRESH_INTERVAL_MS = 3_000;
 const SESSION_LIST_REFRESH_INTERVAL_MS = 5_000;
+const SESSION_SEARCH_DEBOUNCE_MS = 180;
+
+async function fetchSessionListSnapshots(
+  query: string
+): Promise<SessionSnapshot[]> {
+  return query.length > 0
+    ? apiClient.searchSessions(query)
+    : apiClient.listSessions();
+}
 
 function inferUserContextHookBehavior(
   hook: Pick<UserContextHookRecord, "event" | "behavior">
@@ -374,6 +384,7 @@ export function SessionWorkbench() {
   const backgroundRefreshInFlightRef = useRef(false);
   const sessionListRefreshVersionRef = useRef(0);
   const sessionListMutationInFlightRef = useRef(false);
+  const appliedSessionSearchQueryRef = useRef("");
 
   const [sessionRegistry, setSessionRegistry] = useState(() =>
     createSessionRegistryState()
@@ -390,6 +401,9 @@ export function SessionWorkbench() {
     []
   );
   const [message, setMessage] = useState("");
+  const [sessionSearchQuery, setSessionSearchQuery] = useState("");
+  const [appliedSessionSearchQuery, setAppliedSessionSearchQuery] =
+    useState("");
   const [activeTab, setActiveTab] = useState<InspectorTabId>("prompt");
   const [loading, setLoading] = useState(true);
   const [loadingSession, setLoadingSession] = useState(false);
@@ -431,6 +445,10 @@ export function SessionWorkbench() {
   const [mcpSettingsErrorText, setMcpSettingsErrorText] = useState<
     string | null
   >(null);
+  const [workspaceGitStatus, setWorkspaceGitStatus] =
+    useState<SessionWorkspaceGitStatus | null>(null);
+  const [workspaceGitStatusLoading, setWorkspaceGitStatusLoading] =
+    useState(false);
   const [choosingWorkingDirectory, setChoosingWorkingDirectory] =
     useState(false);
   const [pendingPermissionToolName, setPendingPermissionToolName] = useState<
@@ -443,9 +461,34 @@ export function SessionWorkbench() {
   const submitting = sessionUiState.submitting;
   const interruptingSessionId = sessionUiState.interruptingSessionId;
 
+  function clearSessionSearch() {
+    appliedSessionSearchQueryRef.current = "";
+    setSessionSearchQuery("");
+    setAppliedSessionSearchQuery("");
+  }
+
   useEffect(() => {
     selectedSessionIdRef.current = selectedSessionId;
   }, [selectedSessionId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      setAppliedSessionSearchQuery(sessionSearchQuery.trim());
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setAppliedSessionSearchQuery(sessionSearchQuery.trim());
+    }, SESSION_SEARCH_DEBOUNCE_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [sessionSearchQuery]);
+
+  useEffect(() => {
+    appliedSessionSearchQueryRef.current = appliedSessionSearchQuery;
+  }, [appliedSessionSearchQuery]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -475,6 +518,61 @@ export function SessionWorkbench() {
     preferredUserIdRef.current =
       currentSession?.context.userId ?? userSettings?.userId ?? null;
   }, [currentSession, userSettings]);
+
+  useEffect(() => {
+    if (!currentSession) {
+      setWorkspaceGitStatus(null);
+      setWorkspaceGitStatusLoading(false);
+      return undefined;
+    }
+
+    const sessionId = currentSession.sessionId;
+    const workingDirectory = currentSession.workingDirectory;
+    let disposed = false;
+
+    async function loadStatus(showLoading: boolean) {
+      if (showLoading) {
+        setWorkspaceGitStatusLoading(true);
+      }
+
+      try {
+        const status = await apiClient.getSessionWorkspaceGitStatus(sessionId);
+        if (!disposed) {
+          setWorkspaceGitStatus(status);
+        }
+      } catch {
+        if (!disposed) {
+          setWorkspaceGitStatus({
+            workingDirectory,
+            ok: false,
+            code: "GIT_STATUS_FAILED",
+            message: "Failed to load git status.",
+            branch: null,
+            clean: null,
+            changedPathCount: 0,
+            stagedPathCount: 0,
+            unstagedPathCount: 0,
+            untrackedPathCount: 0
+          });
+        }
+      } finally {
+        if (!disposed) {
+          setWorkspaceGitStatusLoading(false);
+        }
+      }
+    }
+
+    setWorkspaceGitStatus(null);
+    void loadStatus(true);
+    const intervalId = window.setInterval(() => {
+      void loadStatus(false);
+    }, 7_000);
+
+    return () => {
+      disposed = true;
+      window.clearInterval(intervalId);
+    };
+  }, [currentSession?.sessionId, currentSession?.workingDirectory]);
 
   const renderedSessions = useMemo(
     () => deriveRenderedSessions({ ...sessionRegistry, currentSession }),
@@ -593,17 +691,16 @@ export function SessionWorkbench() {
           settingsPayload,
           mcpPayload,
           skillsPayload
-        ] =
-          await Promise.all([
-            apiClient.getSessionTrace(sessionId),
-            apiClient.listSessionRoutines(sessionId, {
-              startDate: week.startDate,
-              endDate: week.endDate
-            }),
-            apiClient.getUserSettingsPayload(session.context.userId),
-            apiClient.getUserSettingsMcp(session.context.userId),
-            apiClient.getUserSettingsSkills(session.context.userId)
-          ]);
+        ] = await Promise.all([
+          apiClient.getSessionTrace(sessionId),
+          apiClient.listSessionRoutines(sessionId, {
+            startDate: week.startDate,
+            endDate: week.endDate
+          }),
+          apiClient.getUserSettingsPayload(session.context.userId),
+          apiClient.getUserSettingsMcp(session.context.userId),
+          apiClient.getUserSettingsSkills(session.context.userId)
+        ]);
 
         if (
           cancelled ||
@@ -681,26 +778,25 @@ export function SessionWorkbench() {
         settingsPayload,
         mcpPayload,
         skillsPayload
-      ] =
-        await Promise.all([
-          apiClient.getSessionTrace(sessionId),
-          apiClient.listSessionRoutines(sessionId, {
-            startDate: week.startDate,
-            endDate: week.endDate
-          }),
-          syncSettings
-            ? apiClient.getUserSettingsPayload(session.context.userId)
-            : Promise.resolve<{
-                settings: SessionSettingsRecord;
-                permissionTools: SettingsPermissionToolOption[];
-              } | null>(null),
-          syncSettings
-            ? apiClient.getUserSettingsMcp(session.context.userId)
-            : Promise.resolve(null),
-          syncSettings
-            ? apiClient.getUserSettingsSkills(session.context.userId)
-            : Promise.resolve(null)
-        ]);
+      ] = await Promise.all([
+        apiClient.getSessionTrace(sessionId),
+        apiClient.listSessionRoutines(sessionId, {
+          startDate: week.startDate,
+          endDate: week.endDate
+        }),
+        syncSettings
+          ? apiClient.getUserSettingsPayload(session.context.userId)
+          : Promise.resolve<{
+              settings: SessionSettingsRecord;
+              permissionTools: SettingsPermissionToolOption[];
+            } | null>(null),
+        syncSettings
+          ? apiClient.getUserSettingsMcp(session.context.userId)
+          : Promise.resolve(null),
+        syncSettings
+          ? apiClient.getUserSettingsSkills(session.context.userId)
+          : Promise.resolve(null)
+      ]);
 
       if (
         !shouldApplySelectedSessionResponse({
@@ -795,8 +891,7 @@ export function SessionWorkbench() {
       }
 
       const requestVersion = sessionListRefreshVersionRef.current;
-      void apiClient
-        .listSessions()
+      void fetchSessionListSnapshots(appliedSessionSearchQuery)
         .then((snapshots) => {
           if (
             !shouldApplySessionListResponse({
@@ -815,7 +910,42 @@ export function SessionWorkbench() {
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [loading]);
+  }, [appliedSessionSearchQuery, loading]);
+
+  useEffect(() => {
+    if (loading) {
+      return;
+    }
+
+    let cancelled = false;
+    const requestVersion = sessionListRefreshVersionRef.current + 1;
+    sessionListRefreshVersionRef.current = requestVersion;
+
+    void fetchSessionListSnapshots(appliedSessionSearchQuery)
+      .then((snapshots) => {
+        if (
+          cancelled ||
+          !shouldApplySessionListResponse({
+            requestVersion,
+            currentVersion: sessionListRefreshVersionRef.current,
+            mutationInFlight: sessionListMutationInFlightRef.current
+          })
+        ) {
+          return;
+        }
+
+        setSessionRegistry((current) => replaceSessions(current, snapshots));
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setErrorText(error instanceof Error ? error.message : String(error));
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [appliedSessionSearchQuery, loading]);
 
   async function handleCreateSession() {
     if (creatingSession) {
@@ -824,6 +954,7 @@ export function SessionWorkbench() {
 
     const reusableSession = findReusableNewSessionSummary(sessions);
     if (reusableSession) {
+      clearSessionSearch();
       setErrorText(null);
       focusConversationView();
       setSessionRegistry((current) =>
@@ -838,6 +969,7 @@ export function SessionWorkbench() {
     }
 
     try {
+      clearSessionSearch();
       setCreatingSession(true);
       setErrorText(null);
       beginSessionListMutation();
@@ -887,7 +1019,15 @@ export function SessionWorkbench() {
         selectedSessionIdRef.current = null;
       }
       await apiClient.deleteSession(sessionId);
-      const refreshedSessions = await apiClient.listSessions();
+      const searchQuery = appliedSessionSearchQueryRef.current;
+      const useUnfilteredFallback =
+        selectedSessionId === sessionId && searchQuery.length > 0;
+      if (useUnfilteredFallback) {
+        clearSessionSearch();
+      }
+      const refreshedSessions = await fetchSessionListSnapshots(
+        useUnfilteredFallback ? "" : searchQuery
+      );
       setSessionRegistry((current) =>
         replaceSessions(current, refreshedSessions)
       );
@@ -947,6 +1087,7 @@ export function SessionWorkbench() {
     try {
       beginSessionListMutation();
       selectedSessionIdRef.current = null;
+      clearSessionSearch();
       await apiClient.clearSessionHistory();
       setSessionRegistry(createSessionRegistryState());
       setSessionUiState((current) => setSessionSnapshot(current, null));
@@ -2064,12 +2205,14 @@ export function SessionWorkbench() {
           <SessionWorkbenchSidebar
             sessions={renderedSessions}
             selectedSessionId={selectedSessionId}
+            searchValue={sessionSearchQuery}
             activeSidebarPanel={activeSidebarPanel}
             collapsed={false}
             deletingSessionId={deletingSessionId}
             loading={loading}
             creatingSession={creatingSession}
             onCreateSession={handleCreateSession}
+            onSearchValueChange={setSessionSearchQuery}
             onSelectSession={handleSelectSession}
             onDeleteSession={(sessionId) => void handleDeleteSession(sessionId)}
             onToggleSidebarPanel={handleToggleSidebarPanel}
@@ -2088,6 +2231,7 @@ export function SessionWorkbench() {
               <SessionWorkbenchSidebar
                 sessions={renderedSessions}
                 selectedSessionId={selectedSessionId}
+                searchValue={sessionSearchQuery}
                 activeSidebarPanel={activeSidebarPanel}
                 collapsed={false}
                 overlay
@@ -2095,6 +2239,7 @@ export function SessionWorkbench() {
                 loading={loading}
                 creatingSession={creatingSession}
                 onCreateSession={handleOverlayCreateSession}
+                onSearchValueChange={setSessionSearchQuery}
                 onSelectSession={handleOverlaySelectSession}
                 onDeleteSession={(sessionId) =>
                   void handleDeleteSession(sessionId)
@@ -2285,6 +2430,8 @@ export function SessionWorkbench() {
               pendingPermissionRequest={pendingPermissionRequest}
               pendingConfirmationPayload={pendingConfirmationPayload}
               pendingUserQuestionPayload={pendingUserQuestionPayload}
+              workspaceGitStatus={workspaceGitStatus}
+              workspaceGitStatusLoading={workspaceGitStatusLoading}
               message={message}
               submitting={submitting}
               canInterrupt={canInterrupt}

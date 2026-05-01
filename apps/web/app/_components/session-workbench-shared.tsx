@@ -30,6 +30,7 @@ interface CreateSessionDialogProps {
 interface SessionWorkbenchSidebarProps {
   sessions: SessionSummary[];
   selectedSessionId: string | null;
+  searchValue: string;
   activeSidebarPanel: SidebarPanelId | null;
   collapsed: boolean;
   overlay?: boolean;
@@ -37,6 +38,7 @@ interface SessionWorkbenchSidebarProps {
   loading: boolean;
   creatingSession: boolean;
   onCreateSession: () => void;
+  onSearchValueChange: (value: string) => void;
   onSelectSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string) => void;
   onToggleSidebarPanel: (panelId: SidebarPanelId) => void;
@@ -647,6 +649,7 @@ export function CreateSessionDialog({
 export function SessionWorkbenchSidebar({
   sessions,
   selectedSessionId,
+  searchValue,
   activeSidebarPanel,
   collapsed,
   overlay = false,
@@ -654,6 +657,7 @@ export function SessionWorkbenchSidebar({
   loading,
   creatingSession,
   onCreateSession,
+  onSearchValueChange,
   onSelectSession,
   onDeleteSession,
   onToggleSidebarPanel
@@ -808,6 +812,7 @@ export function SessionWorkbenchSidebar({
   );
   const hiddenSessionCount =
     collapsedVisibleSidebarRows.length - visibleSidebarRows.length;
+  const hasSearchQuery = searchValue.trim().length > 0;
 
   function toggleSessionGroup(sessionId: string) {
     setCollapsedSessionIds((current) => {
@@ -830,31 +835,41 @@ export function SessionWorkbenchSidebar({
         <div
           className={`border-b border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] ${collapsed ? "px-3 py-3" : "px-4 py-4"}`}
         >
-          {collapsed ? null : (
-            <div className="min-w-0">
-              <div className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
-                Sessions
-              </div>
-              <div className="mt-2 text-base font-semibold text-[var(--app-text-primary)]">
-                会话侧边栏
-              </div>
-            </div>
-          )}
           <button
             type="button"
             onClick={onCreateSession}
             disabled={loading || creatingSession}
             title="创建新会话"
             aria-label="创建新会话"
-            className={`inline-flex items-center justify-center rounded-[var(--app-radius-pill)] border border-[color:color-mix(in_srgb,var(--app-border-accent)_68%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-elevated)_90%,transparent)] font-medium text-[var(--app-text-primary)] transition hover:border-[var(--app-status-success)] hover:text-[var(--app-status-success)] disabled:cursor-not-allowed disabled:opacity-50 ${collapsed ? "mt-3 h-10 w-full text-lg leading-none" : "mt-4 w-full px-4 py-2 text-sm"}`}
+            className={`inline-flex items-center justify-center rounded-[var(--app-radius-pill)] border border-[color:color-mix(in_srgb,var(--app-border-accent)_68%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-elevated)_90%,transparent)] font-medium text-[var(--app-text-primary)] transition hover:border-[var(--app-status-success)] hover:text-[var(--app-status-success)] disabled:cursor-not-allowed disabled:opacity-50 ${collapsed ? "mt-3 h-10 w-full text-lg leading-none" : "mt-3 w-full px-4 py-2 text-sm"}`}
           >
             {collapsed ? "+" : "创建新会话"}
           </button>
+          {collapsed ? null : (
+            <label className="mt-3 block">
+              <span className="sr-only">搜索会话</span>
+              <input
+                type="search"
+                value={searchValue}
+                onChange={(event) => onSearchValueChange(event.target.value)}
+                placeholder="搜索 session id 或消息"
+                autoComplete="off"
+                spellCheck={false}
+                aria-label="搜索会话"
+                className="w-full rounded-[var(--app-radius-lg)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-canvas)_28%,transparent)] px-3 py-2.5 text-sm text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[color:color-mix(in_srgb,var(--app-border-accent)_68%,transparent)]"
+              />
+            </label>
+          )}
         </div>
 
         <div
           className={`flex-1 overflow-y-auto ${collapsed ? "px-3 py-3" : "px-4 py-4"}`}
         >
+          {visibleSidebarRows.length === 0 ? (
+            <div className="rounded-[var(--app-radius-lg)] border border-dashed border-[color:color-mix(in_srgb,var(--app-border-subtle)_52%,transparent)] px-3 py-4 text-sm text-[var(--app-text-muted)]">
+              {hasSearchQuery ? "没有匹配会话" : "暂无会话"}
+            </div>
+          ) : null}
           <div className={`grid ${collapsed ? "gap-2" : "gap-3"}`}>
             {visibleSidebarRows.map(({ session, depth, childCount }) => {
               const isActive = session.sessionId === selectedSessionId;

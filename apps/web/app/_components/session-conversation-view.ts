@@ -765,11 +765,11 @@ export function buildConversationViewItems(input: {
     return input.timelineItems.map(toTimelineViewItem);
   }
 
-  return compactFinalFlow(
-    hideCompactMetaItems(
-      compactReadSearchRuns(compactToolEvents(input.timelineItems))
-    ),
-    input.streamEventKeys ?? new Set()
+  return hideCompactMetaItems(
+    compactFinalFlow(
+      compactReadSearchRuns(compactToolEvents(input.timelineItems)),
+      input.streamEventKeys ?? new Set()
+    )
   );
 }
 

@@ -460,6 +460,95 @@ describe("session-message-manager", () => {
     ]);
   });
 
+  test("marks a completed live execution flow as newly collapsed for auto-collapse", () => {
+    const session = createSession([
+      userBlock("user-1", "总结一下", "2026-04-27T00:00:01.500Z"),
+      assistantBlock(
+        "assistant-live",
+        "我已经看完并总结好了。",
+        "2026-04-27T00:00:05.000Z"
+      )
+    ]);
+    let state = beginMessageManagerRun(createMessageManagerState(), {
+      message: {
+        createdAt: "2026-04-27T00:00:01.000Z",
+        text: "总结一下"
+      }
+    });
+
+    state = appendMessageManagerEvent(state, {
+      kind: "turn_start",
+      sessionId: "session-1",
+      createdAt: "2026-04-27T00:00:01.100Z",
+      turnCount: 1,
+      session: {
+        sessionId: "session-1",
+        workingDirectory: "/tmp/workspace",
+        model: "MiniMax-M2.7",
+        sessionState: {
+          loopState: "running",
+          turnCount: 1,
+          lastError: null,
+          pendingToolCallIds: [],
+          interruptRequested: false
+        }
+      }
+    });
+    state = appendMessageManagerEvent(state, {
+      kind: "tool_call",
+      sessionId: "session-1",
+      createdAt: "2026-04-27T00:00:02.000Z",
+      turnCount: 1,
+      toolCallId: "tool-1",
+      toolName: "read_file",
+      input: { path: "apps/web/app/page.tsx" }
+    });
+    state = appendMessageManagerEvent(state, {
+      kind: "tool_result",
+      sessionId: "session-1",
+      createdAt: "2026-04-27T00:00:03.000Z",
+      turnCount: 1,
+      toolCallId: "tool-1",
+      toolName: "read_file",
+      output: "done",
+      isError: false
+    });
+    state = appendMessageManagerEvent(state, {
+      kind: "assistant_text",
+      sessionId: "session-1",
+      createdAt: "2026-04-27T00:00:05.000Z",
+      turnCount: 1,
+      assistantMessageId: "assistant-live",
+      text: "我已经看完并总结好了。",
+      snapshot: "我已经看完并总结好了。"
+    });
+    state = appendMessageManagerEvent(state, {
+      kind: "run_complete",
+      sessionId: "session-1",
+      createdAt: "2026-04-27T00:00:06.000Z",
+      turnCount: 1,
+      status: "completed",
+      stopReason: "end_turn",
+      session
+    });
+
+    const projection = buildMessageManagerProjection({
+      session,
+      traceRecords: [],
+      debugConversationView: false,
+      state
+    });
+
+    expect(projection.conversation.newlyCollapsedFlowKeys).toEqual([
+      "compact-collapsed-flow-assistant-live"
+    ]);
+    expect(compactKinds(projection)).toEqual([
+      "user",
+      "compact-collapsed-flow",
+      "assistant_text"
+    ]);
+  });
+
   test("does not replay collapse animation for a settled turn when the next run begins", () => {
     let state = registerMessageManagerCollapsedFlows(
       createMessageManagerState(),

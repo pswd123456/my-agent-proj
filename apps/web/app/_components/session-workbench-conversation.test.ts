@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 
 import type { SessionSnapshot } from "@ai-app-template/sdk";
 
@@ -12,8 +14,10 @@ import {
   buildConfirmationCardView,
   getCompactToolFileChangeRows,
   buildPermissionCardView,
+  buildSessionGitStatusSummary,
   buildUserQuestionCardView,
   buildUserQuestionReplyMessage,
+  SessionGitStatusHeaderChips,
   getConfirmationKey,
   getUnifiedDiffLineTone,
   getWorkspaceFileChangeRows,
@@ -366,6 +370,77 @@ describe("composer action view", () => {
     expect(view.buttonType).toBe("submit");
     expect(view.disabled).toBe(false);
     expect(view.buttonLabel).toBe("发送");
+  });
+});
+
+describe("session git status header", () => {
+  test("summarizes dirty git state with branch and change counts", () => {
+    const summary = buildSessionGitStatusSummary({
+      workingDirectory: "/tmp/workspace",
+      ok: true,
+      code: "GIT_STATUS_OK",
+      message: "ok",
+      branch: "main...origin/main [ahead 1]",
+      clean: false,
+      changedPathCount: 3,
+      stagedPathCount: 1,
+      unstagedPathCount: 1,
+      untrackedPathCount: 1
+    });
+
+    expect(summary).toMatchObject({
+      badgeLabel: "git 3 changed",
+      branchLabel: "main",
+      tone: "warning"
+    });
+    expect(summary?.title).toContain("1 staged");
+    expect(summary?.title).toContain("1 untracked");
+  });
+
+  test("renders a neutral non-repository badge", () => {
+    const markup = renderToStaticMarkup(
+      createElement(SessionGitStatusHeaderChips, {
+        workspaceGitStatus: {
+          workingDirectory: "/tmp/workspace",
+          ok: false,
+          code: "NOT_GIT_REPOSITORY",
+          message: "Current working directory is not a git repository.",
+          branch: null,
+          clean: null,
+          changedPathCount: 0,
+          stagedPathCount: 0,
+          unstagedPathCount: 0,
+          untrackedPathCount: 0
+        },
+        loading: false
+      })
+    );
+
+    expect(markup).toContain("git none");
+    expect(markup).not.toContain("git error");
+  });
+
+  test("renders a success badge for a clean repository", () => {
+    const markup = renderToStaticMarkup(
+      createElement(SessionGitStatusHeaderChips, {
+        workspaceGitStatus: {
+          workingDirectory: "/tmp/workspace",
+          ok: true,
+          code: "GIT_STATUS_OK",
+          message: "ok",
+          branch: "main",
+          clean: true,
+          changedPathCount: 0,
+          stagedPathCount: 0,
+          unstagedPathCount: 0,
+          untrackedPathCount: 0
+        },
+        loading: false
+      })
+    );
+
+    expect(markup).toContain("git clean");
+    expect(markup).toContain(">main<");
   });
 });
 

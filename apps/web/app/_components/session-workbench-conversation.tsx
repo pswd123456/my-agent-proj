@@ -16,6 +16,7 @@ import {
   type ModelCatalogEntry,
   type RunStreamEvent,
   type SessionSnapshot,
+  type SessionWorkspaceGitStatus,
   type WorkspaceFileSearchResult,
   type WorkspaceSkillSearchResult,
   type WorkspaceFileChangeSummary
@@ -133,6 +134,8 @@ interface SessionWorkbenchConversationPanelProps {
   pendingPermissionRequest: SessionSnapshot["context"]["pendingPermissionRequest"];
   pendingConfirmationPayload: SessionSnapshot["context"]["pendingConfirmationPayload"];
   pendingUserQuestionPayload: SessionSnapshot["context"]["pendingUserQuestionPayload"];
+  workspaceGitStatus: SessionWorkspaceGitStatus | null;
+  workspaceGitStatusLoading: boolean;
   message: string;
   submitting: boolean;
   canInterrupt: boolean;
@@ -237,6 +240,133 @@ const PERMISSION_FEEDBACK_HIDE_DELAY_MS = 200;
 const AUTO_COLLAPSE_ANIMATION_MS = 240;
 const COLLAPSE_SCROLL_TOP_OFFSET_PX = 20;
 const SMOOTH_SCROLL_DURATION_MS = 320;
+
+interface SessionGitStatusSummaryView {
+  badgeLabel: string;
+  branchLabel: string | null;
+  tone: "neutral" | "success" | "warning" | "danger";
+  title: string;
+}
+
+function formatSessionGitBranchLabel(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const firstSegment = trimmed.split(" ")[0] ?? trimmed;
+  return (firstSegment.split("...")[0] ?? trimmed).trim() || trimmed;
+}
+
+function getSessionGitStatusBadgeClass(
+  tone: SessionGitStatusSummaryView["tone"]
+): string {
+  switch (tone) {
+    case "success":
+      return "border-[color:color-mix(in_srgb,var(--app-status-success)_42%,transparent)] bg-[color:color-mix(in_srgb,var(--app-status-success)_11%,var(--app-bg-muted)_89%)] text-[var(--app-status-success)]";
+    case "warning":
+      return "border-[color:color-mix(in_srgb,var(--app-status-warning)_42%,transparent)] bg-[color:color-mix(in_srgb,var(--app-status-warning)_11%,var(--app-bg-muted)_89%)] text-[var(--app-status-warning)]";
+    case "danger":
+      return "border-[color:color-mix(in_srgb,var(--app-status-danger)_42%,transparent)] bg-[color:color-mix(in_srgb,var(--app-status-danger)_11%,var(--app-bg-muted)_89%)] text-[var(--app-status-danger)]";
+    default:
+      return "border-[color:color-mix(in_srgb,var(--app-border-subtle)_54%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_68%,transparent)] text-[var(--app-text-secondary)]";
+  }
+}
+
+export function buildSessionGitStatusSummary(
+  status: SessionWorkspaceGitStatus | null
+): SessionGitStatusSummaryView | null {
+  if (!status) {
+    return null;
+  }
+
+  const branchLabel = formatSessionGitBranchLabel(status.branch);
+
+  if (!status.ok) {
+    if (status.code === "NOT_GIT_REPOSITORY") {
+      return {
+        badgeLabel: "git none",
+        branchLabel: null,
+        tone: "neutral",
+        title: status.message
+      };
+    }
+
+    return {
+      badgeLabel: "git error",
+      branchLabel: null,
+      tone: "danger",
+      title: status.message
+    };
+  }
+
+  if (status.clean) {
+    return {
+      badgeLabel: "git clean",
+      branchLabel,
+      tone: "success",
+      title: [status.branch, "0 changed"].filter(Boolean).join(" | ")
+    };
+  }
+
+  const countDetails = [
+    `${status.changedPathCount} changed`,
+    `${status.stagedPathCount} staged`,
+    `${status.unstagedPathCount} unstaged`,
+    `${status.untrackedPathCount} untracked`
+  ];
+
+  return {
+    badgeLabel: `git ${status.changedPathCount} changed`,
+    branchLabel,
+    tone: "warning",
+    title: [status.branch, countDetails.join(" | ")].filter(Boolean).join(" | ")
+  };
+}
+
+export function SessionGitStatusHeaderChips({
+  workspaceGitStatus,
+  loading
+}: {
+  workspaceGitStatus: SessionWorkspaceGitStatus | null;
+  loading: boolean;
+}) {
+  const summary = buildSessionGitStatusSummary(workspaceGitStatus);
+
+  if (!summary && !loading) {
+    return null;
+  }
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2">
+      {summary ? (
+        <span
+          title={summary.title}
+          className={`inline-flex items-center rounded-[var(--app-radius-pill)] border px-2.5 py-1 font-mono text-[0.68rem] uppercase tracking-[0.12em] ${getSessionGitStatusBadgeClass(summary.tone)}`}
+        >
+          {summary.badgeLabel}
+        </span>
+      ) : null}
+      {summary?.branchLabel ? (
+        <span
+          title={workspaceGitStatus?.branch ?? undefined}
+          className="inline-flex items-center rounded-[var(--app-radius-pill)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_54%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_68%,transparent)] px-2.5 py-1 font-mono text-[0.68rem] uppercase tracking-[0.12em] text-[var(--app-text-secondary)]"
+        >
+          {summary.branchLabel}
+        </span>
+      ) : null}
+      {loading && !summary ? (
+        <span className="inline-flex items-center rounded-[var(--app-radius-pill)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_54%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_68%,transparent)] px-2.5 py-1 font-mono text-[0.68rem] uppercase tracking-[0.12em] text-[var(--app-text-muted)]">
+          git ...
+        </span>
+      ) : null}
+    </div>
+  );
+}
 
 function escapeTimelineItemKey(key: string): string {
   return key.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
@@ -1545,6 +1675,8 @@ export function SessionWorkbenchConversationPanel({
   pendingPermissionRequest,
   pendingConfirmationPayload,
   pendingUserQuestionPayload,
+  workspaceGitStatus,
+  workspaceGitStatusLoading,
   message,
   submitting,
   canInterrupt,
@@ -2437,6 +2569,10 @@ export function SessionWorkbenchConversationPanel({
           <h2 className="mt-2 truncate font-mono text-sm font-medium text-[var(--app-text-primary)]">
             {currentSession?.sessionId ?? "当前会话"}
           </h2>
+          <SessionGitStatusHeaderChips
+            workspaceGitStatus={workspaceGitStatus}
+            loading={workspaceGitStatusLoading}
+          />
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
           <CopyTextButton

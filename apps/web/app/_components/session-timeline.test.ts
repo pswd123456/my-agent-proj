@@ -1405,6 +1405,54 @@ describe("buildConversationViewItems compact mode", () => {
     }
   });
 
+  test("folds a completed live stream before the assistant snapshot settles into history", () => {
+    const finalAssistantEvent: Extract<
+      RunStreamEvent,
+      { kind: "assistant_text" }
+    > = {
+      kind: "assistant_text",
+      sessionId: "session-1",
+      createdAt: "2026-04-21T18:46:21.800Z",
+      turnCount: 1,
+      assistantMessageId: "assistant-live",
+      text: "已经处理好了。"
+    };
+    const completedRunEvent: Extract<RunStreamEvent, { kind: "run_complete" }> =
+      {
+        ...interruptedRunCompleteEvent,
+        createdAt: "2026-04-21T18:46:21.810Z",
+        status: "completed",
+        stopReason: "end_turn"
+      };
+
+    const view = buildConversationViewItems({
+      timelineItems: [
+        messageItem(firstUser),
+        eventItem(turnStart),
+        eventItem(thinkingEvent),
+        eventItem(currentToolCall),
+        eventItem(currentToolResult),
+        eventItem(finalAssistantEvent),
+        eventItem(completedRunEvent)
+      ],
+      mode: "compact",
+      streamEventKeys: new Set([
+        getTimelineEventKey(turnStart),
+        getTimelineEventKey(thinkingEvent),
+        getTimelineEventKey(currentToolCall),
+        getTimelineEventKey(currentToolResult),
+        getTimelineEventKey(finalAssistantEvent),
+        getTimelineEventKey(completedRunEvent)
+      ])
+    });
+
+    expect(view.map((item) => item.type)).toEqual([
+      "timeline",
+      "compact-collapsed-flow",
+      "timeline"
+    ]);
+  });
+
   test("keeps earlier collapsed turns folded when a later turn also collapses", () => {
     const secondUser: Extract<
       SessionSnapshot["messages"][number],

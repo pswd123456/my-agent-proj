@@ -59,21 +59,32 @@ describe("session sidebar prompt preview", () => {
     };
   }
 
+  function createSidebarProps(sessions: SessionSummary[]) {
+    return {
+      sessions,
+      selectedSessionId: "session-1",
+      searchValue: "",
+      activeSidebarPanel: null,
+      collapsed: false,
+      deletingSessionId: null,
+      loading: false,
+      creatingSession: false,
+      onCreateSession: () => {},
+      onSearchValueChange: () => {},
+      onSelectSession: () => {},
+      onDeleteSession: () => {},
+      onToggleSidebarPanel: () => {}
+    } as const;
+  }
+
   test("renders a truncated first user prompt in the sidebar row", () => {
     const markup = renderToStaticMarkup(
-      createElement(SessionWorkbenchSidebar, {
-        sessions: [createSessionSummary("请帮我检查 runtime 的循环退出条件")],
-        selectedSessionId: "session-1",
-        activeSidebarPanel: null,
-        collapsed: false,
-        deletingSessionId: null,
-        loading: false,
-        creatingSession: false,
-        onCreateSession: () => {},
-        onSelectSession: () => {},
-        onDeleteSession: () => {},
-        onToggleSidebarPanel: () => {}
-      })
+      createElement(
+        SessionWorkbenchSidebar,
+        createSidebarProps([
+          createSessionSummary("请帮我检查 runtime 的循环退出条件")
+        ])
+      )
     );
 
     expect(markup).toContain("请帮我检查 runtim...");
@@ -82,19 +93,10 @@ describe("session sidebar prompt preview", () => {
 
   test("falls back to a new-session label when no prompt exists yet", () => {
     const markup = renderToStaticMarkup(
-      createElement(SessionWorkbenchSidebar, {
-        sessions: [createSessionSummary(null)],
-        selectedSessionId: "session-1",
-        activeSidebarPanel: null,
-        collapsed: false,
-        deletingSessionId: null,
-        loading: false,
-        creatingSession: false,
-        onCreateSession: () => {},
-        onSelectSession: () => {},
-        onDeleteSession: () => {},
-        onToggleSidebarPanel: () => {}
-      })
+      createElement(
+        SessionWorkbenchSidebar,
+        createSidebarProps([createSessionSummary(null)])
+      )
     );
 
     expect(markup).toContain("新会话");
@@ -102,28 +104,43 @@ describe("session sidebar prompt preview", () => {
 
   test("shows the persisted model label in the sidebar row", () => {
     const markup = renderToStaticMarkup(
-      createElement(SessionWorkbenchSidebar, {
-        sessions: [
+      createElement(
+        SessionWorkbenchSidebar,
+        createSidebarProps([
           {
             ...createSessionSummary("请帮我检查 runtime 的循环退出条件"),
             model: "MiniMax-M2.7"
           }
-        ],
-        selectedSessionId: "session-1",
-        activeSidebarPanel: null,
-        collapsed: false,
-        deletingSessionId: null,
-        loading: false,
-        creatingSession: false,
-        onCreateSession: () => {},
-        onSelectSession: () => {},
-        onDeleteSession: () => {},
-        onToggleSidebarPanel: () => {}
-      })
+        ])
+      )
     );
 
     expect(markup).toContain("MiniMax-M2.7");
     expect(markup).not.toContain("yolo on");
+  });
+
+  test("renders a search input in the sidebar header", () => {
+    const markup = renderToStaticMarkup(
+      createElement(
+        SessionWorkbenchSidebar,
+        createSidebarProps([createSessionSummary("请帮我检查 runtime 的循环退出条件")])
+      )
+    );
+
+    expect(markup).toContain('type="search"');
+    expect(markup).toContain('placeholder="搜索 session id 或消息"');
+    expect(markup).not.toContain("会话侧边栏");
+  });
+
+  test("renders the create-session button before the search input", () => {
+    const markup = renderToStaticMarkup(
+      createElement(
+        SessionWorkbenchSidebar,
+        createSidebarProps([createSessionSummary("请帮我检查 runtime 的循环退出条件")])
+      )
+    );
+
+    expect(markup.indexOf("创建新会话")).toBeLessThan(markup.indexOf('type="search"'));
   });
 });
 
