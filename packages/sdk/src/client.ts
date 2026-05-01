@@ -203,6 +203,8 @@ export interface SessionWorkspaceGitStatus {
   stagedPathCount: number;
   unstagedPathCount: number;
   untrackedPathCount: number;
+  addedLineCount: number;
+  removedLineCount: number;
 }
 
 export interface ListSessionRoutinesResult {
