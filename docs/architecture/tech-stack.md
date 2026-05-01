@@ -44,7 +44,7 @@
 - 后台任务和 delegated subagent 实现在 `packages/agent/src/background-tasks/` 与 `packages/agent/src/delegation/`
 - MCP 工作区挂载实现在 `packages/agent/src/mcp/`
 - runtime 已落地 permission checker、interrupt、history compact 和 system log 边界
-- workspace skill discovery 在 `packages/agent/src/skills/`
+- workspace skill discovery 与启停过滤在 `packages/agent/src/skills/`
 - tool registry 与具体工具在 `packages/agent/src/tools/`
 - trace 以 JSONL 追加写入 `tmp/agent-sessions/sessions/`；system log 以结构化 JSONL 写入 `tmp/agent-sessions/logs/` 并按大小轮转
 

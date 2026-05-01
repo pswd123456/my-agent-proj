@@ -69,6 +69,7 @@
 - `maxTurns`
 - shell / tool 权限规则
 - `enabledCapabilityPacks`
+- `workspaceSkillSettings`
 - `userContextHooks`
 - `debugConversationView`
 - `userCustomPrompt`
