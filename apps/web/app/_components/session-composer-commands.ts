@@ -132,3 +132,25 @@ export function getNextComposerSuggestionIndex(input: {
 
   return (input.currentIndex - 1 + input.itemCount) % input.itemCount;
 }
+
+export function getComposerSuggestionRefreshIndex(input: {
+  currentIndex: number;
+  previousItems: ReadonlyArray<{ key: string }>;
+  nextItems: ReadonlyArray<{ key: string }>;
+}): number {
+  if (input.nextItems.length === 0) {
+    return 0;
+  }
+
+  const previousActiveKey = input.previousItems[input.currentIndex]?.key;
+  if (previousActiveKey) {
+    const nextActiveIndex = input.nextItems.findIndex(
+      (item) => item.key === previousActiveKey
+    );
+    if (nextActiveIndex >= 0) {
+      return nextActiveIndex;
+    }
+  }
+
+  return Math.min(input.currentIndex, input.nextItems.length - 1);
+}

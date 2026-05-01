@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   filterComposerSlashCommands,
   getNextComposerSuggestionIndex,
+  getComposerSuggestionRefreshIndex,
   getActiveComposerCommandToken,
   replaceComposerCommandToken
 } from "./session-composer-commands";
@@ -134,5 +135,37 @@ describe("session composer commands", () => {
         direction: "up"
       })
     ).toBe(0);
+  });
+
+  test("keeps the active suggestion stable across equivalent refreshes", () => {
+    expect(
+      getComposerSuggestionRefreshIndex({
+        currentIndex: 1,
+        previousItems: [
+          { key: "skill:first" },
+          { key: "skill:repo_reader" },
+          { key: "skill:third" }
+        ],
+        nextItems: [
+          { key: "skill:first" },
+          { key: "skill:repo_reader" },
+          { key: "skill:third" }
+        ]
+      })
+    ).toBe(1);
+  });
+
+  test("clamps the active suggestion when a refresh removes the selected item", () => {
+    expect(
+      getComposerSuggestionRefreshIndex({
+        currentIndex: 2,
+        previousItems: [
+          { key: "skill:first" },
+          { key: "skill:second" },
+          { key: "skill:third" }
+        ],
+        nextItems: [{ key: "skill:first" }, { key: "skill:second" }]
+      })
+    ).toBe(1);
   });
 });

@@ -25,6 +25,7 @@ import {
 import {
   filterComposerSlashCommands,
   getNextComposerSuggestionIndex,
+  getComposerSuggestionRefreshIndex,
   getActiveComposerCommandToken,
   replaceComposerCommandToken,
   type ComposerCommandKind,
@@ -894,7 +895,10 @@ function renderPendingHookRun(
   createdAt: string
 ) {
   return (
-    <div key={`pending-hook-${createdAt}`} className="flex flex-col items-end gap-1">
+    <div
+      key={`pending-hook-${createdAt}`}
+      className="flex flex-col items-end gap-1"
+    >
       <MessageRoleLabel role="hook" timestamp={createdAt} />
       <div className="ml-auto flex max-w-[88%] flex-col gap-2 rounded-[var(--app-radius-md)] rounded-br-sm border border-[color:color-mix(in_srgb,var(--app-border-accent)_68%,var(--app-border-subtle)_32%)] bg-[color:color-mix(in_srgb,var(--app-border-accent)_10%,var(--app-bg-elevated)_90%)] px-4 py-3 text-sm leading-7 text-[var(--app-text-primary)]">
         <div className="flex items-center gap-2 font-mono text-[0.66rem] uppercase tracking-[0.16em] text-[var(--app-text-muted)]">
@@ -2180,6 +2184,8 @@ export function SessionWorkbenchConversationPanel({
     });
   const [composerSuggestions, setComposerSuggestions] =
     useState<ComposerSuggestionsState | null>(null);
+  const composerActiveIndexRef = useRef(0);
+  const composerSuggestionsRef = useRef<ComposerSuggestionsState | null>(null);
   const [permissionCardFeedback, setPermissionCardFeedback] =
     useState<PermissionCardFeedback | null>(null);
   const [persistShellApproval, setPersistShellApproval] = useState(false);
@@ -2293,6 +2299,7 @@ export function SessionWorkbenchConversationPanel({
     [turnUsageByTurnCount]
   );
   const currentWorkingDirectory = currentSession?.workingDirectory ?? "--";
+  const currentSessionId = currentSession?.sessionId ?? null;
   const currentWorkingDirectoryLabel = formatWorkingDirectory(
     currentWorkingDirectory
   );
@@ -2687,6 +2694,14 @@ export function SessionWorkbenchConversationPanel({
   const enablePlanModeCommandEvent = useEffectEvent(onEnablePlanModeCommand);
 
   useEffect(() => {
+    composerActiveIndexRef.current = composerActiveIndex;
+  }, [composerActiveIndex]);
+
+  useEffect(() => {
+    composerSuggestionsRef.current = composerSuggestions;
+  }, [composerSuggestions]);
+
+  useEffect(() => {
     if (!permissionCardFeedback) {
       return;
     }
@@ -2767,7 +2782,7 @@ export function SessionWorkbenchConversationPanel({
   }, [quickActionsOpen]);
 
   useEffect(() => {
-    if (!composerFocused || !activeComposerToken || !currentSession) {
+    if (!composerFocused || !activeComposerToken || !currentSessionId) {
       setComposerSuggestions(null);
       setComposerActiveIndex(0);
       suggestionRequestVersionRef.current += 1;
@@ -2822,20 +2837,32 @@ export function SessionWorkbenchConversationPanel({
             return;
           }
 
+          const nextItems =
+            activeComposerToken.kind === "file"
+              ? buildComposerFileSuggestionItems(
+                  result as WorkspaceFileSearchResult
+                )
+              : buildComposerSkillSuggestionItems(
+                  result as WorkspaceSkillSearchResult
+                );
+          const previousSuggestions = composerSuggestionsRef.current;
           setComposerSuggestions({
             token: activeComposerToken,
-            items:
-              activeComposerToken.kind === "file"
-                ? buildComposerFileSuggestionItems(
-                    result as WorkspaceFileSearchResult
-                  )
-                : buildComposerSkillSuggestionItems(
-                    result as WorkspaceSkillSearchResult
-                  ),
+            items: nextItems,
             loading: false,
             truncated: result.truncated
           });
-          setComposerActiveIndex(0);
+          setComposerActiveIndex(
+            getComposerSuggestionRefreshIndex({
+              currentIndex: composerActiveIndexRef.current,
+              previousItems:
+                previousSuggestions?.token.kind === activeComposerToken.kind &&
+                previousSuggestions.token.query === activeComposerToken.query
+                  ? previousSuggestions.items
+                  : [],
+              nextItems
+            })
+          );
         })
         .catch(() => {
           if (suggestionRequestVersionRef.current !== requestVersion) {
@@ -2858,7 +2885,7 @@ export function SessionWorkbenchConversationPanel({
   }, [
     activeComposerToken,
     composerFocused,
-    currentSession,
+    currentSessionId,
     commandActionPending
   ]);
 

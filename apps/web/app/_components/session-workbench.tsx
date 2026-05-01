@@ -79,6 +79,7 @@ import {
   SessionWorkbenchDrawer,
   SessionWorkbenchSidebar
 } from "./session-workbench-ui";
+import { SessionWorkbenchSettings } from "./session-workbench-settings";
 import type { RunFileChangesView } from "./session-workbench-conversation";
 import {
   SESSION_RAIL_COLLAPSE_MEDIA_QUERY,
@@ -90,6 +91,7 @@ import {
   type InspectorTabId,
   type SettingsFormState,
   type SettingsMcpFormState,
+  type SettingsPageId,
   type SidebarPanelId
 } from "./session-workbench-types";
 
@@ -391,6 +393,8 @@ export function SessionWorkbench() {
   const [loadingSession, setLoadingSession] = useState(false);
   const [activeSidebarPanel, setActiveSidebarPanel] =
     useState<SidebarPanelId | null>(null);
+  const [activeSettingsPage, setActiveSettingsPage] =
+    useState<SettingsPageId>("general");
   const [isSessionRailCollapsed, setIsSessionRailCollapsed] = useState(false);
   const [isSessionRailNarrowViewport, setIsSessionRailNarrowViewport] =
     useState(false);
@@ -1673,7 +1677,15 @@ export function SessionWorkbench() {
   }
 
   function handleToggleSidebarPanel(panelId: SidebarPanelId) {
-    setActiveSidebarPanel((current) => (current === panelId ? null : panelId));
+    setActiveSidebarPanel((current) => {
+      if (current === panelId) {
+        return null;
+      }
+      if (panelId === "settings") {
+        setActiveSettingsPage("general");
+      }
+      return panelId;
+    });
   }
 
   async function handleSettingsYoloModeChange(checked: boolean) {
@@ -1913,7 +1925,9 @@ export function SessionWorkbench() {
     currentSession?.context.pendingConfirmationPayload ?? null;
   const pendingUserQuestionPayload =
     currentSession?.context.pendingUserQuestionPayload ?? null;
-  const showSidebarPanel = activeSidebarPanel !== null;
+  const isSettingsMode = activeSidebarPanel === "settings";
+  const showSidebarPanel =
+    activeSidebarPanel !== null && activeSidebarPanel !== "settings";
   const canInterrupt = canInterruptSessionExecution({
     session: currentSession,
     submitting,
@@ -1989,7 +2003,7 @@ export function SessionWorkbench() {
   return (
     <main className="min-h-screen bg-[var(--app-bg-canvas)] text-[var(--app-text-primary)]">
       <div className="mx-auto flex min-h-screen w-full max-w-[1840px] flex-col gap-5 px-4 py-4 lg:flex-row lg:items-start lg:gap-6 lg:px-6">
-        {showSessionRail && !showSessionRailOverlay ? (
+        {showSessionRail && !showSessionRailOverlay && !isSettingsMode ? (
           <SessionWorkbenchSidebar
             sessions={renderedSessions}
             selectedSessionId={selectedSessionId}
@@ -2005,7 +2019,7 @@ export function SessionWorkbench() {
           />
         ) : null}
 
-        {showSessionRailOverlay ? (
+        {showSessionRailOverlay && !isSettingsMode ? (
           <div className="fixed inset-0 z-40 lg:hidden">
             <button
               type="button"
@@ -2035,7 +2049,80 @@ export function SessionWorkbench() {
         ) : null}
 
         <div className="relative min-h-[calc(100vh-2rem)] min-w-0 flex-1 lg:h-[calc(100vh-2rem)]">
-          {showSidebarPanel ? (
+          {isSettingsMode ? (
+            <SessionWorkbenchSettings
+              activeSettingsPage={activeSettingsPage}
+              currentSession={currentSession}
+              settingsMeta={settingsMeta}
+              settingsStatusText={settingsStatusText}
+              settingsForm={settingsForm}
+              settingsMcpForm={settingsMcpForm}
+              permissionTools={permissionTools}
+              loadingSettings={loadingSettings}
+              savingSettings={savingSettings}
+              loadingMcpSettings={loadingMcpSettings}
+              savingMcpSettings={savingMcpSettings}
+              mcpSettingsErrorText={mcpSettingsErrorText}
+              clearingSessionHistory={clearingSessionHistory}
+              clearHistoryErrorText={clearHistoryErrorText}
+              choosingWorkingDirectory={choosingWorkingDirectory}
+              pendingPermissionToolName={pendingPermissionToolName}
+              onReturnToApp={focusConversationView}
+              onSelectSettingsPage={setActiveSettingsPage}
+              onSettingsFormChange={handleSettingsFormChange}
+              onSettingsBlur={() => void handleSaveUserSettings()}
+              onChooseWorkingDirectory={() =>
+                void handleChooseWorkingDirectory()
+              }
+              onClearSessionHistory={() => void handleClearSessionHistory()}
+              onSettingsYoloModeChange={(checked) =>
+                void handleSettingsYoloModeChange(checked)
+              }
+              onSettingsDebugConversationViewChange={(checked) =>
+                void handleSettingsDebugConversationViewChange(checked)
+              }
+              onSettingsPermissionToolToggle={(toolName, target) =>
+                void handleSettingsPermissionToolToggle(toolName, target)
+              }
+              onSettingsCapabilityPackToggle={(packName) =>
+                void handleSettingsCapabilityPackToggle(packName)
+              }
+              onSettingsShellAllowPatternRemove={(pattern) =>
+                void handleSettingsShellAllowPatternRemove(pattern)
+              }
+              onAddMcpServer={handleAddMcpServer}
+              onMcpServerChange={handleMcpServerChange}
+              onMcpServerTransportChange={handleMcpServerTransportChange}
+              onMcpServerEnabledChange={(serverId, enabled) =>
+                void handleMcpServerEnabledChange(serverId, enabled)
+              }
+              onMcpToolEnabledChange={(serverId, toolName, enabled) =>
+                void handleMcpToolEnabledChange(serverId, toolName, enabled)
+              }
+              onDeleteMcpServer={(serverId) =>
+                void handleDeleteMcpServer(serverId)
+              }
+              onMcpSettingsBlur={() => void handleSaveMcpSettings()}
+              onAddUserContextHook={handleAddUserContextHook}
+              onUserContextHookChange={handleUserContextHookChange}
+              onUserContextHookBlur={() => void handleSaveUserSettings()}
+              onUserContextHookEnabledChange={(hookId, enabled) =>
+                void handleUserContextHookEnabledChange(hookId, enabled)
+              }
+              onUserContextHookEventChange={(hookId, event) =>
+                void handleUserContextHookEventChange(hookId, event)
+              }
+              onUserContextHookBehaviorChange={(hookId, behavior) =>
+                void handleUserContextHookBehaviorChange(hookId, behavior)
+              }
+              onDeleteUserContextHook={(hookId) =>
+                void handleDeleteUserContextHook(hookId)
+              }
+              onMoveUserContextHook={(hookId, direction) =>
+                void handleMoveUserContextHook(hookId, direction)
+              }
+            />
+          ) : showSidebarPanel ? (
             <SessionWorkbenchDrawer
               activeSidebarPanel={activeSidebarPanel}
               currentSession={currentSession}
