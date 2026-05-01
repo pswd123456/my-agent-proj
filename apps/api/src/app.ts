@@ -38,12 +38,14 @@ import {
   THINKING_EFFORT_OPTIONS,
   USER_CONTEXT_HOOK_BEHAVIOR_OPTIONS,
   USER_CONTEXT_HOOK_EVENT_OPTIONS,
+  isWorkspaceSkillEnabled,
   normalizeThinkingEffort,
   normalizeCapabilityPacks,
   normalizeSettingsPermissionRules,
   sanitizeContextWindow,
   sanitizeSessionMaxTurns,
-  type SettingsPermissionToolOption
+  type SettingsPermissionToolOption,
+  type WorkspaceSkillSettingRecord
 } from "@ai-app-template/domain";
 import type {
   SessionSettingsRecord,
@@ -122,6 +124,14 @@ const updateUserSettingsBodySchema = z
     toolAskList: z.array(z.string()).optional(),
     toolDenyList: z.array(z.string()).optional(),
     enabledCapabilityPacks: z.array(z.string()).optional(),
+    workspaceSkillSettings: z
+      .array(
+        z.object({
+          skillName: z.string().min(1),
+          enabled: z.boolean()
+        })
+      )
+      .optional(),
     userContextHooks: z
       .array(
         z.object({
@@ -151,6 +161,7 @@ const updateUserSettingsBodySchema = z
       Array.isArray(value.toolAskList) ||
       Array.isArray(value.toolDenyList) ||
       Array.isArray(value.enabledCapabilityPacks) ||
+      Array.isArray(value.workspaceSkillSettings) ||
       Array.isArray(value.userContextHooks) ||
       typeof value.debugConversationView === "boolean" ||
       typeof value.userCustomPrompt === "string",
@@ -173,6 +184,19 @@ function toUserContextHookRecords(
     title: hook.title,
     content: hook.content,
     enabled: hook.enabled
+  }));
+}
+
+function toWorkspaceSkillSettingRecords(
+  settings: z.infer<typeof updateUserSettingsBodySchema>["workspaceSkillSettings"]
+): WorkspaceSkillSettingRecord[] | undefined {
+  if (!Array.isArray(settings)) {
+    return undefined;
+  }
+
+  return settings.map((setting) => ({
+    skillName: setting.skillName,
+    enabled: setting.enabled
   }));
 }
 
@@ -313,6 +337,22 @@ async function buildUserSettingsMcpPayload(workingDirectory: string) {
   } finally {
     await loadResult.dispose();
   }
+}
+
+async function buildUserSettingsSkillsPayload(
+  workingDirectory: string,
+  workspaceSkillSettings: readonly WorkspaceSkillSettingRecord[]
+) {
+  const discovery = await discoverWorkspaceSkills(workingDirectory);
+
+  return {
+    workingDirectory,
+    skills: discovery.skills.map((skill) => ({
+      ...skill,
+      enabled: isWorkspaceSkillEnabled(workspaceSkillSettings, skill.name)
+    })),
+    diagnostics: discovery.diagnostics
+  };
 }
 
 function resolveDefaultModel(
@@ -881,10 +921,24 @@ export function createApiApp(dependencies: ApiAppDependencies) {
     return c.json(await buildUserSettingsMcpPayload(settings.workingDirectory));
   });
 
+  app.get("/users/:userId/settings/skills", async (c) => {
+    const userId = resolveUserId(dependencies, c.req.param("userId"));
+    const settings = await dependencies.settingsRepository.getOrCreate(userId);
+    return c.json(
+      await buildUserSettingsSkillsPayload(
+        settings.workingDirectory,
+        settings.workspaceSkillSettings
+      )
+    );
+  });
+
   app.patch("/users/:userId/settings", async (c) => {
     const userId = resolveUserId(dependencies, c.req.param("userId"));
     const body = updateUserSettingsBodySchema.parse(await c.req.json());
     const requestedModel = resolveRequestedModel(dependencies, body.model);
+    const workspaceSkillSettings = toWorkspaceSkillSettingRecords(
+      body.workspaceSkillSettings
+    );
     const userContextHooks = toUserContextHookRecords(body.userContextHooks);
     const settings = await dependencies.settingsRepository.update(userId, {
       ...(typeof body.workingDirectory === "string"
@@ -923,6 +977,7 @@ export function createApiApp(dependencies: ApiAppDependencies) {
       ...(Array.isArray(body.enabledCapabilityPacks)
         ? { enabledCapabilityPacks: body.enabledCapabilityPacks }
         : {}),
+      ...(workspaceSkillSettings ? { workspaceSkillSettings } : {}),
       ...(userContextHooks ? { userContextHooks } : {}),
       ...(typeof body.debugConversationView === "boolean"
         ? { debugConversationView: body.debugConversationView }
