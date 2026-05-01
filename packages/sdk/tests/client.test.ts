@@ -137,6 +137,7 @@ describe("ApiClient error handling", () => {
       }
     });
 
+    await client.searchSessions("runtime");
     await client.searchSessionWorkspaceFiles("session-1", {
       query: "app",
       limit: 8
@@ -148,6 +149,12 @@ describe("ApiClient error handling", () => {
     await client.getUserSettingsSkills("user-1");
 
     expect(calls).toEqual([
+      {
+        url: expect.stringContaining(
+          "http://localhost:3001/sessions/search?q=runtime"
+        ),
+        method: undefined
+      },
       {
         url: expect.stringContaining(
           "http://localhost:3001/sessions/session-1/workspace-files/search?q=app&limit=8"

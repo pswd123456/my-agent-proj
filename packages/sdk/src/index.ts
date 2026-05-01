@@ -42,6 +42,7 @@ export type {
   SessionFileChangeActionInput,
   SessionFileChangeActionResult,
   SessionSummary,
+  SessionWorkspaceGitStatus,
   StreamSessionExecutionInput,
   UserSettingsMcpPayload,
   UserSettingsPayload,

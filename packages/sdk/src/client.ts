@@ -188,6 +188,23 @@ export interface WorkspaceSkillSearchResult {
   truncated: boolean;
 }
 
+export interface SessionWorkspaceGitStatus {
+  workingDirectory: string;
+  ok: boolean;
+  code:
+    | "GIT_STATUS_OK"
+    | "GIT_NOT_AVAILABLE"
+    | "NOT_GIT_REPOSITORY"
+    | "GIT_STATUS_FAILED";
+  message: string;
+  branch: string | null;
+  clean: boolean | null;
+  changedPathCount: number;
+  stagedPathCount: number;
+  unstagedPathCount: number;
+  untrackedPathCount: number;
+}
+
 export interface ListSessionRoutinesResult {
   sessionId: string;
   startDate: string;
@@ -429,6 +446,25 @@ export class ApiClient {
     return payload.sessions;
   }
 
+  async searchSessions(query: string): Promise<SessionSnapshot[]> {
+    const searchParams = new URLSearchParams();
+    searchParams.set("q", query);
+    const response = await this.fetchImpl(
+      appendCacheBust(
+        buildUrl(this.baseUrl, `/sessions/search?${searchParams.toString()}`)
+      ),
+      {
+        cache: "no-store"
+      }
+    );
+    const payload = (await ensureOk(response).then((result) =>
+      result.json()
+    )) as {
+      sessions: SessionSnapshot[];
+    };
+    return payload.sessions;
+  }
+
   async listSessionSummaries(): Promise<SessionSummary[]> {
     const sessions = await this.listSessions();
     return sessions.map(toSessionSummary);
@@ -629,6 +665,23 @@ export class ApiClient {
     return (await ensureOk(response).then((result) =>
       result.json()
     )) as WorkspaceSkillSearchResult;
+  }
+
+  async getSessionWorkspaceGitStatus(
+    sessionId: string
+  ): Promise<SessionWorkspaceGitStatus> {
+    const response = await this.fetchImpl(
+      appendCacheBust(
+        buildUrl(this.baseUrl, `/sessions/${sessionId}/git-status`)
+      ),
+      {
+        cache: "no-store"
+      }
+    );
+
+    return (await ensureOk(response).then((result) =>
+      result.json()
+    )) as SessionWorkspaceGitStatus;
   }
 
   async updateUserSettingsPayload(
