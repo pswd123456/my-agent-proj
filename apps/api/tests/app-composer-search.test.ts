@@ -97,6 +97,54 @@ async function createTestApp() {
 }
 
 describe("composer search endpoints", () => {
+  test("searches sessions by session id and user or assistant text", async () => {
+    const { app, sessionManager } = await createTestApp();
+    const sessionA = await sessionManager.createSession({ userId: "user-a" });
+    const sessionB = await sessionManager.createSession({ userId: "user-a" });
+
+    await sessionManager.appendBlock(sessionA.sessionId, {
+      id: "user-1",
+      kind: "user",
+      content: "请帮我检查 runtime trace",
+      createdAt: "2026-05-01T00:00:00.000Z"
+    });
+    await sessionManager.appendBlock(sessionB.sessionId, {
+      id: "assistant-1",
+      kind: "assistant",
+      content: "我已经整理好了数据库迁移结论",
+      createdAt: "2026-05-01T00:00:01.000Z"
+    });
+
+    const userResponse = await app.request("/sessions/search?q=runtime");
+    expect(userResponse.status).toBe(200);
+    const userPayload = (await userResponse.json()) as {
+      sessions: Array<{ sessionId: string }>;
+    };
+    expect(userPayload.sessions.map((session) => session.sessionId)).toEqual([
+      sessionA.sessionId
+    ]);
+
+    const assistantResponse = await app.request("/sessions/search?q=数据库迁移");
+    expect(assistantResponse.status).toBe(200);
+    const assistantPayload = (await assistantResponse.json()) as {
+      sessions: Array<{ sessionId: string }>;
+    };
+    expect(
+      assistantPayload.sessions.map((session) => session.sessionId)
+    ).toEqual([sessionB.sessionId]);
+
+    const idResponse = await app.request(
+      `/sessions/search?q=${sessionB.sessionId.slice(0, 8)}`
+    );
+    expect(idResponse.status).toBe(200);
+    const idPayload = (await idResponse.json()) as {
+      sessions: Array<{ sessionId: string }>;
+    };
+    expect(idPayload.sessions.map((session) => session.sessionId)).toEqual([
+      sessionB.sessionId
+    ]);
+  });
+
   test("searches session workspace files with stable ordering", async () => {
     const workspace = await createWorkspace();
     const { app, sessionManager } = await createTestApp();

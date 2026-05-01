@@ -61,6 +61,7 @@ import {
   collectSessionTreeSessionIds,
   enrichSessionSnapshotsWithParentRelation
 } from "./session-relations.js";
+import { getSessionWorkspaceGitStatus } from "./session-git-status.js";
 
 export interface ApiAppContext {
   Variables: {
@@ -188,7 +189,9 @@ function toUserContextHookRecords(
 }
 
 function toWorkspaceSkillSettingRecords(
-  settings: z.infer<typeof updateUserSettingsBodySchema>["workspaceSkillSettings"]
+  settings: z.infer<
+    typeof updateUserSettingsBodySchema
+  >["workspaceSkillSettings"]
 ): WorkspaceSkillSettingRecord[] | undefined {
   if (!Array.isArray(settings)) {
     return undefined;
@@ -248,6 +251,31 @@ const searchWorkspaceQuerySchema = z.object({
   q: z.string().optional().default(""),
   limit: z.coerce.number().int().min(1).max(50).optional()
 });
+
+function normalizeSessionSearchQuery(value: string): string {
+  return value.trim().toLocaleLowerCase();
+}
+
+function matchesSessionSearch(
+  session: SessionSnapshot,
+  normalizedQuery: string
+): boolean {
+  if (normalizedQuery.length === 0) {
+    return true;
+  }
+
+  if (session.sessionId.toLocaleLowerCase().includes(normalizedQuery)) {
+    return true;
+  }
+
+  return session.messages.some((block) => {
+    if (block.kind !== "user" && block.kind !== "assistant") {
+      return false;
+    }
+
+    return block.content.toLocaleLowerCase().includes(normalizedQuery);
+  });
+}
 
 const executeSessionBodySchema = z.object({
   message: z.string().min(1),
@@ -825,6 +853,20 @@ export function createApiApp(dependencies: ApiAppDependencies) {
     return c.json({ sessions: enrichedSessions });
   });
 
+  app.get("/sessions/search", async (c) => {
+    const query = searchWorkspaceQuerySchema.parse(c.req.query());
+    const normalizedQuery = normalizeSessionSearchQuery(query.q);
+    const sessions = await dependencies.sessionManager.listSessions();
+    const matchedSessions = sessions.filter((session) =>
+      matchesSessionSearch(session, normalizedQuery)
+    );
+    const enrichedSessions = await enrichSessionSnapshotsWithParentRelation({
+      sessions: matchedSessions,
+      backgroundTaskRepository: dependencies.backgroundTaskRepository
+    });
+    return c.json({ sessions: enrichedSessions });
+  });
+
   app.post("/sessions", async (c) => {
     const requestId = getRequestId(c);
     const body = createSessionBodySchema.parse(await c.req.json());
@@ -914,10 +956,7 @@ export function createApiApp(dependencies: ApiAppDependencies) {
             headers: server.headers ?? {}
           }
     );
-    await replaceWorkspaceMcpConfigServers(
-      settings.workingDirectory,
-      servers
-    );
+    await replaceWorkspaceMcpConfigServers(settings.workingDirectory, servers);
     return c.json(await buildUserSettingsMcpPayload(settings.workingDirectory));
   });
 
@@ -1115,6 +1154,16 @@ export function createApiApp(dependencies: ApiAppDependencies) {
     });
   });
 
+  app.get("/sessions/:sessionId/git-status", async (c) => {
+    const sessionId = c.req.param("sessionId");
+    const session = await dependencies.sessionManager.getSession(sessionId);
+    if (!session) {
+      return c.json({ error: "Session not found." }, 404);
+    }
+
+    return c.json(await getSessionWorkspaceGitStatus(session.workingDirectory));
+  });
+
   app.delete("/sessions/history", async (c) => {
     const sessions = await enrichSessionSnapshotsWithParentRelation({
       sessions: await dependencies.sessionManager.listSessions(),
@@ -1217,9 +1266,8 @@ export function createApiApp(dependencies: ApiAppDependencies) {
       });
     }
 
-    const stoppedSession = await dependencies.sessionManager.forceStop(
-      sessionId
-    );
+    const stoppedSession =
+      await dependencies.sessionManager.forceStop(sessionId);
     if (!stoppedSession) {
       return c.json({ error: "Session not found." }, 404);
     }
