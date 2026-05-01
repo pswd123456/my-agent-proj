@@ -13,6 +13,7 @@ import {
   type ThinkingEffort
 } from "./session-context.js";
 import type { UserContextHookRecord } from "./user-context-hooks.js";
+import type { WorkspaceSkillSettingRecord } from "./workspace-skills.js";
 
 export const DEFAULT_SESSION_SETTINGS_USER_ID = "cli-user";
 export const DEFAULT_SESSION_WORKING_DIRECTORY = "agent-workspace";
@@ -47,6 +48,7 @@ export interface SessionSettingsRecord {
   toolAskList: string[];
   toolDenyList: string[];
   enabledCapabilityPacks: CapabilityPackName[];
+  workspaceSkillSettings: WorkspaceSkillSettingRecord[];
   userContextHooks: UserContextHookRecord[];
   debugConversationView: boolean;
   userCustomPrompt: string;
@@ -67,6 +69,7 @@ export interface SessionSettingsInput {
   toolAskList?: string[];
   toolDenyList?: string[];
   enabledCapabilityPacks?: string[];
+  workspaceSkillSettings?: WorkspaceSkillSettingRecord[];
   userContextHooks?: UserContextHookRecord[];
   debugConversationView?: boolean;
   userCustomPrompt?: string;
@@ -98,6 +101,7 @@ export function resolveSessionSettingsDefaults(
     toolAskList,
     toolDenyList: [],
     enabledCapabilityPacks: [...DEFAULT_CAPABILITY_PACKS],
+    workspaceSkillSettings: [],
     userContextHooks: [],
     debugConversationView: false,
     userCustomPrompt: "",

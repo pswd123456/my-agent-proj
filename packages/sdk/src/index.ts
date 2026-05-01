@@ -13,7 +13,8 @@ export type {
   RoutineRecord,
   SessionSettingsRecord,
   SettingsPermissionToolOption,
-  UserContextHookRecord
+  UserContextHookRecord,
+  WorkspaceSkillSettingRecord
 } from "@ai-app-template/domain";
 export {
   buildShellApprovalPatternCandidates,
@@ -44,6 +45,9 @@ export type {
   StreamSessionExecutionInput,
   UserSettingsMcpPayload,
   UserSettingsPayload,
+  UserSettingsSkillDiagnostic,
+  UserSettingsSkillItem,
+  UserSettingsSkillsPayload,
   UpdateSessionSettingsPayload,
   UpdateUserSettingsMcpPayload,
   UpdateUserSettingsPayload,

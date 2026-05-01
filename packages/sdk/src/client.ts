@@ -12,7 +12,8 @@ import type {
   SettingsPermissionToolOption,
   RoutineRecord,
   SessionSettingsRecord,
-  UserContextHookRecord
+  UserContextHookRecord,
+  WorkspaceSkillSettingRecord
 } from "@ai-app-template/domain";
 
 export interface ApiClientConfig {
@@ -114,6 +115,7 @@ export interface UpdateUserSettingsPayload {
   toolAskList?: string[];
   toolDenyList?: string[];
   enabledCapabilityPacks?: string[];
+  workspaceSkillSettings?: WorkspaceSkillSettingRecord[];
   userContextHooks?: UserContextHookRecord[];
   debugConversationView?: boolean;
   userCustomPrompt?: string;
@@ -135,6 +137,25 @@ export interface UserSettingsMcpPayload {
 
 export interface UpdateUserSettingsMcpPayload {
   servers: WorkspaceMcpServerConfig[];
+}
+
+export interface UserSettingsSkillItem {
+  name: string;
+  description: string;
+  relativePath: string;
+  enabled: boolean;
+}
+
+export interface UserSettingsSkillDiagnostic {
+  relativePath: string;
+  reason: string;
+  message: string;
+}
+
+export interface UserSettingsSkillsPayload {
+  workingDirectory: string;
+  skills: UserSettingsSkillItem[];
+  diagnostics: UserSettingsSkillDiagnostic[];
 }
 
 export interface ChooseDirectoryInput {
@@ -519,6 +540,22 @@ export class ApiClient {
     return (await ensureOk(response).then((result) =>
       result.json()
     )) as UserSettingsMcpPayload;
+  }
+
+  async getUserSettingsSkills(
+    userId: string
+  ): Promise<UserSettingsSkillsPayload> {
+    const response = await this.fetchImpl(
+      appendCacheBust(
+        buildUrl(this.baseUrl, `/users/${userId}/settings/skills`)
+      ),
+      {
+        cache: "no-store"
+      }
+    );
+    return (await ensureOk(response).then((result) =>
+      result.json()
+    )) as UserSettingsSkillsPayload;
   }
 
   async updateUserSettingsMcp(
