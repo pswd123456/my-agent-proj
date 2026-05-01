@@ -31,7 +31,12 @@ import {
 } from "./session-composer-commands";
 import { MessageMarkdown } from "./message-markdown";
 import { SessionTodoPanel } from "./session-todo-panel";
-import { getAssistantTextRenderMode } from "./message-typewriter";
+import {
+  getAssistantTextRenderMode,
+  getNextTypewriterLength,
+  getTypewriterVisibleLengthOnChange,
+  splitTypewriterCharacters
+} from "./message-typewriter";
 import {
   type CompactCollapsedFlowViewItem,
   type CompactFileBatchViewItem,
@@ -315,13 +320,15 @@ export function buildSessionGitStatusSummary(
 
   const countDetails = [
     `${status.changedPathCount} changed`,
+    `+${status.addedLineCount} added`,
+    `-${status.removedLineCount} removed`,
     `${status.stagedPathCount} staged`,
     `${status.unstagedPathCount} unstaged`,
     `${status.untrackedPathCount} untracked`
   ];
 
   return {
-    badgeLabel: `git ${status.changedPathCount} changed`,
+    badgeLabel: `git ${status.changedPathCount} +${status.addedLineCount}/-${status.removedLineCount}`,
     branchLabel,
     tone: "warning",
     title: [status.branch, countDetails.join(" | ")].filter(Boolean).join(" | ")
@@ -342,7 +349,7 @@ export function SessionGitStatusHeaderChips({
   }
 
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2">
       {summary ? (
         <span
           title={summary.title}
@@ -459,22 +466,68 @@ function TypewriterTextContent({
   className,
   onAnimationComplete
 }: TypewriterTextContentProps) {
-  const totalLength = Array.from(content).length;
+  const totalLength = useMemo(
+    () => splitTypewriterCharacters(content).length,
+    [content]
+  );
   const hasVisibleContent = content.trim().length > 0;
+  const previousItemKeyRef = useRef(itemKey);
+  const previousAnimateRef = useRef(animate);
+  const previousTotalLengthRef = useRef(totalLength);
+  const [visibleLength, setVisibleLength] = useState(() =>
+    animate ? 0 : totalLength
+  );
 
   useEffect(() => {
-    if (!animate || streaming) {
+    setVisibleLength((currentVisibleLength) =>
+      getTypewriterVisibleLengthOnChange({
+        animate,
+        itemChanged: previousItemKeyRef.current !== itemKey,
+        animationStarted: animate && !previousAnimateRef.current,
+        totalLength,
+        previousTotalLength: previousTotalLengthRef.current,
+        currentVisibleLength
+      })
+    );
+    previousItemKeyRef.current = itemKey;
+    previousAnimateRef.current = animate;
+    previousTotalLengthRef.current = totalLength;
+  }, [animate, itemKey, totalLength]);
+
+  useEffect(() => {
+    if (!animate || visibleLength >= totalLength) {
+      return undefined;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      setVisibleLength((currentVisibleLength) =>
+        getNextTypewriterLength(currentVisibleLength, totalLength)
+      );
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [animate, totalLength, visibleLength]);
+
+  useEffect(() => {
+    if (!animate || streaming || visibleLength < totalLength) {
       return;
     }
 
     onAnimationComplete?.(itemKey);
-  }, [animate, itemKey, onAnimationComplete, streaming]);
+  }, [
+    animate,
+    itemKey,
+    onAnimationComplete,
+    streaming,
+    totalLength,
+    visibleLength
+  ]);
 
   const renderMode = getAssistantTextRenderMode({
     animate,
     streaming,
     totalLength,
-    visibleLength: totalLength
+    visibleLength
   });
   const showPlainText =
     !renderMarkdownWhenSettled || renderMode === "plaintext";
@@ -2561,30 +2614,36 @@ export function SessionWorkbenchConversationPanel({
 
   return (
     <section className="rounded-[var(--app-radius-xl)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_96%,transparent)] shadow-none lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:overflow-hidden">
-      <header className="flex items-start justify-between gap-3 px-4 pb-3 pt-4">
-        <div className="min-w-0 flex-1">
+      <header className="grid gap-3 px-4 pb-3 pt-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+        <div className="min-w-0">
           <div className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
             Active Session
           </div>
-          <h2 className="mt-2 truncate font-mono text-sm font-medium text-[var(--app-text-primary)]">
-            {currentSession?.sessionId ?? "当前会话"}
-          </h2>
-          <SessionGitStatusHeaderChips
-            workspaceGitStatus={workspaceGitStatus}
-            loading={workspaceGitStatusLoading}
-          />
+          <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
+            <h2 className="min-w-0 truncate font-mono text-sm font-medium text-[var(--app-text-primary)]">
+              {currentSession?.sessionId ?? "当前会话"}
+            </h2>
+            <CopyTextButton
+              text={currentSession?.sessionId ?? ""}
+              label="复制"
+              copiedLabel="已复制"
+              failedLabel="复制失败"
+              title="复制会话 ID"
+              ariaLabel="复制会话 ID"
+            />
+          </div>
+          <div className="mt-2">
+            <SessionGitStatusHeaderChips
+              workspaceGitStatus={workspaceGitStatus}
+              loading={workspaceGitStatusLoading}
+            />
+          </div>
         </div>
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
-          <CopyTextButton
-            text={currentSession?.sessionId ?? ""}
-            label="复制"
-            copiedLabel="已复制"
-            failedLabel="复制失败"
-            title="复制会话 ID"
-            ariaLabel="复制会话 ID"
-          />
-          {headerActions}
-        </div>
+        {headerActions ? (
+          <div className="flex shrink-0 items-center justify-start gap-3 lg:justify-end lg:justify-self-end">
+            {headerActions}
+          </div>
+        ) : null}
       </header>
 
       <div className="px-4 pb-4 lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">

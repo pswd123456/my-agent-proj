@@ -9,6 +9,8 @@ import {
   getRunFileChangesAggregateState,
   getSelectedWorkspaceFileChanges,
   mergeRunFileChangesStates,
+  shouldBootstrapFromRequestedSession,
+  shouldLoadExtendedSettingsForPanel,
   shouldApplySelectedSessionResponse,
   shouldApplySessionListResponse
 } from "./session-workbench";
@@ -355,5 +357,46 @@ describe("session-workbench selected session response guard", () => {
         mutationInFlight: true
       })
     ).toBe(false);
+  });
+});
+
+describe("session-workbench route bootstrap guard", () => {
+  test("boots on first load before any sessions are hydrated", () => {
+    expect(
+      shouldBootstrapFromRequestedSession({
+        hasHydratedSessions: false,
+        requestedSessionId: "session-2",
+        selectedSessionId: "session-1"
+      })
+    ).toBe(true);
+  });
+
+  test("skips redundant bootstrap after internal session URL sync", () => {
+    expect(
+      shouldBootstrapFromRequestedSession({
+        hasHydratedSessions: true,
+        requestedSessionId: "session-2",
+        selectedSessionId: "session-2"
+      })
+    ).toBe(false);
+  });
+
+  test("reconciles when the requested session changes externally", () => {
+    expect(
+      shouldBootstrapFromRequestedSession({
+        hasHydratedSessions: true,
+        requestedSessionId: "session-3",
+        selectedSessionId: "session-2"
+      })
+    ).toBe(true);
+  });
+});
+
+describe("session-workbench extended settings loading", () => {
+  test("loads extended settings only in settings mode", () => {
+    expect(shouldLoadExtendedSettingsForPanel("settings")).toBe(true);
+    expect(shouldLoadExtendedSettingsForPanel("calendar")).toBe(false);
+    expect(shouldLoadExtendedSettingsForPanel("inspector")).toBe(false);
+    expect(shouldLoadExtendedSettingsForPanel(null)).toBe(false);
   });
 });

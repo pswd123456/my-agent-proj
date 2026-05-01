@@ -255,6 +255,18 @@ const workspaceInstructionsLoadedEvent: Extract<
   diagnostics: []
 };
 
+const contextHooksLoadedEvent: Extract<
+  RunStreamEvent,
+  { kind: "context_hooks_loaded" }
+> = {
+  kind: "context_hooks_loaded",
+  sessionId: "session-1",
+  createdAt: "2026-04-21T18:46:21.741Z",
+  turnCount: 1,
+  userId: "user-1",
+  hooks: []
+};
+
 describe("buildTimelineItems", () => {
   test("keeps turn boundaries and the current turn's thinking ahead of tool calls", () => {
     const items = buildTimelineItems({
@@ -467,6 +479,7 @@ describe("buildTimelineItems", () => {
       historyEvents: [
         turnStart,
         skillsLoadedEvent,
+        contextHooksLoadedEvent,
         workspaceInstructionsLoadedEvent,
         thinkingEvent
       ],
@@ -1256,7 +1269,7 @@ describe("buildConversationViewItems compact mode", () => {
     ).toBe(false);
   });
 
-  test("does not fold while the assistant output is still streaming without terminal events", () => {
+  test("folds as soon as the final assistant starts streaming after tool execution", () => {
     const streamingAssistantEvent: Extract<
       RunStreamEvent,
       { kind: "assistant_text" }
@@ -1284,13 +1297,16 @@ describe("buildConversationViewItems compact mode", () => {
 
     expect(view.map((item) => item.type)).toEqual([
       "timeline",
-      "timeline",
-      "compact-tool",
+      "compact-collapsed-flow",
       "timeline"
     ]);
-    expect(
-      view.some((item) => item.type === "compact-collapsed-flow")
-    ).toBeFalse();
+    if (view[1]?.type === "compact-collapsed-flow") {
+      expect(view[1].hiddenCount).toBe(1);
+      expect(view[1].originalItems.map((item) => item.type)).toEqual([
+        "timeline",
+        "compact-tool"
+      ]);
+    }
   });
 
   test("folds settled assistant history even when no run_complete event is present", () => {

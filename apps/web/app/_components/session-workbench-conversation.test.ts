@@ -385,14 +385,18 @@ describe("session git status header", () => {
       changedPathCount: 3,
       stagedPathCount: 1,
       unstagedPathCount: 1,
-      untrackedPathCount: 1
+      untrackedPathCount: 1,
+      addedLineCount: 3,
+      removedLineCount: 0
     });
 
     expect(summary).toMatchObject({
-      badgeLabel: "git 3 changed",
+      badgeLabel: "git 3 +3/-0",
       branchLabel: "main",
       tone: "warning"
     });
+    expect(summary?.title).toContain("+3 added");
+    expect(summary?.title).toContain("-0 removed");
     expect(summary?.title).toContain("1 staged");
     expect(summary?.title).toContain("1 untracked");
   });
@@ -410,7 +414,9 @@ describe("session git status header", () => {
           changedPathCount: 0,
           stagedPathCount: 0,
           unstagedPathCount: 0,
-          untrackedPathCount: 0
+          untrackedPathCount: 0,
+          addedLineCount: 0,
+          removedLineCount: 0
         },
         loading: false
       })
@@ -433,7 +439,9 @@ describe("session git status header", () => {
           changedPathCount: 0,
           stagedPathCount: 0,
           unstagedPathCount: 0,
-          untrackedPathCount: 0
+          untrackedPathCount: 0,
+          addedLineCount: 0,
+          removedLineCount: 0
         },
         loading: false
       })

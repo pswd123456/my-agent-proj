@@ -460,6 +460,87 @@ describe("session-message-manager", () => {
     ]);
   });
 
+  test("keeps hydrated collapsed flow folded when context hook trace metadata trails the final assistant", () => {
+    const session = createSession([
+      userBlock("user-1", "总结一下", "2026-04-27T00:00:01.000Z"),
+      assistantBlock(
+        "assistant-1",
+        "我已经看完并总结好了。",
+        "2026-04-27T00:00:05.000Z"
+      )
+    ]);
+    const traceRecords: TraceRecord[] = [
+      {
+        sessionId: "session-1",
+        createdAt: "2026-04-27T00:00:02.000Z",
+        event: {
+          kind: "thinking",
+          turnCount: 1,
+          thinkingMessageId: "thinking-1",
+          text: "先检查文件。",
+          signature: "sig-1"
+        }
+      },
+      {
+        sessionId: "session-1",
+        createdAt: "2026-04-27T00:00:03.000Z",
+        event: {
+          kind: "tool_call",
+          turnCount: 1,
+          toolCallId: "tool-1",
+          toolName: "read_file",
+          input: { path: "apps/web/app/page.tsx" }
+        }
+      },
+      {
+        sessionId: "session-1",
+        createdAt: "2026-04-27T00:00:04.000Z",
+        event: {
+          kind: "tool_result",
+          turnCount: 1,
+          toolCallId: "tool-1",
+          toolName: "read_file",
+          output: "done",
+          isError: false
+        }
+      },
+      {
+        sessionId: "session-1",
+        createdAt: "2026-04-27T00:00:05.000Z",
+        event: {
+          kind: "assistant_text",
+          turnCount: 1,
+          assistantMessageId: "assistant-1",
+          text: "我已经看完并总结好了。",
+          snapshot: "我已经看完并总结好了。"
+        }
+      },
+      {
+        sessionId: "session-1",
+        createdAt: "2026-04-27T00:00:05.100Z",
+        event: {
+          kind: "context_hooks_loaded",
+          turnCount: 1,
+          userId: "user-1",
+          hooks: []
+        }
+      }
+    ];
+
+    const projection = buildMessageManagerProjection({
+      session,
+      traceRecords,
+      debugConversationView: false,
+      state: createMessageManagerState()
+    });
+
+    expect(compactKinds(projection)).toEqual([
+      "user",
+      "compact-collapsed-flow",
+      "assistant_text"
+    ]);
+  });
+
   test("marks a completed live execution flow as newly collapsed for auto-collapse", () => {
     const session = createSession([
       userBlock("user-1", "总结一下", "2026-04-27T00:00:01.500Z"),
@@ -530,6 +611,81 @@ describe("session-message-manager", () => {
       status: "completed",
       stopReason: "end_turn",
       session
+    });
+
+    const projection = buildMessageManagerProjection({
+      session,
+      traceRecords: [],
+      debugConversationView: false,
+      state
+    });
+
+    expect(projection.conversation.newlyCollapsedFlowKeys).toEqual([
+      "compact-collapsed-flow-assistant-live"
+    ]);
+    expect(compactKinds(projection)).toEqual([
+      "user",
+      "compact-collapsed-flow",
+      "assistant_text"
+    ]);
+  });
+
+  test("marks a streaming final assistant after tool execution as newly collapsed", () => {
+    const session = createSession([
+      userBlock("user-1", "总结一下", "2026-04-27T00:00:01.500Z")
+    ]);
+    let state = beginMessageManagerRun(createMessageManagerState(), {
+      message: {
+        createdAt: "2026-04-27T00:00:01.000Z",
+        text: "总结一下"
+      }
+    });
+
+    state = appendMessageManagerEvent(state, {
+      kind: "turn_start",
+      sessionId: "session-1",
+      createdAt: "2026-04-27T00:00:01.100Z",
+      turnCount: 1,
+      session: {
+        sessionId: "session-1",
+        workingDirectory: "/tmp/workspace",
+        model: "MiniMax-M2.7",
+        sessionState: {
+          loopState: "running",
+          turnCount: 1,
+          lastError: null,
+          pendingToolCallIds: [],
+          interruptRequested: false
+        }
+      }
+    });
+    state = appendMessageManagerEvent(state, {
+      kind: "tool_call",
+      sessionId: "session-1",
+      createdAt: "2026-04-27T00:00:02.000Z",
+      turnCount: 1,
+      toolCallId: "tool-1",
+      toolName: "read_file",
+      input: { path: "apps/web/app/page.tsx" }
+    });
+    state = appendMessageManagerEvent(state, {
+      kind: "tool_result",
+      sessionId: "session-1",
+      createdAt: "2026-04-27T00:00:03.000Z",
+      turnCount: 1,
+      toolCallId: "tool-1",
+      toolName: "read_file",
+      output: "done",
+      isError: false
+    });
+    state = appendMessageManagerEvent(state, {
+      kind: "assistant_text",
+      sessionId: "session-1",
+      createdAt: "2026-04-27T00:00:05.000Z",
+      turnCount: 1,
+      assistantMessageId: "assistant-live",
+      text: "我已经看完并总结好了。",
+      snapshot: "我已经看完并总结好了。"
     });
 
     const projection = buildMessageManagerProjection({

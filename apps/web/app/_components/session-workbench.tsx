@@ -107,6 +107,24 @@ const ACTIVE_SESSION_REFRESH_INTERVAL_MS = 3_000;
 const SESSION_LIST_REFRESH_INTERVAL_MS = 5_000;
 const SESSION_SEARCH_DEBOUNCE_MS = 180;
 
+export function shouldBootstrapFromRequestedSession(input: {
+  hasHydratedSessions: boolean;
+  requestedSessionId: string | null;
+  selectedSessionId: string | null;
+}): boolean {
+  if (!input.hasHydratedSessions) {
+    return true;
+  }
+
+  return input.requestedSessionId !== input.selectedSessionId;
+}
+
+export function shouldLoadExtendedSettingsForPanel(
+  activeSidebarPanel: SidebarPanelId | null
+): boolean {
+  return activeSidebarPanel === "settings";
+}
+
 async function fetchSessionListSnapshots(
   query: string
 ): Promise<SessionSnapshot[]> {
@@ -552,7 +570,9 @@ export function SessionWorkbench() {
             changedPathCount: 0,
             stagedPathCount: 0,
             unstagedPathCount: 0,
-            untrackedPathCount: 0
+            untrackedPathCount: 0,
+            addedLineCount: 0,
+            removedLineCount: 0
           });
         }
       } finally {
@@ -599,6 +619,16 @@ export function SessionWorkbench() {
   }
 
   useEffect(() => {
+    if (
+      !shouldBootstrapFromRequestedSession({
+        hasHydratedSessions: sessions.length > 0,
+        requestedSessionId,
+        selectedSessionId: selectedSessionIdRef.current
+      })
+    ) {
+      return;
+    }
+
     let cancelled = false;
 
     async function bootstrap() {
@@ -678,30 +708,12 @@ export function SessionWorkbench() {
     async function hydrateSession(sessionId: string) {
       setLoadingSession(true);
       setLoadingSettings(true);
-      setLoadingMcpSettings(true);
-      setLoadingSkillsSettings(true);
+      setLoadingMcpSettings(false);
+      setLoadingSkillsSettings(false);
       setErrorText(null);
 
       try {
         const session = await apiClient.getSession(sessionId);
-        const week = buildWeekRange(session.context.currentDateContext);
-        const [
-          trace,
-          routinesResult,
-          settingsPayload,
-          mcpPayload,
-          skillsPayload
-        ] = await Promise.all([
-          apiClient.getSessionTrace(sessionId),
-          apiClient.listSessionRoutines(sessionId, {
-            startDate: week.startDate,
-            endDate: week.endDate
-          }),
-          apiClient.getUserSettingsPayload(session.context.userId),
-          apiClient.getUserSettingsMcp(session.context.userId),
-          apiClient.getUserSettingsSkills(session.context.userId)
-        ]);
-
         if (
           cancelled ||
           !shouldApplySelectedSessionResponse({
@@ -714,14 +726,6 @@ export function SessionWorkbench() {
         }
 
         setSessionUiState((current) => setSessionSnapshot(current, session));
-        setTraceRecords(trace);
-        setRoutines(routinesResult.routines);
-        setUserSettings(settingsPayload.settings);
-        setPermissionTools(settingsPayload.permissionTools);
-        setSettingsForm(toSettingsFormState(settingsPayload.settings));
-        setSettingsMcpForm(toSettingsMcpFormState(mcpPayload));
-        setSettingsSkillsState(toSettingsSkillsState(skillsPayload));
-        setMcpSettingsErrorText(null);
         setMaxTurns(String(session.maxTurns));
         setSessionRegistry((current) =>
           hydrateSelectedSession(current, session)
@@ -732,6 +736,56 @@ export function SessionWorkbench() {
             buildRunFileChangesStatesFromSession(session)
           )
         );
+        setTraceRecords([]);
+        setRoutines([]);
+        setLoadingSession(false);
+
+        const week = buildWeekRange(session.context.currentDateContext);
+        const [traceResult, routinesResult, settingsResult] =
+          await Promise.allSettled([
+            apiClient.getSessionTrace(sessionId),
+            apiClient.listSessionRoutines(sessionId, {
+              startDate: week.startDate,
+              endDate: week.endDate
+            }),
+            apiClient.getUserSettingsPayload(session.context.userId)
+          ]);
+
+        if (
+          cancelled ||
+          !shouldApplySelectedSessionResponse({
+            expectedSessionId: sessionId,
+            currentSessionId: selectedSessionIdRef.current,
+            mutationInFlight: sessionListMutationInFlightRef.current
+          })
+        ) {
+          return;
+        }
+
+        if (traceResult.status === "fulfilled") {
+          setTraceRecords(traceResult.value);
+        }
+        if (routinesResult.status === "fulfilled") {
+          setRoutines(routinesResult.value.routines);
+        }
+        if (settingsResult.status === "fulfilled") {
+          setUserSettings(settingsResult.value.settings);
+          setPermissionTools(settingsResult.value.permissionTools);
+          setSettingsForm(toSettingsFormState(settingsResult.value.settings));
+        }
+
+        const firstRejectedResult = [
+          traceResult,
+          routinesResult,
+          settingsResult
+        ].find((result) => result.status === "rejected");
+        if (firstRejectedResult?.status === "rejected") {
+          setErrorText(
+            firstRejectedResult.reason instanceof Error
+              ? firstRejectedResult.reason.message
+              : String(firstRejectedResult.reason)
+          );
+        }
       } catch (error) {
         if (!cancelled) {
           setErrorText(error instanceof Error ? error.message : String(error));
@@ -740,8 +794,6 @@ export function SessionWorkbench() {
         if (!cancelled) {
           setLoadingSession(false);
           setLoadingSettings(false);
-          setLoadingMcpSettings(false);
-          setLoadingSkillsSettings(false);
         }
       }
     }
@@ -752,6 +804,56 @@ export function SessionWorkbench() {
       cancelled = true;
     };
   }, [selectedSessionId]);
+
+  useEffect(() => {
+    if (!shouldLoadExtendedSettingsForPanel(activeSidebarPanel)) {
+      return;
+    }
+
+    const targetUserId = currentSession?.context.userId ?? userSettings?.userId;
+    if (!targetUserId) {
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingMcpSettings(true);
+    setLoadingSkillsSettings(true);
+    setMcpSettingsErrorText(null);
+
+    void Promise.all([
+      apiClient.getUserSettingsMcp(targetUserId),
+      apiClient.getUserSettingsSkills(targetUserId)
+    ])
+      .then(([mcpPayload, skillsPayload]) => {
+        if (cancelled) {
+          return;
+        }
+
+        setSettingsMcpForm(toSettingsMcpFormState(mcpPayload));
+        setSettingsSkillsState(toSettingsSkillsState(skillsPayload));
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setMcpSettingsErrorText(
+            error instanceof Error ? error.message : String(error)
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoadingMcpSettings(false);
+          setLoadingSkillsSettings(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeSidebarPanel,
+    currentSession?.context.userId,
+    userSettings?.userId
+  ]);
 
   async function refreshSelectedSession(
     sessionId: string,
@@ -765,20 +867,12 @@ export function SessionWorkbench() {
 
     if (showLoadingSettings) {
       setLoadingSettings(true);
-      setLoadingMcpSettings(syncSettings);
-      setLoadingSkillsSettings(syncSettings);
     }
 
     try {
       const session = await apiClient.getSession(sessionId);
       const week = buildWeekRange(session.context.currentDateContext);
-      const [
-        trace,
-        routinesResult,
-        settingsPayload,
-        mcpPayload,
-        skillsPayload
-      ] = await Promise.all([
+      const [trace, routinesResult, settingsPayload] = await Promise.all([
         apiClient.getSessionTrace(sessionId),
         apiClient.listSessionRoutines(sessionId, {
           startDate: week.startDate,
@@ -789,13 +883,7 @@ export function SessionWorkbench() {
           : Promise.resolve<{
               settings: SessionSettingsRecord;
               permissionTools: SettingsPermissionToolOption[];
-            } | null>(null),
-        syncSettings
-          ? apiClient.getUserSettingsMcp(session.context.userId)
-          : Promise.resolve(null),
-        syncSettings
-          ? apiClient.getUserSettingsSkills(session.context.userId)
-          : Promise.resolve(null)
+            } | null>(null)
       ]);
 
       if (
@@ -816,13 +904,6 @@ export function SessionWorkbench() {
         setPermissionTools(settingsPayload.permissionTools);
         setSettingsForm(toSettingsFormState(settingsPayload.settings));
       }
-      if (mcpPayload) {
-        setSettingsMcpForm(toSettingsMcpFormState(mcpPayload));
-        setMcpSettingsErrorText(null);
-      }
-      if (skillsPayload) {
-        setSettingsSkillsState(toSettingsSkillsState(skillsPayload));
-      }
       setMaxTurns(String(session.maxTurns));
       setSessionRegistry((current) => hydrateSelectedSession(current, session));
       setRunFileChanges((current) =>
@@ -837,8 +918,6 @@ export function SessionWorkbench() {
     } finally {
       if (showLoadingSettings) {
         setLoadingSettings(false);
-        setLoadingMcpSettings(false);
-        setLoadingSkillsSettings(false);
       }
     }
   }
@@ -1259,19 +1338,32 @@ export function SessionWorkbench() {
     }
 
     const sessionId = currentSession.sessionId;
-    setSessionUiState((current) => beginSessionInterrupt(current, sessionId));
+    const forceStopRequested =
+      interruptingSessionId === sessionId ||
+      currentSession.sessionState.interruptRequested;
     setErrorText(null);
 
+    if (forceStopRequested) {
+      setSessionUiState((current) => beginSessionInterrupt(current, sessionId));
+    }
+
     try {
-      const result = await apiClient.forceStopSessionExecution(sessionId);
+      const result = forceStopRequested
+        ? await apiClient.forceStopSessionExecution(sessionId)
+        : await apiClient.interruptSessionExecution(sessionId);
       setSessionUiState((current) =>
         setSessionSnapshot(current, result.session)
       );
       setSessionRegistry((current) => upsertSession(current, result.session));
+      if (result.session.sessionState.loopState === "interrupted") {
+        setMessageManagerState((current) => finishMessageManagerRun(current));
+      }
     } catch (error) {
-      setSessionUiState((current) =>
-        rollbackSessionUiState(current, sessionId)
-      );
+      if (forceStopRequested) {
+        setSessionUiState((current) =>
+          rollbackSessionUiState(current, sessionId)
+        );
+      }
       setErrorText(error instanceof Error ? error.message : String(error));
     }
   }

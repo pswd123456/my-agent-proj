@@ -1,6 +1,6 @@
 import type { RunStreamEvent, SessionSnapshot } from "@ai-app-template/sdk";
 
-import { getTimelineEventKey, type TimelineItem } from "./session-timeline";
+import { type TimelineItem } from "./session-timeline";
 
 export type ConversationViewMode = "compact" | "debug";
 
@@ -552,18 +552,6 @@ function isAssistantMessageItem(item: ConversationViewItem): boolean {
   );
 }
 
-function isStreamingAssistantItem(
-  item: ConversationViewItem,
-  streamEventKeys: Set<string>
-): boolean {
-  const assistantEvent = getAssistantEvent(item);
-  if (!assistantEvent) {
-    return false;
-  }
-
-  return streamEventKeys.has(getTimelineEventKey(assistantEvent));
-}
-
 function isExecutionFlowItem(item: ConversationViewItem): boolean {
   return (
     item.type === "compact-tool" ||
@@ -653,11 +641,9 @@ function compactFinalFlowSegment(
     trailingItems.length > 0 &&
     trailingItems.some(isRunCompleteItem) &&
     trailingItems.every(isRunCompleteItem);
-  const endsOnSettledAssistant =
-    trailingItems.length === 0 &&
-    !isStreamingAssistantItem(finalAssistantItem, streamEventKeys);
+  const endsOnFinalAssistant = trailingItems.length === 0;
 
-  if (!hasOnlyTerminalTrailingItems && !endsOnSettledAssistant) {
+  if (!hasOnlyTerminalTrailingItems && !endsOnFinalAssistant) {
     return items;
   }
 

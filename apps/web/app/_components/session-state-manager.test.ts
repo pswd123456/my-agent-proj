@@ -131,6 +131,25 @@ describe("session-state-manager", () => {
     expect(refreshed.session?.sessionState.interruptRequested).toBe(false);
   });
 
+  test("clears the submitting flag when a refreshed snapshot is already interrupted", () => {
+    const running = createSessionSnapshot();
+    running.context.status = "running";
+    running.sessionState.loopState = "running";
+    const submitting = beginSessionSubmission(createSessionUiState(running));
+    const interrupting = beginSessionInterrupt(submitting, running.sessionId);
+
+    const stopped = createSessionSnapshot();
+    stopped.context.status = "waiting_for_user_input";
+    stopped.sessionState.loopState = "interrupted";
+    stopped.sessionState.interruptRequested = false;
+
+    const refreshed = setSessionSnapshot(interrupting, stopped);
+
+    expect(refreshed.submitting).toBe(false);
+    expect(refreshed.interruptingSessionId).toBeNull();
+    expect(refreshed.session?.sessionState.loopState).toBe("interrupted");
+  });
+
   test("updates todo state from streamed get_todo_list results", () => {
     const session = createSessionSnapshot();
     session.context.status = "running";

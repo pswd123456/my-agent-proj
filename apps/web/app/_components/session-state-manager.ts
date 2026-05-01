@@ -24,9 +24,12 @@ export function setSessionSnapshot(
   state: SessionUiState,
   session: SessionSnapshot | null
 ): SessionUiState {
+  const interrupted = session?.sessionState.loopState === "interrupted";
+
   return {
     ...state,
     session,
+    submitting: interrupted ? false : state.submitting,
     optimisticSessionSnapshot: null,
     interruptingSessionId:
       session &&

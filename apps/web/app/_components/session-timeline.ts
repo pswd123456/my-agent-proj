@@ -84,6 +84,7 @@ function isVisibleTimelineEvent(event: RunStreamEvent): boolean {
     event.kind !== "prompt" &&
     event.kind !== "response" &&
     event.kind !== "skills_loaded" &&
+    event.kind !== "context_hooks_loaded" &&
     event.kind !== "workspace_instructions_loaded" &&
     event.kind !== "mcp_loaded" &&
     event.kind !== "user_question_request" &&
