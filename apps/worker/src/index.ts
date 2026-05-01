@@ -84,6 +84,7 @@ async function createRuntimeHandle(
     routineRepository,
     lspServerManager,
     enabledCapabilityPacks: session.context.enabledCapabilityPacks,
+    workspaceSkillSettings: settings.workspaceSkillSettings,
     env: process.env
   });
   const mcpLoadResult = await loadWorkspaceMcpTools(session.workingDirectory);
@@ -106,6 +107,7 @@ async function createRuntimeHandle(
       }),
       promptBuilder,
       userContextHooks: settings.userContextHooks,
+      workspaceSkillSettings: settings.workspaceSkillSettings,
       userCustomPrompt: settings.userCustomPrompt,
       maxTurns: 50,
       maxTokens,
