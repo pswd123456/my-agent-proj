@@ -1,0 +1,1 @@
+ALTER TABLE "agent_settings" ADD COLUMN "workspace_skill_settings" jsonb DEFAULT '[]'::jsonb NOT NULL;

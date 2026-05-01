@@ -243,6 +243,10 @@ export const agentSettings = pgTable("agent_settings", {
     .$type<string[]>()
     .notNull()
     .default(sql.raw(defaultCapabilityPacksJsonLiteral)),
+  workspaceSkillSettings: jsonb("workspace_skill_settings")
+    .$type<Array<{ skillName: string; enabled: boolean }>>()
+    .notNull()
+    .default(defaultJsonbArray),
   userContextHooks: jsonb("user_context_hooks")
     .$type<UserContextHookRecord[]>()
     .notNull()

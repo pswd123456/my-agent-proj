@@ -31,6 +31,7 @@ describe("MemorySettingsRepository", () => {
       "schedule",
       "lsp"
     ]);
+    expect(settings.workspaceSkillSettings).toEqual([]);
     expect(settings.userContextHooks).toEqual([]);
     expect(settings.debugConversationView).toBe(false);
     expect(settings.userCustomPrompt).toBe("");
@@ -65,6 +66,12 @@ describe("MemorySettingsRepository", () => {
       contextWindow: 123_456,
       maxTurns: 88,
       debugConversationView: true,
+      workspaceSkillSettings: [
+        {
+          skillName: "repo_reader",
+          enabled: false
+        }
+      ],
       userCustomPrompt: "先确认上下文，再动手。"
     });
 
@@ -76,6 +83,12 @@ describe("MemorySettingsRepository", () => {
     expect(userA.yoloMode).toBe(true);
     expect(userA.contextWindow).toBe(123_456);
     expect(userA.maxTurns).toBe(88);
+    expect(userA.workspaceSkillSettings).toEqual([
+      {
+        skillName: "repo_reader",
+        enabled: false
+      }
+    ]);
     expect(userA.userContextHooks).toEqual([]);
     expect(userA.debugConversationView).toBe(true);
     expect(userA.userCustomPrompt).toBe("先确认上下文，再动手。");
@@ -85,9 +98,46 @@ describe("MemorySettingsRepository", () => {
     expect(userB.yoloMode).toBe(false);
     expect(userB.contextWindow).toBe(DEFAULT_CONTEXT_WINDOW);
     expect(userB.maxTurns).toBe(DEFAULT_SESSION_MAX_TURNS);
+    expect(userB.workspaceSkillSettings).toEqual([]);
     expect(userB.userContextHooks).toEqual([]);
     expect(userB.debugConversationView).toBe(false);
     expect(userB.userCustomPrompt).toBe("");
+  });
+
+  test("normalizes workspace skill settings by unique trimmed skill name", async () => {
+    const repository = createMemorySettingsRepository();
+
+    const settings = await repository.update("user-skills", {
+      workspaceSkillSettings: [
+        {
+          skillName: " repo_reader ",
+          enabled: false
+        },
+        {
+          skillName: "repo_reader",
+          enabled: true
+        },
+        {
+          skillName: "schedule_helper",
+          enabled: true
+        },
+        {
+          skillName: "   ",
+          enabled: false
+        }
+      ]
+    });
+
+    expect(settings.workspaceSkillSettings).toEqual([
+      {
+        skillName: "repo_reader",
+        enabled: false
+      },
+      {
+        skillName: "schedule_helper",
+        enabled: true
+      }
+    ]);
   });
 
   test("round-trips normalized user context hooks", async () => {
@@ -200,6 +250,8 @@ describe("MemorySettingsRepository", () => {
       toolAskList: '["search_text"]',
       toolDenyList: '["delete_path"]',
       enabledCapabilityPacks: '["workspace","schedule"]',
+      workspace_skill_settings:
+        '[{"skillName":"repo_reader","enabled":false}]',
       user_context_hooks:
         '[{"id":"hook-1","event":"run_started","title":"Profile","content":"先看偏好","enabled":true}]',
       debug_conversation_view: true,
@@ -214,6 +266,12 @@ describe("MemorySettingsRepository", () => {
     expect(settings.toolAskList).toEqual(["search_text"]);
     expect(settings.toolDenyList).toEqual(["delete_path"]);
     expect(settings.model).toBe(DEFAULT_SESSION_MODEL);
+    expect(settings.workspaceSkillSettings).toEqual([
+      {
+        skillName: "repo_reader",
+        enabled: false
+      }
+    ]);
     expect(settings.userContextHooks).toEqual([
       {
         id: "hook-1",

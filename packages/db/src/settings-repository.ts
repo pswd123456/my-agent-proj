@@ -11,6 +11,7 @@ import {
   normalizeThinkingEffort,
   normalizeSettingsPermissionRules,
   normalizeUserContextHooks,
+  normalizeWorkspaceSkillSettings,
   resolveSessionSettingsDefaults,
   sanitizeUserCustomPrompt,
   sanitizeContextWindow,
@@ -102,6 +103,12 @@ export function mapSettingsRow(
     enabledCapabilityPacks: normalizeCapabilityPacks(
       toStringArray(row.enabledCapabilityPacks)
     ),
+    workspaceSkillSettings: normalizeWorkspaceSkillSettings(
+      parseJsonValue(
+        row.workspaceSkillSettings ??
+          (row as { workspace_skill_settings?: unknown }).workspace_skill_settings
+      )
+    ),
     userContextHooks: normalizeUserContextHooks(
       parseJsonValue(
         row.userContextHooks ??
@@ -169,6 +176,10 @@ function buildPatchedSettings(
     enabledCapabilityPacks: Array.isArray(patch.enabledCapabilityPacks)
       ? normalizeCapabilityPacks(patch.enabledCapabilityPacks)
       : current.enabledCapabilityPacks,
+    workspaceSkillSettings:
+      typeof patch.workspaceSkillSettings === "undefined"
+        ? current.workspaceSkillSettings
+        : normalizeWorkspaceSkillSettings(patch.workspaceSkillSettings),
     userContextHooks:
       typeof patch.userContextHooks === "undefined"
         ? current.userContextHooks
@@ -214,6 +225,7 @@ export class PostgresSettingsRepository implements SettingsRepository {
         toolAskList: defaults.toolAskList,
         toolDenyList: defaults.toolDenyList,
         enabledCapabilityPacks: defaults.enabledCapabilityPacks,
+        workspaceSkillSettings: defaults.workspaceSkillSettings,
         userContextHooks: defaults.userContextHooks,
         debugConversationView: defaults.debugConversationView,
         userCustomPrompt: defaults.userCustomPrompt,
@@ -258,6 +270,7 @@ export class PostgresSettingsRepository implements SettingsRepository {
         toolAskList: next.toolAskList,
         toolDenyList: next.toolDenyList,
         enabledCapabilityPacks: next.enabledCapabilityPacks,
+        workspaceSkillSettings: next.workspaceSkillSettings,
         userContextHooks: next.userContextHooks,
         debugConversationView: next.debugConversationView,
         userCustomPrompt: next.userCustomPrompt,
@@ -279,6 +292,7 @@ export class PostgresSettingsRepository implements SettingsRepository {
           toolAskList: next.toolAskList,
           toolDenyList: next.toolDenyList,
           enabledCapabilityPacks: next.enabledCapabilityPacks,
+          workspaceSkillSettings: next.workspaceSkillSettings,
           userContextHooks: next.userContextHooks,
           debugConversationView: next.debugConversationView,
           userCustomPrompt: next.userCustomPrompt,
