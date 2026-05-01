@@ -187,6 +187,7 @@ describe("model selection state", () => {
       toolAskList: [],
       toolDenyList: [],
       enabledCapabilityPacks: [],
+      workspaceSkillSettings: [],
       userContextHooks: [],
       debugConversationView: false,
       userCustomPrompt: "",
@@ -218,6 +219,7 @@ describe("model selection state", () => {
         toolAskList: ["write_file"],
         toolDenyList: ["delete_path"],
         enabledCapabilityPacks: ["workspace"],
+        workspaceSkillSettings: [],
         userContextHooks: [],
         debugConversationView: true,
         userCustomPrompt: "先确认上下文。",
@@ -357,6 +359,7 @@ describe("settings user context hooks", () => {
       toolAskList: [],
       toolDenyList: [],
       enabledCapabilityPacks: [],
+      workspaceSkillSettings: [],
       userContextHooks: [
         {
           id: "hook-1",

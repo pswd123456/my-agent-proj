@@ -9,7 +9,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { SessionWorkbenchSettings } from "./session-workbench-settings";
 import type {
   SettingsFormState,
-  SettingsMcpFormState
+  SettingsMcpFormState,
+  SettingsSkillsState
 } from "./session-workbench-types";
 
 function createSessionSnapshot(): SessionSnapshot {
@@ -74,9 +75,18 @@ function createSettingsFormState(): SettingsFormState {
     toolAskList: [],
     toolDenyList: [],
     enabledCapabilityPacks: ["workspace"],
+    workspaceSkillSettings: [],
     userContextHooks: [],
     debugConversationView: false,
     userCustomPrompt: ""
+  };
+}
+
+function createSettingsSkillsState(): SettingsSkillsState {
+  return {
+    workingDirectory: "/tmp/workspace",
+    skills: [],
+    diagnostics: []
   };
 }
 
@@ -101,10 +111,12 @@ function renderSettings(
       settingsStatusText: "",
       settingsForm: createSettingsFormState(),
       settingsMcpForm: createSettingsMcpFormState(),
+      settingsSkillsState: createSettingsSkillsState(),
       permissionTools: [] satisfies SettingsPermissionToolOption[],
       loadingSettings: false,
       savingSettings: false,
       loadingMcpSettings: false,
+      loadingSkillsSettings: false,
       savingMcpSettings: false,
       mcpSettingsErrorText: null,
       clearingSessionHistory: false,
@@ -122,6 +134,7 @@ function renderSettings(
       onSettingsPermissionToolToggle: () => {},
       onSettingsCapabilityPackToggle: () => {},
       onSettingsShellAllowPatternRemove: () => {},
+      onSettingsSkillEnabledChange: () => {},
       onAddMcpServer: () => {},
       onMcpServerChange: () => {},
       onMcpServerTransportChange: () => {},
@@ -150,6 +163,7 @@ describe("session-workbench settings mode", () => {
     expect(markup).toContain("常规");
     expect(markup).toContain("权限");
     expect(markup).toContain("MCP");
+    expect(markup).toContain("Skills");
     expect(markup).toContain("个性化");
   });
 
@@ -203,5 +217,37 @@ describe("session-workbench settings mode", () => {
     expect(markup).toContain("Wrap up");
     expect(markup).toContain("结束时补一个 next step。");
     expect(markup).toContain("1/1 enabled");
+  });
+
+  test("renders discovered skills on the skills page", () => {
+    const markup = renderSettings({
+      activeSettingsPage: "skills",
+      settingsSkillsState: {
+        workingDirectory: "/tmp/workspace",
+        skills: [
+          {
+            name: "repo_reader",
+            description: "Read repository structure before implementation.",
+            relativePath: ".agent/skills/repo-reader/SKILL.md",
+            enabled: false
+          }
+        ],
+        diagnostics: []
+      },
+      settingsForm: {
+        ...createSettingsFormState(),
+        workspaceSkillSettings: [
+          {
+            skillName: "repo_reader",
+            enabled: false
+          }
+        ]
+      }
+    });
+
+    expect(markup).toContain("Skill 列表");
+    expect(markup).toContain("repo_reader");
+    expect(markup).toContain(".agent/skills/repo-reader/SKILL.md");
+    expect(markup).toContain("0/1 enabled");
   });
 });

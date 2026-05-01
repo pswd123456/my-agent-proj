@@ -8,6 +8,8 @@ import type {
   TraceRecord,
   UserContextHookRecord,
   UserSettingsMcpPayload,
+  UserSettingsSkillsPayload,
+  WorkspaceSkillSettingRecord,
   WorkspaceMcpServerConfig
 } from "@ai-app-template/sdk";
 import {
@@ -22,6 +24,7 @@ import {
   type SettingsMcpFormState,
   type SettingsMcpServerFormState,
   type SettingsFormState,
+  type SettingsSkillsState,
   type TurnUsageSummary
 } from "./session-workbench-types";
 import { applyTodoToolResultToSession } from "./session-todo-state";
@@ -893,6 +896,7 @@ export function toSettingsFormState(
     toolAskList: [...(settings?.toolAskList ?? [])],
     toolDenyList: [...(settings?.toolDenyList ?? [])],
     enabledCapabilityPacks: [...(settings?.enabledCapabilityPacks ?? [])],
+    workspaceSkillSettings: [...(settings?.workspaceSkillSettings ?? [])],
     userContextHooks: [...(settings?.userContextHooks ?? [])],
     debugConversationView: settings?.debugConversationView ?? false,
     userCustomPrompt: settings?.userCustomPrompt ?? ""
@@ -957,6 +961,16 @@ export function toSettingsMcpFormState(
     servers: (payload?.servers ?? []).map((server, index) =>
       formatMcpServerFormState(server, payload?.serverStatuses ?? [], index)
     )
+  };
+}
+
+export function toSettingsSkillsState(
+  payload: UserSettingsSkillsPayload | null
+): SettingsSkillsState {
+  return {
+    workingDirectory: payload?.workingDirectory ?? "",
+    skills: payload?.skills ?? [],
+    diagnostics: payload?.diagnostics ?? []
   };
 }
 
@@ -1069,6 +1083,28 @@ export function buildSessionSettingsPatchFromUserSettings(
   };
 }
 
+function normalizeWorkspaceSkillSettings(
+  settings: WorkspaceSkillSettingRecord[]
+): WorkspaceSkillSettingRecord[] {
+  const seenNames = new Set<string>();
+  const normalized: WorkspaceSkillSettingRecord[] = [];
+
+  for (const setting of settings) {
+    const skillName = setting.skillName.trim();
+    if (!skillName || seenNames.has(skillName)) {
+      continue;
+    }
+
+    seenNames.add(skillName);
+    normalized.push({
+      skillName,
+      enabled: setting.enabled
+    });
+  }
+
+  return normalized;
+}
+
 export function resolveSelectedModelId(input: {
   session: SessionSnapshot | null;
   settingsForm: SettingsFormState;
@@ -1166,6 +1202,9 @@ export function normalizeSettingsFormState(
     toolAskList: normalizeList(form.toolAskList),
     toolDenyList: normalizeList(form.toolDenyList),
     enabledCapabilityPacks: normalizeList(form.enabledCapabilityPacks),
+    workspaceSkillSettings: normalizeWorkspaceSkillSettings(
+      form.workspaceSkillSettings
+    ),
     userContextHooks: enforceSingleEnabledUserContextHookType(
       form.userContextHooks
         .map((hook) => {

@@ -39,7 +39,8 @@ import {
   resolveSelectedThinkingEffort,
   splitPatternLines,
   toSettingsMcpFormState,
-  toSettingsFormState
+  toSettingsFormState,
+  toSettingsSkillsState
 } from "./session-workbench-state";
 import {
   bootstrapSessions,
@@ -91,6 +92,7 @@ import {
   type InspectorTabId,
   type SettingsFormState,
   type SettingsMcpFormState,
+  type SettingsSkillsState,
   type SettingsPageId,
   type SidebarPanelId
 } from "./session-workbench-types";
@@ -419,9 +421,12 @@ export function SessionWorkbench() {
   const [settingsMcpForm, setSettingsMcpForm] = useState<SettingsMcpFormState>(
     toSettingsMcpFormState(null)
   );
+  const [settingsSkillsState, setSettingsSkillsState] =
+    useState<SettingsSkillsState>(toSettingsSkillsState(null));
   const [loadingSettings, setLoadingSettings] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
   const [loadingMcpSettings, setLoadingMcpSettings] = useState(false);
+  const [loadingSkillsSettings, setLoadingSkillsSettings] = useState(false);
   const [savingMcpSettings, setSavingMcpSettings] = useState(false);
   const [mcpSettingsErrorText, setMcpSettingsErrorText] = useState<
     string | null
@@ -576,12 +581,19 @@ export function SessionWorkbench() {
       setLoadingSession(true);
       setLoadingSettings(true);
       setLoadingMcpSettings(true);
+      setLoadingSkillsSettings(true);
       setErrorText(null);
 
       try {
         const session = await apiClient.getSession(sessionId);
         const week = buildWeekRange(session.context.currentDateContext);
-        const [trace, routinesResult, settingsPayload, mcpPayload] =
+        const [
+          trace,
+          routinesResult,
+          settingsPayload,
+          mcpPayload,
+          skillsPayload
+        ] =
           await Promise.all([
             apiClient.getSessionTrace(sessionId),
             apiClient.listSessionRoutines(sessionId, {
@@ -589,7 +601,8 @@ export function SessionWorkbench() {
               endDate: week.endDate
             }),
             apiClient.getUserSettingsPayload(session.context.userId),
-            apiClient.getUserSettingsMcp(session.context.userId)
+            apiClient.getUserSettingsMcp(session.context.userId),
+            apiClient.getUserSettingsSkills(session.context.userId)
           ]);
 
         if (
@@ -610,6 +623,7 @@ export function SessionWorkbench() {
         setPermissionTools(settingsPayload.permissionTools);
         setSettingsForm(toSettingsFormState(settingsPayload.settings));
         setSettingsMcpForm(toSettingsMcpFormState(mcpPayload));
+        setSettingsSkillsState(toSettingsSkillsState(skillsPayload));
         setMcpSettingsErrorText(null);
         setMaxTurns(String(session.maxTurns));
         setSessionRegistry((current) =>
@@ -630,6 +644,7 @@ export function SessionWorkbench() {
           setLoadingSession(false);
           setLoadingSettings(false);
           setLoadingMcpSettings(false);
+          setLoadingSkillsSettings(false);
         }
       }
     }
@@ -654,12 +669,19 @@ export function SessionWorkbench() {
     if (showLoadingSettings) {
       setLoadingSettings(true);
       setLoadingMcpSettings(syncSettings);
+      setLoadingSkillsSettings(syncSettings);
     }
 
     try {
       const session = await apiClient.getSession(sessionId);
       const week = buildWeekRange(session.context.currentDateContext);
-      const [trace, routinesResult, settingsPayload, mcpPayload] =
+      const [
+        trace,
+        routinesResult,
+        settingsPayload,
+        mcpPayload,
+        skillsPayload
+      ] =
         await Promise.all([
           apiClient.getSessionTrace(sessionId),
           apiClient.listSessionRoutines(sessionId, {
@@ -674,6 +696,9 @@ export function SessionWorkbench() {
               } | null>(null),
           syncSettings
             ? apiClient.getUserSettingsMcp(session.context.userId)
+            : Promise.resolve(null),
+          syncSettings
+            ? apiClient.getUserSettingsSkills(session.context.userId)
             : Promise.resolve(null)
         ]);
 
@@ -699,6 +724,9 @@ export function SessionWorkbench() {
         setSettingsMcpForm(toSettingsMcpFormState(mcpPayload));
         setMcpSettingsErrorText(null);
       }
+      if (skillsPayload) {
+        setSettingsSkillsState(toSettingsSkillsState(skillsPayload));
+      }
       setMaxTurns(String(session.maxTurns));
       setSessionRegistry((current) => hydrateSelectedSession(current, session));
       setRunFileChanges((current) =>
@@ -714,6 +742,7 @@ export function SessionWorkbench() {
       if (showLoadingSettings) {
         setLoadingSettings(false);
         setLoadingMcpSettings(false);
+        setLoadingSkillsSettings(false);
       }
     }
   }
@@ -1241,6 +1270,7 @@ export function SessionWorkbench() {
           toolAskList: normalizedForm.toolAskList,
           toolDenyList: normalizedForm.toolDenyList,
           enabledCapabilityPacks: normalizedForm.enabledCapabilityPacks,
+          workspaceSkillSettings: normalizedForm.workspaceSkillSettings,
           userContextHooks: normalizedForm.userContextHooks,
           debugConversationView: normalizedForm.debugConversationView,
           userCustomPrompt: normalizedForm.userCustomPrompt
@@ -1251,8 +1281,12 @@ export function SessionWorkbench() {
       setPermissionTools(updatedPayload.permissionTools);
       setSettingsForm(toSettingsFormState(updated));
       try {
-        const mcpPayload = await apiClient.getUserSettingsMcp(targetUserId);
+        const [mcpPayload, skillsPayload] = await Promise.all([
+          apiClient.getUserSettingsMcp(targetUserId),
+          apiClient.getUserSettingsSkills(targetUserId)
+        ]);
         setSettingsMcpForm(toSettingsMcpFormState(mcpPayload));
+        setSettingsSkillsState(toSettingsSkillsState(skillsPayload));
         setMcpSettingsErrorText(null);
       } catch (error) {
         setMcpSettingsErrorText(
@@ -1840,6 +1874,29 @@ export function SessionWorkbench() {
     await handleSaveUserSettings(nextForm);
   }
 
+  async function handleSettingsSkillEnabledChange(
+    skillName: string,
+    enabled: boolean
+  ) {
+    if (savingSettings) {
+      return;
+    }
+
+    const nextForm = patchSettingsForm(settingsForm, {
+      workspaceSkillSettings: [
+        ...settingsForm.workspaceSkillSettings.filter(
+          (setting) => setting.skillName !== skillName
+        ),
+        {
+          skillName,
+          enabled
+        }
+      ]
+    });
+    setSettingsForm(nextForm);
+    await handleSaveUserSettings(nextForm);
+  }
+
   async function handleResetAllRoutines() {
     if (!currentSession || resettingRoutines) {
       return;
@@ -2057,10 +2114,12 @@ export function SessionWorkbench() {
               settingsStatusText={settingsStatusText}
               settingsForm={settingsForm}
               settingsMcpForm={settingsMcpForm}
+              settingsSkillsState={settingsSkillsState}
               permissionTools={permissionTools}
               loadingSettings={loadingSettings}
               savingSettings={savingSettings}
               loadingMcpSettings={loadingMcpSettings}
+              loadingSkillsSettings={loadingSkillsSettings}
               savingMcpSettings={savingMcpSettings}
               mcpSettingsErrorText={mcpSettingsErrorText}
               clearingSessionHistory={clearingSessionHistory}
@@ -2089,6 +2148,9 @@ export function SessionWorkbench() {
               }
               onSettingsShellAllowPatternRemove={(pattern) =>
                 void handleSettingsShellAllowPatternRemove(pattern)
+              }
+              onSettingsSkillEnabledChange={(skillName, enabled) =>
+                void handleSettingsSkillEnabledChange(skillName, enabled)
               }
               onAddMcpServer={handleAddMcpServer}
               onMcpServerChange={handleMcpServerChange}
@@ -2133,10 +2195,12 @@ export function SessionWorkbench() {
               settingsStatusText={settingsStatusText}
               settingsForm={settingsForm}
               settingsMcpForm={settingsMcpForm}
+              settingsSkillsState={settingsSkillsState}
               permissionTools={permissionTools}
               loadingSettings={loadingSettings}
               savingSettings={savingSettings}
               loadingMcpSettings={loadingMcpSettings}
+              loadingSkillsSettings={loadingSkillsSettings}
               savingMcpSettings={savingMcpSettings}
               mcpSettingsErrorText={mcpSettingsErrorText}
               clearingSessionHistory={clearingSessionHistory}
@@ -2169,6 +2233,9 @@ export function SessionWorkbench() {
               }
               onSettingsShellAllowPatternRemove={(pattern) =>
                 void handleSettingsShellAllowPatternRemove(pattern)
+              }
+              onSettingsSkillEnabledChange={(skillName, enabled) =>
+                void handleSettingsSkillEnabledChange(skillName, enabled)
               }
               onAddMcpServer={handleAddMcpServer}
               onMcpServerChange={handleMcpServerChange}

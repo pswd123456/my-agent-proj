@@ -1,9 +1,11 @@
 import {
   CAPABILITY_PACK_OPTIONS,
+  type UserSettingsSkillsPayload,
   USER_CONTEXT_HOOK_BEHAVIOR_OPTIONS,
   USER_CONTEXT_HOOK_CONTEXT_EVENT_OPTIONS,
   USER_CONTEXT_HOOK_EVENT_OPTIONS,
   type UserContextHookRecord,
+  type WorkspaceSkillSettingRecord,
   type WorkspaceMcpConfigDiagnostic,
   type WorkspaceMcpToolLoadSummary
 } from "@ai-app-template/sdk";
@@ -40,6 +42,12 @@ export const settingsPages = [
     label: "MCP",
     title: "MCP 服务",
     description: "工作目录下的 MCP server 与工具挂载。"
+  },
+  {
+    id: "skills",
+    label: "Skills",
+    title: "Skills",
+    description: "当前工作目录下 skills 的启用状态。"
   },
   {
     id: "hooks",
@@ -86,6 +94,7 @@ export interface SettingsFormState {
   toolAskList: string[];
   toolDenyList: string[];
   enabledCapabilityPacks: string[];
+  workspaceSkillSettings: WorkspaceSkillSettingRecord[];
   userContextHooks: UserContextHookRecord[];
   debugConversationView: boolean;
   userCustomPrompt: string;
@@ -113,6 +122,12 @@ export interface SettingsMcpFormState {
   foundConfig: boolean;
   diagnostics: WorkspaceMcpConfigDiagnostic[];
   servers: SettingsMcpServerFormState[];
+}
+
+export interface SettingsSkillsState {
+  workingDirectory: string;
+  skills: UserSettingsSkillsPayload["skills"];
+  diagnostics: UserSettingsSkillsPayload["diagnostics"];
 }
 
 export const capabilityPackOptions = CAPABILITY_PACK_OPTIONS;

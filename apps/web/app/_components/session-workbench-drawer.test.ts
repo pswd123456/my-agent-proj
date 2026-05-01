@@ -11,7 +11,8 @@ import type { InspectorProjection } from "./session-message-manager";
 import { SessionWorkbenchDrawer } from "./session-workbench-drawer";
 import type {
   SettingsFormState,
-  SettingsMcpFormState
+  SettingsMcpFormState,
+  SettingsSkillsState
 } from "./session-workbench-types";
 
 function createSessionSnapshot(): SessionSnapshot {
@@ -76,9 +77,18 @@ function createSettingsFormState(): SettingsFormState {
     toolAskList: [],
     toolDenyList: [],
     enabledCapabilityPacks: ["workspace"],
+    workspaceSkillSettings: [],
     userContextHooks: [],
     debugConversationView: false,
     userCustomPrompt: ""
+  };
+}
+
+function createSettingsSkillsState(): SettingsSkillsState {
+  return {
+    workingDirectory: "/tmp/workspace",
+    skills: [],
+    diagnostics: []
   };
 }
 
@@ -119,10 +129,12 @@ describe("session-workbench drawer", () => {
         settingsStatusText: "",
         settingsForm: createSettingsFormState(),
         settingsMcpForm: createSettingsMcpFormState(),
+        settingsSkillsState: createSettingsSkillsState(),
         permissionTools,
         loadingSettings: false,
         savingSettings: false,
         loadingMcpSettings: false,
+        loadingSkillsSettings: false,
         savingMcpSettings: false,
         mcpSettingsErrorText: null,
         clearingSessionHistory: false,
@@ -145,6 +157,7 @@ describe("session-workbench drawer", () => {
         onSettingsPermissionToolToggle: () => {},
         onSettingsCapabilityPackToggle: () => {},
         onSettingsShellAllowPatternRemove: () => {},
+        onSettingsSkillEnabledChange: () => {},
         onAddMcpServer: () => {},
         onMcpServerChange: () => {},
         onMcpServerTransportChange: () => {},
@@ -184,10 +197,12 @@ describe("session-workbench drawer", () => {
         settingsStatusText: "",
         settingsForm,
         settingsMcpForm: createSettingsMcpFormState(),
+        settingsSkillsState: createSettingsSkillsState(),
         permissionTools,
         loadingSettings: false,
         savingSettings: false,
         loadingMcpSettings: false,
+        loadingSkillsSettings: false,
         savingMcpSettings: false,
         mcpSettingsErrorText: null,
         clearingSessionHistory: false,
@@ -209,6 +224,7 @@ describe("session-workbench drawer", () => {
         onSettingsPermissionToolToggle: () => {},
         onSettingsCapabilityPackToggle: () => {},
         onSettingsShellAllowPatternRemove: () => {},
+        onSettingsSkillEnabledChange: () => {},
         onAddMcpServer: () => {},
         onMcpServerChange: () => {},
         onMcpServerTransportChange: () => {},
@@ -248,10 +264,12 @@ describe("session-workbench drawer", () => {
         settingsStatusText: "",
         settingsForm,
         settingsMcpForm: createSettingsMcpFormState(),
+        settingsSkillsState: createSettingsSkillsState(),
         permissionTools,
         loadingSettings: false,
         savingSettings: false,
         loadingMcpSettings: false,
+        loadingSkillsSettings: false,
         savingMcpSettings: false,
         mcpSettingsErrorText: null,
         clearingSessionHistory: false,
@@ -273,6 +291,7 @@ describe("session-workbench drawer", () => {
         onSettingsPermissionToolToggle: () => {},
         onSettingsCapabilityPackToggle: () => {},
         onSettingsShellAllowPatternRemove: () => {},
+        onSettingsSkillEnabledChange: () => {},
         onAddMcpServer: () => {},
         onMcpServerChange: () => {},
         onMcpServerTransportChange: () => {},
@@ -319,10 +338,12 @@ describe("session-workbench drawer", () => {
         settingsStatusText: "",
         settingsForm,
         settingsMcpForm: createSettingsMcpFormState(),
+        settingsSkillsState: createSettingsSkillsState(),
         permissionTools,
         loadingSettings: false,
         savingSettings: false,
         loadingMcpSettings: false,
+        loadingSkillsSettings: false,
         savingMcpSettings: false,
         mcpSettingsErrorText: null,
         clearingSessionHistory: false,
@@ -344,6 +365,7 @@ describe("session-workbench drawer", () => {
         onSettingsPermissionToolToggle: () => {},
         onSettingsCapabilityPackToggle: () => {},
         onSettingsShellAllowPatternRemove: () => {},
+        onSettingsSkillEnabledChange: () => {},
         onAddMcpServer: () => {},
         onMcpServerChange: () => {},
         onMcpServerTransportChange: () => {},
