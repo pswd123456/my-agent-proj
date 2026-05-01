@@ -1,3 +1,6 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+
 import { GitCommandError, runGitCommand } from "@ai-app-template/agent";
 
 export interface SessionWorkspaceGitStatus {
@@ -15,6 +18,13 @@ export interface SessionWorkspaceGitStatus {
   stagedPathCount: number;
   unstagedPathCount: number;
   untrackedPathCount: number;
+  addedLineCount: number;
+  removedLineCount: number;
+}
+
+interface GitLineTotals {
+  addedLineCount: number;
+  removedLineCount: number;
 }
 
 interface ParsedGitStatusEntry {
@@ -68,6 +78,137 @@ function summarizeEntries(entries: ParsedGitStatusEntry[]) {
   };
 }
 
+function parseNumstatTotals(stdout: string): GitLineTotals {
+  return stdout
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .filter(Boolean)
+    .reduce(
+      (totals, line) => {
+        const [added, removed] = line.split("\t", 3);
+        return {
+          addedLineCount:
+            totals.addedLineCount +
+            (added && added !== "-" ? Number.parseInt(added, 10) || 0 : 0),
+          removedLineCount:
+            totals.removedLineCount +
+            (removed && removed !== "-"
+              ? Number.parseInt(removed, 10) || 0
+              : 0)
+        };
+      },
+      { addedLineCount: 0, removedLineCount: 0 }
+    );
+}
+
+function sumGitLineTotals(...totals: GitLineTotals[]): GitLineTotals {
+  return totals.reduce(
+    (result, entry) => ({
+      addedLineCount: result.addedLineCount + entry.addedLineCount,
+      removedLineCount: result.removedLineCount + entry.removedLineCount
+    }),
+    { addedLineCount: 0, removedLineCount: 0 }
+  );
+}
+
+function isMissingHeadError(error: unknown): boolean {
+  if (!(error instanceof GitCommandError)) {
+    return false;
+  }
+
+  if (error.code !== "GIT_COMMAND_FAILED") {
+    return false;
+  }
+
+  return /ambiguous argument ['"]HEAD['"]|bad revision ['"]HEAD['"]|unknown revision or path not in the working tree/i.test(
+    error.message
+  );
+}
+
+async function getTrackedLineTotals(
+  workingDirectory: string
+): Promise<GitLineTotals> {
+  try {
+    const stdout = await runGitCommand({
+      workingDirectory,
+      args: ["diff", "--numstat", "HEAD", "--", "."]
+    });
+    return parseNumstatTotals(stdout);
+  } catch (error) {
+    if (!isMissingHeadError(error)) {
+      throw error;
+    }
+
+    const [stagedStdout, unstagedStdout] = await Promise.all([
+      runGitCommand({
+        workingDirectory,
+        args: ["diff", "--cached", "--numstat", "--", "."]
+      }),
+      runGitCommand({
+        workingDirectory,
+        args: ["diff", "--numstat", "--", "."]
+      })
+    ]);
+
+    return sumGitLineTotals(
+      parseNumstatTotals(stagedStdout),
+      parseNumstatTotals(unstagedStdout)
+    );
+  }
+}
+
+function countBufferLines(buffer: Buffer): number {
+  if (buffer.length === 0) {
+    return 0;
+  }
+
+  let lineCount = 0;
+  for (const byte of buffer) {
+    if (byte === 0x0a) {
+      lineCount += 1;
+    }
+  }
+
+  return buffer[buffer.length - 1] === 0x0a ? lineCount : lineCount + 1;
+}
+
+async function getUntrackedLineTotals(
+  workingDirectory: string
+): Promise<GitLineTotals> {
+  const stdout = await runGitCommand({
+    workingDirectory,
+    args: ["ls-files", "--others", "--exclude-standard", "-z"]
+  });
+  const relativePaths = stdout.split("\0").filter(Boolean);
+
+  if (relativePaths.length === 0) {
+    return { addedLineCount: 0, removedLineCount: 0 };
+  }
+
+  const lineCounts = await Promise.all(
+    relativePaths.map(async (relativePath) => {
+      const fileBuffer = await readFile(path.join(workingDirectory, relativePath));
+      return countBufferLines(fileBuffer);
+    })
+  );
+
+  return {
+    addedLineCount: lineCounts.reduce((total, value) => total + value, 0),
+    removedLineCount: 0
+  };
+}
+
+async function getGitLineTotals(
+  workingDirectory: string
+): Promise<GitLineTotals> {
+  const [trackedTotals, untrackedTotals] = await Promise.all([
+    getTrackedLineTotals(workingDirectory),
+    getUntrackedLineTotals(workingDirectory)
+  ]);
+
+  return sumGitLineTotals(trackedTotals, untrackedTotals);
+}
+
 function toFailureCode(error: unknown): SessionWorkspaceGitStatus["code"] {
   const gitError = error as GitCommandError;
   if (gitError.code === "GIT_NOT_AVAILABLE") {
@@ -99,6 +240,10 @@ export async function getSessionWorkspaceGitStatus(
       : "";
     const entries = parseStatusEntries(lines);
     const summary = summarizeEntries(entries);
+    const lineTotals =
+      entries.length === 0
+        ? { addedLineCount: 0, removedLineCount: 0 }
+        : await getGitLineTotals(workingDirectory);
 
     return {
       workingDirectory,
@@ -107,7 +252,8 @@ export async function getSessionWorkspaceGitStatus(
       message: "Git status loaded successfully.",
       branch: branch || null,
       clean: entries.length === 0,
-      ...summary
+      ...summary,
+      ...lineTotals
     };
   } catch (error) {
     return {
@@ -120,7 +266,9 @@ export async function getSessionWorkspaceGitStatus(
       changedPathCount: 0,
       stagedPathCount: 0,
       unstagedPathCount: 0,
-      untrackedPathCount: 0
+      untrackedPathCount: 0,
+      addedLineCount: 0,
+      removedLineCount: 0
     };
   }
 }

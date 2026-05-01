@@ -120,6 +120,8 @@ describe("session git status API", () => {
         stagedPathCount: number;
         unstagedPathCount: number;
         untrackedPathCount: number;
+        addedLineCount: number;
+        removedLineCount: number;
       };
 
       expect(payload.ok).toBe(true);
@@ -130,6 +132,8 @@ describe("session git status API", () => {
       expect(payload.stagedPathCount).toBe(1);
       expect(payload.unstagedPathCount).toBe(1);
       expect(payload.untrackedPathCount).toBe(1);
+      expect(payload.addedLineCount).toBe(3);
+      expect(payload.removedLineCount).toBe(0);
     } finally {
       await rm(workspace, { recursive: true, force: true });
     }
