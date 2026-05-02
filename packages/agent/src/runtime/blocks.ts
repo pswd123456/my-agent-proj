@@ -5,20 +5,47 @@ import type {
   ConversationBlock,
   JsonValue,
   SessionSnapshot,
-  ToolResultDetails
+  ToolResultDetails,
+  UserConversationBlock
 } from "../types.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-export function buildUserBlockContent(message: string): ConversationBlock {
+export function buildUserBlockContent(
+  message: string,
+  input: {
+    source?: UserConversationBlock["source"];
+    hookEvent?: UserConversationBlock["hookEvent"];
+    hookTitle?: UserConversationBlock["hookTitle"];
+  } = {}
+): UserConversationBlock {
   return {
     id: randomUUID(),
     kind: "user",
     content: message,
+    ...(typeof input.source === "string" ? { source: input.source } : {}),
+    ...(typeof input.hookEvent === "string"
+      ? { hookEvent: input.hookEvent }
+      : {}),
+    ...(typeof input.hookTitle === "string" ? { hookTitle: input.hookTitle } : {}),
     createdAt: new Date().toISOString()
   };
+}
+
+export function buildHookUserBlockContent(input: {
+  message: string;
+  hookEvent: NonNullable<UserConversationBlock["hookEvent"]>;
+  hookTitle?: string;
+}): UserConversationBlock {
+  return buildUserBlockContent(input.message, {
+    source: "hook_message",
+    hookEvent: input.hookEvent,
+    ...(typeof input.hookTitle === "string"
+      ? { hookTitle: input.hookTitle }
+      : {})
+  });
 }
 
 export function buildAssistantBlockContent(

@@ -297,6 +297,7 @@ export interface TraceManager {
   appendEvent(sessionId: string, event: TraceEvent): Promise<void>;
   readEvents(sessionId: string): Promise<TraceRecord[]>;
   deleteEvents(sessionId: string): Promise<void>;
+  truncateEventsAfterTurn(sessionId: string, turnCount: number): Promise<void>;
 }
 
 export class FileTraceManager implements TraceManager {
@@ -367,6 +368,31 @@ export class FileTraceManager implements TraceManager {
         throw error;
       }
     }
+  }
+
+  async truncateEventsAfterTurn(
+    sessionId: string,
+    turnCount: number
+  ): Promise<void> {
+    const records = await this.readEvents(sessionId);
+    const cutoff = Math.max(0, Math.floor(turnCount));
+    const retained = records.filter((record) => {
+      const eventTurnCount =
+        typeof record.event.turnCount === "number" ? record.event.turnCount : -1;
+      return eventTurnCount < cutoff;
+    });
+
+    if (retained.length === 0) {
+      await this.deleteEvents(sessionId);
+      return;
+    }
+
+    await this.ensureDirectories();
+    await fs.writeFile(
+      this.tracePath(sessionId),
+      `${retained.map((record) => JSON.stringify(record)).join("\n")}\n`,
+      "utf8"
+    );
   }
 }
 

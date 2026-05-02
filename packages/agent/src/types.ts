@@ -1,7 +1,8 @@
 import type {
   BackgroundTaskKind,
   ScheduleSessionContext,
-  ThinkingEffort
+  ThinkingEffort,
+  UserContextHookEvent
 } from "@ai-app-template/domain";
 import type {
   AnthropicMessage,
@@ -71,9 +72,14 @@ export interface BaseConversationBlock {
   createdAt: string;
 }
 
+export type UserConversationSource = "user" | "hook_message";
+
 export interface UserConversationBlock extends BaseConversationBlock {
   kind: "user";
   content: string;
+  source?: UserConversationSource;
+  hookEvent?: UserContextHookEvent;
+  hookTitle?: string;
 }
 
 export interface AssistantConversationBlock extends BaseConversationBlock {
@@ -220,4 +226,10 @@ export interface SessionForkTarget {
   responseGroupId?: string | null;
   canFork: boolean;
   disabledReason?: string | null;
+}
+
+export interface SessionRewriteTarget {
+  checkpointId: string;
+  userMessageId: string;
+  turnCount: number;
 }

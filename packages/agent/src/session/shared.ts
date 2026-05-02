@@ -21,7 +21,8 @@ import type {
   SessionParentRelationKind,
   SessionSnapshot,
   SessionState,
-  ToolResultDetails
+  ToolResultDetails,
+  UserConversationBlock
 } from "../types.js";
 import { resolveTaskBriefPathForSession } from "./task-brief.js";
 import { normalizeTodoState } from "./todo-state.js";
@@ -361,6 +362,42 @@ export function createScheduleSessionContext(
   };
 }
 
+export function isHookMessageBlock(
+  block: ConversationBlock
+): block is UserConversationBlock {
+  return block.kind === "user" && block.source === "hook_message";
+}
+
+export function isUserInputMessageBlock(
+  block: ConversationBlock
+): block is UserConversationBlock {
+  return block.kind === "user" && block.source !== "hook_message";
+}
+
+export function getUserInputMessageBounds(messages: ConversationBlock[]): {
+  firstUserMessage: string | null;
+  lastUserMessage: string | null;
+} {
+  let firstUserMessage: string | null = null;
+  let lastUserMessage: string | null = null;
+
+  for (const block of messages) {
+    if (!isUserInputMessageBlock(block)) {
+      continue;
+    }
+
+    if (firstUserMessage === null) {
+      firstUserMessage = block.content;
+    }
+    lastUserMessage = block.content;
+  }
+
+  return {
+    firstUserMessage,
+    lastUserMessage
+  };
+}
+
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -415,7 +452,21 @@ export function isConversationBlock(
     return false;
   }
 
-  if (value.kind === "user" || value.kind === "assistant") {
+  if (value.kind === "user") {
+    return (
+      typeof value.id === "string" &&
+      typeof value.content === "string" &&
+      (value.source === "user" ||
+        value.source === "hook_message" ||
+        typeof value.source === "undefined") &&
+      (typeof value.hookEvent === "string" ||
+        typeof value.hookEvent === "undefined") &&
+      (typeof value.hookTitle === "string" ||
+        typeof value.hookTitle === "undefined")
+    );
+  }
+
+  if (value.kind === "assistant") {
     return (
       typeof value.id === "string" &&
       typeof value.content === "string" &&

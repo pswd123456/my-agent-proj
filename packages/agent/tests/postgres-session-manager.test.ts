@@ -154,6 +154,49 @@ describe("toIsoString", () => {
     });
   });
 
+  test("serializes and restores hook user metadata", () => {
+    const serialized = serializeBlock({
+      id: "hook-user-1",
+      kind: "user",
+      content: "hook 注入内容",
+      source: "hook_message",
+      hookEvent: "run_end",
+      hookTitle: "收尾 hook",
+      createdAt: "2026-05-02T00:00:00.000Z"
+    });
+
+    expect(serialized.inputJson).toEqual({
+      source: "hook_message",
+      hookEvent: "run_end",
+      hookTitle: "收尾 hook"
+    });
+
+    const row: SessionMessageRow = {
+      id: "hook-user-1",
+      sessionId: "session-1",
+      messageIndex: 3,
+      role: serialized.role,
+      content: serialized.content,
+      toolName: serialized.toolName,
+      toolCallId: serialized.toolCallId,
+      state: serialized.state,
+      isError: serialized.isError,
+      inputJson: serialized.inputJson,
+      outputText: serialized.outputText,
+      createdAt: serialized.createdAt
+    };
+
+    expect(toConversationBlock(row)).toEqual({
+      id: "hook-user-1",
+      kind: "user",
+      content: "hook 注入内容",
+      source: "hook_message",
+      hookEvent: "run_end",
+      hookTitle: "收尾 hook",
+      createdAt: "2026-05-02T00:00:00.000Z"
+    });
+  });
+
   test("restores workspace escape approval from postgres rows", () => {
     const sessionContext = toSessionContext({
       id: "session-1",
@@ -319,5 +362,46 @@ describe("PostgresSessionManager fork checkpoints", () => {
     );
     expect(checkpoints).toHaveLength(1);
     expect(checkpoints[0]?.id).toBe(firstSaved.id);
+  });
+
+  test("prunes checkpoints from the cutoff turn onward", async () => {
+    const sessionManager = await createPostgresTestSessionManager();
+    let session = createSnapshot({
+      sessionId: sessionManager.testId("fork-prune-session"),
+      workingDirectory: "/tmp/workspace",
+      model: "MiniMax-M2.7",
+      userId: "fork-prune-user"
+    });
+    session = await sessionManager.recover(session);
+
+    for (const turnCount of [1, 2, 3]) {
+      await sessionManager.saveForkCheckpoint({
+        id: sessionManager.testId(`checkpoint-${turnCount}`),
+        sessionId: session.sessionId,
+        assistantMessageId: sessionManager.testId(`assistant-${turnCount}`),
+        turnCount,
+        baseMessageCount: turnCount,
+        responseGroupId: null,
+        snapshot: session,
+        promptSeed: {
+          system: "system",
+          requestMessages: [],
+          runtimeContextMessages: [],
+          tools: [],
+          toolChoice: null
+        },
+        createdAt: `2026-05-02T00:00:0${turnCount}.000Z`,
+        updatedAt: `2026-05-02T00:00:0${turnCount}.000Z`
+      });
+    }
+
+    expect(
+      await sessionManager.pruneForkCheckpointsFromTurn(session.sessionId, 2)
+    ).toBe(2);
+
+    const checkpoints = await sessionManager.listForkCheckpoints(
+      session.sessionId
+    );
+    expect(checkpoints.map((checkpoint) => checkpoint.turnCount)).toEqual([1]);
   });
 });

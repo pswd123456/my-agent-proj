@@ -32,7 +32,12 @@ import {
 import { createWorkspaceInstructionsManager } from "../workspace-instructions/index.js";
 import type { TraceManager } from "../trace.js";
 import type { Logger } from "../system-log.js";
-import type { JsonValue, RunSessionResult, SessionSnapshot } from "../types.js";
+import type {
+  JsonValue,
+  RunSessionResult,
+  SessionSnapshot,
+  UserConversationBlock
+} from "../types.js";
 import type { DelegateAgentService } from "../delegation/index.js";
 import type { BackgroundTaskManager } from "../background-tasks/index.js";
 import { resolveUserContextHookSections } from "../context-hooks.js";
@@ -210,6 +215,7 @@ export async function runSessionLoop(input: {
   userCustomPrompt?: string;
   session: SessionSnapshot;
   message: string | undefined;
+  messageBlock?: UserConversationBlock;
   abortSignal?: AbortSignal;
   isInterruptRequested: () => Promise<boolean>;
   permissionReply?: boolean;
@@ -841,13 +847,22 @@ export async function runSessionLoop(input: {
     }
 
     if (input.message && !consumedPermissionReply) {
+      const nextUserBlock =
+        input.messageBlock && input.messageBlock.content === input.message
+          ? input.messageBlock
+          : buildUserBlockContent(input.message, { source: "user" });
       session = await input.sessionManager.appendBlock(
         session.sessionId,
-        buildUserBlockContent(input.message)
+        nextUserBlock
       );
       session = await input.sessionManager.updateContext(session.sessionId, {
-        firstUserMessage: session.context.firstUserMessage ?? input.message,
-        lastUserMessage: input.message,
+        ...(nextUserBlock.source !== "hook_message"
+          ? {
+              firstUserMessage:
+                session.context.firstUserMessage ?? nextUserBlock.content,
+              lastUserMessage: nextUserBlock.content
+            }
+          : {}),
         status: "running"
       });
     }

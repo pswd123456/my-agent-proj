@@ -4,6 +4,8 @@ import {
   buildForkReplayRequestMessages,
   cloneForkSessionSnapshot,
   createSnapshot,
+  createRewriteRewindSnapshot,
+  getCheckpointTriggerUserBlock,
   resolveTaskBriefPathForFork
 } from "../src/session/index.js";
 import type { SessionForkCheckpoint } from "../src/types.js";
@@ -172,5 +174,182 @@ describe("session fork helpers", () => {
         planModeEnabled: true
       })
     ).toBe("/tmp/workspace/.agent/plans/fork-session/plan.md");
+  });
+
+  test("resolves the checkpoint trigger block even when a hook message trails the turn", () => {
+    const snapshot = createSnapshot({
+      sessionId: "rewrite-source",
+      workingDirectory: "/tmp/workspace",
+      model: "MiniMax-M2.7",
+      firstUserMessage: "第一轮问题",
+      lastUserMessage: "第二轮问题"
+    });
+    snapshot.messages = [
+      {
+        id: "user-1",
+        kind: "user",
+        content: "第一轮问题",
+        source: "user",
+        createdAt: "2026-05-01T00:00:00.000Z"
+      },
+      {
+        id: "assistant-1",
+        kind: "assistant",
+        content: "第一轮回答",
+        createdAt: "2026-05-01T00:00:01.000Z"
+      },
+      {
+        id: "user-2",
+        kind: "user",
+        content: "第二轮问题",
+        source: "user",
+        createdAt: "2026-05-01T00:00:02.000Z"
+      },
+      {
+        id: "assistant-2",
+        kind: "assistant",
+        content: "第二轮回答",
+        createdAt: "2026-05-01T00:00:03.000Z"
+      },
+      {
+        id: "hook-1",
+        kind: "user",
+        content: "本轮已收尾",
+        source: "hook_message",
+        hookEvent: "run_end",
+        hookTitle: "收尾 hook",
+        createdAt: "2026-05-01T00:00:04.000Z"
+      }
+    ];
+
+    const checkpoint: SessionForkCheckpoint = {
+      id: "checkpoint-rewrite",
+      sessionId: snapshot.sessionId,
+      assistantMessageId: "assistant-2",
+      turnCount: 2,
+      baseMessageCount: 3,
+      responseGroupId: null,
+      snapshot,
+      promptSeed: {
+        system: "system",
+        requestMessages: [],
+        runtimeContextMessages: [],
+        tools: [],
+        toolChoice: null
+      },
+      createdAt: "2026-05-01T00:00:05.000Z",
+      updatedAt: "2026-05-01T00:00:05.000Z"
+    };
+
+    expect(
+      getCheckpointTriggerUserBlock({ session: snapshot, checkpoint })
+    ).toMatchObject({
+      id: "user-2",
+      content: "第二轮问题",
+      source: "user"
+    });
+  });
+
+  test("rewinds a rewrite snapshot to the start of the trigger turn and recomputes user bounds", () => {
+    const snapshot = createSnapshot({
+      sessionId: "rewrite-source",
+      workingDirectory: "/tmp/workspace",
+      model: "MiniMax-M2.7",
+      firstUserMessage: "第一轮问题",
+      lastUserMessage: "第二轮问题"
+    });
+    snapshot.messages = [
+      {
+        id: "user-1",
+        kind: "user",
+        content: "第一轮问题",
+        source: "user",
+        createdAt: "2026-05-01T00:00:00.000Z"
+      },
+      {
+        id: "assistant-1",
+        kind: "assistant",
+        content: "第一轮回答",
+        createdAt: "2026-05-01T00:00:01.000Z"
+      },
+      {
+        id: "user-2",
+        kind: "user",
+        content: "第二轮问题",
+        source: "user",
+        createdAt: "2026-05-01T00:00:02.000Z"
+      },
+      {
+        id: "assistant-2",
+        kind: "assistant",
+        content: "第二轮回答",
+        createdAt: "2026-05-01T00:00:03.000Z"
+      },
+      {
+        id: "hook-1",
+        kind: "user",
+        content: "本轮已收尾",
+        source: "hook_message",
+        hookEvent: "run_end",
+        hookTitle: "收尾 hook",
+        createdAt: "2026-05-01T00:00:04.000Z"
+      }
+    ];
+    snapshot.context.status = "completed";
+    snapshot.context.pendingPermissionRequest = {
+      toolCallId: "tool-call-2",
+      toolName: "run_shell_command",
+      toolInput: { command: "pwd" },
+      reason: "needs approval",
+      allowWorkspaceEscape: false
+    };
+    snapshot.context.pendingConflictSummary = "stale";
+    snapshot.sessionState.loopState = "completed";
+    snapshot.sessionState.turnCount = 2;
+    snapshot.sessionState.pendingToolCallIds = ["tool-call-2"];
+    snapshot.sessionState.interruptRequested = true;
+    snapshot.inputTokensCount = 999;
+    snapshot.promptCacheKey = "old-cache";
+
+    const checkpoint: SessionForkCheckpoint = {
+      id: "checkpoint-rewrite",
+      sessionId: snapshot.sessionId,
+      assistantMessageId: "assistant-2",
+      turnCount: 2,
+      baseMessageCount: 3,
+      responseGroupId: null,
+      snapshot,
+      promptSeed: {
+        system: "system",
+        requestMessages: [],
+        runtimeContextMessages: [],
+        tools: [],
+        toolChoice: null
+      },
+      createdAt: "2026-05-01T00:00:05.000Z",
+      updatedAt: "2026-05-01T00:00:05.000Z"
+    };
+
+    const rewind = createRewriteRewindSnapshot({
+      session: snapshot,
+      checkpoint
+    });
+
+    expect(rewind.messages.map((block) => block.id)).toEqual([
+      "user-1",
+      "assistant-1"
+    ]);
+    expect(rewind.context.firstUserMessage).toBe("第一轮问题");
+    expect(rewind.context.lastUserMessage).toBe("第一轮问题");
+    expect(rewind.context.pendingPermissionRequest).toBeNull();
+    expect(rewind.context.pendingConfirmationPayload).toBeNull();
+    expect(rewind.context.pendingUserQuestionPayload).toBeNull();
+    expect(rewind.context.pendingConflictSummary).toBeNull();
+    expect(rewind.sessionState.loopState).toBe("waiting for input");
+    expect(rewind.sessionState.turnCount).toBe(1);
+    expect(rewind.sessionState.pendingToolCallIds).toEqual([]);
+    expect(rewind.sessionState.interruptRequested).toBe(false);
+    expect(rewind.inputTokensCount).toBe(0);
+    expect(rewind.promptCacheKey).toBe("");
   });
 });

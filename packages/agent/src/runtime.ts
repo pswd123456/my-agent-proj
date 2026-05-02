@@ -26,7 +26,8 @@ import type {
   ConversationBlock,
   RunSessionInput,
   RunSessionResult,
-  SessionSnapshot
+  SessionSnapshot,
+  UserConversationBlock
 } from "./types.js";
 import type { SessionManager } from "./session.js";
 import type { ToolRegistry } from "./tools/registry.js";
@@ -36,6 +37,7 @@ import type { DelegateAgentService } from "./delegation/index.js";
 import type { BackgroundTaskManager } from "./background-tasks/index.js";
 import { runSessionLoop } from "./runtime/run-loop.js";
 import { completeLocally } from "./runtime/complete-run.js";
+import { buildHookUserBlockContent } from "./runtime/blocks.js";
 import { DEFAULT_EXECUTION_LEASE_TIMEOUT_MS } from "./session/contracts.js";
 import { resolveUserContextMessageHooks } from "./context-hooks.js";
 import { incrementSessionBackgroundTaskCount } from "./background-tasks/notifications.js";
@@ -142,7 +144,9 @@ export class AgentRuntime {
     );
   }
 
-  private resolvePreUserHookMessages(session: SessionSnapshot): string[] {
+  private resolvePreUserHookMessages(
+    session: SessionSnapshot
+  ): UserConversationBlock[] {
     if (!this.shouldRunUserMessageHooks(session)) {
       return [];
     }
@@ -159,10 +163,18 @@ export class AgentRuntime {
         session,
         event: "run_started"
       })
-    ].map((hook) => hook.content);
+    ].map((hook) =>
+      buildHookUserBlockContent({
+        message: hook.content,
+        hookEvent: hook.event,
+        ...(hook.title.trim() ? { hookTitle: hook.title.trim() } : {})
+      })
+    );
   }
 
-  private resolvePostUserHookMessages(session: SessionSnapshot): string[] {
+  private resolvePostUserHookMessages(
+    session: SessionSnapshot
+  ): UserConversationBlock[] {
     if (!this.shouldRunUserMessageHooks(session)) {
       return [];
     }
@@ -171,7 +183,13 @@ export class AgentRuntime {
       hooks: this.options.userContextHooks ?? [],
       session,
       event: "run_end"
-    }).map((hook) => hook.content);
+    }).map((hook) =>
+      buildHookUserBlockContent({
+        message: hook.content,
+        hookEvent: hook.event,
+        ...(hook.title.trim() ? { hookTitle: hook.title.trim() } : {})
+      })
+    );
   }
 
   private shouldRunSubagentHooks(input: {
@@ -627,12 +645,16 @@ export class AgentRuntime {
       };
       const runQueuedMessage = async (
         message: string | undefined,
-        options: { emitCompletedRunEvent?: boolean } = {}
+        options: {
+          emitCompletedRunEvent?: boolean;
+          messageBlock?: UserConversationBlock;
+        } = {}
       ): Promise<RunSessionResult> => {
         const result = await runSessionLoop({
           ...runLoopBaseInput,
           session: currentSession,
           message,
+          ...(options.messageBlock ? { messageBlock: options.messageBlock } : {}),
           ...(typeof options.emitCompletedRunEvent === "boolean"
             ? { emitCompletedRunEvent: options.emitCompletedRunEvent }
             : {})
@@ -645,8 +667,9 @@ export class AgentRuntime {
       if (typeof input.message === "string") {
         const preHookMessages = this.resolvePreUserHookMessages(session);
         for (const hookMessage of preHookMessages) {
-          result = await runQueuedMessage(hookMessage, {
-            emitCompletedRunEvent: false
+          result = await runQueuedMessage(hookMessage.content, {
+            emitCompletedRunEvent: false,
+            messageBlock: hookMessage
           });
           if (result.status !== "completed") {
             await runtimeLogger?.info("run_completed", {
@@ -664,8 +687,9 @@ export class AgentRuntime {
         });
         if (result.status === "completed") {
           for (const [index, hookMessage] of postHookMessages.entries()) {
-            result = await runQueuedMessage(hookMessage, {
-              emitCompletedRunEvent: index === postHookMessages.length - 1
+            result = await runQueuedMessage(hookMessage.content, {
+              emitCompletedRunEvent: index === postHookMessages.length - 1,
+              messageBlock: hookMessage
             });
             if (result.status !== "completed") {
               break;

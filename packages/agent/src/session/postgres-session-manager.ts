@@ -32,7 +32,8 @@ import type {
   SessionParentRelationKind,
   SessionForkCheckpoint,
   SessionSnapshot,
-  ToolResultDetails
+  ToolResultDetails,
+  UserConversationBlock
 } from "../types.js";
 import type { SessionManager } from "./contracts.js";
 import { DEFAULT_EXECUTION_LEASE_TIMEOUT_MS } from "./contracts.js";
@@ -76,6 +77,32 @@ function readResponseGroupId(
 ): string | undefined {
   return typeof metadata.responseGroupId === "string"
     ? metadata.responseGroupId
+    : undefined;
+}
+
+function readUserConversationSource(
+  metadata: Record<string, JsonValue>
+): UserConversationBlock["source"] | undefined {
+  return metadata.source === "user" || metadata.source === "hook_message"
+    ? metadata.source
+    : undefined;
+}
+
+function readUserHookEvent(
+  metadata: Record<string, JsonValue>
+): UserConversationBlock["hookEvent"] | undefined {
+  return metadata.hookEvent === "session_started" ||
+    metadata.hookEvent === "run_started" ||
+    metadata.hookEvent === "run_end"
+    ? metadata.hookEvent
+    : undefined;
+}
+
+function readUserHookTitle(
+  metadata: Record<string, JsonValue>
+): UserConversationBlock["hookTitle"] | undefined {
+  return typeof metadata.hookTitle === "string"
+    ? metadata.hookTitle
     : undefined;
 }
 
@@ -231,10 +258,17 @@ export function hasActiveExecutionLease(input: {
 export function toConversationBlock(row: SessionMessageRow): ConversationBlock {
   const createdAt = toIsoString(row.createdAt);
   if (row.role === "user") {
+    const metadata = toJsonRecord(row.inputJson);
+    const source = readUserConversationSource(metadata);
+    const hookEvent = readUserHookEvent(metadata);
+    const hookTitle = readUserHookTitle(metadata);
     return {
       id: row.id,
       kind: "user",
       content: row.content ?? "",
+      ...(typeof source === "string" ? { source } : {}),
+      ...(typeof hookEvent === "string" ? { hookEvent } : {}),
+      ...(typeof hookTitle === "string" ? { hookTitle } : {}),
       createdAt
     };
   }
@@ -460,7 +494,22 @@ export function serializeBlock(block: ConversationBlock): {
       toolCallId: null,
       state: null,
       isError: null,
-      inputJson: null,
+      inputJson:
+        typeof block.source === "string" ||
+        typeof block.hookEvent === "string" ||
+        typeof block.hookTitle === "string"
+          ? ({
+              ...(typeof block.source === "string"
+                ? { source: block.source }
+                : {}),
+              ...(typeof block.hookEvent === "string"
+                ? { hookEvent: block.hookEvent }
+                : {}),
+              ...(typeof block.hookTitle === "string"
+                ? { hookTitle: block.hookTitle }
+                : {})
+            } as Record<string, JsonValue>)
+          : null,
       outputText: null,
       createdAt: block.createdAt
     };
@@ -914,6 +963,26 @@ export class PostgresSessionManager implements SessionManager {
       const checkpoint = toSessionForkCheckpoint(row);
       return checkpoint ? [checkpoint] : [];
     });
+  }
+
+  async pruneForkCheckpointsFromTurn(
+    sessionId: string,
+    turnCount: number
+  ): Promise<number> {
+    const rows = await this.db
+      .delete(sessionForkCheckpoints)
+      .where(
+        and(
+          eq(sessionForkCheckpoints.sessionId, sessionId),
+          sql`${sessionForkCheckpoints.turnCount} >= ${Math.max(
+            0,
+            Math.floor(turnCount)
+          )}`
+        )
+      )
+      .returning({ id: sessionForkCheckpoints.id });
+
+    return rows.length;
   }
 
   async appendBlock(

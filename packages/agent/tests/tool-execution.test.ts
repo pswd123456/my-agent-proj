@@ -22,6 +22,8 @@ class MemoryTraceManager implements TraceManager {
   async deleteEvents(_sessionId: string): Promise<void> {
     this.events.length = 0;
   }
+
+  async truncateEventsAfterTurn(): Promise<void> {}
 }
 
 describe("tool execution", () => {

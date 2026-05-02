@@ -37,6 +37,10 @@ export interface SessionManager {
     assistantMessageId: string
   ): Promise<SessionForkCheckpoint | null>;
   listForkCheckpoints(sessionId: string): Promise<SessionForkCheckpoint[]>;
+  pruneForkCheckpointsFromTurn(
+    sessionId: string,
+    turnCount: number
+  ): Promise<number>;
   appendBlock(
     sessionId: string,
     block: ConversationBlock
