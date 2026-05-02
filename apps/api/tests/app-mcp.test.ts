@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { createPostgresTestSessionManager } from "../../../tests/helpers/postgres-session-manager.js";
 
 import type { AgentRuntime, RunEventSink, SessionSnapshot } from "@ai-app-template/agent";
 import {
   FileSystemLogManager,
-  createLogger,
-  createMemorySessionManager
+  createLogger
 } from "@ai-app-template/agent";
 import {
   createMemoryRoutineRepository,
@@ -24,7 +24,7 @@ async function createRuntimeTestApp(options?: {
   traceManager?: ApiAppDependencies["traceManager"];
   runtimeFactory?: ApiAppDependencies["runtimeFactory"];
 }) {
-  const sessionManager = createMemorySessionManager();
+  const sessionManager = await createPostgresTestSessionManager();
   const routineRepository = createMemoryRoutineRepository();
   const settingsRepository = createMemorySettingsRepository();
   const traceEvents: Array<{ sessionId: string; event: unknown }> = [];

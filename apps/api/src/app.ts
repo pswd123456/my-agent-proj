@@ -90,6 +90,15 @@ const createSessionBodySchema = z.object({
   enabledCapabilityPacks: z.array(z.string()).optional()
 });
 
+function hasAnyDefinedField<T extends Record<string, unknown>>(
+  value: T,
+  fieldNames: readonly (keyof T)[]
+): boolean {
+  return fieldNames.some(
+    (fieldName) => typeof value[fieldName] !== "undefined"
+  );
+}
+
 const createSessionForkBodySchema = z
   .object({
     checkpointId: z.string().optional(),
@@ -106,97 +115,80 @@ const createSessionForkBodySchema = z
     }
   );
 
+const updateSessionSettingsBodyShape = {
+  model: z.string().optional(),
+  thinkingEffort: z.enum(THINKING_EFFORT_OPTIONS).optional(),
+  yoloMode: z.boolean().optional(),
+  planModeEnabled: z.boolean().optional(),
+  shellAllowPatterns: z.array(z.string()).optional(),
+  shellDenyPatterns: z.array(z.string()).optional(),
+  toolAllowList: z.array(z.string()).optional(),
+  toolAskList: z.array(z.string()).optional(),
+  toolDenyList: z.array(z.string()).optional(),
+  enabledCapabilityPacks: z.array(z.string()).optional()
+};
+
+const updateSessionSettingsFieldNames = Object.keys(
+  updateSessionSettingsBodyShape
+) as Array<keyof typeof updateSessionSettingsBodyShape>;
+
 const updateSessionSettingsBodySchema = z
-  .object({
-    model: z.string().optional(),
-    thinkingEffort: z.enum(THINKING_EFFORT_OPTIONS).optional(),
-    yoloMode: z.boolean().optional(),
-    planModeEnabled: z.boolean().optional(),
-    shellAllowPatterns: z.array(z.string()).optional(),
-    shellDenyPatterns: z.array(z.string()).optional(),
-    toolAllowList: z.array(z.string()).optional(),
-    toolAskList: z.array(z.string()).optional(),
-    toolDenyList: z.array(z.string()).optional(),
-    enabledCapabilityPacks: z.array(z.string()).optional()
-  })
+  .object(updateSessionSettingsBodyShape)
   .refine(
-    (value) =>
-      typeof value.model === "string" ||
-      typeof value.thinkingEffort === "string" ||
-      typeof value.yoloMode === "boolean" ||
-      typeof value.planModeEnabled === "boolean" ||
-      Array.isArray(value.shellAllowPatterns) ||
-      Array.isArray(value.shellDenyPatterns) ||
-      Array.isArray(value.toolAllowList) ||
-      Array.isArray(value.toolAskList) ||
-      Array.isArray(value.toolDenyList) ||
-      Array.isArray(value.enabledCapabilityPacks),
+    (value) => hasAnyDefinedField(value, updateSessionSettingsFieldNames),
     {
       message: "At least one session settings field is required."
     }
   );
 
+const updateUserSettingsBodyShape = {
+  workingDirectory: z.string().optional(),
+  model: z.string().optional(),
+  thinkingEffort: z.enum(THINKING_EFFORT_OPTIONS).optional(),
+  yoloMode: z.boolean().optional(),
+  contextWindow: z.number().int().min(1000).optional(),
+  maxTurns: z.number().int().min(1).optional(),
+  shellAllowPatterns: z.array(z.string()).optional(),
+  shellDenyPatterns: z.array(z.string()).optional(),
+  toolAllowList: z.array(z.string()).optional(),
+  toolAskList: z.array(z.string()).optional(),
+  toolDenyList: z.array(z.string()).optional(),
+  enabledCapabilityPacks: z.array(z.string()).optional(),
+  workspaceSkillSettings: z
+    .array(
+      z.object({
+        skillName: z.string().min(1),
+        enabled: z.boolean()
+      })
+    )
+    .optional(),
+  userContextHooks: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        event: z.enum(USER_CONTEXT_HOOK_EVENT_OPTIONS),
+        behavior: z.enum(USER_CONTEXT_HOOK_BEHAVIOR_OPTIONS).optional(),
+        waitMode: z.enum(USER_CONTEXT_HOOK_WAIT_MODE_OPTIONS).optional(),
+        maxTurns: z.number().int().min(1).optional(),
+        title: z.string(),
+        content: z.string().min(1),
+        enabled: z.boolean()
+      })
+    )
+    .optional(),
+  debugConversationView: z.boolean().optional(),
+  userCustomPrompt: z.string().optional()
+};
+
+const updateUserSettingsFieldNames = Object.keys(
+  updateUserSettingsBodyShape
+) as Array<keyof typeof updateUserSettingsBodyShape>;
+
 const updateUserSettingsBodySchema = z
-  .object({
-    workingDirectory: z.string().optional(),
-    model: z.string().optional(),
-    thinkingEffort: z.enum(THINKING_EFFORT_OPTIONS).optional(),
-    yoloMode: z.boolean().optional(),
-    contextWindow: z.number().int().min(1000).optional(),
-    maxTurns: z.number().int().min(1).optional(),
-    shellAllowPatterns: z.array(z.string()).optional(),
-    shellDenyPatterns: z.array(z.string()).optional(),
-    toolAllowList: z.array(z.string()).optional(),
-    toolAskList: z.array(z.string()).optional(),
-    toolDenyList: z.array(z.string()).optional(),
-    enabledCapabilityPacks: z.array(z.string()).optional(),
-    workspaceSkillSettings: z
-      .array(
-        z.object({
-          skillName: z.string().min(1),
-          enabled: z.boolean()
-        })
-      )
-      .optional(),
-    userContextHooks: z
-      .array(
-        z.object({
-          id: z.string().min(1),
-          event: z.enum(USER_CONTEXT_HOOK_EVENT_OPTIONS),
-          behavior: z.enum(USER_CONTEXT_HOOK_BEHAVIOR_OPTIONS).optional(),
-          waitMode: z.enum(USER_CONTEXT_HOOK_WAIT_MODE_OPTIONS).optional(),
-          maxTurns: z.number().int().min(1).optional(),
-          title: z.string(),
-          content: z.string().min(1),
-          enabled: z.boolean()
-        })
-      )
-      .optional(),
-    debugConversationView: z.boolean().optional(),
-    userCustomPrompt: z.string().optional()
-  })
-  .refine(
-    (value) =>
-      typeof value.workingDirectory === "string" ||
-      typeof value.model === "string" ||
-      typeof value.thinkingEffort === "string" ||
-      typeof value.yoloMode === "boolean" ||
-      typeof value.contextWindow === "number" ||
-      typeof value.maxTurns === "number" ||
-      Array.isArray(value.shellAllowPatterns) ||
-      Array.isArray(value.shellDenyPatterns) ||
-      Array.isArray(value.toolAllowList) ||
-      Array.isArray(value.toolAskList) ||
-      Array.isArray(value.toolDenyList) ||
-      Array.isArray(value.enabledCapabilityPacks) ||
-      Array.isArray(value.workspaceSkillSettings) ||
-      Array.isArray(value.userContextHooks) ||
-      typeof value.debugConversationView === "boolean" ||
-      typeof value.userCustomPrompt === "string",
-    {
-      message: "At least one settings field is required."
-    }
-  );
+  .object(updateUserSettingsBodyShape)
+  .refine((value) => hasAnyDefinedField(value, updateUserSettingsFieldNames), {
+    message: "At least one settings field is required."
+  });
 
 function toUserContextHookRecords(
   hooks: z.infer<typeof updateUserSettingsBodySchema>["userContextHooks"]

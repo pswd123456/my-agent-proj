@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { createPostgresTestSessionManager } from "../../../tests/helpers/postgres-session-manager.js";
 
 import {
   FileSystemLogManager,
-  createLogger,
-  createMemorySessionManager
+  createLogger
 } from "@ai-app-template/agent";
 import {
   createMemoryRoutineRepository,
@@ -15,7 +15,7 @@ import { createApiApp } from "../src/app.js";
 async function createTestApp(options?: {
   pickDirectory?: (input?: { startDirectory?: string }) => Promise<string | null>;
 }) {
-  const sessionManager = createMemorySessionManager();
+  const sessionManager = await createPostgresTestSessionManager();
   const routineRepository = createMemoryRoutineRepository();
   const settingsRepository = createMemorySettingsRepository();
   const systemLogManager = new FileSystemLogManager(

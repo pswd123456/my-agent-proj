@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import {
+  createPostgresTestSessionManager,
+  type PostgresTestSessionManager
+} from "../../../tests/helpers/postgres-session-manager.js";
 
 import {
-  createMemorySessionManager,
   createSnapshot,
   type SessionForkCheckpoint,
   type SessionSnapshot
@@ -21,7 +24,7 @@ import { resolveApiWorkingDirectory } from "../src/working-directory.js";
 const workspaceRoot = "/Users/boneda/gitrepo/my-agent-proj";
 
 async function createForkTestApp() {
-  const sessionManager = createMemorySessionManager();
+  const sessionManager = await createPostgresTestSessionManager();
   const routineRepository = createMemoryRoutineRepository();
   const settingsRepository = createMemorySettingsRepository();
   const logDir = await mkdtemp(path.join(os.tmpdir(), "api-fork-log-"));
@@ -61,26 +64,26 @@ async function createForkTestApp() {
 }
 
 async function seedCheckpoint(
-  sessionManager: ReturnType<typeof createMemorySessionManager>
+  sessionManager: PostgresTestSessionManager
 ): Promise<{
   sourceSession: SessionSnapshot;
   checkpoint: SessionForkCheckpoint;
 }> {
   let sourceSession = createSnapshot({
-    sessionId: "source-session",
+    sessionId: sessionManager.testId("source-session"),
     workingDirectory: "/tmp/workspace",
     model: "MiniMax-M2.7",
     userId: "fork-user"
   });
   sourceSession.messages = [
     {
-      id: "user-1",
+      id: sessionManager.testId("user-1"),
       kind: "user",
       content: "帮我查一下 runtime",
       createdAt: "2026-05-01T00:00:00.000Z"
     },
     {
-      id: "assistant-final-1",
+      id: sessionManager.testId("assistant-final-1"),
       kind: "assistant",
       content: "我先看 runtime。",
       createdAt: "2026-05-01T00:00:01.000Z"
@@ -92,9 +95,9 @@ async function seedCheckpoint(
   sourceSession = await sessionManager.recover(sourceSession);
 
   const checkpoint: SessionForkCheckpoint = {
-    id: "checkpoint-1",
+    id: sessionManager.testId("checkpoint-1"),
     sessionId: sourceSession.sessionId,
-    assistantMessageId: "assistant-final-1",
+    assistantMessageId: sessionManager.testId("assistant-final-1"),
     turnCount: 1,
     baseMessageCount: 1,
     responseGroupId: null,

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createPostgresTestSessionManager } from "../../../tests/helpers/postgres-session-manager.js";
 import { execFileSync } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -6,8 +7,7 @@ import path from "node:path";
 
 import {
   FileSystemLogManager,
-  createLogger,
-  createMemorySessionManager
+  createLogger
 } from "@ai-app-template/agent";
 import {
   createMemoryRoutineRepository,
@@ -63,7 +63,7 @@ async function createPlainWorkspace(): Promise<string> {
 }
 
 async function createTestApp() {
-  const sessionManager = createMemorySessionManager();
+  const sessionManager = await createPostgresTestSessionManager();
   const routineRepository = createMemoryRoutineRepository();
   const settingsRepository = createMemorySettingsRepository();
   const systemLogManager = new FileSystemLogManager(

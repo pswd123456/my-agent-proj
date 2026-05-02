@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createPostgresTestSessionManager } from "../../../tests/helpers/postgres-session-manager.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -10,8 +11,7 @@ import {
   DEFAULT_MINIMAX_MODEL,
   FileSystemLogManager,
   createLogger,
-  listSettingsPermissionToolOptions,
-  createMemorySessionManager
+  listSettingsPermissionToolOptions
 } from "@ai-app-template/agent";
 import {
   createMemoryRoutineRepository,
@@ -24,7 +24,7 @@ import { resolveApiWorkingDirectory } from "../src/working-directory.js";
 const workspaceRoot = "/Users/boneda/gitrepo/my-agent-proj";
 
 async function createTestApp() {
-  const sessionManager = createMemorySessionManager();
+  const sessionManager = await createPostgresTestSessionManager();
   const routineRepository = createMemoryRoutineRepository();
   const logDir = await mkdtemp(path.join(os.tmpdir(), "api-log-"));
   const systemLogManager = new FileSystemLogManager(logDir, {
@@ -141,13 +141,15 @@ async function createSession(
 
 describe("createApiApp settings bootstrap", () => {
   test("creates a new session from repo defaults when no user settings exist yet", async () => {
-    const { app } = await createTestApp();
+    const { app, sessionManager } = await createTestApp();
 
     const session = await createSession(app, {
       userId: "stage5-default-user"
     });
 
-    expect(session.context.userId).toBe("stage5-default-user");
+    expect(session.context.userId).toBe(
+      sessionManager.testUserId("stage5-default-user")
+    );
     expect(session.workingDirectory).toBe(
       resolveApiWorkingDirectory(workspaceRoot)
     );

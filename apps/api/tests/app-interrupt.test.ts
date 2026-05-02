@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createPostgresTestSessionManager } from "../../../tests/helpers/postgres-session-manager.js";
 import { mkdtemp } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -6,7 +7,6 @@ import path from "node:path";
 import {
   FileSystemLogManager,
   createLogger,
-  createMemorySessionManager,
   type SessionSnapshot
 } from "@ai-app-template/agent";
 import {
@@ -17,7 +17,7 @@ import {
 import { createApiApp } from "../src/app.js";
 
 async function createTestApp(workspaceRoot: string) {
-  const sessionManager = createMemorySessionManager();
+  const sessionManager = await createPostgresTestSessionManager();
   const routineRepository = createMemoryRoutineRepository();
   const settingsRepository = createMemorySettingsRepository();
   const logDir = await mkdtemp(path.join(os.tmpdir(), "api-interrupt-log-"));

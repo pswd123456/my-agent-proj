@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createPostgresTestSessionManager } from "../../../tests/helpers/postgres-session-manager.js";
 import { mkdtemp } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -6,7 +7,6 @@ import path from "node:path";
 import {
   FileSystemLogManager,
   createLogger,
-  createMemorySessionManager,
   type SessionSnapshot
 } from "@ai-app-template/agent";
 import {
@@ -19,7 +19,7 @@ import { createApiApp } from "../src/app.js";
 
 describe("session relation responses", () => {
   test("annotates child sessions with their parent session id", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const backgroundTaskRepository = createMemoryBackgroundTaskRepository();
     const routineRepository = createMemoryRoutineRepository();
     const settingsRepository = createMemorySettingsRepository();
@@ -99,7 +99,7 @@ describe("session relation responses", () => {
   });
 
   test("deletes a parent session together with its child sessions", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const backgroundTaskRepository = createMemoryBackgroundTaskRepository();
     const routineRepository = createMemoryRoutineRepository();
     const settingsRepository = createMemorySettingsRepository();
