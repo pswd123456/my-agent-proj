@@ -10,6 +10,7 @@ import type {
   RunStreamEvent,
   SessionFileChangeActionResult,
   SessionForkTarget,
+  SessionRewriteTarget,
   SessionSnapshot,
   SessionWorkspaceGitStatus,
   TraceRecord,
@@ -99,6 +100,17 @@ export interface InterruptSessionResult {
 export interface CreateSessionForkPayload {
   checkpointId?: string;
   assistantMessageId?: string;
+}
+
+export interface RecoverRewriteTargetPayload {
+  checkpointId: string;
+  userMessageId: string;
+}
+
+export interface SessionHistoryTargetsPayload {
+  sessionId: string;
+  forkTargets: SessionForkTarget[];
+  rewriteTarget: SessionRewriteTarget | null;
 }
 
 export interface UserSettingsPayload {
@@ -440,7 +452,7 @@ export class ApiClient {
 
   async listSessionForkTargets(
     sessionId: string
-  ): Promise<SessionForkTarget[]> {
+  ): Promise<SessionHistoryTargetsPayload> {
     const response = await this.fetchImpl(
       appendCacheBust(
         buildUrl(this.baseUrl, `/sessions/${sessionId}/fork-targets`)
@@ -450,11 +462,7 @@ export class ApiClient {
       }
     );
     await ensureOk(response);
-    const payload = (await response.json()) as {
-      sessionId: string;
-      forkTargets: SessionForkTarget[];
-    };
-    return payload.forkTargets;
+    return (await response.json()) as SessionHistoryTargetsPayload;
   }
 
   async createSessionFork(
@@ -474,6 +482,31 @@ export class ApiClient {
       session: SessionSnapshot;
     };
     return result.session;
+  }
+
+  async recoverRewriteTarget(
+    sessionId: string,
+    payload: RecoverRewriteTargetPayload
+  ): Promise<{
+    session: SessionSnapshot;
+    forkTargets: SessionForkTarget[];
+    rewriteTarget: SessionRewriteTarget | null;
+  }> {
+    const response = await this.fetchImpl(
+      buildUrl(this.baseUrl, `/sessions/${sessionId}/rewrite-target/recover`),
+      {
+        method: "POST",
+        headers: toJsonHeaders(),
+        body: JSON.stringify(payload)
+      }
+    );
+    return (await ensureOk(response).then((result) =>
+      result.json()
+    )) as {
+      session: SessionSnapshot;
+      forkTargets: SessionForkTarget[];
+      rewriteTarget: SessionRewriteTarget | null;
+    };
   }
 
   async updateSessionSettings(
