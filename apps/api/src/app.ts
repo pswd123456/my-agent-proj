@@ -10,9 +10,11 @@ import {
   createRunErrorEvent,
   createRunTraceEvent,
   discoverWorkspaceSkills,
+  findDuplicateWorkspaceMcpServerNames,
   invertUnifiedPatch,
   loadWorkspaceMcpTools,
   ModelUnavailableError,
+  normalizeWorkspaceMcpServerConfigs,
   parseUnifiedPatch,
   readManageableWorkspaceMcpConfig,
   resolveTaskBriefPathForFork,
@@ -64,10 +66,7 @@ import {
   type UpdateUserSettingsPayload,
   type WorkspaceSkillSettingRecord
 } from "@ai-app-template/domain";
-import type {
-  SessionSettingsRecord,
-  UserContextHookRecord
-} from "@ai-app-template/domain";
+import type { SessionSettingsRecord } from "@ai-app-template/domain";
 import type {
   BackgroundTaskRepository,
   RoutineRepository,
@@ -102,50 +101,10 @@ const createSessionForkBodySchema = z
     }
   );
 
-function toUserContextHookRecords(
-  hooks: UpdateUserSettingsPayload["userContextHooks"]
-): UserContextHookRecord[] | undefined {
-  if (!Array.isArray(hooks)) {
-    return undefined;
-  }
-
-  return hooks.map((hook) => ({
-    id: hook.id,
-    event: hook.event,
-    ...(hook.behavior ? { behavior: hook.behavior } : {}),
-    ...(hook.waitMode ? { waitMode: hook.waitMode } : {}),
-    ...(typeof hook.maxTurns === "number" ? { maxTurns: hook.maxTurns } : {}),
-    title: hook.title,
-    content: hook.content,
-    enabled: hook.enabled
-  }));
-}
-
-function toWorkspaceSkillSettingRecords(
-  settings: UpdateUserSettingsPayload["workspaceSkillSettings"]
-): WorkspaceSkillSettingRecord[] | undefined {
-  if (!Array.isArray(settings)) {
-    return undefined;
-  }
-
-  return settings.map((setting) => ({
-    skillName: setting.skillName,
-    enabled: setting.enabled
-  }));
-}
-
 function hasDuplicateMcpServerNames(
   servers: UpdateUserSettingsMcpPayload["servers"]
 ): boolean {
-  const seen = new Set<string>();
-  for (const server of servers) {
-    const name = server.name.trim();
-    if (seen.has(name)) {
-      return true;
-    }
-    seen.add(name);
-  }
-  return false;
+  return findDuplicateWorkspaceMcpServerNames(servers).length > 0;
 }
 
 const chooseDirectoryBodySchema = z.object({
@@ -875,25 +834,8 @@ export function createApiApp(dependencies: ApiAppDependencies) {
     }
 
     const servers: Parameters<typeof replaceWorkspaceMcpConfigServers>[1] =
-      body.servers.map((server) =>
-        server.transport === "stdio"
-          ? {
-              name: server.name.trim(),
-              transport: "stdio" as const,
-              enabled: server.enabled ?? true,
-              disabledTools: server.disabledTools ?? [],
-              command: server.command.trim(),
-              args: server.args ?? [],
-              env: server.env ?? {}
-            }
-          : {
-              name: server.name.trim(),
-              transport: "http" as const,
-              enabled: server.enabled ?? true,
-              disabledTools: server.disabledTools ?? [],
-              url: server.url.trim(),
-              headers: server.headers ?? {}
-            }
+      normalizeWorkspaceMcpServerConfigs(
+        body.servers as Parameters<typeof normalizeWorkspaceMcpServerConfigs>[0]
       );
     await replaceWorkspaceMcpConfigServers(settings.workingDirectory, servers);
     return c.json(await buildUserSettingsMcpPayload(settings.workingDirectory));
@@ -914,10 +856,6 @@ export function createApiApp(dependencies: ApiAppDependencies) {
     const userId = resolveUserId(dependencies, c.req.param("userId"));
     const body = updateUserSettingsPayloadSchema.parse(await c.req.json());
     const requestedModel = resolveRequestedModel(dependencies, body.model);
-    const workspaceSkillSettings = toWorkspaceSkillSettingRecords(
-      body.workspaceSkillSettings
-    );
-    const userContextHooks = toUserContextHookRecords(body.userContextHooks);
     const settings = await dependencies.settingsRepository.update(userId, {
       ...(typeof body.workingDirectory === "string"
         ? {
@@ -955,8 +893,12 @@ export function createApiApp(dependencies: ApiAppDependencies) {
       ...(Array.isArray(body.enabledCapabilityPacks)
         ? { enabledCapabilityPacks: body.enabledCapabilityPacks }
         : {}),
-      ...(workspaceSkillSettings ? { workspaceSkillSettings } : {}),
-      ...(userContextHooks ? { userContextHooks } : {}),
+      ...(Array.isArray(body.workspaceSkillSettings)
+        ? { workspaceSkillSettings: body.workspaceSkillSettings }
+        : {}),
+      ...(Array.isArray(body.userContextHooks)
+        ? { userContextHooks: body.userContextHooks }
+        : {}),
       ...(typeof body.debugConversationView === "boolean"
         ? { debugConversationView: body.debugConversationView }
         : {}),

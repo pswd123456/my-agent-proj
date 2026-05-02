@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { SESSION_MAX_TURNS_LIMIT } from "@ai-app-template/domain";
+import type { SessionSettingsInput } from "@ai-app-template/domain";
 import type { SessionSnapshot } from "@ai-app-template/agent";
 import {
   DEFAULT_DEEPSEEK_MODEL,
@@ -238,6 +239,101 @@ describe("createApiApp settings bootstrap", () => {
     expect(session.maxTurns).toBe(77);
   });
 
+  test("passes hooks and workspace skill settings through to the repository patch", async () => {
+    const updateCalls: SessionSettingsInput[] = [];
+    const baseRepository = createMemorySettingsRepository();
+    const settingsRepository = {
+      async getOrCreate(userId: string) {
+        return baseRepository.getOrCreate(userId);
+      },
+      async update(userId: string, patch: SessionSettingsInput) {
+        updateCalls.push(patch);
+        return baseRepository.update(userId, patch);
+      }
+    };
+    const passThroughApp = createApiApp({
+      sessionManager: await createPostgresTestSessionManager(),
+      routineRepository: createMemoryRoutineRepository(),
+      settingsRepository,
+      traceManager: {
+        async appendEvent() {},
+        async readEvents() {
+          return [];
+        },
+        async deleteEvents() {}
+      },
+      systemLogManager: new FileSystemLogManager(
+        await mkdtemp(path.join(os.tmpdir(), "api-log-")),
+        {
+          maxBytes: 4096,
+          maxFiles: 2
+        }
+      ),
+      buildWorkingDirectory(input) {
+        return resolveApiWorkingDirectory(workspaceRoot, input);
+      },
+      defaultModel: DEFAULT_MINIMAX_MODEL,
+      modelService: {
+        listModels() {
+          return [];
+        },
+        getDefaultModel() {
+          return DEFAULT_MINIMAX_MODEL;
+        },
+        isModelSupported() {
+          return true;
+        },
+        isModelAvailable() {
+          return true;
+        },
+        supportsThinking() {
+          return true;
+        },
+        getThinkingEfforts() {
+          return [];
+        },
+        assertModelAvailable(model) {
+          return model;
+        }
+      }
+    });
+    const workspaceSkillSettings = [
+      { skillName: "planner", enabled: true },
+      { skillName: "repo-reader", enabled: false }
+    ];
+    const userContextHooks = [
+      {
+        id: "hook-subagent",
+        event: "run_started" as const,
+        behavior: "subagent" as const,
+        waitMode: "unblocking" as const,
+        maxTurns: 12,
+        title: "Background",
+        content: "先整理背景。",
+        enabled: true
+      }
+    ];
+
+    const response = await passThroughApp.request(
+      "/users/stage5-pass-through-user/settings",
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workspaceSkillSettings,
+          userContextHooks
+        })
+      }
+    );
+
+    expect(response.status).toBe(200);
+    expect(updateCalls).toHaveLength(1);
+    expect(updateCalls[0]?.workspaceSkillSettings).toEqual(
+      workspaceSkillSettings
+    );
+    expect(updateCalls[0]?.userContextHooks).toEqual(userContextHooks);
+  });
+
   test("accepts a default working directory outside the repo root", async () => {
     const { app } = await createTestApp();
     const externalDirectory = "/tmp/my-agent-proj-external-workspace";
@@ -407,6 +503,67 @@ describe("createApiApp settings bootstrap", () => {
         status: "loaded",
         toolNames: [],
         tools: [{ name: "echo", enabled: false }]
+      });
+    } finally {
+      await rm(workingDirectory, { recursive: true, force: true });
+    }
+  });
+
+  test("normalizes MCP server updates before persisting config", async () => {
+    const { app } = await createTestApp();
+    const workingDirectory = await mkdtemp(
+      path.join(os.tmpdir(), "api-settings-mcp-normalized-")
+    );
+
+    try {
+      const settingsResponse = await app.request(
+        "/users/stage5-mcp-normalized-user/settings",
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ workingDirectory })
+        }
+      );
+      expect(settingsResponse.status).toBe(200);
+
+      const updateResponse = await app.request(
+        "/users/stage5-mcp-normalized-user/settings/mcp",
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            servers: [
+              {
+                name: " local_echo ",
+                transport: "stdio",
+                enabled: false,
+                disabledTools: [" echo ", "", "echo"],
+                command: " node "
+              }
+            ]
+          })
+        }
+      );
+      expect(updateResponse.status).toBe(200);
+      const payload = userSettingsMcpPayloadSchema.parse(
+        await updateResponse.json()
+      );
+
+      expect(payload.servers).toEqual([
+        {
+          name: "local_echo",
+          transport: "stdio",
+          enabled: false,
+          disabledTools: ["echo"],
+          command: "node",
+          args: [],
+          env: {}
+        }
+      ]);
+      expect(payload.serverStatuses[0]).toMatchObject({
+        name: "local_echo",
+        status: "disabled",
+        toolNames: []
       });
     } finally {
       await rm(workingDirectory, { recursive: true, force: true });
