@@ -107,6 +107,9 @@ export interface BackgroundTaskManager {
     maxAttempts?: number;
   }): Promise<BackgroundTaskRecord>;
   requeueStaleClaims(staleBefore: string): Promise<BackgroundTaskRecord[]>;
+  listTasksByParentSession(
+    parentSessionId: string
+  ): Promise<BackgroundTaskRecord[]>;
 }
 
 export interface BackgroundTaskRuntimeHandle {

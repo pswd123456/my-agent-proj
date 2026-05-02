@@ -1,6 +1,10 @@
 import type { ScheduleSessionContext } from "@ai-app-template/domain";
 
-import type { CreateSessionInput, SessionSnapshot } from "../types.js";
+import type {
+  CreateSessionInput,
+  SessionForkCheckpoint,
+  SessionSnapshot
+} from "../types.js";
 
 import type { ConversationBlock, LoopState } from "../types.js";
 
@@ -22,6 +26,17 @@ export interface SessionManager {
   deleteSession(sessionId: string): Promise<boolean>;
   saveSession(snapshot: SessionSnapshot): Promise<SessionSnapshot>;
   recover(snapshot: SessionSnapshot): Promise<SessionSnapshot>;
+  saveForkCheckpoint(
+    checkpoint: SessionForkCheckpoint
+  ): Promise<SessionForkCheckpoint>;
+  getForkCheckpoint(
+    checkpointId: string
+  ): Promise<SessionForkCheckpoint | null>;
+  findForkCheckpointByAssistantMessage(
+    sessionId: string,
+    assistantMessageId: string
+  ): Promise<SessionForkCheckpoint | null>;
+  listForkCheckpoints(sessionId: string): Promise<SessionForkCheckpoint[]>;
   appendBlock(
     sessionId: string,
     block: ConversationBlock

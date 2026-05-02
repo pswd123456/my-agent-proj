@@ -8,6 +8,7 @@ import {
   normalizeCapabilityPacks,
   normalizeThinkingEffort,
   type BackgroundNotificationKind,
+  type HookContextEntry,
   type SessionBackgroundNotification,
   type ScheduleSessionContext,
   type ThinkingEffort
@@ -16,6 +17,8 @@ import {
 import type {
   ConversationBlock,
   LoopState,
+  SessionForkCheckpoint,
+  SessionParentRelationKind,
   SessionSnapshot,
   SessionState,
   ToolResultDetails
@@ -60,6 +63,13 @@ function normalizeBackgroundNotification(
   };
 }
 
+function normalizeHookContextEntry(value: HookContextEntry): HookContextEntry {
+  return {
+    ...value,
+    waitMode: value.waitMode === "unblocking" ? value.waitMode : "blocking"
+  };
+}
+
 export function createSessionState(
   loopState: LoopState = "waiting for input"
 ): SessionState {
@@ -75,6 +85,9 @@ export function createSessionState(
 
 export function createSnapshot(input: {
   sessionId: string;
+  parentSessionId?: string | null;
+  parentRelationKind?: SessionParentRelationKind | null;
+  forkReplayCheckpointId?: string | null;
   workingDirectory: string;
   model: string;
   userId?: string;
@@ -138,6 +151,9 @@ export function createSnapshot(input: {
   };
   return {
     sessionId: input.sessionId,
+    parentSessionId: input.parentSessionId ?? null,
+    parentRelationKind: input.parentRelationKind ?? null,
+    forkReplayCheckpointId: input.forkReplayCheckpointId ?? null,
     workingDirectory: input.workingDirectory,
     model: input.model,
     contextWindow: input.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
@@ -177,6 +193,11 @@ export function cloneSnapshot(snapshot: SessionSnapshot): SessionSnapshot {
   const permissionRules = cloned.context ?? createScheduleSessionContext();
   return {
     ...cloned,
+    parentSessionId: cloned.parentSessionId ?? null,
+    parentRelationKind: isSessionParentRelationKind(cloned.parentRelationKind)
+      ? cloned.parentRelationKind
+      : null,
+    forkReplayCheckpointId: cloned.forkReplayCheckpointId ?? null,
     context: {
       ...cloned.context,
       yoloMode: cloned.context.yoloMode ?? false,
@@ -213,6 +234,13 @@ export function cloneSnapshot(snapshot: SessionSnapshot): SessionSnapshot {
             )
           )
         : [],
+      hookContextEntries: Array.isArray(cloned.context.hookContextEntries)
+        ? cloned.context.hookContextEntries.map((entry) =>
+            normalizeHookContextEntry(
+              structuredClone(entry) as HookContextEntry
+            )
+          )
+        : [],
       todoState: normalizeTodoState(cloned.context.todoState),
       fullCompactionState: cloned.context.fullCompactionState ?? null,
       pendingConflictSummary: cloned.context.pendingConflictSummary ?? null,
@@ -225,6 +253,17 @@ export function cloneSnapshot(snapshot: SessionSnapshot): SessionSnapshot {
       historyCompactionsSinceFullCompaction:
         cloned.sessionState.historyCompactionsSinceFullCompaction ?? 0
     }
+  };
+}
+
+export function cloneForkCheckpoint(
+  checkpoint: SessionForkCheckpoint
+): SessionForkCheckpoint {
+  return {
+    ...structuredClone(checkpoint),
+    responseGroupId: checkpoint.responseGroupId ?? null,
+    snapshot: cloneSnapshot(checkpoint.snapshot),
+    promptSeed: structuredClone(checkpoint.promptSeed)
   };
 }
 
@@ -274,6 +313,7 @@ export function createScheduleSessionContext(
     enabledCapabilityPacks?: string[];
     activeBackgroundTaskCount?: number;
     pendingBackgroundNotifications?: SessionBackgroundNotification[];
+    hookContextEntries?: HookContextEntry[];
   } = {}
 ): ScheduleSessionContext {
   const permissionRules = createPermissionRuleLists();
@@ -308,6 +348,11 @@ export function createScheduleSessionContext(
         normalizeBackgroundNotification(notification)
       )
     ),
+    hookContextEntries: structuredClone(
+      (input.hookContextEntries ?? []).map((entry) =>
+        normalizeHookContextEntry(entry)
+      )
+    ),
     todoState: null,
     fullCompactionState: null,
     pendingConflictSummary: null,
@@ -318,6 +363,12 @@ export function createScheduleSessionContext(
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isSessionParentRelationKind(
+  value: unknown
+): value is SessionParentRelationKind {
+  return value === "fork" || value === "subagent" || value === "hook_subagent";
 }
 
 function isToolResultDetails(value: unknown): value is ToolResultDetails {
@@ -420,6 +471,15 @@ export function isSessionSnapshot(value: unknown): value is SessionSnapshot {
 
   return (
     typeof value.sessionId === "string" &&
+    (typeof value.parentSessionId === "string" ||
+      value.parentSessionId === null ||
+      typeof value.parentSessionId === "undefined") &&
+    (isSessionParentRelationKind(value.parentRelationKind) ||
+      value.parentRelationKind === null ||
+      typeof value.parentRelationKind === "undefined") &&
+    (typeof value.forkReplayCheckpointId === "string" ||
+      value.forkReplayCheckpointId === null ||
+      typeof value.forkReplayCheckpointId === "undefined") &&
     typeof value.workingDirectory === "string" &&
     typeof value.model === "string" &&
     typeof value.contextWindow === "number" &&
@@ -456,6 +516,8 @@ export function isSessionSnapshot(value: unknown): value is SessionSnapshot {
       typeof value.context.activeBackgroundTaskCount === "number") &&
     (typeof value.context.pendingBackgroundNotifications === "undefined" ||
       Array.isArray(value.context.pendingBackgroundNotifications)) &&
+    (typeof value.context.hookContextEntries === "undefined" ||
+      Array.isArray(value.context.hookContextEntries)) &&
     (typeof value.context.todoState === "undefined" ||
       value.context.todoState === null ||
       (isPlainRecord(value.context.todoState) &&

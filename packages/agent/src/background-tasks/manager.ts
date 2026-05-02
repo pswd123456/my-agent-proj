@@ -227,6 +227,11 @@ export class DefaultBackgroundTaskManager implements BackgroundTaskManager {
   async requeueStaleClaims(staleBefore: string) {
     return this.options.repository.requeueStaleClaims(staleBefore);
   }
+
+  async listTasksByParentSession(parentSessionId: string) {
+    const tasks = await this.options.repository.listTasks();
+    return tasks.filter((task) => task.parentSessionId === parentSessionId);
+  }
 }
 
 export function createBackgroundTaskManager(

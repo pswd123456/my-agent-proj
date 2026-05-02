@@ -4,6 +4,8 @@ import type {
   CreateSessionInput,
   ConversationBlock,
   LoopState,
+  SessionParentRelationKind,
+  SessionForkCheckpoint,
   SessionSnapshot
 } from "../types.js";
 import {
@@ -22,6 +24,7 @@ import {
 
 export class MemorySessionManager implements SessionManager {
   private readonly sessions = new Map<string, SessionSnapshot>();
+  private readonly forkCheckpoints = new Map<string, SessionForkCheckpoint>();
   private readonly activeRuns = new Map<
     string,
     { runId: string; startedAt: number; interruptRequested: boolean }
@@ -33,6 +36,9 @@ export class MemorySessionManager implements SessionManager {
   ): Promise<SessionSnapshot> {
     const createSnapshotInput: {
       sessionId: string;
+      parentSessionId?: string | null;
+      parentRelationKind?: SessionParentRelationKind | null;
+      forkReplayCheckpointId?: string | null;
       workingDirectory: string;
       model: string;
       thinkingEffort?: ThinkingEffort;
@@ -52,6 +58,27 @@ export class MemorySessionManager implements SessionManager {
       workingDirectory: resolveWorkingDirectory(input.workingDirectory),
       model: input.model ?? DEFAULT_SESSION_MODEL
     };
+
+    if (
+      typeof input.parentSessionId === "string" ||
+      input.parentSessionId === null
+    ) {
+      createSnapshotInput.parentSessionId = input.parentSessionId;
+    }
+    if (
+      input.parentRelationKind === "fork" ||
+      input.parentRelationKind === "subagent" ||
+      input.parentRelationKind === "hook_subagent" ||
+      input.parentRelationKind === null
+    ) {
+      createSnapshotInput.parentRelationKind = input.parentRelationKind;
+    }
+    if (
+      typeof input.forkReplayCheckpointId === "string" ||
+      input.forkReplayCheckpointId === null
+    ) {
+      createSnapshotInput.forkReplayCheckpointId = input.forkReplayCheckpointId;
+    }
 
     if (input.thinkingEffort) {
       createSnapshotInput.thinkingEffort = input.thinkingEffort;
@@ -134,7 +161,8 @@ export class MemorySessionManager implements SessionManager {
 
     const current = this.activeRuns.get(sessionId);
     if (current) {
-      const runIds = this.forceStoppedRunIds.get(sessionId) ?? new Set<string>();
+      const runIds =
+        this.forceStoppedRunIds.get(sessionId) ?? new Set<string>();
       runIds.add(current.runId);
       this.forceStoppedRunIds.set(sessionId, runIds);
       this.activeRuns.delete(sessionId);
@@ -155,6 +183,11 @@ export class MemorySessionManager implements SessionManager {
   }
 
   async deleteSession(sessionId: string): Promise<boolean> {
+    for (const [checkpointId, checkpoint] of this.forkCheckpoints.entries()) {
+      if (checkpoint.sessionId === sessionId) {
+        this.forkCheckpoints.delete(checkpointId);
+      }
+    }
     return this.sessions.delete(sessionId);
   }
 
@@ -171,6 +204,52 @@ export class MemorySessionManager implements SessionManager {
     }
 
     return this.saveSession(snapshot);
+  }
+
+  async saveForkCheckpoint(
+    checkpoint: SessionForkCheckpoint
+  ): Promise<SessionForkCheckpoint> {
+    const nextCheckpoint = structuredClone(checkpoint) as SessionForkCheckpoint;
+    this.forkCheckpoints.set(
+      nextCheckpoint.id,
+      structuredClone(nextCheckpoint) as SessionForkCheckpoint
+    );
+    return structuredClone(nextCheckpoint) as SessionForkCheckpoint;
+  }
+
+  async getForkCheckpoint(
+    checkpointId: string
+  ): Promise<SessionForkCheckpoint | null> {
+    const checkpoint = this.forkCheckpoints.get(checkpointId);
+    return checkpoint
+      ? (structuredClone(checkpoint) as SessionForkCheckpoint)
+      : null;
+  }
+
+  async findForkCheckpointByAssistantMessage(
+    sessionId: string,
+    assistantMessageId: string
+  ): Promise<SessionForkCheckpoint | null> {
+    for (const checkpoint of this.forkCheckpoints.values()) {
+      if (
+        checkpoint.sessionId === sessionId &&
+        checkpoint.assistantMessageId === assistantMessageId
+      ) {
+        return structuredClone(checkpoint) as SessionForkCheckpoint;
+      }
+    }
+    return null;
+  }
+
+  async listForkCheckpoints(
+    sessionId: string
+  ): Promise<SessionForkCheckpoint[]> {
+    return [...this.forkCheckpoints.values()]
+      .filter((checkpoint) => checkpoint.sessionId === sessionId)
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+      .map(
+        (checkpoint) => structuredClone(checkpoint) as SessionForkCheckpoint
+      );
   }
 
   async appendBlock(

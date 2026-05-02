@@ -6,6 +6,7 @@ import { createAgentRuntime } from "../src/runtime.js";
 import { fullCompactionTestUtils } from "../src/runtime/compaction.js";
 import { createMemorySessionManager } from "../src/session/index.js";
 import type { AnthropicMessageRequest } from "../src/model.js";
+import { getUserContextHookConfigHash } from "../src/subagent-hooks.js";
 import type { TraceEvent, TraceManager, TraceRecord } from "../src/trace.js";
 import { ToolRegistry } from "../src/tools/registry.js";
 
@@ -121,16 +122,13 @@ describe("full compaction runtime", () => {
       }
     ];
 
-    const { retainedTail } = fullCompactionTestUtils.splitFullCompactionBlocks(
-      blocks
-    );
+    const { retainedTail } =
+      fullCompactionTestUtils.splitFullCompactionBlocks(blocks);
 
-    expect(
-      retainedTail.some((block) => block.kind === "tool call")
-    ).toBe(true);
-    expect(
-      retainedTail.some((block) => block.kind === "tool result")
-    ).toBe(true);
+    expect(retainedTail.some((block) => block.kind === "tool call")).toBe(true);
+    expect(retainedTail.some((block) => block.kind === "tool result")).toBe(
+      true
+    );
     expect(
       retainedTail.find((block) => block.kind === "tool call")?.toolCallId
     ).toBe(
@@ -202,18 +200,87 @@ describe("full compaction runtime", () => {
       sessionManager,
       traceManager,
       routineRepository,
-      toolRegistry: new ToolRegistry()
+      toolRegistry: new ToolRegistry(),
+      userContextHooks: [
+        {
+          id: "hook-session",
+          event: "session_started",
+          behavior: "subagent",
+          waitMode: "blocking",
+          title: "Session hook",
+          content: "session hook config",
+          enabled: true
+        },
+        {
+          id: "hook-run",
+          event: "run_started",
+          behavior: "subagent",
+          waitMode: "unblocking",
+          title: "Run hook",
+          content: "run hook config",
+          enabled: true
+        }
+      ]
     });
 
     const session = await runtime.createSession({
       workingDirectory: "/tmp/workspace",
       userId: "compaction-user",
-      contextWindow: 3_000
+      contextWindow: 4_000
+    });
+    const sessionHookConfigHash = getUserContextHookConfigHash({
+      event: "session_started",
+      behavior: "subagent",
+      waitMode: "blocking",
+      title: "Session hook",
+      content: "session hook config"
+    });
+    const runHookConfigHash = getUserContextHookConfigHash({
+      event: "run_started",
+      behavior: "subagent",
+      waitMode: "unblocking",
+      title: "Run hook",
+      content: "run hook config"
     });
 
     await runtime.recoverSession({
       ...session,
-      messages: buildLongHistory()
+      messages: buildLongHistory(),
+      context: {
+        ...session.context,
+        hookContextEntries: [
+          {
+            hookId: "hook-session",
+            hookEvent: "session_started",
+            waitMode: "blocking",
+            taskId: "task-session",
+            title: "Session hook",
+            configHash: sessionHookConfigHash,
+            content: "这是 session_started hook 的结果。",
+            createdAt: "2026-04-26T00:00:00.000Z"
+          },
+          {
+            hookId: "hook-run",
+            hookEvent: "run_started",
+            waitMode: "unblocking",
+            taskId: "task-run-1",
+            title: "Run hook",
+            configHash: runHookConfigHash,
+            content: "这是第一条 run_started hook 结果。",
+            createdAt: "2026-04-26T00:10:00.000Z"
+          },
+          {
+            hookId: "hook-run",
+            hookEvent: "run_started",
+            waitMode: "unblocking",
+            taskId: "task-run-2",
+            title: "Run hook",
+            configHash: runHookConfigHash,
+            content: "这是第二条 run_started hook 结果。",
+            createdAt: "2026-04-26T00:11:00.000Z"
+          }
+        ]
+      }
     });
 
     const result = await runtime.run({
@@ -233,6 +300,15 @@ describe("full compaction runtime", () => {
       result.session.context.fullCompactionState?.summaryMarkdown
     ).toContain("## Goal");
     expect(
+      result.session.context.fullCompactionState?.summaryMarkdown
+    ).toContain("## Compacted Hook Context");
+    expect(
+      result.session.context.fullCompactionState?.summaryMarkdown
+    ).toContain("这是第一条 run_started hook 结果。");
+    expect(
+      result.session.context.fullCompactionState?.summaryMarkdown
+    ).toContain("这是第二条 run_started hook 结果。");
+    expect(
       result.session.sessionState.historyCompactionsSinceFullCompaction
     ).toBe(0);
     expect(
@@ -243,13 +319,27 @@ describe("full compaction runtime", () => {
         (block) => block.kind === "assistant thinking"
       )
     ).toBe(false);
+    expect(result.session.context.hookContextEntries).toEqual([
+      {
+        hookId: "hook-session",
+        hookEvent: "session_started",
+        waitMode: "blocking",
+        taskId: "task-session",
+        title: "Session hook",
+        configHash: sessionHookConfigHash,
+        content: "这是 session_started hook 的结果。",
+        createdAt: "2026-04-26T00:00:00.000Z"
+      }
+    ]);
 
     const retainedToolCallIds = result.session.messages
       .filter(
         (
           block
-        ): block is Extract<typeof result.session.messages[number], { kind: "tool call" }> =>
-          block.kind === "tool call"
+        ): block is Extract<
+          (typeof result.session.messages)[number],
+          { kind: "tool call" }
+        > => block.kind === "tool call"
       )
       .map((block) => block.toolCallId);
     const retainedToolResultIds = new Set(
@@ -258,7 +348,7 @@ describe("full compaction runtime", () => {
           (
             block
           ): block is Extract<
-            typeof result.session.messages[number],
+            (typeof result.session.messages)[number],
             { kind: "tool result" }
           > => block.kind === "tool result"
         )

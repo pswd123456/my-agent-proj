@@ -82,13 +82,17 @@ export function parseBackgroundTaskPollMetadata(
 
 function withWakeupMetadata(
   task: BackgroundTaskRecord,
-  metadata: Record<string, DomainJsonValue>
+  metadata: Record<string, DomainJsonValue>,
+  message?: string
 ): AgentSessionBackgroundTaskPayload {
   return {
     ...(task.payload as AgentSessionBackgroundTaskPayload),
-    message: "",
+    message: typeof message === "string" ? message : "",
     permissionReply: false,
-    metadata
+    metadata: {
+      ...(task.payload as AgentSessionBackgroundTaskPayload).metadata,
+      ...metadata
+    }
   };
 }
 
@@ -98,6 +102,8 @@ export async function scheduleBackgroundTaskPollWakeup(input: {
   parentSessionId: string;
   taskIds: string[];
   initialCheckAfterMs: number;
+  wakeupMessage?: string;
+  extraMetadata?: Record<string, DomainJsonValue>;
 }): Promise<void> {
   const taskIds = [...new Set(input.taskIds.filter(Boolean))];
   if (taskIds.length === 0) {
@@ -115,6 +121,10 @@ export async function scheduleBackgroundTaskPollWakeup(input: {
     taskIds,
     nextIntervalMs: intervalMs
   });
+  const nextMetadata = {
+    ...metadata,
+    ...(input.extraMetadata ?? {})
+  };
   const existingWakeup = await input.taskManager.getWakeupTaskBySessionId(
     parentSession.sessionId
   );
@@ -138,10 +148,14 @@ export async function scheduleBackgroundTaskPollWakeup(input: {
         taskId: existingWakeup.taskId,
         payload: withWakeupMetadata(
           existingWakeup,
-          buildBackgroundTaskPollMetadata({
-            taskIds: mergedTaskIds,
-            nextIntervalMs
-          })
+          {
+            ...buildBackgroundTaskPollMetadata({
+              taskIds: mergedTaskIds,
+              nextIntervalMs
+            }),
+            ...(input.extraMetadata ?? {})
+          },
+          input.wakeupMessage ?? existingWakeup.payload.message
         ),
         ...(existingMoveEarlier ? { availableAt } : {}),
         resultSummary: null,
@@ -161,7 +175,11 @@ export async function scheduleBackgroundTaskPollWakeup(input: {
 
       await input.taskManager.rescheduleQueuedTask({
         taskId: existingWakeup.taskId,
-        payload: withWakeupMetadata(existingWakeup, metadata),
+        payload: withWakeupMetadata(
+          existingWakeup,
+          nextMetadata,
+          input.wakeupMessage ?? existingWakeup.payload.message
+        ),
         availableAt,
         resultSummary: null,
         lastError: null
@@ -173,7 +191,11 @@ export async function scheduleBackgroundTaskPollWakeup(input: {
   if (existingWakeup) {
     await input.taskManager.requeueTask({
       taskId: existingWakeup.taskId,
-      payload: withWakeupMetadata(existingWakeup, metadata),
+      payload: withWakeupMetadata(
+        existingWakeup,
+        nextMetadata,
+        input.wakeupMessage ?? existingWakeup.payload.message
+      ),
       availableAt,
       resultSummary: null,
       lastError: null,
@@ -186,13 +208,13 @@ export async function scheduleBackgroundTaskPollWakeup(input: {
     kind: "session_wakeup",
     parentSessionId: parentSession.sessionId,
     childSessionId: parentSession.sessionId,
-    message: "",
+    message: input.wakeupMessage ?? "",
     workingDirectory: parentSession.workingDirectory,
     model: parentSession.model,
     maxTurns: Math.min(parentSession.maxTurns, 8),
     userId: parentSession.context.userId,
     enabledCapabilityPacks: parentSession.context.enabledCapabilityPacks,
-    metadata,
+    metadata: nextMetadata,
     maxAttempts: 1,
     availableAt
   });

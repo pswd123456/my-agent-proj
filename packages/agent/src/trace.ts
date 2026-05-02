@@ -2,6 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 
 import type {
+  HookContextEntry,
   PendingPermissionRequest,
   SessionBackgroundNotification,
   PendingUserQuestionPayload
@@ -84,6 +85,23 @@ export interface TraceContextHooksLoadedEvent {
   turnCount: number;
   userId: string;
   hooks: ResolvedUserContextHookSection[];
+}
+
+export interface TraceHookSubagentScheduledEvent {
+  kind: "hook_subagent_scheduled";
+  turnCount: number;
+  taskId: string;
+  hookId: string;
+  hookEvent: "session_started" | "run_started";
+  waitMode: "blocking" | "unblocking";
+  configHash: string;
+}
+
+export interface TraceHookContextMaterializedEvent {
+  kind: "hook_context_materialized";
+  turnCount: number;
+  notificationIds: string[];
+  entries: HookContextEntry[];
 }
 
 export interface TraceMcpLoadedEvent {
@@ -247,6 +265,8 @@ export type TraceEvent =
   | TraceSkillsLoadedEvent
   | TraceWorkspaceInstructionsLoadedEvent
   | TraceContextHooksLoadedEvent
+  | TraceHookSubagentScheduledEvent
+  | TraceHookContextMaterializedEvent
   | TraceMcpLoadedEvent
   | TraceTextEvent
   | TraceThinkingEvent

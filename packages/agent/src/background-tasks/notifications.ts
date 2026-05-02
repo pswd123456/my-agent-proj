@@ -7,6 +7,7 @@ import type {
   BackgroundTaskRecord,
   BackgroundTaskResultEnvelope,
   DelegateExpectedParentReply,
+  DomainJsonValue,
   ScheduleSessionContext,
   SessionBackgroundNotification
 } from "@ai-app-template/domain";
@@ -108,6 +109,8 @@ export async function enqueueBackgroundNotification(input: {
   result?: BackgroundTaskResultEnvelope | null;
   decrementActiveTaskCount?: boolean;
   autoWake?: boolean;
+  wakeupMessage?: string;
+  wakeupMetadata?: Record<string, DomainJsonValue>;
 }): Promise<SessionBackgroundNotification | null> {
   if (!input.task.parentSessionId) {
     return null;
@@ -183,10 +186,12 @@ export async function enqueueBackgroundNotification(input: {
         taskId: existingWakeup.taskId,
         payload: {
           ...payload,
-          message: "",
+          message: input.wakeupMessage ?? "",
           permissionReply: false,
           metadata: {
-            reason: "background_notification"
+            ...payload.metadata,
+            reason: "background_notification",
+            ...(input.wakeupMetadata ?? {})
           }
         },
         availableAt: null,
@@ -203,8 +208,13 @@ export async function enqueueBackgroundNotification(input: {
       taskId: existingWakeup.taskId,
       payload: {
         ...payload,
-        message: "",
-        permissionReply: false
+        message: input.wakeupMessage ?? "",
+        permissionReply: false,
+        metadata: {
+          ...payload.metadata,
+          reason: "background_notification",
+          ...(input.wakeupMetadata ?? {})
+        }
       },
       resultSummary: null,
       lastError: null,
@@ -217,14 +227,15 @@ export async function enqueueBackgroundNotification(input: {
     kind: "session_wakeup",
     parentSessionId: parentSession.sessionId,
     childSessionId: parentSession.sessionId,
-    message: "",
+    message: input.wakeupMessage ?? "",
     workingDirectory: parentSession.workingDirectory,
     model: parentSession.model,
     maxTurns: Math.min(parentSession.maxTurns, 8),
     userId: parentSession.context.userId,
     enabledCapabilityPacks: parentSession.context.enabledCapabilityPacks,
     metadata: {
-      reason: "background_notification"
+      reason: "background_notification",
+      ...(input.wakeupMetadata ?? {})
     },
     maxAttempts: 1
   });

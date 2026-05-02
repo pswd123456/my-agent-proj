@@ -16,6 +16,7 @@ import type { RuntimeTool } from "./tools/runtime-tool.js";
 import type { ToolRegistry } from "./tools/registry.js";
 import type { WorkspaceInstructionsDescriptor } from "./workspace-instructions/index.js";
 import type { ResolvedUserContextHookSection } from "./context-hooks.js";
+import type { HookContextEntry } from "@ai-app-template/domain";
 import { normalizeCapabilityPacks } from "@ai-app-template/domain";
 import {
   describeTaskBriefBinding,
@@ -69,6 +70,7 @@ export interface PromptRuntimeContext {
   maxTurns?: number;
   userCustomPrompt?: string;
   contextHooks?: ResolvedUserContextHookSection[];
+  hookContextEntries?: HookContextEntry[];
   workspaceInstructions?: WorkspaceInstructionsDescriptor | null;
 }
 
@@ -514,6 +516,33 @@ function createUserContextHookMessages(
       }
     ]
   }));
+}
+
+function createSubagentHookContextMessage(
+  entries: HookContextEntry[] | undefined
+): AnthropicMessage | null {
+  if (!entries || entries.length === 0) {
+    return null;
+  }
+
+  return {
+    role: "user",
+    content: [
+      {
+        type: "text",
+        text: [
+          "Injected context from completed subagent hooks:",
+          "",
+          ...entries.map((entry, index) =>
+            [
+              `${index + 1}. ${entry.title || entry.hookId} (${entry.hookEvent})`,
+              entry.content
+            ].join("\n")
+          )
+        ].join("\n")
+      }
+    ]
+  };
 }
 
 function createUserCustomPromptContextMessage(
@@ -969,6 +998,9 @@ export class PromptBuilder {
     const contextHookMessages = createUserContextHookMessages(
       runtimeContext.contextHooks
     );
+    const subagentHookContextMessage = createSubagentHookContextMessage(
+      runtimeContext.hookContextEntries
+    );
     const skillsContextMessage = createSkillsContextMessage(skills);
     const cacheKey = createHash("sha256")
       .update(system)
@@ -992,6 +1024,7 @@ export class PromptBuilder {
           ? [workspaceInstructionsContextMessage]
           : []),
         ...contextHookMessages,
+        ...(subagentHookContextMessage ? [subagentHookContextMessage] : []),
         skillsContextMessage,
         ...(fullCompactionContextMessage ? [fullCompactionContextMessage] : []),
         ...runtimeContextMessages

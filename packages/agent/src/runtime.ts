@@ -34,8 +34,15 @@ import type { RunEventSink } from "./events.js";
 import type { DelegateAgentService } from "./delegation/index.js";
 import type { BackgroundTaskManager } from "./background-tasks/index.js";
 import { runSessionLoop } from "./runtime/run-loop.js";
+import { completeLocally } from "./runtime/complete-run.js";
 import { DEFAULT_EXECUTION_LEASE_TIMEOUT_MS } from "./session/contracts.js";
 import { resolveUserContextMessageHooks } from "./context-hooks.js";
+import { incrementSessionBackgroundTaskCount } from "./background-tasks/notifications.js";
+import { scheduleBackgroundTaskPollWakeup } from "./background-tasks/orchestration.js";
+import {
+  getUserContextHookConfigHash,
+  isSubagentUserContextHook
+} from "./subagent-hooks.js";
 
 export interface AgentRuntimeOptions {
   systemLogManager?: SystemLogManager;
@@ -166,8 +173,174 @@ export class AgentRuntime {
     }).map((hook) => hook.content);
   }
 
+  private shouldRunSubagentHooks(input: {
+    session: SessionSnapshot;
+    message: string | undefined;
+    skipSubagentHooks?: boolean | undefined;
+  }): boolean {
+    return (
+      typeof input.message === "string" &&
+      input.message.trim().length > 0 &&
+      input.skipSubagentHooks !== true &&
+      Boolean(this.options.backgroundTaskManager) &&
+      !input.session.context.pendingPermissionRequest &&
+      !input.session.context.pendingConfirmationPayload &&
+      !input.session.context.pendingUserQuestionPayload
+    );
+  }
+
+  private buildHookSubagentTaskState(
+    hook: UserContextHookRecord & {
+      behavior: "subagent";
+      waitMode: "blocking" | "unblocking";
+    }
+  ) {
+    return {
+      kind: "hook_subagent" as const,
+      hookId: hook.id,
+      hookEvent: hook.event as "session_started" | "run_started",
+      waitMode: hook.waitMode ?? "blocking",
+      title: hook.title.trim() || hook.id,
+      configHash: getUserContextHookConfigHash(hook),
+      latestResult: null
+    };
+  }
+
+  private async schedulePreRunSubagentHooks(input: {
+    session: SessionSnapshot;
+    message: string;
+  }): Promise<{
+    session: SessionSnapshot;
+    blockingTaskIds: string[];
+  }> {
+    const taskManager = this.options.backgroundTaskManager;
+    if (!taskManager) {
+      return { session: input.session, blockingTaskIds: [] };
+    }
+
+    const allHooks = this.options.userContextHooks ?? [];
+    const enabledHooks = allHooks.filter(isSubagentUserContextHook);
+    if (enabledHooks.length === 0) {
+      return { session: input.session, blockingTaskIds: [] };
+    }
+
+    const existingTasks = await taskManager.listTasksByParentSession(
+      input.session.sessionId
+    );
+    const nextBlockingTaskIds: string[] = [];
+    let session = input.session;
+
+    for (const hook of enabledHooks) {
+      if (hook.event === "run_end") {
+        continue;
+      }
+
+      if (
+        hook.event === "session_started" &&
+        Math.max(0, input.session.sessionState.turnCount) !== 0
+      ) {
+        continue;
+      }
+
+      const configHash = getUserContextHookConfigHash(hook);
+      const hasMaterializedSessionStartResult =
+        hook.event === "session_started" &&
+        input.session.context.hookContextEntries.some(
+          (entry) =>
+            entry.hookEvent === "session_started" &&
+            entry.hookId === hook.id &&
+            entry.configHash === configHash
+        );
+      const hasPendingSessionStartResult =
+        hook.event === "session_started" &&
+        input.session.context.pendingBackgroundNotifications.some(
+          (notification) =>
+            notification.taskKind === "hook_subagent" &&
+            notification.result?.type === "hook_subagent" &&
+            notification.result.hookId === hook.id &&
+            notification.result.configHash === configHash
+        );
+      const hasActiveSessionStartTask =
+        hook.event === "session_started" &&
+        existingTasks.some(
+          (task) =>
+            task.kind === "hook_subagent" &&
+            (task.status === "queued" ||
+              task.status === "claimed" ||
+              task.status === "running" ||
+              task.status === "cancelling") &&
+            task.taskState?.kind === "hook_subagent" &&
+            task.taskState.hookId === hook.id &&
+            task.taskState.configHash === configHash
+        );
+
+      if (
+        hook.event === "session_started" &&
+        (hasMaterializedSessionStartResult ||
+          hasPendingSessionStartResult ||
+          hasActiveSessionStartTask)
+      ) {
+        continue;
+      }
+
+      const task = await taskManager.enqueueTask({
+        kind: "hook_subagent",
+        parentSessionId: input.session.sessionId,
+        message: hook.content.trim(),
+        workingDirectory: input.session.workingDirectory,
+        model: input.session.model,
+        maxTurns: Math.min(input.session.maxTurns, 8),
+        userId: input.session.context.userId,
+        enabledCapabilityPacks: input.session.context.enabledCapabilityPacks,
+        metadata: {
+          hookId: hook.id,
+          hookEvent: hook.event,
+          configHash,
+          ...(hook.waitMode === "blocking"
+            ? {
+                resumeMessage: input.message,
+                skipSubagentHooks: true
+              }
+            : {})
+        },
+        taskState: this.buildHookSubagentTaskState(hook)
+      });
+      if (this.options.traceManager) {
+        await this.options.traceManager.appendEvent(input.session.sessionId, {
+          kind: "hook_subagent_scheduled",
+          turnCount: Math.max(0, input.session.sessionState.turnCount),
+          taskId: task.taskId,
+          hookId: hook.id,
+          hookEvent: hook.event,
+          waitMode: hook.waitMode,
+          configHash
+        });
+      }
+      await incrementSessionBackgroundTaskCount({
+        sessionManager: this.options.sessionManager,
+        sessionId: input.session.sessionId,
+        delta: 1
+      });
+      if ((hook.waitMode ?? "blocking") === "blocking") {
+        nextBlockingTaskIds.push(task.taskId);
+      }
+      session =
+        (await this.options.sessionManager.getSession(
+          input.session.sessionId
+        )) ?? session;
+    }
+
+    return {
+      session,
+      blockingTaskIds: nextBlockingTaskIds
+    };
+  }
+
   async createSession(
     input: {
+      parentSessionId?: string | null;
+      parentRelationKind?: "fork" | "subagent" | "hook_subagent" | null;
+      forkReplayCheckpointId?: string | null;
       workingDirectory?: string;
       model?: string;
       thinkingEffort?: ReturnType<typeof normalizeThinkingEffort>;
@@ -185,6 +358,9 @@ export class AgentRuntime {
     } = {}
   ): ReturnType<SessionManager["createSession"]> {
     const createInput: {
+      parentSessionId?: string | null;
+      parentRelationKind?: "fork" | "subagent" | "hook_subagent" | null;
+      forkReplayCheckpointId?: string | null;
       workingDirectory?: string;
       model?: string;
       thinkingEffort?: ReturnType<typeof normalizeThinkingEffort>;
@@ -202,6 +378,27 @@ export class AgentRuntime {
     } = {
       model: input.model ?? this.resolveDefaultModel()
     };
+
+    if (
+      typeof input.parentSessionId === "string" ||
+      input.parentSessionId === null
+    ) {
+      createInput.parentSessionId = input.parentSessionId;
+    }
+    if (
+      input.parentRelationKind === "fork" ||
+      input.parentRelationKind === "subagent" ||
+      input.parentRelationKind === "hook_subagent" ||
+      input.parentRelationKind === null
+    ) {
+      createInput.parentRelationKind = input.parentRelationKind;
+    }
+    if (
+      typeof input.forkReplayCheckpointId === "string" ||
+      input.forkReplayCheckpointId === null
+    ) {
+      createInput.forkReplayCheckpointId = input.forkReplayCheckpointId;
+    }
 
     if (typeof input.workingDirectory === "string") {
       createInput.workingDirectory = input.workingDirectory;
@@ -310,10 +507,67 @@ export class AgentRuntime {
       }, 150);
 
       const requestOptions = this.resolveRequestOptions(session);
+      if (
+        this.shouldRunSubagentHooks({
+          session,
+          message: input.message,
+          ...(typeof input.skipSubagentHooks === "boolean"
+            ? { skipSubagentHooks: input.skipSubagentHooks }
+            : {})
+        })
+      ) {
+        const scheduled = await this.schedulePreRunSubagentHooks({
+          session,
+          message: input.message!
+        });
+        session = scheduled.session;
+        if (scheduled.blockingTaskIds.length > 0) {
+          await scheduleBackgroundTaskPollWakeup({
+            sessionManager: this.options.sessionManager,
+            taskManager: this.options.backgroundTaskManager!,
+            parentSessionId: session.sessionId,
+            taskIds: scheduled.blockingTaskIds,
+            initialCheckAfterMs: 1_000,
+            ...(typeof input.message === "string"
+              ? { wakeupMessage: input.message }
+              : {}),
+            extraMetadata: {
+              skipSubagentHooks: true
+            }
+          });
+          session = await this.options.sessionManager.updateContext(
+            session.sessionId,
+            {
+              status: "waiting_for_user_input"
+            }
+          );
+          const blockedResult = await completeLocally({
+            sessionManager: this.options.sessionManager,
+            traceManager: this.options.traceManager,
+            session,
+            turnCount: Math.max(0, session.sessionState.turnCount),
+            loopState: "waiting for input",
+            finalAnswer: "",
+            stopReason: "background_task_running",
+            toolCallCount: 0,
+            toolResultCount: 0,
+            toolOutputs: [],
+            eventSink,
+            appendAssistantMessage: false
+          });
+          await runtimeLogger?.info("run_completed", {
+            stopReason: blockedResult.stopReason,
+            toolCallCount: blockedResult.toolCallCount,
+            toolResultCount: blockedResult.toolResultCount
+          });
+          return blockedResult;
+        }
+      }
+      const activeSession = session;
       const runLoopBaseInput = {
-        client: this.resolveClient(session.model),
+        client: this.resolveClient(activeSession.model),
         prepareMessages: (messages: AnthropicMessage[]) =>
-          this.sanitizeMessagesForModel(session.model, messages),
+          this.sanitizeMessagesForModel(activeSession.model, messages),
         sessionManager: this.options.sessionManager,
         routineRepository: this.options.routineRepository,
         toolRegistry: this.options.toolRegistry,
@@ -331,7 +585,10 @@ export class AgentRuntime {
           ? { permissionReply: input.permissionReply }
           : {}),
         maxTurns:
-          input.maxTurns ?? session.maxTurns ?? this.options.maxTurns ?? 50,
+          input.maxTurns ??
+          activeSession.maxTurns ??
+          this.options.maxTurns ??
+          50,
         maxTokens: this.options.maxTokens,
         toolChoice: this.options.toolChoice,
         eventSink,
@@ -343,6 +600,9 @@ export class AgentRuntime {
           : {}),
         ...(typeof this.options.userCustomPrompt === "string"
           ? { userCustomPrompt: this.options.userCustomPrompt }
+          : {}),
+        ...(input.skipSubagentHooks === true
+          ? { resumeBlockedBySubagentHook: true }
           : {}),
         ...(requestOptions ? { requestOptions } : {}),
         ...(runtimeLogger ? { logger: runtimeLogger } : {})

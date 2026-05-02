@@ -10,6 +10,8 @@ import type {
   CreateSessionInput,
   ConversationBlock,
   LoopState,
+  SessionParentRelationKind,
+  SessionForkCheckpoint,
   SessionSnapshot
 } from "../types.js";
 
@@ -35,12 +37,21 @@ export class FileSessionManager implements SessionManager {
     return path.resolve(this.baseDirectory, "sessions");
   }
 
+  private get forkCheckpointsDirectory(): string {
+    return path.resolve(this.baseDirectory, "fork-checkpoints");
+  }
+
   private snapshotPath(sessionId: string): string {
     return path.join(this.sessionsDirectory, `${sessionId}.json`);
   }
 
+  private forkCheckpointPath(checkpointId: string): string {
+    return path.join(this.forkCheckpointsDirectory, `${checkpointId}.json`);
+  }
+
   private async ensureDirectories(): Promise<void> {
     await fs.mkdir(this.sessionsDirectory, { recursive: true });
+    await fs.mkdir(this.forkCheckpointsDirectory, { recursive: true });
   }
 
   private async readSnapshotFile(
@@ -60,6 +71,31 @@ export class FileSessionManager implements SessionManager {
     await fs.writeFile(
       this.snapshotPath(snapshot.sessionId),
       `${JSON.stringify(snapshot, null, 2)}\n`,
+      "utf8"
+    );
+  }
+
+  private async readForkCheckpointFile(
+    checkpointId: string
+  ): Promise<SessionForkCheckpoint | null> {
+    try {
+      const raw = await fs.readFile(
+        this.forkCheckpointPath(checkpointId),
+        "utf8"
+      );
+      return JSON.parse(raw) as SessionForkCheckpoint;
+    } catch {
+      return null;
+    }
+  }
+
+  private async writeForkCheckpointFile(
+    checkpoint: SessionForkCheckpoint
+  ): Promise<void> {
+    await this.ensureDirectories();
+    await fs.writeFile(
+      this.forkCheckpointPath(checkpoint.id),
+      `${JSON.stringify(checkpoint, null, 2)}\n`,
       "utf8"
     );
   }
@@ -85,6 +121,9 @@ export class FileSessionManager implements SessionManager {
     const sessionId = randomUUID();
     const createSnapshotInput: {
       sessionId: string;
+      parentSessionId?: string | null;
+      parentRelationKind?: SessionParentRelationKind | null;
+      forkReplayCheckpointId?: string | null;
       workingDirectory: string;
       model: string;
       thinkingEffort?: ThinkingEffort;
@@ -104,6 +143,27 @@ export class FileSessionManager implements SessionManager {
       workingDirectory: resolveWorkingDirectory(input.workingDirectory),
       model: input.model ?? DEFAULT_SESSION_MODEL
     };
+
+    if (
+      typeof input.parentSessionId === "string" ||
+      input.parentSessionId === null
+    ) {
+      createSnapshotInput.parentSessionId = input.parentSessionId;
+    }
+    if (
+      input.parentRelationKind === "fork" ||
+      input.parentRelationKind === "subagent" ||
+      input.parentRelationKind === "hook_subagent" ||
+      input.parentRelationKind === null
+    ) {
+      createSnapshotInput.parentRelationKind = input.parentRelationKind;
+    }
+    if (
+      typeof input.forkReplayCheckpointId === "string" ||
+      input.forkReplayCheckpointId === null
+    ) {
+      createSnapshotInput.forkReplayCheckpointId = input.forkReplayCheckpointId;
+    }
 
     if (input.thinkingEffort) {
       createSnapshotInput.thinkingEffort = input.thinkingEffort;
@@ -206,7 +266,8 @@ export class FileSessionManager implements SessionManager {
 
     const current = this.activeRuns.get(sessionId);
     if (current) {
-      const runIds = this.forceStoppedRunIds.get(sessionId) ?? new Set<string>();
+      const runIds =
+        this.forceStoppedRunIds.get(sessionId) ?? new Set<string>();
       runIds.add(current.runId);
       this.forceStoppedRunIds.set(sessionId, runIds);
       this.activeRuns.delete(sessionId);
@@ -227,6 +288,21 @@ export class FileSessionManager implements SessionManager {
   }
 
   async deleteSession(sessionId: string): Promise<boolean> {
+    await this.ensureDirectories();
+    const checkpointEntries = await fs.readdir(this.forkCheckpointsDirectory, {
+      withFileTypes: true
+    });
+    await Promise.all(
+      checkpointEntries
+        .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+        .map(async (entry) => {
+          const checkpointId = entry.name.replace(/\.json$/, "");
+          const checkpoint = await this.readForkCheckpointFile(checkpointId);
+          if (checkpoint?.sessionId === sessionId) {
+            await fs.unlink(this.forkCheckpointPath(checkpointId));
+          }
+        })
+    );
     try {
       await fs.unlink(this.snapshotPath(sessionId));
       return true;
@@ -251,6 +327,59 @@ export class FileSessionManager implements SessionManager {
     }
 
     return this.saveSession(snapshot);
+  }
+
+  async saveForkCheckpoint(
+    checkpoint: SessionForkCheckpoint
+  ): Promise<SessionForkCheckpoint> {
+    const nextCheckpoint = structuredClone(checkpoint) as SessionForkCheckpoint;
+    await this.writeForkCheckpointFile(nextCheckpoint);
+    return structuredClone(nextCheckpoint) as SessionForkCheckpoint;
+  }
+
+  async getForkCheckpoint(
+    checkpointId: string
+  ): Promise<SessionForkCheckpoint | null> {
+    const checkpoint = await this.readForkCheckpointFile(checkpointId);
+    return checkpoint
+      ? (structuredClone(checkpoint) as SessionForkCheckpoint)
+      : null;
+  }
+
+  async findForkCheckpointByAssistantMessage(
+    sessionId: string,
+    assistantMessageId: string
+  ): Promise<SessionForkCheckpoint | null> {
+    const checkpoints = await this.listForkCheckpoints(sessionId);
+    return (
+      checkpoints.find(
+        (checkpoint) => checkpoint.assistantMessageId === assistantMessageId
+      ) ?? null
+    );
+  }
+
+  async listForkCheckpoints(
+    sessionId: string
+  ): Promise<SessionForkCheckpoint[]> {
+    await this.ensureDirectories();
+    const entries = await fs.readdir(this.forkCheckpointsDirectory, {
+      withFileTypes: true
+    });
+    const checkpoints = await Promise.all(
+      entries
+        .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+        .map(async (entry) =>
+          this.readForkCheckpointFile(entry.name.replace(/\.json$/, ""))
+        )
+    );
+    return checkpoints
+      .flatMap((checkpoint) =>
+        checkpoint && checkpoint.sessionId === sessionId ? [checkpoint] : []
+      )
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+      .map(
+        (checkpoint) => structuredClone(checkpoint) as SessionForkCheckpoint
+      );
   }
 
   async appendBlock(

@@ -18,13 +18,19 @@ import {
 } from "@ai-app-template/domain";
 
 import type { ProductDatabaseClient } from "@ai-app-template/db";
-import { agentSessions, sessionMessages } from "@ai-app-template/db";
+import {
+  agentSessions,
+  sessionForkCheckpoints,
+  sessionMessages
+} from "@ai-app-template/db";
 
 import type {
   ConversationBlock,
   CreateSessionInput,
   JsonValue,
   LoopState,
+  SessionParentRelationKind,
+  SessionForkCheckpoint,
   SessionSnapshot,
   ToolResultDetails
 } from "../types.js";
@@ -42,6 +48,7 @@ import { normalizeTodoState } from "./todo-state.js";
 
 type SessionRow = typeof agentSessions.$inferSelect;
 export type SessionMessageRow = typeof sessionMessages.$inferSelect;
+type SessionForkCheckpointRow = typeof sessionForkCheckpoints.$inferSelect;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -305,6 +312,7 @@ export function toSessionContext(row: SessionRow): ScheduleSessionContext {
   const pendingBackgroundNotifications = parseJsonValue(
     row.pendingBackgroundNotifications
   );
+  const hookContextEntries = parseJsonValue(row.hookContextEntries);
   const todoState = normalizeTodoState(
     parseJsonValue(row.todoState) as SessionTodoState | null | undefined
   );
@@ -347,6 +355,9 @@ export function toSessionContext(row: SessionRow): ScheduleSessionContext {
     )
       ? (pendingBackgroundNotifications as SessionBackgroundNotification[])
       : [],
+    hookContextEntries: Array.isArray(hookContextEntries)
+      ? (hookContextEntries as ScheduleSessionContext["hookContextEntries"])
+      : [],
     todoState,
     fullCompactionState: isRecord(fullCompactionState)
       ? (fullCompactionState as unknown as SessionFullCompactionState)
@@ -354,6 +365,79 @@ export function toSessionContext(row: SessionRow): ScheduleSessionContext {
     pendingConflictSummary: row.pendingConflictSummary,
     firstUserMessage: row.firstUserMessage,
     lastUserMessage: row.lastUserMessage
+  };
+}
+
+function toSessionSnapshot(
+  row: SessionRow,
+  messageRows: SessionMessageRow[]
+): SessionSnapshot {
+  return {
+    sessionId: row.id,
+    parentSessionId: row.parentSessionId,
+    parentRelationKind:
+      row.parentRelationKind === "fork" ||
+      row.parentRelationKind === "subagent" ||
+      row.parentRelationKind === "hook_subagent"
+        ? row.parentRelationKind
+        : null,
+    forkReplayCheckpointId: row.forkReplayCheckpointId,
+    workingDirectory: row.workingDirectory,
+    model: row.model,
+    contextWindow: row.contextWindow,
+    maxTurns: row.maxTurns,
+    context: toSessionContext(row),
+    messages: messageRows.map(toConversationBlock),
+    sessionState: {
+      loopState: row.loopState as LoopState,
+      turnCount: row.turnCount,
+      lastError: row.lastError,
+      pendingToolCallIds: toStringArray(row.pendingToolCallIds),
+      interruptRequested: row.interruptRequested,
+      historyCompactionsSinceFullCompaction:
+        row.historyCompactionsSinceFullCompaction ?? 0
+    },
+    inputTokensCount: row.inputTokensCount,
+    promptCacheKey: row.promptCacheKey,
+    updatedAt: toIsoString(row.updatedAt)
+  };
+}
+
+function toSessionForkCheckpoint(
+  row: SessionForkCheckpointRow
+): SessionForkCheckpoint | null {
+  const snapshot = parseJsonValue(row.snapshotJson);
+  const promptSeed = parseJsonValue(row.promptSeedJson);
+  if (!isSessionSnapshot(snapshot) || !isRecord(promptSeed)) {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    sessionId: row.sessionId,
+    assistantMessageId: row.assistantMessageId,
+    turnCount: row.turnCount,
+    baseMessageCount: row.baseMessageCount,
+    responseGroupId: row.responseGroupId,
+    snapshot,
+    promptSeed: {
+      system: typeof promptSeed.system === "string" ? promptSeed.system : "",
+      requestMessages: Array.isArray(promptSeed.requestMessages)
+        ? (promptSeed.requestMessages as SessionForkCheckpoint["promptSeed"]["requestMessages"])
+        : [],
+      runtimeContextMessages: Array.isArray(promptSeed.runtimeContextMessages)
+        ? (promptSeed.runtimeContextMessages as SessionForkCheckpoint["promptSeed"]["runtimeContextMessages"])
+        : [],
+      tools: Array.isArray(promptSeed.tools)
+        ? (promptSeed.tools as SessionForkCheckpoint["promptSeed"]["tools"])
+        : [],
+      toolChoice:
+        promptSeed.toolChoice === null || isRecord(promptSeed.toolChoice)
+          ? (promptSeed.toolChoice as SessionForkCheckpoint["promptSeed"]["toolChoice"])
+          : null
+    },
+    createdAt: toIsoString(row.createdAt),
+    updatedAt: toIsoString(row.updatedAt)
   };
 }
 
@@ -467,6 +551,9 @@ export class PostgresSessionManager implements SessionManager {
   ): Promise<SessionSnapshot> {
     const createSnapshotInput: {
       sessionId: string;
+      parentSessionId?: string | null;
+      parentRelationKind?: SessionParentRelationKind | null;
+      forkReplayCheckpointId?: string | null;
       workingDirectory: string;
       model: string;
       thinkingEffort?: ThinkingEffort;
@@ -486,6 +573,27 @@ export class PostgresSessionManager implements SessionManager {
       workingDirectory: resolveWorkingDirectory(input.workingDirectory),
       model: input.model ?? DEFAULT_SESSION_MODEL
     };
+
+    if (
+      typeof input.parentSessionId === "string" ||
+      input.parentSessionId === null
+    ) {
+      createSnapshotInput.parentSessionId = input.parentSessionId;
+    }
+    if (
+      input.parentRelationKind === "fork" ||
+      input.parentRelationKind === "subagent" ||
+      input.parentRelationKind === "hook_subagent" ||
+      input.parentRelationKind === null
+    ) {
+      createSnapshotInput.parentRelationKind = input.parentRelationKind;
+    }
+    if (
+      typeof input.forkReplayCheckpointId === "string" ||
+      input.forkReplayCheckpointId === null
+    ) {
+      createSnapshotInput.forkReplayCheckpointId = input.forkReplayCheckpointId;
+    }
 
     if (input.thinkingEffort) {
       createSnapshotInput.thinkingEffort = input.thinkingEffort;
@@ -548,27 +656,7 @@ export class PostgresSessionManager implements SessionManager {
       .where(eq(sessionMessages.sessionId, sessionId))
       .orderBy(asc(sessionMessages.messageIndex));
 
-    return {
-      sessionId: row.id,
-      workingDirectory: row.workingDirectory,
-      model: row.model,
-      contextWindow: row.contextWindow,
-      maxTurns: row.maxTurns,
-      context: toSessionContext(row),
-      messages: messageRows.map(toConversationBlock),
-      sessionState: {
-        loopState: row.loopState as LoopState,
-        turnCount: row.turnCount,
-        lastError: row.lastError,
-        pendingToolCallIds: toStringArray(row.pendingToolCallIds),
-        interruptRequested: row.interruptRequested,
-        historyCompactionsSinceFullCompaction:
-          row.historyCompactionsSinceFullCompaction ?? 0
-      },
-      inputTokensCount: row.inputTokensCount,
-      promptCacheKey: row.promptCacheKey,
-      updatedAt: toIsoString(row.updatedAt)
-    };
+    return toSessionSnapshot(row, messageRows);
   }
 
   async listSessions(): Promise<SessionSnapshot[]> {
@@ -640,7 +728,8 @@ export class PostgresSessionManager implements SessionManager {
       .limit(1);
     const activeRunId = activeRunRows[0]?.activeRunId;
     if (activeRunId) {
-      const runIds = this.forceStoppedRunIds.get(sessionId) ?? new Set<string>();
+      const runIds =
+        this.forceStoppedRunIds.get(sessionId) ?? new Set<string>();
       runIds.add(activeRunId);
       this.forceStoppedRunIds.set(sessionId, runIds);
     }
@@ -690,6 +779,9 @@ export class PostgresSessionManager implements SessionManager {
   }
 
   async deleteSession(sessionId: string): Promise<boolean> {
+    await this.db
+      .delete(sessionForkCheckpoints)
+      .where(eq(sessionForkCheckpoints.sessionId, sessionId));
     const rows = await this.db
       .delete(agentSessions)
       .where(eq(agentSessions.id, sessionId))
@@ -724,6 +816,101 @@ export class PostgresSessionManager implements SessionManager {
     }
 
     return cloneSnapshot(nextSnapshot);
+  }
+
+  async saveForkCheckpoint(
+    checkpoint: SessionForkCheckpoint
+  ): Promise<SessionForkCheckpoint> {
+    const nextCheckpoint = structuredClone(checkpoint) as SessionForkCheckpoint;
+    const savedAt = new Date().toISOString();
+    await this.db
+      .insert(sessionForkCheckpoints)
+      .values({
+        id: nextCheckpoint.id,
+        sessionId: nextCheckpoint.sessionId,
+        assistantMessageId: nextCheckpoint.assistantMessageId,
+        turnCount: nextCheckpoint.turnCount,
+        baseMessageCount: nextCheckpoint.baseMessageCount,
+        responseGroupId: nextCheckpoint.responseGroupId ?? null,
+        snapshotJson: nextCheckpoint.snapshot as unknown as Record<
+          string,
+          unknown
+        >,
+        promptSeedJson: nextCheckpoint.promptSeed as unknown as Record<
+          string,
+          unknown
+        >,
+        createdAt: nextCheckpoint.createdAt,
+        updatedAt: savedAt
+      })
+      .onConflictDoUpdate({
+        target: sessionForkCheckpoints.id,
+        set: {
+          assistantMessageId: nextCheckpoint.assistantMessageId,
+          turnCount: nextCheckpoint.turnCount,
+          baseMessageCount: nextCheckpoint.baseMessageCount,
+          responseGroupId: nextCheckpoint.responseGroupId ?? null,
+          snapshotJson: nextCheckpoint.snapshot as unknown as Record<
+            string,
+            unknown
+          >,
+          promptSeedJson: nextCheckpoint.promptSeed as unknown as Record<
+            string,
+            unknown
+          >,
+          updatedAt: savedAt
+        }
+      });
+
+    const saved = await this.getForkCheckpoint(nextCheckpoint.id);
+    if (!saved) {
+      throw new Error(`Failed to save fork checkpoint ${nextCheckpoint.id}`);
+    }
+    return saved;
+  }
+
+  async getForkCheckpoint(
+    checkpointId: string
+  ): Promise<SessionForkCheckpoint | null> {
+    const rows = await this.db
+      .select()
+      .from(sessionForkCheckpoints)
+      .where(eq(sessionForkCheckpoints.id, checkpointId))
+      .limit(1);
+    const row = rows[0];
+    return row ? toSessionForkCheckpoint(row) : null;
+  }
+
+  async findForkCheckpointByAssistantMessage(
+    sessionId: string,
+    assistantMessageId: string
+  ): Promise<SessionForkCheckpoint | null> {
+    const rows = await this.db
+      .select()
+      .from(sessionForkCheckpoints)
+      .where(
+        and(
+          eq(sessionForkCheckpoints.sessionId, sessionId),
+          eq(sessionForkCheckpoints.assistantMessageId, assistantMessageId)
+        )
+      )
+      .limit(1);
+    const row = rows[0];
+    return row ? toSessionForkCheckpoint(row) : null;
+  }
+
+  async listForkCheckpoints(
+    sessionId: string
+  ): Promise<SessionForkCheckpoint[]> {
+    const rows = await this.db
+      .select()
+      .from(sessionForkCheckpoints)
+      .where(eq(sessionForkCheckpoints.sessionId, sessionId))
+      .orderBy(asc(sessionForkCheckpoints.createdAt));
+    return rows.flatMap((row) => {
+      const checkpoint = toSessionForkCheckpoint(row);
+      return checkpoint ? [checkpoint] : [];
+    });
   }
 
   async appendBlock(
@@ -945,11 +1132,15 @@ export class PostgresSessionManager implements SessionManager {
         pendingUserQuestionPayload: snapshot.context.pendingUserQuestionPayload,
         pendingBackgroundNotifications:
           snapshot.context.pendingBackgroundNotifications,
+        hookContextEntries: snapshot.context.hookContextEntries,
         todoState: snapshot.context.todoState ?? null,
         fullCompactionState: snapshot.context.fullCompactionState ?? null,
         pendingConflictSummary: snapshot.context.pendingConflictSummary,
         firstUserMessage: snapshot.context.firstUserMessage,
         lastUserMessage: snapshot.context.lastUserMessage,
+        parentSessionId: snapshot.parentSessionId ?? null,
+        parentRelationKind: snapshot.parentRelationKind ?? null,
+        forkReplayCheckpointId: snapshot.forkReplayCheckpointId ?? null,
         workingDirectory: snapshot.workingDirectory,
         model: snapshot.model,
         loopState: snapshot.sessionState.loopState,
@@ -991,11 +1182,15 @@ export class PostgresSessionManager implements SessionManager {
             snapshot.context.pendingUserQuestionPayload,
           pendingBackgroundNotifications:
             snapshot.context.pendingBackgroundNotifications,
+          hookContextEntries: snapshot.context.hookContextEntries,
           todoState: snapshot.context.todoState ?? null,
           fullCompactionState: snapshot.context.fullCompactionState ?? null,
           pendingConflictSummary: snapshot.context.pendingConflictSummary,
           firstUserMessage: snapshot.context.firstUserMessage,
           lastUserMessage: snapshot.context.lastUserMessage,
+          parentSessionId: snapshot.parentSessionId ?? null,
+          parentRelationKind: snapshot.parentRelationKind ?? null,
+          forkReplayCheckpointId: snapshot.forkReplayCheckpointId ?? null,
           workingDirectory: snapshot.workingDirectory,
           model: snapshot.model,
           loopState: snapshot.sessionState.loopState,

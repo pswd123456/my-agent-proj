@@ -18,9 +18,14 @@ import { streamAnthropicMessage } from "../model.js";
 import {
   buildPromptRequestMessages,
   summarizePromptEnvelopeComposition,
+  toAnthropicMessages,
   type PromptBuilder
 } from "../prompt.js";
 import type { SessionManager } from "../session.js";
+import {
+  buildForkReplayRequestMessages,
+  findLastAssistantBlock
+} from "../session/fork.js";
 import {
   discoverWorkspaceSkills,
   filterWorkspaceSkills
@@ -35,6 +40,10 @@ import { resolveUserContextHookSections } from "../context-hooks.js";
 import { scheduleBackgroundTaskPollWakeup } from "../background-tasks/orchestration.js";
 import { consumeBackgroundNotifications } from "../background-tasks/notifications.js";
 import { readAcceptedBackgroundTaskHandle } from "../background-tasks/task-handle.js";
+import {
+  materializeHookContextEntries,
+  resolveInjectedHookContextEntries
+} from "../subagent-hooks.js";
 import type { ToolRegistry } from "../tools/registry.js";
 import type {
   UserContextHookRecord,
@@ -64,6 +73,7 @@ import {
   prepareToolAction
 } from "./tool-execution.js";
 import { handlePendingUserQuestionReply } from "./user-question.js";
+import { estimateTextTokens } from "./token-budget.js";
 
 interface StreamedAssistantSnapshot {
   assistantMessageId: string;
@@ -74,6 +84,22 @@ interface StreamedThinkingSnapshot {
   thinkingMessageId: string;
   text: string;
   signature: string;
+}
+
+interface TurnForkCheckpointSeed {
+  turnCount: number;
+  baseMessageCount: number;
+  promptSeed: {
+    system: string;
+    requestMessages: AnthropicMessage[];
+    runtimeContextMessages: AnthropicMessage[];
+    tools: Array<{
+      name: string;
+      description: string;
+      input_schema: Record<string, unknown>;
+    }>;
+    toolChoice: AnthropicToolChoice | null;
+  };
 }
 
 function getUnresolvedPendingToolCalls(session: SessionSnapshot): Array<{
@@ -155,6 +181,17 @@ function getInterruptedAssistantSnapshot(
   };
 }
 
+function getLastAssistantCheckpointMetadata(session: SessionSnapshot): {
+  assistantMessageId: string | null;
+  responseGroupId: string | null;
+} {
+  const lastAssistant = findLastAssistantBlock(session.messages);
+  return {
+    assistantMessageId: lastAssistant?.id ?? null,
+    responseGroupId: lastAssistant?.responseGroupId ?? null
+  };
+}
+
 export async function runSessionLoop(input: {
   client: AnthropicCompatibleClient;
   prepareMessages?: (messages: AnthropicMessage[]) => AnthropicMessage[];
@@ -180,6 +217,7 @@ export async function runSessionLoop(input: {
   eventSink: RunEventSink | undefined;
   logger?: Logger;
   emitCompletedRunEvent?: boolean;
+  resumeBlockedBySubagentHook?: boolean;
 }): Promise<RunSessionResult> {
   let session = input.session;
   const pendingConfirmationAtStart = session.context.pendingConfirmationPayload
@@ -206,6 +244,10 @@ export async function runSessionLoop(input: {
     hooks: input.userContextHooks,
     session
   });
+  let injectedHookContextEntries = resolveInjectedHookContextEntries({
+    session,
+    hooks: input.userContextHooks
+  });
   const workspaceInstructionsManager = createWorkspaceInstructionsManager();
   const workspaceInstructions = await workspaceInstructionsManager.load(
     session.workingDirectory
@@ -224,6 +266,49 @@ export async function runSessionLoop(input: {
     StreamedAssistantSnapshot
   > | null = null;
   let interruptRequestLogged = false;
+  let currentTurnForkCheckpointSeed: TurnForkCheckpointSeed | null = null;
+  let consumedForkReplayCheckpointId: string | null = null;
+
+  async function materializePendingHookNotifications(
+    turnCount: number
+  ): Promise<void> {
+    const materialized = materializeHookContextEntries({
+      session,
+      hooks: input.userContextHooks
+    });
+    if (materialized.consumedNotificationIds.length > 0) {
+      session = await input.sessionManager.updateContext(session.sessionId, {
+        hookContextEntries: materialized.nextEntries
+      });
+      if (materialized.materializedEntries.length > 0 && input.traceManager) {
+        await input.traceManager.appendEvent(session.sessionId, {
+          kind: "hook_context_materialized",
+          turnCount,
+          notificationIds: materialized.consumedNotificationIds,
+          entries: materialized.materializedEntries
+        });
+      }
+      await consumeBackgroundNotifications({
+        sessionManager: input.sessionManager,
+        traceManager: input.traceManager,
+        eventSink: input.eventSink,
+        sessionId: session.sessionId,
+        turnCount,
+        notificationIds: materialized.consumedNotificationIds
+      });
+      session =
+        (await input.sessionManager.getSession(session.sessionId)) ?? session;
+    }
+
+    injectedHookContextEntries = resolveInjectedHookContextEntries({
+      session,
+      hooks: input.userContextHooks
+    });
+    visibleBackgroundNotificationIds =
+      session.context.pendingBackgroundNotifications.map(
+        (notification) => notification.id
+      );
+  }
 
   async function maybeCompleteInterrupted(): Promise<RunSessionResult | null> {
     const interruptRequested = await input.isInterruptRequested();
@@ -247,7 +332,7 @@ export async function runSessionLoop(input: {
     const partialAssistant = getInterruptedAssistantSnapshot(
       currentStreamedAssistantTexts
     );
-    return completeInterruptedRun({
+    const result = await completeInterruptedRun({
       sessionManager: input.sessionManager,
       traceManager: input.traceManager,
       session,
@@ -258,6 +343,12 @@ export async function runSessionLoop(input: {
       eventSink: input.eventSink,
       partialAssistantText: partialAssistant?.text ?? null,
       partialAssistantMessageId: partialAssistant?.assistantMessageId ?? null
+    });
+    return finalizeTerminalResult({
+      result,
+      checkpointSeed: currentTurnForkCheckpointSeed,
+      consumeNotifications: false,
+      assistantMessageId: partialAssistant?.assistantMessageId ?? null
     });
   }
 
@@ -320,6 +411,91 @@ export async function runSessionLoop(input: {
     };
   }
 
+  async function maybeClearForkReplayMarker(
+    result: RunSessionResult
+  ): Promise<RunSessionResult> {
+    if (
+      !consumedForkReplayCheckpointId ||
+      result.session.forkReplayCheckpointId !== consumedForkReplayCheckpointId
+    ) {
+      return result;
+    }
+
+    const sessionWithoutReplayMarker = await input.sessionManager.saveSession({
+      ...result.session,
+      forkReplayCheckpointId: null
+    });
+    consumedForkReplayCheckpointId = null;
+    return {
+      ...result,
+      session: sessionWithoutReplayMarker
+    };
+  }
+
+  async function maybePersistForkCheckpoint(inputForCheckpoint: {
+    result: RunSessionResult;
+    checkpointSeed: TurnForkCheckpointSeed | null;
+    assistantMessageId?: string | null | undefined;
+    responseGroupId?: string | null | undefined;
+  }): Promise<RunSessionResult> {
+    if (!inputForCheckpoint.checkpointSeed) {
+      return inputForCheckpoint.result;
+    }
+
+    const fallbackMetadata = getLastAssistantCheckpointMetadata(
+      inputForCheckpoint.result.session
+    );
+    const assistantMessageId =
+      inputForCheckpoint.assistantMessageId ??
+      fallbackMetadata.assistantMessageId;
+    if (!assistantMessageId) {
+      return inputForCheckpoint.result;
+    }
+
+    await input.sessionManager.saveForkCheckpoint({
+      id: randomUUID(),
+      sessionId: inputForCheckpoint.result.session.sessionId,
+      assistantMessageId,
+      turnCount: inputForCheckpoint.checkpointSeed.turnCount,
+      baseMessageCount: inputForCheckpoint.checkpointSeed.baseMessageCount,
+      responseGroupId:
+        inputForCheckpoint.responseGroupId ?? fallbackMetadata.responseGroupId,
+      snapshot: inputForCheckpoint.result.session,
+      promptSeed: inputForCheckpoint.checkpointSeed.promptSeed,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
+
+    return inputForCheckpoint.result;
+  }
+
+  async function finalizeTerminalResult(inputForFinalize: {
+    result: RunSessionResult;
+    checkpointSeed: TurnForkCheckpointSeed | null;
+    notificationIds?: string[];
+    consumeNotifications?: boolean;
+    assistantMessageId?: string | null | undefined;
+    responseGroupId?: string | null | undefined;
+  }): Promise<RunSessionResult> {
+    let result = inputForFinalize.result;
+    if (inputForFinalize.consumeNotifications !== false) {
+      result = await finalizeResultAfterNotificationConsumption(
+        result,
+        inputForFinalize.checkpointSeed?.turnCount ??
+          result.session.sessionState.turnCount,
+        inputForFinalize.notificationIds
+      );
+    }
+    result = await maybeClearForkReplayMarker(result);
+    result = await maybePersistForkCheckpoint({
+      result,
+      checkpointSeed: inputForFinalize.checkpointSeed,
+      assistantMessageId: inputForFinalize.assistantMessageId,
+      responseGroupId: inputForFinalize.responseGroupId
+    });
+    return result;
+  }
+
   async function maybePauseForAcceptedBackgroundTask(inputForPause: {
     output: RunSessionResult["toolOutputs"][number];
     turnCount: number;
@@ -360,11 +536,11 @@ export async function runSessionLoop(input: {
       appendAssistantMessage: false
     });
 
-    return finalizeResultAfterNotificationConsumption(
+    return finalizeTerminalResult({
       result,
-      inputForPause.turnCount,
-      inputForPause.notificationIds
-    );
+      checkpointSeed: currentTurnForkCheckpointSeed,
+      notificationIds: inputForPause.notificationIds
+    });
   }
 
   async function maybePauseForUnblockingBackgroundTasks(inputForPause: {
@@ -420,11 +596,11 @@ export async function runSessionLoop(input: {
       appendAssistantMessage: false
     });
 
-    return finalizeResultAfterNotificationConsumption(
+    return finalizeTerminalResult({
       result,
-      inputForPause.turnCount,
-      inputForPause.notificationIds
-    );
+      checkpointSeed: currentTurnForkCheckpointSeed,
+      notificationIds: inputForPause.notificationIds
+    });
   }
 
   async function executeToolCallsWithOrchestration(inputForExecution: {
@@ -556,21 +732,23 @@ export async function runSessionLoop(input: {
           appendAssistantMessage: false,
           clearPendingToolCallIds: false
         });
-        return finalizeResultAfterNotificationConsumption(
+        return finalizeTerminalResult({
           result,
-          inputForExecution.turnCount,
-          inputForExecution.notificationIds
-        );
+          checkpointSeed: currentTurnForkCheckpointSeed,
+          notificationIds: inputForExecution.notificationIds
+        });
       }
 
       toolResultCount += 1;
       toolOutputs.push(executed.output);
 
-      const pausedForActiveDelegate = await maybePauseForAcceptedBackgroundTask({
-        output: executed.output,
-        turnCount: inputForExecution.turnCount,
-        notificationIds: inputForExecution.notificationIds
-      });
+      const pausedForActiveDelegate = await maybePauseForAcceptedBackgroundTask(
+        {
+          output: executed.output,
+          turnCount: inputForExecution.turnCount,
+          notificationIds: inputForExecution.notificationIds
+        }
+      );
       if (pausedForActiveDelegate) {
         return pausedForActiveDelegate;
       }
@@ -625,6 +803,38 @@ export async function runSessionLoop(input: {
         sessionManager: input.sessionManager,
         session
       });
+    }
+
+    if (input.resumeBlockedBySubagentHook) {
+      await materializePendingHookNotifications(
+        Math.max(0, session.sessionState.turnCount)
+      );
+      const blockingHookFailure =
+        session.context.pendingBackgroundNotifications.find(
+          (notification) =>
+            notification.taskKind === "hook_subagent" &&
+            notification.kind !== "task_completed"
+        );
+      if (blockingHookFailure) {
+        const result = await completeLocally({
+          sessionManager: input.sessionManager,
+          traceManager: input.traceManager,
+          session,
+          turnCount: Math.max(0, session.sessionState.turnCount),
+          loopState: "failed",
+          finalAnswer: blockingHookFailure.content,
+          stopReason: "hook_subagent_failed",
+          toolCallCount,
+          toolResultCount,
+          toolOutputs,
+          eventSink: input.eventSink
+        });
+        return finalizeTerminalResult({
+          result,
+          checkpointSeed: currentTurnForkCheckpointSeed,
+          notificationIds: [blockingHookFailure.id]
+        });
+      }
     }
 
     if (input.message && !consumedPermissionReply) {
@@ -704,6 +914,7 @@ export async function runSessionLoop(input: {
       const turnCount = turn + 1;
       currentTurnCount = turnCount;
       currentStreamedAssistantTexts = null;
+      await materializePendingHookNotifications(turnCount);
       session = await input.sessionManager.saveSession(session);
       session = await input.sessionManager.setTurnCount(
         session.sessionId,
@@ -722,37 +933,131 @@ export async function runSessionLoop(input: {
         }
       }
 
-      const preparedPrompt = await preparePromptWithCompaction({
-        client: input.client,
-        sessionManager: input.sessionManager,
-        promptBuilder: input.promptBuilder,
-        toolRegistry: input.toolRegistry,
-        traceManager: input.traceManager,
-        eventSink: input.eventSink,
-        session,
-        turnCount,
-        toolChoice: input.toolChoice,
-        runtimeContext: {
-          currentTurnCount: turnCount,
-          maxTurns: input.maxTurns,
-          ...(typeof input.userCustomPrompt === "string"
-            ? { userCustomPrompt: input.userCustomPrompt }
-            : {}),
-          contextHooks: resolvedContextHooks,
-          workspaceInstructions: workspaceInstructions.instructions
-        },
-        skills: visibleSkills,
-        ...(typeof input.maxTokens === "number"
-          ? { maxTokens: input.maxTokens }
-          : {})
-      });
-      session = preparedPrompt.session;
-      const promptEnvelope = preparedPrompt.promptEnvelope;
-      session = await input.sessionManager.setPromptCacheKey(
-        session.sessionId,
-        promptEnvelope.cacheKey
-      );
-      const requestMessages = buildPromptRequestMessages(promptEnvelope);
+      currentTurnForkCheckpointSeed = null;
+      const baseMessageCount = session.messages.length;
+      const shouldUseForkReplay =
+        turn === carriedTurnCount &&
+        typeof session.forkReplayCheckpointId === "string" &&
+        session.forkReplayCheckpointId.length > 0;
+      let promptSystem = "";
+      let promptPrefixMessages: AnthropicMessage[] = [];
+      let promptMessages: AnthropicMessage[] = [];
+      let promptRuntimeContextMessages: AnthropicMessage[] = [];
+      let promptDynamicPromptMessages: string[] = [];
+      let promptTools: Array<{
+        name: string;
+        description: string;
+        input_schema: Record<string, unknown>;
+      }> = [];
+      let promptCacheKey = session.promptCacheKey;
+      let requestMessages: AnthropicMessage[] = [];
+      let requestToolChoice: AnthropicToolChoice | null =
+        input.toolChoice ?? null;
+      let estimatedInputTokens = 0;
+      let promptCompositionStats:
+        | ReturnType<typeof summarizePromptEnvelopeComposition>
+        | undefined;
+
+      if (shouldUseForkReplay) {
+        const replayCheckpoint = await input.sessionManager.getForkCheckpoint(
+          session.forkReplayCheckpointId as string
+        );
+        if (!replayCheckpoint) {
+          throw new Error(
+            `Missing fork replay checkpoint ${session.forkReplayCheckpointId}.`
+          );
+        }
+
+        requestMessages = buildForkReplayRequestMessages({
+          session,
+          checkpoint: replayCheckpoint
+        });
+        promptSystem = replayCheckpoint.promptSeed.system;
+        promptMessages = requestMessages;
+        promptRuntimeContextMessages =
+          replayCheckpoint.promptSeed.runtimeContextMessages;
+        promptTools = replayCheckpoint.promptSeed.tools;
+        promptCacheKey = replayCheckpoint.snapshot.promptCacheKey;
+        requestToolChoice = replayCheckpoint.promptSeed.toolChoice;
+        estimatedInputTokens = estimateTextTokens(
+          JSON.stringify({
+            system: promptSystem,
+            messages: requestMessages,
+            tools: promptTools,
+            ...(requestToolChoice ? { toolChoice: requestToolChoice } : {})
+          })
+        );
+        consumedForkReplayCheckpointId = replayCheckpoint.id;
+        currentTurnForkCheckpointSeed = {
+          turnCount,
+          baseMessageCount,
+          promptSeed: {
+            system: promptSystem,
+            requestMessages: structuredClone(requestMessages),
+            runtimeContextMessages: structuredClone(
+              replayCheckpoint.promptSeed.runtimeContextMessages
+            ),
+            tools: structuredClone(promptTools),
+            toolChoice: requestToolChoice
+          }
+        };
+      } else {
+        const preparedPrompt = await preparePromptWithCompaction({
+          client: input.client,
+          sessionManager: input.sessionManager,
+          promptBuilder: input.promptBuilder,
+          toolRegistry: input.toolRegistry,
+          traceManager: input.traceManager,
+          eventSink: input.eventSink,
+          session,
+          turnCount,
+          toolChoice: input.toolChoice,
+          runtimeContext: {
+            currentTurnCount: turnCount,
+            maxTurns: input.maxTurns,
+            ...(typeof input.userCustomPrompt === "string"
+              ? { userCustomPrompt: input.userCustomPrompt }
+              : {}),
+            contextHooks: resolvedContextHooks,
+            hookContextEntries: injectedHookContextEntries,
+            workspaceInstructions: workspaceInstructions.instructions
+          },
+          skills: visibleSkills,
+          ...(typeof input.maxTokens === "number"
+            ? { maxTokens: input.maxTokens }
+            : {})
+        });
+        session = preparedPrompt.session;
+        const promptEnvelope = preparedPrompt.promptEnvelope;
+        promptSystem = promptEnvelope.system;
+        promptPrefixMessages = promptEnvelope.prefixMessages;
+        promptMessages = promptEnvelope.messages;
+        promptRuntimeContextMessages = promptEnvelope.runtimeContextMessages;
+        promptDynamicPromptMessages = promptEnvelope.dynamicPromptMessages;
+        promptTools = promptEnvelope.tools;
+        promptCacheKey = promptEnvelope.cacheKey;
+        session = await input.sessionManager.setPromptCacheKey(
+          session.sessionId,
+          promptEnvelope.cacheKey
+        );
+        requestMessages = buildPromptRequestMessages(promptEnvelope);
+        estimatedInputTokens = preparedPrompt.estimatedInputTokens;
+        promptCompositionStats =
+          summarizePromptEnvelopeComposition(promptEnvelope);
+        currentTurnForkCheckpointSeed = {
+          turnCount,
+          baseMessageCount,
+          promptSeed: {
+            system: promptSystem,
+            requestMessages: structuredClone(requestMessages),
+            runtimeContextMessages: structuredClone(
+              promptRuntimeContextMessages
+            ),
+            tools: structuredClone(promptTools),
+            toolChoice: requestToolChoice
+          }
+        };
+      }
 
       await emitTraceEvent({
         traceManager: input.traceManager,
@@ -809,20 +1114,21 @@ export async function runSessionLoop(input: {
         event: {
           kind: "prompt",
           turnCount,
-          system: promptEnvelope.system,
-          prefixMessages: promptEnvelope.prefixMessages,
-          messages: promptEnvelope.messages,
-          runtimeContextMessages: promptEnvelope.runtimeContextMessages,
+          system: promptSystem,
+          prefixMessages: promptPrefixMessages,
+          messages: promptMessages,
+          runtimeContextMessages: promptRuntimeContextMessages,
           requestMessages,
-          dynamicPromptMessages: promptEnvelope.dynamicPromptMessages,
-          tools: promptEnvelope.tools,
-          toolChoice: input.toolChoice ?? null,
-          cacheKey: promptEnvelope.cacheKey,
-          compositionStats: summarizePromptEnvelopeComposition(promptEnvelope)
+          dynamicPromptMessages: promptDynamicPromptMessages,
+          tools: promptTools,
+          toolChoice: requestToolChoice,
+          cacheKey: promptCacheKey,
+          ...(promptCompositionStats
+            ? { compositionStats: promptCompositionStats }
+            : {})
         }
       });
 
-      const estimatedInputTokens = preparedPrompt.estimatedInputTokens;
       if (estimatedInputTokens > session.contextWindow) {
         const errorMessage = [
           `Estimated prompt input ${estimatedInputTokens} tokens exceeds the configured context window ${session.contextWindow}.`,
@@ -853,7 +1159,7 @@ export async function runSessionLoop(input: {
             loopState: "failed"
           }
         });
-        const result = {
+        let result: RunSessionResult = {
           session,
           finalAnswer: null,
           status: "failed" as const,
@@ -862,12 +1168,13 @@ export async function runSessionLoop(input: {
           toolResultCount,
           toolOutputs
         };
+        result = await maybeClearForkReplayMarker(result);
         if (input.eventSink) {
           await emitRunEvent(
             input.eventSink,
             createRunErrorEvent({
-              sessionId: session.sessionId,
-              session,
+              sessionId: result.session.sessionId,
+              session: result.session,
               error: errorMessage,
               status: "failed",
               stopReason: "context_window_exceeded",
@@ -889,13 +1196,13 @@ export async function runSessionLoop(input: {
 
       const request: AnthropicMessageRequest = {
         model: session.model,
-        system: promptEnvelope.system,
+        system: promptSystem,
         messages: input.prepareMessages?.(requestMessages) ?? requestMessages,
-        tools: promptEnvelope.tools,
+        tools: promptTools,
         ...(typeof input.maxTokens === "number"
           ? { max_tokens: input.maxTokens }
           : {}),
-        ...(input.toolChoice ? { tool_choice: input.toolChoice } : {}),
+        ...(requestToolChoice ? { tool_choice: requestToolChoice } : {}),
         ...(input.requestOptions ?? {})
       };
 
@@ -1223,11 +1530,12 @@ export async function runSessionLoop(input: {
             eventSink: input.eventSink,
             emitCompletedRunEvent: input.emitCompletedRunEvent
           });
-          return finalizeResultAfterNotificationConsumption(
+          return finalizeTerminalResult({
             result,
-            turnCount,
-            notificationIdsVisibleThisTurn
-          );
+            checkpointSeed: currentTurnForkCheckpointSeed,
+            notificationIds: notificationIdsVisibleThisTurn,
+            responseGroupId
+          });
         }
 
         if (
@@ -1260,11 +1568,12 @@ export async function runSessionLoop(input: {
             eventSink: input.eventSink,
             emitCompletedRunEvent: input.emitCompletedRunEvent
           });
-          return finalizeResultAfterNotificationConsumption(
+          return finalizeTerminalResult({
             result,
-            turnCount,
-            notificationIdsVisibleThisTurn
-          );
+            checkpointSeed: currentTurnForkCheckpointSeed,
+            notificationIds: notificationIdsVisibleThisTurn,
+            responseGroupId
+          });
         }
 
         session = await input.sessionManager.setLoopState(
@@ -1317,11 +1626,12 @@ export async function runSessionLoop(input: {
             emitCompletedRunEvent: input.emitCompletedRunEvent,
             appendAssistantMessage: false
           });
-          return finalizeResultAfterNotificationConsumption(
+          return finalizeTerminalResult({
             result,
-            turnCount,
-            notificationIdsVisibleThisTurn
-          );
+            checkpointSeed: currentTurnForkCheckpointSeed,
+            notificationIds: notificationIdsVisibleThisTurn,
+            responseGroupId
+          });
         }
 
         {
@@ -1354,11 +1664,12 @@ export async function runSessionLoop(input: {
           emitCompletedRunEvent: input.emitCompletedRunEvent,
           appendAssistantMessage: false
         });
-        return finalizeResultAfterNotificationConsumption(
+        return finalizeTerminalResult({
           result,
-          turnCount,
-          notificationIdsVisibleThisTurn
-        );
+          checkpointSeed: currentTurnForkCheckpointSeed,
+          notificationIds: notificationIdsVisibleThisTurn,
+          responseGroupId
+        });
       }
 
       const pausedForUnblockingDelegates =
@@ -1395,7 +1706,7 @@ export async function runSessionLoop(input: {
           loopState: "failed"
         }
       });
-      const result = {
+      let result: RunSessionResult = {
         session,
         finalAnswer: null,
         status: "failed" as const,
@@ -1404,12 +1715,13 @@ export async function runSessionLoop(input: {
         toolResultCount,
         toolOutputs
       };
+      result = await maybeClearForkReplayMarker(result);
       if (input.eventSink) {
         await emitRunEvent(
           input.eventSink,
           createRunErrorEvent({
-            sessionId: session.sessionId,
-            session,
+            sessionId: result.session.sessionId,
+            session: result.session,
             error: "Model returned no text or tool call.",
             status: "failed",
             stopReason,
@@ -1484,7 +1796,11 @@ export async function runSessionLoop(input: {
         })
       );
     }
-    return finalizeResultAfterNotificationConsumption(result, input.maxTurns);
+    return finalizeTerminalResult({
+      result,
+      checkpointSeed: currentTurnForkCheckpointSeed,
+      notificationIds: visibleBackgroundNotificationIds
+    });
   } catch (error) {
     const interrupted = await maybeCompleteInterrupted();
     if (interrupted) {
@@ -1503,6 +1819,16 @@ export async function runSessionLoop(input: {
       session.sessionId,
       message
     );
+    const clearedFailure = await maybeClearForkReplayMarker({
+      session,
+      finalAnswer: null,
+      status: "failed",
+      stopReason,
+      toolCallCount,
+      toolResultCount,
+      toolOutputs
+    });
+    session = clearedFailure.session;
     await emitTraceEvent({
       traceManager: input.traceManager,
       eventSink: input.eventSink,

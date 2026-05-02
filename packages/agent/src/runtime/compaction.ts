@@ -244,6 +244,28 @@ function normalizeFullCompactionSummary(text: string): string {
   ].join("\n");
 }
 
+function appendHookContextCompactionSummary(input: {
+  summaryMarkdown: string;
+  runtimeContext: PromptRuntimeContext;
+}): string {
+  const runStartedEntries =
+    input.runtimeContext.hookContextEntries?.filter(
+      (entry) => entry.hookEvent === "run_started"
+    ) ?? [];
+  if (runStartedEntries.length === 0) {
+    return input.summaryMarkdown;
+  }
+
+  return [
+    input.summaryMarkdown,
+    "",
+    "## Compacted Hook Context",
+    ...runStartedEntries.map((entry, index) =>
+      [`${index + 1}. ${entry.title || entry.hookId}`, entry.content].join("\n")
+    )
+  ].join("\n");
+}
+
 function getEstimatedInputTokens(
   promptEnvelope: PromptEnvelope,
   toolChoice: AnthropicToolChoice | undefined
@@ -354,13 +376,19 @@ export async function preparePromptWithCompaction(input: {
     .map((block) => block.text.trim())
     .filter(Boolean)
     .join("\n\n");
-  const summaryMarkdown = normalizeFullCompactionSummary(compactionText);
+  const summaryMarkdown = appendHookContextCompactionSummary({
+    summaryMarkdown: normalizeFullCompactionSummary(compactionText),
+    runtimeContext: input.runtimeContext
+  });
 
   const fullCompactedSession: SessionSnapshot = {
     ...session,
     messages: retainedTail.map((block) => structuredClone(block)),
     context: {
       ...session.context,
+      hookContextEntries: session.context.hookContextEntries.filter(
+        (entry) => entry.hookEvent === "session_started"
+      ),
       fullCompactionState: {
         summaryMarkdown,
         compactedAt: new Date().toISOString(),

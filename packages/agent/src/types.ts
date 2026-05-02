@@ -1,7 +1,13 @@
 import type {
+  BackgroundTaskKind,
   ScheduleSessionContext,
   ThinkingEffort
 } from "@ai-app-template/domain";
+import type {
+  AnthropicMessage,
+  AnthropicToolChoice,
+  AnthropicToolDefinition
+} from "./model.js";
 
 export type LoopState =
   | "running"
@@ -109,6 +115,9 @@ export interface SessionState {
 export interface SessionSnapshot {
   sessionId: string;
   parentSessionId?: string | null;
+  parentRelationKind?: SessionParentRelationKind | null;
+  parentSessionTaskKind?: BackgroundTaskKind | null;
+  forkReplayCheckpointId?: string | null;
   workingDirectory: string;
   model: string;
   contextWindow: number;
@@ -122,6 +131,9 @@ export interface SessionSnapshot {
 }
 
 export interface CreateSessionInput {
+  parentSessionId?: string | null;
+  parentRelationKind?: SessionParentRelationKind | null;
+  forkReplayCheckpointId?: string | null;
   workingDirectory?: string;
   model?: string;
   thinkingEffort?: ThinkingEffort;
@@ -143,6 +155,7 @@ export interface RunSessionInput {
   message?: string;
   maxTurns?: number;
   permissionReply?: boolean;
+  skipSubagentHooks?: boolean;
 }
 
 export interface RunSessionResult {
@@ -162,4 +175,36 @@ export interface ToolOutputSummary {
   displayText: string;
   isError: boolean;
   details?: ToolResultDetails;
+}
+
+export type SessionParentRelationKind = "fork" | "subagent" | "hook_subagent";
+
+export interface SessionForkCheckpointPromptSeed {
+  system: string;
+  requestMessages: AnthropicMessage[];
+  runtimeContextMessages: AnthropicMessage[];
+  tools: AnthropicToolDefinition[];
+  toolChoice: AnthropicToolChoice | null;
+}
+
+export interface SessionForkCheckpoint {
+  id: string;
+  sessionId: string;
+  assistantMessageId: string;
+  turnCount: number;
+  baseMessageCount: number;
+  responseGroupId?: string | null;
+  snapshot: SessionSnapshot;
+  promptSeed: SessionForkCheckpointPromptSeed;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SessionForkTarget {
+  checkpointId?: string | null;
+  assistantMessageId: string;
+  turnCount: number;
+  responseGroupId?: string | null;
+  canFork: boolean;
+  disabledReason?: string | null;
 }
