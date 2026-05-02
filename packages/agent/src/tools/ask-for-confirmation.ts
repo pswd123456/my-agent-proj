@@ -1,6 +1,10 @@
 import { z } from "zod";
 
-import type { DomainJsonValue } from "@ai-app-template/domain";
+import {
+  createConfirmationToolResultData,
+  createPendingConfirmationPayload,
+  type DomainJsonValue
+} from "@ai-app-template/domain";
 
 import type { RuntimeTool } from "./runtime-tool.js";
 import { formatConflictLines } from "./routine-format.js";
@@ -51,71 +55,6 @@ function toCreateRoutineConflictInput(value: Record<string, DomainJsonValue>): {
   }
 
   return next;
-}
-
-function toPendingConfirmationPayload(input: z.infer<typeof schema>): {
-  summaryText: string;
-  proposedItems: Array<{
-    previewText: string;
-    toolName?: string;
-    toolInput?: Record<string, DomainJsonValue>;
-  }>;
-  contextNote?: string;
-  conflictItems?: Array<{
-    routineId: string;
-    previewText: string;
-  }>;
-  createdAt: string;
-} {
-  return {
-    summaryText: input.summary_text,
-    proposedItems: input.proposed_items.map((item) => {
-      const next = {
-        previewText: item.preview_text
-      } as {
-        previewText: string;
-        toolName?: string;
-        toolInput?: Record<string, DomainJsonValue>;
-      };
-      if (typeof item.tool_name === "string") {
-        next.toolName = item.tool_name;
-      }
-      if (item.tool_input) {
-        next.toolInput = item.tool_input as Record<string, DomainJsonValue>;
-      }
-      return next;
-    }),
-    ...(typeof input.context_note === "string"
-      ? { contextNote: input.context_note }
-      : {}),
-    ...(input.conflict_items
-      ? {
-          conflictItems: input.conflict_items.map((item) => ({
-            routineId: item.routine_id,
-            previewText: item.preview_text
-          }))
-        }
-      : {}),
-    createdAt: new Date().toISOString()
-  };
-}
-
-function toConfirmationData(input: z.infer<typeof schema>) {
-  return {
-    summary_text: input.summary_text,
-    proposed_items: input.proposed_items.map((item) => ({
-      preview_text: item.preview_text,
-      ...(typeof item.tool_name === "string"
-        ? { tool_name: item.tool_name }
-        : {}),
-      ...(item.tool_input ? { tool_input: item.tool_input } : {})
-    })),
-    conflict_items: (input.conflict_items ?? []).map((item) => ({
-      routine_id: item.routine_id,
-      preview_text: item.preview_text
-    })),
-    context_note: input.context_note ?? null
-  };
 }
 
 const schema = z.object({
@@ -242,7 +181,7 @@ export function createAskForConfirmationTool(): RuntimeTool {
         }
       }
 
-      const payload = toPendingConfirmationPayload(parsed.data);
+      const payload = createPendingConfirmationPayload(parsed.data);
 
       await context.sessionManager.updateContext(context.sessionId, {
         status: "waiting_for_conflict_confirmation",
@@ -267,7 +206,7 @@ export function createAskForConfirmationTool(): RuntimeTool {
           ok: true,
           code: "CONFIRMATION_REQUIRED",
           message: "Confirmation is required before proceeding.",
-          data: toConfirmationData(parsed.data)
+          data: createConfirmationToolResultData(payload)
         }),
         lines.join("\n")
       );

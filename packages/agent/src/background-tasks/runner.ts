@@ -14,11 +14,13 @@ import type {
   DelegateTaskState,
   HookSubagentBackgroundTaskResultEnvelope,
   HookSubagentTaskState,
-  PendingConfirmationPayload,
   PendingPermissionRequest,
-  PendingUserQuestionPayload,
   ShellCommandResultEnvelope,
   ShellCommandTaskState
+} from "@ai-app-template/domain";
+import {
+  createPendingConfirmationDelegateRequest,
+  createPendingUserQuestionDelegateRequest
 } from "@ai-app-template/domain";
 
 import type { TraceManager } from "../trace.js";
@@ -139,53 +141,6 @@ function buildPermissionRequest(
   };
 }
 
-function buildUserQuestionRequest(
-  payload: PendingUserQuestionPayload
-): DelegateRequestEnvelope {
-  const summary =
-    payload.questions.length === 1
-      ? (payload.questions[0]?.questionText ?? "Need more input.")
-      : `需要补充回答 ${payload.questions.length} 个问题`;
-
-  return {
-    kind: "user_question",
-    summary,
-    data: {
-      questions: payload.questions.map((question) => ({
-        questionText: question.questionText,
-        options: question.options.map((option) => ({
-          label: option.label,
-          reply: option.reply,
-          ...(option.description ? { description: option.description } : {}),
-          ...(option.isRecommended ? { isRecommended: true } : {})
-        })),
-        allowCancel: question.allowCancel !== false
-      }))
-    }
-  };
-}
-
-function buildConfirmationRequest(
-  payload: PendingConfirmationPayload
-): DelegateRequestEnvelope {
-  return {
-    kind: "confirmation_request",
-    summary: payload.summaryText,
-    data: {
-      summaryText: payload.summaryText,
-      proposedItems: payload.proposedItems.map((item) => ({
-        previewText: item.previewText,
-        ...(item.toolName ? { toolName: item.toolName } : {})
-      })),
-      conflictItems: (payload.conflictItems ?? []).map((item) => ({
-        routineId: item.routineId,
-        previewText: item.previewText
-      })),
-      ...(payload.contextNote ? { contextNote: payload.contextNote } : {})
-    }
-  };
-}
-
 function requireAgentSessionPayload(
   task: BackgroundTaskRecord
 ): AgentSessionBackgroundTaskPayload {
@@ -217,7 +172,7 @@ function buildDelegateMainAgentRequest(result: RunSessionResult): {
   }
 
   if (result.session.context.pendingUserQuestionPayload) {
-    const request = buildUserQuestionRequest(
+    const request = createPendingUserQuestionDelegateRequest(
       result.session.context.pendingUserQuestionPayload
     );
     return {
@@ -229,7 +184,7 @@ function buildDelegateMainAgentRequest(result: RunSessionResult): {
   }
 
   if (result.session.context.pendingConfirmationPayload) {
-    const request = buildConfirmationRequest(
+    const request = createPendingConfirmationDelegateRequest(
       result.session.context.pendingConfirmationPayload
     );
     return {

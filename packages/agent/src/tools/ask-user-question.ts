@@ -1,8 +1,9 @@
 import { z } from "zod";
 
 import {
-  appendPendingUserQuestionContextOption,
-  PENDING_USER_QUESTION_CONTEXT_OPTION_LABEL
+  createPendingUserQuestionPayload,
+  createUserQuestionToolResultData,
+  type PendingUserQuestionPayload
 } from "@ai-app-template/domain";
 
 import type { RuntimeTool } from "./runtime-tool.js";
@@ -90,15 +91,6 @@ const schema = z
 type ParsedQuestionInput = z.infer<typeof questionSchema>;
 type ParsedInput = z.infer<typeof schema>;
 
-function mapOption(option: z.infer<typeof optionSchema>) {
-  return {
-    label: option.label,
-    reply: option.reply,
-    ...(option.description ? { description: option.description } : {}),
-    ...(option.is_recommended ? { isRecommended: true } : {})
-  };
-}
-
 function normalizeQuestions(input: ParsedInput): ParsedQuestionInput[] {
   if (Array.isArray(input.questions)) {
     return input.questions;
@@ -114,25 +106,14 @@ function normalizeQuestions(input: ParsedInput): ParsedQuestionInput[] {
   ];
 }
 
-function mapQuestion(input: ParsedQuestionInput) {
-  return {
-    questionText: input.question_text,
-    options: appendPendingUserQuestionContextOption(
-      (input.options ?? []).map(mapOption),
-      input.context_note
-    ),
-    allowCancel: input.allow_cancel
-  };
-}
-
-function renderQuestionSummary(questions: ParsedQuestionInput[]): string {
+function renderQuestionSummary(payload: PendingUserQuestionPayload): string {
   const lines = ["[ask_user_question] waiting for clarification"];
 
-  for (const [index, question] of questions.entries()) {
-    lines.push(`- question ${index + 1}: ${question.question_text}`);
+  for (const [index, question] of payload.questions.entries()) {
+    lines.push(`- question ${index + 1}: ${question.questionText}`);
 
-    for (const option of question.options ?? []) {
-      const prefix = option.is_recommended
+    for (const option of question.options) {
+      const prefix = option.isRecommended
         ? "  - recommended option: "
         : "  - option: ";
       const optionLine =
@@ -145,13 +126,7 @@ function renderQuestionSummary(questions: ParsedQuestionInput[]): string {
       }
     }
 
-    if (question.context_note) {
-      lines.push(
-        `  - option: ${PENDING_USER_QUESTION_CONTEXT_OPTION_LABEL} -> ${question.context_note}`
-      );
-    }
-
-    if (question.allow_cancel) {
+    if (question.allowCancel !== false) {
       lines.push("  - cancel option: 取消");
     }
   }
@@ -247,14 +222,14 @@ export function createAskUserQuestionTool(): RuntimeTool {
       }
 
       const normalizedQuestions = normalizeQuestions(parsed.data);
+      const pendingPayload = createPendingUserQuestionPayload({
+        questions: normalizedQuestions
+      });
 
       await context.sessionManager.updateContext(context.sessionId, {
         status: "waiting_for_user_question",
         pendingPermissionRequest: null,
-        pendingUserQuestionPayload: {
-          questions: normalizedQuestions.map(mapQuestion),
-          createdAt: new Date().toISOString()
-        }
+        pendingUserQuestionPayload: pendingPayload
       });
 
       return successResult(
@@ -263,23 +238,9 @@ export function createAskUserQuestionTool(): RuntimeTool {
           code: "USER_QUESTION_REQUESTED",
           message:
             "Stored a structured clarification question and paused the current run.",
-          data: {
-            questions: normalizedQuestions.map((question) => ({
-              question_text: question.question_text,
-              options: (question.options ?? []).map((option) => ({
-                label: option.label,
-                reply: option.reply,
-                ...(option.description
-                  ? { description: option.description }
-                  : {}),
-                ...(option.is_recommended ? { is_recommended: true } : {})
-              })),
-              allow_cancel: question.allow_cancel,
-              context_note: question.context_note ?? null
-            }))
-          }
+          data: createUserQuestionToolResultData(normalizedQuestions)
         }),
-        renderQuestionSummary(normalizedQuestions)
+        renderQuestionSummary(pendingPayload)
       );
     }
   };
