@@ -9,7 +9,7 @@
 - `packages/agent/src/delegation/` 负责主 agent 发起、查询和回复 delegated subagent
 - `packages/domain` 和 `packages/db` 负责后台任务与 delegate 相关的领域模型和持久化
 
-它不是通用队列系统，也不是 cron 平台。当前只覆盖 agent 需要的 detached subagent、后台 shell 命令、主会话唤醒，以及少量后台任务状态流转。
+它不是通用队列系统，也不是 cron 平台。当前只覆盖 agent 需要的 detached subagent、pre-run hook subagent、后台 shell 命令、主会话唤醒，以及少量后台任务状态流转。
 
 ## 关键模块
 
@@ -32,16 +32,23 @@ packages/db/src/schema.ts
 - `packages/agent/src/delegation/service.ts`：给主 agent 提供 `startDelegate`、`replyToDelegate`、`resolveDelegatePermission` 之类的业务接口
 - `packages/domain/src/background-task.ts`：定义任务 kind、status、payload、通用 `taskState`、结果 envelope 与后台任务 handle
 
+`hook_subagent` 和普通 `subagent` 共用同一套 worker / notification / wakeup 基座，但语义不同：
+
+- 普通 `subagent` 面向主 agent 的显式 delegate，可以回传 `needs_main_agent`
+- `hook_subagent` 是一次性的 pre-run final-response 生产者，只允许成功产出 final response 或直接失败
+- 前端默认把 hook child session 当成内部调试对象隐藏，只有打开 `debugConversationView` 才显示
+
 ## 当前任务模型
 
-领域模型里现在定义了四类后台任务 kind：
+领域模型里现在定义了五类后台任务 kind：
 
 - `cron_job`
 - `subagent`
+- `hook_subagent`
 - `session_wakeup`
 - `shell_command`
 
-其中当前 API / worker 主链路真正会创建和处理的是 `subagent`、`session_wakeup` 和 `shell_command`；`cron_job` 目前只保留在领域模型与仓储测试里，还没有接入可运行主链路。
+其中当前 API / worker 主链路真正会创建和处理的是 `subagent`、`hook_subagent`、`session_wakeup` 和 `shell_command`；`cron_job` 目前只保留在领域模型与仓储测试里，还没有接入可运行主链路。
 
 当前真正落地的执行后端有两类：
 
@@ -80,6 +87,7 @@ sequenceDiagram
 - child session 保存真正的 runtime 历史和 trace
 - 主 session context 会维护 `pendingBackgroundNotifications`，作为待主 agent 处理的后台结果事实源
 - delegated subagent 如果需要人类介入，会通过结构化后台通知把 `pendingPermissionRequest`、`pendingUserQuestionPayload` 或 `pendingConfirmationPayload` 摘要回注给主 agent
+- hook subagent 完成后也先写入后台通知，但只有完成态、且配置哈希仍匹配当前 enabled hook 时，才会在下一次 run 前物化进 `hookContextEntries`
 - shell task 会把结构化 `stdout/stderr/exitCode/terminationReason` 放进后台结果 envelope，供通知与后续 `get` 查询复用
 - 这些通知不会伪造成用户消息，也不会把 child session 历史直接灌回主 session
 
@@ -92,7 +100,7 @@ sequenceDiagram
 
 ## 唤醒与超时语义
 
-- `subagent` 与 `shell_command` 完成、失败、取消、超时、或 `waiting_for_main_agent` 时，worker 都会向父会话注入结构化后台通知
+- `subagent`、`hook_subagent` 与 `shell_command` 完成、失败、取消、超时、或 `waiting_for_main_agent` 时，worker 都会向父会话注入结构化后台通知
 - 父会话只有在未执行中，且不处于 `waiting_for_permission`、`waiting_for_conflict_confirmation`、`waiting_for_user_question` 这三类显式人类门控时，才会自动续跑一小轮
 - 如果父会话正等待人类输入，只保留通知并让前端提示，不抢跑
 - `delegate_agent` 支持 `wait_mode=blocking|unblocking`；默认 `blocking`
@@ -100,6 +108,8 @@ sequenceDiagram
 - 后台 shell task 不会创建独立 child session；它只复用 task 记录、worker 执行和后台通知链路
 - `blocking` 下，主会话在工具返回统一的 `BACKGROUND_TASK_ACCEPTED` 且任务仍活跃时，会立即以 `background_task_running` 结束当前 run，不在同一次 run 内继续同步等待
 - `unblocking` 下，主会话会先继续处理同轮其他工具调用或后续模型回合；当没有其他可推进工作时，再主动结束当前 run，并安排 `background_task_poll` 类型的 `session_wakeup`
+- `hook_subagent waitMode=blocking` 也复用同一条 `background_task_poll` 路径，但 wakeup payload 会保留原始用户消息，并带 `skipSubagentHooks: true`，避免恢复时再次触发同一批 pre-run hook
+- `hook_subagent waitMode=unblocking` 不会给当前 run 补一个即时恢复；它只在下一次主会话真实发给模型的 run 前注入物化后的 hook context
 - `background_task_poll` 的首次检查时间来自 `initial_check_after_ms`，之后指数退避，单次间隔最多 120 秒；轮询本身不消耗主模型 turn
 - `session_wakeup` 会复用主会话自己的 `sessionId` 作为 child session，避免为同一个主会话反复创建新唤醒任务
 - `subagent`、`shell_command` 和 `session_wakeup` 都带 `deadlineAt` / `attemptCount` / `maxAttempts`

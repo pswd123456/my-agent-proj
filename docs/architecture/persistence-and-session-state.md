@@ -88,7 +88,7 @@
 - 权限态：shell / tool allow/ask/deny、`workspaceEscapeAllowed`
 - prompt / compact 相关：`contextWindow`、`maxTurns`、`promptCacheKey`
 - 等待态：`pendingPermissionRequest`、`pendingConfirmationPayload`、`pendingUserQuestionPayload`
-- background / todo / compaction：`pendingBackgroundNotifications`、`activeBackgroundTaskCount`、`todoState`、`fullCompactionState`
+- background / todo / compaction：`pendingBackgroundNotifications`、`activeBackgroundTaskCount`、`hookContextEntries`、`todoState`、`fullCompactionState`
 - 观测辅助：`firstUserMessage`、`lastUserMessage`
 - 执行 lease：`activeRunId`、`activeRunStartedAt`
 
@@ -126,6 +126,13 @@
 - `startedAt` / `finishedAt` / `lastHeartbeatAt`
 
 这让“任务主记录”和“每次 worker 尝试”分开建模。
+
+`hook_subagent` 的持久化边界另外有两条补充事实：
+
+- 任务运行中的结果通知先落在 `pendingBackgroundNotifications`
+- 只有完成态、且配置哈希仍匹配当前 enabled hook 的结果，才会在下一次 run 前物化进 `agent_sessions.hook_context_entries`
+
+因此 `hook_context_entries` 表示“当前 session 仍应注入给模型的已物化 hook 结果”，而不是所有 hook 执行历史的归档表。
 
 ### 4. 领域专项数据：`routines`
 

@@ -99,6 +99,8 @@ compact 不等于停止条件。
 - continuation summary 写入 `session.context.fullCompactionState`
 - `session.messages` 只保留最近 6 个可回放单元
 - `tool result` 正文不进入 compact prompt 的 source extract，但会和匹配的 `tool call` 一起保留在 compact 后 tail
+- 已物化的 `run_started` subagent hook 结果会并入 continuation summary
+- full compaction 后 live `hookContextEntries` 会裁到只保留 `session_started` 结果，避免 run 级 hook 上下文无限累积
 - summary 通过 `runtimeContextMessages` 注入，不进入 stable prefix / cache key
 
 实现细节见 [docs/plan/full-compaction.md](../../plan/full-compaction.md)。
