@@ -89,6 +89,9 @@
     "packages/domain": {
       "name": "@ai-app-template/domain",
       "version": "0.1.0",
+      "dependencies": {
+        "zod": "4.3.6",
+      },
     },
     "packages/sdk": {
       "name": "@ai-app-template/sdk",
