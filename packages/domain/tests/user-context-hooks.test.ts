@@ -70,7 +70,7 @@ describe("user context hooks", () => {
     ).toBe("message:run_end");
   });
 
-  test("defaults subagent hooks to blocking wait mode", () => {
+  test("defaults subagent hooks to blocking wait mode and the shared turn budget", () => {
     expect(
       normalizeUserContextHooks([
         {
@@ -88,6 +88,35 @@ describe("user context hooks", () => {
         event: "run_started",
         behavior: "subagent",
         waitMode: "blocking",
+        maxTurns: 100,
+        title: "Background research",
+        content: "先整理背景资料。",
+        enabled: true
+      }
+    ]);
+  });
+
+  test("clamps subagent hook max turns to the shared limit", () => {
+    expect(
+      normalizeUserContextHooks([
+        {
+          id: "hook-subagent",
+          event: "run_started",
+          behavior: "subagent",
+          waitMode: "unblocking",
+          maxTurns: 999,
+          title: "Background research",
+          content: "先整理背景资料。",
+          enabled: true
+        }
+      ])
+    ).toEqual([
+      {
+        id: "hook-subagent",
+        event: "run_started",
+        behavior: "subagent",
+        waitMode: "unblocking",
+        maxTurns: 200,
         title: "Background research",
         content: "先整理背景资料。",
         enabled: true

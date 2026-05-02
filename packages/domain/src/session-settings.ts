@@ -18,7 +18,7 @@ import type { WorkspaceSkillSettingRecord } from "./workspace-skills.js";
 export const DEFAULT_SESSION_SETTINGS_USER_ID = "cli-user";
 export const DEFAULT_SESSION_WORKING_DIRECTORY = "agent-workspace";
 export const DEFAULT_CONTEXT_WINDOW = 200_000;
-export const DEFAULT_SESSION_MAX_TURNS = 50;
+export const DEFAULT_SESSION_MAX_TURNS = 100;
 export const SESSION_MAX_TURNS_LIMIT = 200;
 export const DEFAULT_SESSION_MODEL = "MiniMax-M2.7";
 export const CAPABILITY_PACK_OPTIONS = [

@@ -1,3 +1,8 @@
+import {
+  DEFAULT_SESSION_MAX_TURNS,
+  SESSION_MAX_TURNS_LIMIT
+} from "./session-settings.js";
+
 const USER_CONTEXT_HOOK_EVENT_SET = new Set([
   "session_started",
   "run_started",
@@ -67,6 +72,7 @@ export interface UserContextHookRecord {
   event: UserContextHookEvent;
   behavior?: UserContextHookBehavior;
   waitMode?: UserContextHookWaitMode;
+  maxTurns?: number;
   title: string;
   content: string;
   enabled: boolean;
@@ -110,6 +116,14 @@ export function normalizeUserContextHookWaitMode(
   return USER_CONTEXT_HOOK_WAIT_MODE_SET.has(value as UserContextHookWaitMode)
     ? (value as UserContextHookWaitMode)
     : null;
+}
+
+export function normalizeUserContextHookMaxTurns(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return DEFAULT_SESSION_MAX_TURNS;
+  }
+
+  return Math.min(SESSION_MAX_TURNS_LIMIT, Math.max(1, Math.floor(value)));
 }
 
 export function inferUserContextHookBehavior(
@@ -196,7 +210,10 @@ export function normalizeUserContextHooks(
       event,
       ...(explicitBehavior ? { behavior } : {}),
       ...(behavior === "subagent"
-        ? { waitMode: waitMode ?? "blocking" }
+        ? {
+            waitMode: waitMode ?? "blocking",
+            maxTurns: normalizeUserContextHookMaxTurns(item.maxTurns)
+          }
         : {}),
       title: typeof item.title === "string" ? item.title.trim() : "",
       content,
