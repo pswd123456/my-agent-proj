@@ -1,141 +1,42 @@
 import { fileURLToPath } from "node:url";
 
 import {
-  DEFAULT_SESSION_MAX_TURNS,
-  createAgentRuntime,
-  createBackgroundTaskManager,
-  createDefaultToolRegistry,
   enqueueBackgroundNotification,
-  createFileSystemLogManager,
-  createFileTraceManager,
   createLogger,
-  createLspServerManager,
-  createModelService,
-  createPostgresSessionManager,
-  createPromptBuilder,
-  listSettingsPermissionToolOptions,
-  loadWorkspaceMcpTools,
-  resolveMaxTokens,
-  resolveSessionStateDirectory,
-  resolveToolChoice,
-  runBackgroundTask,
-  type BackgroundTaskRuntimeHandle,
-  type SessionSnapshot
+  runBackgroundTask
 } from "@ai-app-template/agent";
 import {
-  createPostgresBackgroundTaskRepository,
-  createPostgresDatabase,
-  createPostgresRoutineRepository,
-  createPostgresSettingsRepository,
-  ensureProductSchema,
-  resolveDatabaseUrl
-} from "@ai-app-template/db";
+  createPostgresRuntimeEnvironment,
+  createRuntimeHandleFactory
+} from "@ai-app-template/agent/runtime/assembly";
 
 const workspaceRoot = fileURLToPath(new URL("../../../", import.meta.url));
-const stateDirectory = resolveSessionStateDirectory(workspaceRoot);
-const traceManager = createFileTraceManager(stateDirectory);
-const systemLogManager = createFileSystemLogManager(
-  stateDirectory,
-  process.env
-);
+const runtimeEnvironment = await createPostgresRuntimeEnvironment({
+  workspaceRoot,
+  env: process.env,
+  settingsPermissionWorkingDirectory: workspaceRoot,
+  databaseUrlRequiredMessage:
+    "DATABASE_URL is required for the background worker."
+});
 const workerLogger = createLogger({
-  manager: systemLogManager,
+  manager: runtimeEnvironment.systemLogManager,
   component: "worker"
 });
-const promptBuilder = createPromptBuilder();
-const modelService = createModelService(process.env);
-const maxTokens = resolveMaxTokens(process.env);
-const toolChoice = resolveToolChoice(process.env);
 const pollIntervalMs = Number(process.env.WORKER_POLL_INTERVAL_MS ?? 5_000);
 const heartbeatIntervalMs = Number(
   process.env.WORKER_TASK_HEARTBEAT_MS ?? 1_000
 );
 const staleTaskMs = Number(process.env.WORKER_TASK_STALE_MS ?? 30_000);
 const workerId = process.env.WORKER_ID?.trim() || `worker-${process.pid}`;
-
-const databaseUrl = resolveDatabaseUrl(process.env);
-if (!databaseUrl) {
-  throw new Error("DATABASE_URL is required for the background worker.");
-}
-
-const database = createPostgresDatabase(databaseUrl);
-await ensureProductSchema(database);
-
-const routineRepository = createPostgresRoutineRepository(database);
-const sessionManager = createPostgresSessionManager(database);
-const backgroundTaskRepository =
-  createPostgresBackgroundTaskRepository(database);
-const settingsPermissionToolOptions = listSettingsPermissionToolOptions({
-  workingDirectory: workspaceRoot,
-  routineRepository
-}).map((tool) => tool.name);
-const settingsRepository = createPostgresSettingsRepository(database, {
-  settingsPermissionToolOptions
+const createRuntimeHandle = createRuntimeHandleFactory({
+  environment: runtimeEnvironment
 });
-const backgroundTaskManager = createBackgroundTaskManager({
-  sessionManager,
-  repository: backgroundTaskRepository
-});
-
-async function createRuntimeHandle(
-  session: SessionSnapshot
-): Promise<BackgroundTaskRuntimeHandle> {
-  const settings = await settingsRepository.getOrCreate(session.context.userId);
-  const lspServerManager = createLspServerManager({
-    workingDirectory: session.workingDirectory
-  });
-  const toolRegistry = createDefaultToolRegistry({
-    workingDirectory: session.workingDirectory,
-    routineRepository,
-    lspServerManager,
-    enabledCapabilityPacks: session.context.enabledCapabilityPacks,
-    workspaceSkillSettings: settings.workspaceSkillSettings,
-    env: process.env
-  });
-  const mcpLoadResult = await loadWorkspaceMcpTools(session.workingDirectory);
-  for (const tool of mcpLoadResult.tools) {
-    toolRegistry.register(tool);
-  }
-
-  return {
-    runtime: createAgentRuntime({
-      modelService,
-      sessionManager,
-      routineRepository,
-      toolRegistry,
-      backgroundTaskManager,
-      traceManager,
-      systemLogManager,
-      runtimeLogger: createLogger({
-        manager: systemLogManager,
-        component: "runtime"
-      }),
-      promptBuilder,
-      userContextHooks: settings.userContextHooks,
-      workspaceSkillSettings: settings.workspaceSkillSettings,
-      userCustomPrompt: settings.userCustomPrompt,
-      maxTurns: DEFAULT_SESSION_MAX_TURNS,
-      maxTokens,
-      ...(toolChoice ? { toolChoice } : {})
-    }),
-    async dispose() {
-      await Promise.all([mcpLoadResult.dispose(), lspServerManager.dispose()]);
-    },
-    preRunTraceEvent: {
-      kind: "mcp_loaded",
-      turnCount: Math.max(1, session.sessionState.turnCount + 1),
-      configPath: mcpLoadResult.configPath,
-      foundConfig: mcpLoadResult.foundConfig,
-      diagnostics: mcpLoadResult.diagnostics,
-      servers: mcpLoadResult.servers
-    }
-  };
-}
 
 async function reconcileStaleTasks(): Promise<void> {
-  const staleTasks = await backgroundTaskManager.requeueStaleClaims(
-    new Date(Date.now() - staleTaskMs).toISOString()
-  );
+  const staleTasks =
+    await runtimeEnvironment.backgroundTaskManager.requeueStaleClaims(
+      new Date(Date.now() - staleTaskMs).toISOString()
+    );
 
   for (const task of staleTasks) {
     if (task.status !== "failed") {
@@ -147,9 +48,9 @@ async function reconcileStaleTasks(): Promise<void> {
         task.taskState?.kind === "delegate" ? task.taskState : null;
       const latestResponse = delegateState?.latestResponse;
       await enqueueBackgroundNotification({
-        sessionManager,
-        traceManager,
-        taskManager: backgroundTaskManager,
+        sessionManager: runtimeEnvironment.sessionManager,
+        traceManager: runtimeEnvironment.traceManager,
+        taskManager: runtimeEnvironment.backgroundTaskManager,
         task,
         kind: "task_timeout",
         summary:
@@ -183,9 +84,9 @@ async function reconcileStaleTasks(): Promise<void> {
           ? task.taskState.latestResult
           : null;
       await enqueueBackgroundNotification({
-        sessionManager,
-        traceManager,
-        taskManager: backgroundTaskManager,
+        sessionManager: runtimeEnvironment.sessionManager,
+        traceManager: runtimeEnvironment.traceManager,
+        taskManager: runtimeEnvironment.backgroundTaskManager,
         task,
         kind: "task_timeout",
         summary: task.resultSummary ?? "后台任务超时。",
@@ -199,9 +100,9 @@ async function reconcileStaleTasks(): Promise<void> {
 
     if (task.kind === "session_wakeup") {
       await enqueueBackgroundNotification({
-        sessionManager,
-        traceManager,
-        taskManager: backgroundTaskManager,
+        sessionManager: runtimeEnvironment.sessionManager,
+        traceManager: runtimeEnvironment.traceManager,
+        taskManager: runtimeEnvironment.backgroundTaskManager,
         task,
         kind: "task_timeout",
         title: "主会话后台续跑",
@@ -218,7 +119,8 @@ async function drainQueuedTasks(): Promise<void> {
   await reconcileStaleTasks();
 
   while (true) {
-    const claim = await backgroundTaskManager.claimNextTask(workerId);
+    const claim =
+      await runtimeEnvironment.backgroundTaskManager.claimNextTask(workerId);
     if (!claim) {
       return;
     }
@@ -234,9 +136,9 @@ async function drainQueuedTasks(): Promise<void> {
       claim,
       workerId,
       heartbeatIntervalMs,
-      sessionManager,
-      taskManager: backgroundTaskManager,
-      traceManager,
+      sessionManager: runtimeEnvironment.sessionManager,
+      taskManager: runtimeEnvironment.backgroundTaskManager,
+      traceManager: runtimeEnvironment.traceManager,
       createRuntimeHandle
     });
   }
