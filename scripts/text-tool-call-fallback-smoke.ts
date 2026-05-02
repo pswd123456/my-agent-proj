@@ -2,15 +2,16 @@ import assert from "node:assert/strict";
 
 import {
   createAgentRuntime,
-  createMemorySessionManager,
   createPromptBuilder,
   createWorkspaceToolRegistry,
   type AnthropicCompatibleClient,
   type RunStreamEvent
 } from "../packages/agent/src/index.ts";
 import { createMemoryRoutineRepository } from "../packages/db/src/index.ts";
+import { createScriptPostgresSessionManager } from "./postgres-session.ts";
 
 const emittedEvents: RunStreamEvent[] = [];
+const { sessionManager } = await createScriptPostgresSessionManager();
 let callCount = 0;
 
 const fakeClient: AnthropicCompatibleClient = {
@@ -45,7 +46,7 @@ const fakeClient: AnthropicCompatibleClient = {
 const runtime = createAgentRuntime({
   client: fakeClient,
   model: "MiniMax-M2.7",
-  sessionManager: createMemorySessionManager(),
+  sessionManager,
   routineRepository: createMemoryRoutineRepository(),
   toolRegistry: createWorkspaceToolRegistry({
     workingDirectory: process.cwd()

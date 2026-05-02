@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import {
   createAgentRuntime,
   createScheduleToolRegistry,
-  createMemorySessionManager,
   createPromptBuilder,
   type AnthropicCompatibleClient,
   SessionExecutionInProgressError,
@@ -11,9 +10,10 @@ import {
 } from "../packages/agent/src/index.ts";
 import { createMemoryRoutineRepository } from "../packages/db/src/index.ts";
 import { handlePendingConfirmationReply } from "../packages/agent/src/runtime/confirmation.ts";
+import { createScriptPostgresSessionManager } from "./postgres-session.ts";
 
 const routineRepository = createMemoryRoutineRepository();
-const sessionManager = createMemorySessionManager();
+const { sessionManager } = await createScriptPostgresSessionManager();
 const emittedEvents: RunStreamEvent[] = [];
 let callCount = 0;
 
@@ -163,7 +163,7 @@ const busyRoutineRepository = createMemoryRoutineRepository();
 const busyRuntime = createAgentRuntime({
   client: busyClient,
   model: "MiniMax-M2.7",
-  sessionManager: createMemorySessionManager(),
+  sessionManager,
   routineRepository: busyRoutineRepository,
   toolRegistry: createScheduleToolRegistry({
     routineRepository: busyRoutineRepository
@@ -199,7 +199,7 @@ const busyResult = await runningPromise;
 assert.equal(busyResult.finalAnswer, "Busy run completed.");
 
 const confirmationRoutineRepository = createMemoryRoutineRepository();
-const confirmationSessionManager = createMemorySessionManager();
+const confirmationSessionManager = sessionManager;
 const confirmationSession = await confirmationSessionManager.createSession({
   workingDirectory: process.cwd(),
   model: "MiniMax-M2.7",

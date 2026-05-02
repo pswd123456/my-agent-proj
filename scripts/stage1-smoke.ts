@@ -1,22 +1,18 @@
 import assert from "node:assert/strict";
-import { rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 import {
   createAgentRuntime,
   createWorkspaceToolRegistry,
-  createFileSessionManager,
   createPromptBuilder,
-  resolveSessionStateDirectory,
   type AnthropicCompatibleClient,
   type AnthropicMessage
 } from "../packages/agent/src/index.ts";
 import { createMemoryRoutineRepository } from "../packages/db/src/index.ts";
+import { createScriptPostgresSessionManager } from "./postgres-session.ts";
 
 const workspaceRoot = fileURLToPath(new URL("..", import.meta.url));
-const smokeRoot = resolveSessionStateDirectory(workspaceRoot, "stage1-smoke");
-await rm(smokeRoot, { recursive: true, force: true });
-const sessionManager = createFileSessionManager(smokeRoot);
+const { sessionManager } = await createScriptPostgresSessionManager();
 const promptBuilder = createPromptBuilder();
 const toolRegistry = createWorkspaceToolRegistry({
   workingDirectory: workspaceRoot

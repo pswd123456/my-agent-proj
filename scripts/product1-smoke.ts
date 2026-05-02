@@ -3,14 +3,14 @@ import assert from "node:assert/strict";
 import {
   createAgentRuntime,
   createScheduleToolRegistry,
-  createMemorySessionManager,
   createPromptBuilder,
   type AnthropicCompatibleClient
 } from "../packages/agent/src/index.ts";
 import { createMemoryRoutineRepository } from "../packages/db/src/index.ts";
+import { createScriptPostgresSessionManager } from "./postgres-session.ts";
 
 async function runCreateFlow(): Promise<void> {
-  const sessionManager = createMemorySessionManager();
+  const { sessionManager } = await createScriptPostgresSessionManager();
   const routineRepository = createMemoryRoutineRepository();
   let callCount = 0;
 
@@ -88,7 +88,7 @@ async function runCreateFlow(): Promise<void> {
 }
 
 async function runConflictFlow(): Promise<void> {
-  const sessionManager = createMemorySessionManager();
+  const { sessionManager } = await createScriptPostgresSessionManager();
   const routineRepository = createMemoryRoutineRepository();
   await routineRepository.create({
     userId: "smoke-user",

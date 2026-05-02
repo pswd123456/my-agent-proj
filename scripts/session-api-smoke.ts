@@ -6,7 +6,6 @@ import {
   createAgentRuntime,
   createScheduleToolRegistry,
   createFileTraceManager,
-  createMemorySessionManager,
   createPromptBuilder,
   resolveSessionStateDirectory,
   type AnthropicCompatibleClient,
@@ -17,6 +16,7 @@ import {
   createMemorySettingsRepository
 } from "../packages/db/src/index.ts";
 import { createApiApp } from "../apps/api/src/app.ts";
+import { createScriptPostgresSessionManager } from "./postgres-session.ts";
 
 async function readSse(response: Response) {
   const body = response.body;
@@ -58,7 +58,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-const sessionManager = createMemorySessionManager();
+const { sessionManager } = await createScriptPostgresSessionManager();
 const routineRepository = createMemoryRoutineRepository();
 const settingsRepository = createMemorySettingsRepository();
 const defaultWorkspace = path.resolve(
