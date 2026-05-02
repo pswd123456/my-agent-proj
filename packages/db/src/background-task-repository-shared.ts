@@ -167,6 +167,21 @@ function normalizeTaskState(value: unknown): BackgroundTaskState | null {
     };
   }
 
+  if (
+    "hookId" in parsed &&
+    typeof parsed.hookId === "string" &&
+    "configHash" in parsed &&
+    typeof parsed.configHash === "string"
+  ) {
+    return {
+      kind: "hook_subagent",
+      ...(parsed as Omit<
+        Extract<BackgroundTaskState, { kind: "hook_subagent" }>,
+        "kind"
+      >)
+    };
+  }
+
   return null;
 }
 
@@ -303,6 +318,10 @@ export function resolveTaskResultSummary(input: {
     if (latestResult) {
       return `${latestResult.command} (${latestResult.terminationReason})`;
     }
+  }
+
+  if (input.taskState?.kind === "hook_subagent") {
+    return input.taskState.latestResult?.title ?? input.fallback ?? null;
   }
 
   return input.fallback ?? null;

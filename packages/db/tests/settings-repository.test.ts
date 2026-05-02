@@ -208,6 +208,36 @@ describe("MemorySettingsRepository", () => {
     ]);
   });
 
+  test("preserves subagent hook wait mode during settings normalization", async () => {
+    const repository = createMemorySettingsRepository();
+
+    const settings = await repository.update("user-subagent-hooks", {
+      userContextHooks: [
+        {
+          id: "hook-subagent",
+          event: "session_started",
+          behavior: "subagent",
+          waitMode: "unblocking",
+          title: "Background research",
+          content: "先整理背景资料。",
+          enabled: true
+        }
+      ]
+    });
+
+    expect(settings.userContextHooks).toEqual([
+      {
+        id: "hook-subagent",
+        event: "session_started",
+        behavior: "subagent",
+        waitMode: "unblocking",
+        title: "Background research",
+        content: "先整理背景资料。",
+        enabled: true
+      }
+    ]);
+  });
+
   test("normalizes conflicting tool permission lists with deny then allow precedence", async () => {
     const repository = createMemorySettingsRepository();
 
@@ -250,8 +280,7 @@ describe("MemorySettingsRepository", () => {
       toolAskList: '["search_text"]',
       toolDenyList: '["delete_path"]',
       enabledCapabilityPacks: '["workspace","schedule"]',
-      workspace_skill_settings:
-        '[{"skillName":"repo_reader","enabled":false}]',
+      workspace_skill_settings: '[{"skillName":"repo_reader","enabled":false}]',
       user_context_hooks:
         '[{"id":"hook-1","event":"run_started","title":"Profile","content":"先看偏好","enabled":true}]',
       debug_conversation_view: true,

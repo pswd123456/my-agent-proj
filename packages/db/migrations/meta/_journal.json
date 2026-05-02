@@ -162,6 +162,13 @@
       "when": 1778140800000,
       "tag": "0022_broad_black_panther",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1778227200000,
+      "tag": "0023_worthless_joystick",
+      "breakpoints": true
     }
   ]
 }

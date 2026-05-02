@@ -11,6 +11,7 @@ import type {
   SessionFullCompactionState,
   PendingUserQuestionPayload,
   SessionTodoState,
+  HookContextEntry,
   UserContextHookRecord
 } from "@ai-app-template/domain";
 import {
@@ -159,6 +160,10 @@ export const agentSessions = pgTable(
       .$type<SessionBackgroundNotification[]>()
       .notNull()
       .default(defaultJsonbArray),
+    hookContextEntries: jsonb("hook_context_entries")
+      .$type<HookContextEntry[]>()
+      .notNull()
+      .default(defaultJsonbArray),
     todoState: jsonb("todo_state").$type<SessionTodoState | null>(),
     fullCompactionState: jsonb(
       "full_compaction_state"
@@ -166,6 +171,9 @@ export const agentSessions = pgTable(
     pendingConflictSummary: text("pending_conflict_summary"),
     firstUserMessage: text("first_user_message"),
     lastUserMessage: text("last_user_message"),
+    parentSessionId: text("parent_session_id"),
+    parentRelationKind: text("parent_relation_kind"),
+    forkReplayCheckpointId: text("fork_replay_checkpoint_id"),
     workingDirectory: text("working_directory").notNull(),
     model: text("model").notNull(),
     loopState: text("loop_state").notNull(),
@@ -413,13 +421,55 @@ export const sessionMessages = pgTable(
   })
 );
 
+export const sessionForkCheckpoints = pgTable(
+  "session_fork_checkpoints",
+  {
+    id: text("id").primaryKey(),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => agentSessions.id, { onDelete: "cascade" }),
+    assistantMessageId: text("assistant_message_id").notNull(),
+    turnCount: integer("turn_count").notNull(),
+    baseMessageCount: integer("base_message_count").notNull(),
+    responseGroupId: text("response_group_id"),
+    snapshotJson: jsonb("snapshot_json")
+      .$type<Record<string, unknown>>()
+      .notNull(),
+    promptSeedJson: jsonb("prompt_seed_json")
+      .$type<Record<string, unknown>>()
+      .notNull(),
+    createdAt: timestamp("created_at", {
+      mode: "string",
+      withTimezone: true
+    })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", {
+      mode: "string",
+      withTimezone: true
+    })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => ({
+    sessionCreatedIdx: index("session_fork_checkpoints_session_created_idx").on(
+      table.sessionId,
+      table.createdAt
+    ),
+    sessionAssistantUnique: uniqueIndex(
+      "session_fork_checkpoints_session_assistant_message_key"
+    ).on(table.sessionId, table.assistantMessageId)
+  })
+);
+
 export const productSchema = {
   routines,
   agentSessions,
   agentSettings,
   backgroundTasks,
   backgroundTaskRuns,
-  sessionMessages
+  sessionMessages,
+  sessionForkCheckpoints
 } as const;
 
 export type ProductSchema = typeof productSchema;
