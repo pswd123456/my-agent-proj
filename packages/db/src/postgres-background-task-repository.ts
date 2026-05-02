@@ -11,12 +11,18 @@ import type {
 import type { ProductDatabaseClient } from "./client.js";
 import { backgroundTaskRuns, backgroundTasks } from "./schema.js";
 import {
+  buildCancelRequestTask,
   buildClaim,
-  finishRun,
-  finishTaskClaim,
+  buildClaimedTaskAndRun,
+  buildFinishedTaskClaim,
+  buildHeartbeatTaskClaim,
+  buildRequeuedTask,
+  buildRescheduledQueuedTask,
+  buildRunningTaskClaim,
+  buildStaleClaimTransition,
+  buildWaitingTaskClaim,
   mapRunRow,
   mapTaskRow,
-  requireActiveTaskStatus,
   resolveTaskResultSummary,
   type BackgroundTaskRepository,
   type CancelTaskInput,
@@ -141,17 +147,23 @@ export class PostgresBackgroundTaskRepository implements BackgroundTaskRepositor
       }
 
       const runId = randomUUID();
+      const claim = buildClaimedTaskAndRun({
+        task: mapTaskRow(candidate),
+        runId,
+        workerId,
+        now
+      });
       const claimedRows = await this.db
         .update(backgroundTasks)
         .set({
-          status: "claimed",
-          activeRunId: runId,
-          attemptCount: (candidate.attemptCount ?? 0) + 1,
-          claimedBy: workerId,
-          claimedAt: now,
-          lastHeartbeatAt: now,
-          availableAt: null,
-          updatedAt: now
+          status: claim.task.status,
+          activeRunId: claim.task.activeRunId,
+          attemptCount: claim.task.attemptCount,
+          claimedBy: claim.task.claimedBy,
+          claimedAt: claim.task.claimedAt,
+          lastHeartbeatAt: claim.task.lastHeartbeatAt,
+          availableAt: claim.task.availableAt,
+          updatedAt: claim.task.updatedAt
         })
         .where(
           and(
@@ -168,17 +180,17 @@ export class PostgresBackgroundTaskRepository implements BackgroundTaskRepositor
         .insert(backgroundTaskRuns)
         .values({
           id: randomUUID(),
-          taskId: candidate.id,
-          runId,
-          status: "claimed",
-          workerId,
-          errorSummary: null,
-          resultSummary: null,
-          startedAt: now,
-          finishedAt: null,
-          lastHeartbeatAt: now,
-          createdAt: now,
-          updatedAt: now
+          taskId: claim.run.taskId,
+          runId: claim.run.runId,
+          status: claim.run.status,
+          workerId: claim.run.workerId,
+          errorSummary: claim.run.errorSummary,
+          resultSummary: claim.run.resultSummary,
+          startedAt: claim.run.startedAt,
+          finishedAt: claim.run.finishedAt,
+          lastHeartbeatAt: claim.run.lastHeartbeatAt,
+          createdAt: claim.run.createdAt,
+          updatedAt: claim.run.updatedAt
         })
         .returning();
       return buildClaim(mapTaskRow(claimedRows[0]!), mapRunRow(runRows[0]!));
@@ -194,193 +206,62 @@ export class PostgresBackgroundTaskRepository implements BackgroundTaskRepositor
     if (!existing || existing.task.activeRunId !== input.runId) {
       return null;
     }
-    requireActiveTaskStatus(
-      existing.task,
-      ["claimed", "running", "cancelling"],
-      "heartbeat"
-    );
     const now = new Date().toISOString();
-    return this.persistTaskAndRun(
-      {
-        ...existing.task,
-        lastHeartbeatAt: now,
-        updatedAt: now
-      },
-      {
-        ...existing.run,
-        lastHeartbeatAt: now,
-        updatedAt: now
-      }
-    );
+    const claim = buildHeartbeatTaskClaim({ claim: existing, now });
+    return this.persistTaskAndRun(claim.task, claim.run);
   }
 
   async markTaskRunning(input: TaskClaimInput): Promise<BackgroundTaskClaim> {
     const existing = await this.requireClaim(input.taskId, input.runId);
-    requireActiveTaskStatus(existing.task, ["claimed"], "mark running");
     const now = new Date().toISOString();
-    return this.persistTaskAndRun(
-      {
-        ...existing.task,
-        status: "running",
-        claimedBy: input.workerId,
-        lastHeartbeatAt: now,
-        updatedAt: now
-      },
-      {
-        ...existing.run,
-        status: "running",
-        workerId: input.workerId,
-        lastHeartbeatAt: now,
-        updatedAt: now
-      }
-    );
+    const claim = buildRunningTaskClaim({
+      claim: existing,
+      workerId: input.workerId,
+      now
+    });
+    return this.persistTaskAndRun(claim.task, claim.run);
   }
 
   async markTaskWaitingForInput(
     input: TaskWaitingForInputInput
   ): Promise<BackgroundTaskClaim> {
     const existing = await this.requireClaim(input.taskId, input.runId);
-    requireActiveTaskStatus(
-      existing.task,
-      ["claimed", "running", "cancelling"],
-      "mark waiting for input"
-    );
     const now = new Date().toISOString();
-    return this.persistTaskAndRun(
-      {
-        ...finishTaskClaim(
-          {
-            ...existing.task,
-            status: "waiting_for_input",
-            taskState: structuredClone(
-              input.taskState ?? existing.task.taskState ?? null
-            ),
-            resultSummary: resolveTaskResultSummary({
-              taskState: input.taskState ?? existing.task.taskState ?? null,
-              fallback: input.resultSummary ?? existing.task.resultSummary
-            })
-          },
-          now
-        )
-      },
-      finishRun(existing.run, "waiting_for_input", now, {
-        resultSummary: resolveTaskResultSummary({
-          taskState: input.taskState ?? existing.task.taskState ?? null,
-          fallback: input.resultSummary ?? existing.run.resultSummary
-        })
-      })
+    const claim = buildWaitingTaskClaim(
+      existing,
+      input,
+      now,
+      "waiting_for_input"
     );
+    return this.persistTaskAndRun(claim.task, claim.run);
   }
 
   async markTaskWaitingForMainAgent(
     input: TaskWaitingForMainAgentInput
   ): Promise<BackgroundTaskClaim> {
     const existing = await this.requireClaim(input.taskId, input.runId);
-    requireActiveTaskStatus(
-      existing.task,
-      ["claimed", "running", "cancelling"],
-      "mark waiting for main agent"
-    );
     const now = new Date().toISOString();
-    return this.persistTaskAndRun(
-      {
-        ...finishTaskClaim(
-          {
-            ...existing.task,
-            status: "waiting_for_main_agent",
-            taskState: structuredClone(
-              input.taskState ?? existing.task.taskState ?? null
-            ),
-            resultSummary: resolveTaskResultSummary({
-              taskState: input.taskState ?? existing.task.taskState ?? null,
-              fallback: input.resultSummary ?? existing.task.resultSummary
-            })
-          },
-          now
-        )
-      },
-      finishRun(existing.run, "waiting_for_main_agent", now, {
-        resultSummary: resolveTaskResultSummary({
-          taskState: input.taskState ?? existing.task.taskState ?? null,
-          fallback: input.resultSummary ?? existing.run.resultSummary
-        })
-      })
+    const claim = buildWaitingTaskClaim(
+      existing,
+      input,
+      now,
+      "waiting_for_main_agent"
     );
+    return this.persistTaskAndRun(claim.task, claim.run);
   }
 
   async completeTask(input: CompleteTaskInput): Promise<BackgroundTaskClaim> {
     const existing = await this.requireClaim(input.taskId, input.runId);
-    requireActiveTaskStatus(
-      existing.task,
-      ["claimed", "running", "cancelling"],
-      "complete"
-    );
     const now = new Date().toISOString();
-    return this.persistTaskAndRun(
-      {
-        ...finishTaskClaim(
-          {
-            ...existing.task,
-            status: "completed",
-            taskState: structuredClone(
-              input.taskState ?? existing.task.taskState ?? null
-            ),
-            resultSummary: resolveTaskResultSummary({
-              taskState: input.taskState ?? existing.task.taskState ?? null,
-              fallback: input.resultSummary ?? existing.task.resultSummary
-            }),
-            completedAt: now
-          },
-          now
-        ),
-        completedAt: now
-      },
-      finishRun(existing.run, "completed", now, {
-        resultSummary: resolveTaskResultSummary({
-          taskState: input.taskState ?? existing.task.taskState ?? null,
-          fallback: input.resultSummary ?? existing.run.resultSummary
-        }),
-        errorSummary: null
-      })
-    );
+    const claim = buildFinishedTaskClaim(existing, input, now, "completed");
+    return this.persistTaskAndRun(claim.task, claim.run);
   }
 
   async failTask(input: FailTaskInput): Promise<BackgroundTaskClaim> {
     const existing = await this.requireClaim(input.taskId, input.runId);
-    requireActiveTaskStatus(
-      existing.task,
-      ["claimed", "running", "cancelling"],
-      "fail"
-    );
     const now = new Date().toISOString();
-    return this.persistTaskAndRun(
-      {
-        ...finishTaskClaim(
-          {
-            ...existing.task,
-            status: "failed",
-            taskState: structuredClone(
-              input.taskState ?? existing.task.taskState ?? null
-            ),
-            lastError: input.errorSummary,
-            resultSummary: resolveTaskResultSummary({
-              taskState: input.taskState ?? existing.task.taskState ?? null,
-              fallback: input.resultSummary ?? existing.task.resultSummary
-            }),
-            completedAt: now
-          },
-          now
-        ),
-        completedAt: now
-      },
-      finishRun(existing.run, "failed", now, {
-        errorSummary: input.errorSummary,
-        resultSummary: resolveTaskResultSummary({
-          taskState: input.taskState ?? existing.task.taskState ?? null,
-          fallback: input.resultSummary ?? existing.run.resultSummary
-        })
-      })
-    );
+    const claim = buildFinishedTaskClaim(existing, input, now, "failed");
+    return this.persistTaskAndRun(claim.task, claim.run);
   }
 
   async requestCancel(taskId: string): Promise<BackgroundTaskRecord | null> {
@@ -388,24 +269,15 @@ export class PostgresBackgroundTaskRepository implements BackgroundTaskRepositor
     if (!existing) {
       return null;
     }
-    if (
-      existing.status === "cancelled" ||
-      existing.status === "completed" ||
-      existing.status === "failed"
-    ) {
-      return existing;
-    }
-
     const now = new Date().toISOString();
-    const nextStatus =
-      existing.status === "queued" ? "cancelled" : "cancelling";
+    const nextTask = buildCancelRequestTask(existing, now);
     const rows = await this.db
       .update(backgroundTasks)
       .set({
-        status: nextStatus,
-        cancelRequested: nextStatus === "cancelling",
-        completedAt: nextStatus === "cancelled" ? now : existing.completedAt,
-        updatedAt: now
+        status: nextTask.status,
+        cancelRequested: nextTask.cancelRequested,
+        completedAt: nextTask.completedAt,
+        updatedAt: nextTask.updatedAt
       })
       .where(eq(backgroundTasks.id, taskId))
       .returning();
@@ -414,39 +286,9 @@ export class PostgresBackgroundTaskRepository implements BackgroundTaskRepositor
 
   async cancelTask(input: CancelTaskInput): Promise<BackgroundTaskClaim> {
     const existing = await this.requireClaim(input.taskId, input.runId);
-    requireActiveTaskStatus(
-      existing.task,
-      ["claimed", "running", "cancelling"],
-      "cancel"
-    );
     const now = new Date().toISOString();
-    return this.persistTaskAndRun(
-      {
-        ...finishTaskClaim(
-          {
-            ...existing.task,
-            status: "cancelled",
-            taskState: structuredClone(
-              input.taskState ?? existing.task.taskState ?? null
-            ),
-            resultSummary: resolveTaskResultSummary({
-              taskState: input.taskState ?? existing.task.taskState ?? null,
-              fallback: input.resultSummary ?? existing.task.resultSummary
-            }),
-            completedAt: now
-          },
-          now
-        ),
-        completedAt: now
-      },
-      finishRun(existing.run, "cancelled", now, {
-        resultSummary: resolveTaskResultSummary({
-          taskState: input.taskState ?? existing.task.taskState ?? null,
-          fallback: input.resultSummary ?? existing.run.resultSummary
-        }),
-        errorSummary: null
-      })
-    );
+    const claim = buildFinishedTaskClaim(existing, input, now, "cancelled");
+    return this.persistTaskAndRun(claim.task, claim.run);
   }
 
   async rescheduleQueuedTask(
@@ -456,31 +298,17 @@ export class PostgresBackgroundTaskRepository implements BackgroundTaskRepositor
     if (!task) {
       throw new Error(`Unknown task: ${input.taskId}`);
     }
-    requireActiveTaskStatus(task, ["queued"], "reschedule queued");
-
     const now = new Date().toISOString();
+    const nextTask = buildRescheduledQueuedTask(task, input, now);
     const rows = await this.db
       .update(backgroundTasks)
       .set({
-        payload: input.payload ?? task.payload,
-        resultSummary:
-          typeof input.resultSummary === "string" ||
-          input.resultSummary === null
-            ? input.resultSummary
-            : task.resultSummary,
-        lastError:
-          typeof input.lastError === "string" || input.lastError === null
-            ? input.lastError
-            : task.lastError,
-        availableAt:
-          typeof input.availableAt === "string" || input.availableAt === null
-            ? input.availableAt
-            : task.availableAt,
-        deadlineAt:
-          typeof input.deadlineAt === "string" || input.deadlineAt === null
-            ? input.deadlineAt
-            : task.deadlineAt,
-        updatedAt: now
+        payload: nextTask.payload,
+        resultSummary: nextTask.resultSummary,
+        lastError: nextTask.lastError,
+        availableAt: nextTask.availableAt,
+        deadlineAt: nextTask.deadlineAt,
+        updatedAt: nextTask.updatedAt
       })
       .where(
         and(
@@ -502,50 +330,27 @@ export class PostgresBackgroundTaskRepository implements BackgroundTaskRepositor
     if (!task) {
       throw new Error(`Unknown task: ${input.taskId}`);
     }
-    if (
-      task.status === "queued" ||
-      task.status === "claimed" ||
-      task.status === "running" ||
-      task.status === "cancelling"
-    ) {
-      throw new Error(`Task ${task.taskId} is already active.`);
-    }
-
     const now = new Date().toISOString();
+    const nextTask = buildRequeuedTask(task, input, now);
     const rows = await this.db
       .update(backgroundTasks)
       .set({
-        status: "queued",
-        payload: input.payload ?? task.payload,
-        taskState: input.taskState ?? task.taskState,
-        resultSummary: resolveTaskResultSummary({
-          taskState: input.taskState ?? task.taskState,
-          fallback: input.resultSummary ?? task.resultSummary
-        }),
-        lastError:
-          typeof input.lastError === "string" || input.lastError === null
-            ? input.lastError
-            : task.lastError,
-        availableAt:
-          typeof input.availableAt === "string" || input.availableAt === null
-            ? input.availableAt
-            : null,
-        deadlineAt:
-          typeof input.deadlineAt === "string" || input.deadlineAt === null
-            ? input.deadlineAt
-            : task.deadlineAt,
-        attemptCount: 0,
-        maxAttempts: Math.max(
-          1,
-          Math.floor(input.maxAttempts ?? task.maxAttempts)
-        ),
-        cancelRequested: false,
-        activeRunId: null,
-        claimedBy: null,
-        claimedAt: null,
-        lastHeartbeatAt: null,
-        completedAt: null,
-        updatedAt: now
+        status: nextTask.status,
+        payload: nextTask.payload,
+        taskState: nextTask.taskState,
+        resultSummary: nextTask.resultSummary,
+        lastError: nextTask.lastError,
+        availableAt: nextTask.availableAt,
+        deadlineAt: nextTask.deadlineAt,
+        attemptCount: nextTask.attemptCount,
+        maxAttempts: nextTask.maxAttempts,
+        cancelRequested: nextTask.cancelRequested,
+        activeRunId: nextTask.activeRunId,
+        claimedBy: nextTask.claimedBy,
+        claimedAt: nextTask.claimedAt,
+        lastHeartbeatAt: nextTask.lastHeartbeatAt,
+        completedAt: nextTask.completedAt,
+        updatedAt: nextTask.updatedAt
       })
       .where(eq(backgroundTasks.id, task.taskId))
       .returning();
@@ -569,35 +374,40 @@ export class PostgresBackgroundTaskRepository implements BackgroundTaskRepositor
 
     for (const row of staleRows) {
       const task = mapTaskRow(row);
-      const shouldRetry = task.attemptCount < task.maxAttempts;
+      const transition = buildStaleClaimTransition({
+        task,
+        run: task.activeRunId
+          ? await this.getRun(task.activeRunId)
+          : null,
+        now
+      });
       const updatedRows = await this.db
         .update(backgroundTasks)
         .set({
-          status: shouldRetry ? "queued" : "failed",
-          cancelRequested: false,
-          activeRunId: null,
-          claimedBy: null,
-          claimedAt: null,
-          lastHeartbeatAt: null,
-          lastError: shouldRetry
-            ? task.lastError
-            : "Worker claim expired before completion.",
-          completedAt: shouldRetry ? null : now,
-          updatedAt: now
+          status: transition.task.status,
+          cancelRequested: transition.task.cancelRequested,
+          activeRunId: transition.task.activeRunId,
+          claimedBy: transition.task.claimedBy,
+          claimedAt: transition.task.claimedAt,
+          lastHeartbeatAt: transition.task.lastHeartbeatAt,
+          lastError: transition.task.lastError,
+          completedAt: transition.task.completedAt,
+          updatedAt: transition.task.updatedAt
         })
         .where(eq(backgroundTasks.id, task.taskId))
         .returning();
-      if (task.activeRunId) {
+      if (transition.run) {
         await this.db
           .update(backgroundTaskRuns)
           .set({
-            status: "failed",
-            errorSummary: "Worker claim expired before completion.",
-            finishedAt: now,
-            lastHeartbeatAt: now,
-            updatedAt: now
+            status: transition.run.status,
+            errorSummary: transition.run.errorSummary,
+            resultSummary: transition.run.resultSummary,
+            finishedAt: transition.run.finishedAt,
+            lastHeartbeatAt: transition.run.lastHeartbeatAt,
+            updatedAt: transition.run.updatedAt
           })
-          .where(eq(backgroundTaskRuns.runId, task.activeRunId));
+          .where(eq(backgroundTaskRuns.runId, transition.run.runId));
       }
       if (updatedRows[0]) {
         changedTasks.push(mapTaskRow(updatedRows[0]));

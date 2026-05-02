@@ -9,14 +9,20 @@ import type {
 } from "@ai-app-template/domain";
 
 import {
+  buildCancelRequestTask,
   buildClaim,
+  buildClaimedTaskAndRun,
+  buildFinishedTaskClaim,
+  buildHeartbeatTaskClaim,
+  buildRequeuedTask,
+  buildRescheduledQueuedTask,
+  buildRunningTaskClaim,
+  buildStaleClaimTransition,
+  buildWaitingTaskClaim,
   cloneRun,
   cloneTask,
   compareAvailableTasks,
-  finishRun,
-  finishTaskClaim,
   isTaskAvailable,
-  requireActiveTaskStatus,
   resolveTaskResultSummary,
   type BackgroundTaskRepository,
   type CancelTaskInput,
@@ -111,33 +117,15 @@ export class MemoryBackgroundTaskRepository implements BackgroundTaskRepository 
     }
 
     const runId = randomUUID();
-    const claimedTask: BackgroundTaskRecord = {
-      ...nextTask,
-      status: "claimed",
-      activeRunId: runId,
-      attemptCount: nextTask.attemptCount + 1,
-      claimedBy: workerId,
-      claimedAt: now,
-      lastHeartbeatAt: now,
-      availableAt: null,
-      updatedAt: now
-    };
-    const run: BackgroundTaskRunRecord = {
+    const claim = buildClaimedTaskAndRun({
+      task: nextTask,
       runId,
-      taskId: claimedTask.taskId,
-      status: "claimed",
       workerId,
-      errorSummary: null,
-      resultSummary: null,
-      startedAt: now,
-      finishedAt: null,
-      lastHeartbeatAt: now,
-      createdAt: now,
-      updatedAt: now
-    };
-    this.tasks.set(claimedTask.taskId, claimedTask);
-    this.runs.set(runId, run);
-    return buildClaim(claimedTask, run);
+      now
+    });
+    this.tasks.set(claim.task.taskId, claim.task);
+    this.runs.set(runId, claim.run);
+    return buildClaim(claim.task, claim.run);
   }
 
   async heartbeatTask(
@@ -148,25 +136,14 @@ export class MemoryBackgroundTaskRepository implements BackgroundTaskRepository 
     if (!task || !run || task.activeRunId !== input.runId) {
       return null;
     }
-    requireActiveTaskStatus(
-      task,
-      ["claimed", "running", "cancelling"],
-      "heartbeat"
-    );
     const now = new Date().toISOString();
-    const nextTask = {
-      ...task,
-      lastHeartbeatAt: now,
-      updatedAt: now
-    };
-    const nextRun = {
-      ...run,
-      lastHeartbeatAt: now,
-      updatedAt: now
-    };
-    this.tasks.set(task.taskId, nextTask);
-    this.runs.set(run.runId, nextRun);
-    return buildClaim(nextTask, nextRun);
+    const claim = buildHeartbeatTaskClaim({
+      claim: { task, run },
+      now
+    });
+    this.tasks.set(task.taskId, claim.task);
+    this.runs.set(run.runId, claim.run);
+    return buildClaim(claim.task, claim.run);
   }
 
   async markTaskRunning(input: TaskClaimInput): Promise<BackgroundTaskClaim> {
@@ -175,25 +152,15 @@ export class MemoryBackgroundTaskRepository implements BackgroundTaskRepository 
     if (!task || !run || task.activeRunId !== input.runId) {
       throw new Error(`Unknown active task claim for ${input.taskId}.`);
     }
-    requireActiveTaskStatus(task, ["claimed"], "mark running");
     const now = new Date().toISOString();
-    const nextTask = {
-      ...task,
-      status: "running" as const,
-      claimedBy: input.workerId,
-      lastHeartbeatAt: now,
-      updatedAt: now
-    };
-    const nextRun = {
-      ...run,
-      status: "running" as const,
+    const claim = buildRunningTaskClaim({
+      claim: { task, run },
       workerId: input.workerId,
-      lastHeartbeatAt: now,
-      updatedAt: now
-    };
-    this.tasks.set(task.taskId, nextTask);
-    this.runs.set(run.runId, nextRun);
-    return buildClaim(nextTask, nextRun);
+      now
+    });
+    this.tasks.set(task.taskId, claim.task);
+    this.runs.set(run.runId, claim.run);
+    return buildClaim(claim.task, claim.run);
   }
 
   async markTaskWaitingForInput(
@@ -204,33 +171,16 @@ export class MemoryBackgroundTaskRepository implements BackgroundTaskRepository 
     if (!task || !run || task.activeRunId !== input.runId) {
       throw new Error(`Unknown active task claim for ${input.taskId}.`);
     }
-    requireActiveTaskStatus(
-      task,
-      ["claimed", "running", "cancelling"],
-      "mark waiting for input"
-    );
     const now = new Date().toISOString();
-    const nextTask = finishTaskClaim(
-      {
-        ...task,
-        status: "waiting_for_input",
-        taskState: structuredClone(input.taskState ?? task.taskState ?? null),
-        resultSummary: resolveTaskResultSummary({
-          taskState: input.taskState ?? task.taskState ?? null,
-          fallback: input.resultSummary ?? task.resultSummary
-        })
-      },
-      now
+    const claim = buildWaitingTaskClaim(
+      { task, run },
+      input,
+      now,
+      "waiting_for_input"
     );
-    const nextRun = finishRun(run, "waiting_for_input", now, {
-      resultSummary: resolveTaskResultSummary({
-        taskState: input.taskState ?? task.taskState ?? null,
-        fallback: input.resultSummary ?? run.resultSummary
-      })
-    });
-    this.tasks.set(task.taskId, nextTask);
-    this.runs.set(run.runId, nextRun);
-    return buildClaim(nextTask, nextRun);
+    this.tasks.set(task.taskId, claim.task);
+    this.runs.set(run.runId, claim.run);
+    return buildClaim(claim.task, claim.run);
   }
 
   async markTaskWaitingForMainAgent(
@@ -241,33 +191,16 @@ export class MemoryBackgroundTaskRepository implements BackgroundTaskRepository 
     if (!task || !run || task.activeRunId !== input.runId) {
       throw new Error(`Unknown active task claim for ${input.taskId}.`);
     }
-    requireActiveTaskStatus(
-      task,
-      ["claimed", "running", "cancelling"],
-      "mark waiting for main agent"
-    );
     const now = new Date().toISOString();
-    const nextTask = finishTaskClaim(
-      {
-        ...task,
-        status: "waiting_for_main_agent",
-        taskState: structuredClone(input.taskState ?? task.taskState ?? null),
-        resultSummary: resolveTaskResultSummary({
-          taskState: input.taskState ?? task.taskState ?? null,
-          fallback: input.resultSummary ?? task.resultSummary
-        })
-      },
-      now
+    const claim = buildWaitingTaskClaim(
+      { task, run },
+      input,
+      now,
+      "waiting_for_main_agent"
     );
-    const nextRun = finishRun(run, "waiting_for_main_agent", now, {
-      resultSummary: resolveTaskResultSummary({
-        taskState: input.taskState ?? task.taskState ?? null,
-        fallback: input.resultSummary ?? run.resultSummary
-      })
-    });
-    this.tasks.set(task.taskId, nextTask);
-    this.runs.set(run.runId, nextRun);
-    return buildClaim(nextTask, nextRun);
+    this.tasks.set(task.taskId, claim.task);
+    this.runs.set(run.runId, claim.run);
+    return buildClaim(claim.task, claim.run);
   }
 
   async completeTask(input: CompleteTaskInput): Promise<BackgroundTaskClaim> {
@@ -276,38 +209,11 @@ export class MemoryBackgroundTaskRepository implements BackgroundTaskRepository 
     if (!task || !run || task.activeRunId !== input.runId) {
       throw new Error(`Unknown active task claim for ${input.taskId}.`);
     }
-    requireActiveTaskStatus(
-      task,
-      ["claimed", "running", "cancelling"],
-      "complete"
-    );
     const now = new Date().toISOString();
-    const nextTask = {
-      ...finishTaskClaim(
-        {
-          ...task,
-          status: "completed",
-          taskState: structuredClone(input.taskState ?? task.taskState ?? null),
-          resultSummary: resolveTaskResultSummary({
-            taskState: input.taskState ?? task.taskState ?? null,
-            fallback: input.resultSummary ?? task.resultSummary
-          }),
-          completedAt: now
-        },
-        now
-      ),
-      completedAt: now
-    };
-    const nextRun = finishRun(run, "completed", now, {
-      resultSummary: resolveTaskResultSummary({
-        taskState: input.taskState ?? task.taskState ?? null,
-        fallback: input.resultSummary ?? run.resultSummary
-      }),
-      errorSummary: null
-    });
-    this.tasks.set(task.taskId, nextTask);
-    this.runs.set(run.runId, nextRun);
-    return buildClaim(nextTask, nextRun);
+    const claim = buildFinishedTaskClaim({ task, run }, input, now, "completed");
+    this.tasks.set(task.taskId, claim.task);
+    this.runs.set(run.runId, claim.run);
+    return buildClaim(claim.task, claim.run);
   }
 
   async failTask(input: FailTaskInput): Promise<BackgroundTaskClaim> {
@@ -316,35 +222,11 @@ export class MemoryBackgroundTaskRepository implements BackgroundTaskRepository 
     if (!task || !run || task.activeRunId !== input.runId) {
       throw new Error(`Unknown active task claim for ${input.taskId}.`);
     }
-    requireActiveTaskStatus(task, ["claimed", "running", "cancelling"], "fail");
     const now = new Date().toISOString();
-    const nextTask = {
-      ...finishTaskClaim(
-        {
-          ...task,
-          status: "failed",
-          taskState: structuredClone(input.taskState ?? task.taskState ?? null),
-          lastError: input.errorSummary,
-          resultSummary: resolveTaskResultSummary({
-            taskState: input.taskState ?? task.taskState ?? null,
-            fallback: input.resultSummary ?? task.resultSummary
-          }),
-          completedAt: now
-        },
-        now
-      ),
-      completedAt: now
-    };
-    const nextRun = finishRun(run, "failed", now, {
-      errorSummary: input.errorSummary,
-      resultSummary: resolveTaskResultSummary({
-        taskState: input.taskState ?? task.taskState ?? null,
-        fallback: input.resultSummary ?? run.resultSummary
-      })
-    });
-    this.tasks.set(task.taskId, nextTask);
-    this.runs.set(run.runId, nextRun);
-    return buildClaim(nextTask, nextRun);
+    const claim = buildFinishedTaskClaim({ task, run }, input, now, "failed");
+    this.tasks.set(task.taskId, claim.task);
+    this.runs.set(run.runId, claim.run);
+    return buildClaim(claim.task, claim.run);
   }
 
   async requestCancel(taskId: string): Promise<BackgroundTaskRecord | null> {
@@ -352,33 +234,8 @@ export class MemoryBackgroundTaskRepository implements BackgroundTaskRepository 
     if (!task) {
       return null;
     }
-    if (
-      task.status === "cancelled" ||
-      task.status === "completed" ||
-      task.status === "failed"
-    ) {
-      return cloneTask(task);
-    }
-
     const now = new Date().toISOString();
-    if (task.status === "queued") {
-      const cancelledTask = {
-        ...task,
-        status: "cancelled" as const,
-        cancelRequested: false,
-        completedAt: now,
-        updatedAt: now
-      };
-      this.tasks.set(task.taskId, cancelledTask);
-      return cloneTask(cancelledTask);
-    }
-
-    const nextTask = {
-      ...task,
-      status: "cancelling" as const,
-      cancelRequested: true,
-      updatedAt: now
-    };
+    const nextTask = buildCancelRequestTask(task, now);
     this.tasks.set(task.taskId, nextTask);
     return cloneTask(nextTask);
   }
@@ -389,38 +246,11 @@ export class MemoryBackgroundTaskRepository implements BackgroundTaskRepository 
     if (!task || !run || task.activeRunId !== input.runId) {
       throw new Error(`Unknown active task claim for ${input.taskId}.`);
     }
-    requireActiveTaskStatus(
-      task,
-      ["claimed", "running", "cancelling"],
-      "cancel"
-    );
     const now = new Date().toISOString();
-    const nextTask = {
-      ...finishTaskClaim(
-        {
-          ...task,
-          status: "cancelled",
-          taskState: structuredClone(input.taskState ?? task.taskState ?? null),
-          resultSummary: resolveTaskResultSummary({
-            taskState: input.taskState ?? task.taskState ?? null,
-            fallback: input.resultSummary ?? task.resultSummary
-          }),
-          completedAt: now
-        },
-        now
-      ),
-      completedAt: now
-    };
-    const nextRun = finishRun(run, "cancelled", now, {
-      resultSummary: resolveTaskResultSummary({
-        taskState: input.taskState ?? task.taskState ?? null,
-        fallback: input.resultSummary ?? run.resultSummary
-      }),
-      errorSummary: null
-    });
-    this.tasks.set(task.taskId, nextTask);
-    this.runs.set(run.runId, nextRun);
-    return buildClaim(nextTask, nextRun);
+    const claim = buildFinishedTaskClaim({ task, run }, input, now, "cancelled");
+    this.tasks.set(task.taskId, claim.task);
+    this.runs.set(run.runId, claim.run);
+    return buildClaim(claim.task, claim.run);
   }
 
   async rescheduleQueuedTask(
@@ -430,32 +260,8 @@ export class MemoryBackgroundTaskRepository implements BackgroundTaskRepository 
     if (!task) {
       throw new Error(`Unknown task: ${input.taskId}`);
     }
-    requireActiveTaskStatus(task, ["queued"], "reschedule queued");
-
     const now = new Date().toISOString();
-    const nextTask: BackgroundTaskRecord = {
-      ...task,
-      payload: structuredClone(
-        input.payload ?? task.payload
-      ) as BackgroundTaskPayload,
-      resultSummary:
-        typeof input.resultSummary === "string" || input.resultSummary === null
-          ? input.resultSummary
-          : task.resultSummary,
-      lastError:
-        typeof input.lastError === "string" || input.lastError === null
-          ? input.lastError
-          : task.lastError,
-      availableAt:
-        typeof input.availableAt === "string" || input.availableAt === null
-          ? input.availableAt
-          : task.availableAt,
-      deadlineAt:
-        typeof input.deadlineAt === "string" || input.deadlineAt === null
-          ? input.deadlineAt
-          : task.deadlineAt,
-      updatedAt: now
-    };
+    const nextTask = buildRescheduledQueuedTask(task, input, now);
     this.tasks.set(task.taskId, nextTask);
     return cloneTask(nextTask);
   }
@@ -467,52 +273,8 @@ export class MemoryBackgroundTaskRepository implements BackgroundTaskRepository 
     if (!task) {
       throw new Error(`Unknown task: ${input.taskId}`);
     }
-    if (
-      task.status === "queued" ||
-      task.status === "claimed" ||
-      task.status === "running" ||
-      task.status === "cancelling"
-    ) {
-      throw new Error(`Task ${task.taskId} is already active.`);
-    }
-
     const now = new Date().toISOString();
-    const nextTask: BackgroundTaskRecord = {
-      ...task,
-      status: "queued",
-      payload: structuredClone(
-        input.payload ?? task.payload
-      ) as BackgroundTaskPayload,
-      taskState: structuredClone(input.taskState ?? task.taskState ?? null),
-      resultSummary: resolveTaskResultSummary({
-        taskState: input.taskState ?? task.taskState ?? null,
-        fallback: input.resultSummary ?? task.resultSummary
-      }),
-      lastError:
-        typeof input.lastError === "string" || input.lastError === null
-          ? input.lastError
-          : task.lastError,
-      availableAt:
-        typeof input.availableAt === "string" || input.availableAt === null
-          ? input.availableAt
-          : null,
-      deadlineAt:
-        typeof input.deadlineAt === "string" || input.deadlineAt === null
-          ? input.deadlineAt
-          : task.deadlineAt,
-      attemptCount: 0,
-      maxAttempts: Math.max(
-        1,
-        Math.floor(input.maxAttempts ?? task.maxAttempts)
-      ),
-      cancelRequested: false,
-      activeRunId: null,
-      claimedBy: null,
-      claimedAt: null,
-      lastHeartbeatAt: null,
-      completedAt: null,
-      updatedAt: now
-    };
+    const nextTask = buildRequeuedTask(task, input, now);
     this.tasks.set(task.taskId, nextTask);
     return cloneTask(nextTask);
   }
@@ -536,32 +298,12 @@ export class MemoryBackgroundTaskRepository implements BackgroundTaskRepository 
         continue;
       }
 
-      const shouldRetry = task.attemptCount < task.maxAttempts;
-      const nextTask: BackgroundTaskRecord = {
-        ...task,
-        status: shouldRetry ? "queued" : "failed",
-        cancelRequested: false,
-        activeRunId: null,
-        claimedBy: null,
-        claimedAt: null,
-        lastHeartbeatAt: null,
-        lastError: shouldRetry
-          ? task.lastError
-          : "Worker claim expired before completion.",
-        completedAt: shouldRetry ? null : now,
-        updatedAt: now
-      };
+      const run = task.activeRunId ? this.runs.get(task.activeRunId) : null;
+      const transition = buildStaleClaimTransition({ task, run, now });
+      const nextTask = transition.task;
       this.tasks.set(task.taskId, nextTask);
-      if (task.activeRunId) {
-        const run = this.runs.get(task.activeRunId);
-        if (run) {
-          this.runs.set(
-            run.runId,
-            finishRun(run, "failed", now, {
-              errorSummary: "Worker claim expired before completion."
-            })
-          );
-        }
+      if (transition.run) {
+        this.runs.set(transition.run.runId, transition.run);
       }
       changedTasks.push(cloneTask(nextTask));
     }

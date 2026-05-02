@@ -279,6 +279,51 @@ export function finishTaskClaim(
   };
 }
 
+function cloneTaskState(
+  value: BackgroundTaskState | null | undefined
+): BackgroundTaskState | null {
+  return structuredClone(value ?? null) as BackgroundTaskState | null;
+}
+
+function resolveStringOrNullPatch(
+  value: string | null | undefined,
+  fallback: string | null
+): string | null {
+  return typeof value === "string" || value === null ? value : fallback;
+}
+
+function resolveClaimTaskState(input: {
+  task: BackgroundTaskRecord;
+  taskState?: BackgroundTaskState | null | undefined;
+}): BackgroundTaskState | null {
+  return cloneTaskState(input.taskState ?? input.task.taskState ?? null);
+}
+
+function resolveClaimTaskResultSummary(input: {
+  task: BackgroundTaskRecord;
+  resultSummary?: string | null | undefined;
+  taskState?: BackgroundTaskState | null | undefined;
+}): string | null {
+  const taskState = input.taskState ?? input.task.taskState ?? null;
+  return resolveTaskResultSummary({
+    taskState,
+    fallback: input.resultSummary ?? input.task.resultSummary
+  });
+}
+
+function resolveClaimRunResultSummary(input: {
+  task: BackgroundTaskRecord;
+  run: BackgroundTaskRunRecord;
+  resultSummary?: string | null | undefined;
+  taskState?: BackgroundTaskState | null | undefined;
+}): string | null {
+  const taskState = input.taskState ?? input.task.taskState ?? null;
+  return resolveTaskResultSummary({
+    taskState,
+    fallback: input.resultSummary ?? input.run.resultSummary
+  });
+}
+
 export function finishRun(
   run: BackgroundTaskRunRecord,
   status: BackgroundTaskStatus,
@@ -302,6 +347,300 @@ export function finishRun(
     finishedAt: now,
     lastHeartbeatAt: now,
     updatedAt: now
+  };
+}
+
+export function buildClaimedTaskAndRun(input: {
+  task: BackgroundTaskRecord;
+  runId: string;
+  workerId: string;
+  now: string;
+}): BackgroundTaskClaim {
+  const claimedTask: BackgroundTaskRecord = {
+    ...input.task,
+    status: "claimed",
+    activeRunId: input.runId,
+    attemptCount: input.task.attemptCount + 1,
+    claimedBy: input.workerId,
+    claimedAt: input.now,
+    lastHeartbeatAt: input.now,
+    availableAt: null,
+    updatedAt: input.now
+  };
+  const run: BackgroundTaskRunRecord = {
+    runId: input.runId,
+    taskId: claimedTask.taskId,
+    status: "claimed",
+    workerId: input.workerId,
+    errorSummary: null,
+    resultSummary: null,
+    startedAt: input.now,
+    finishedAt: null,
+    lastHeartbeatAt: input.now,
+    createdAt: input.now,
+    updatedAt: input.now
+  };
+  return { task: claimedTask, run };
+}
+
+export function buildHeartbeatTaskClaim(input: {
+  claim: BackgroundTaskClaim;
+  now: string;
+}): BackgroundTaskClaim {
+  requireActiveTaskStatus(
+    input.claim.task,
+    ["claimed", "running", "cancelling"],
+    "heartbeat"
+  );
+  return {
+    task: {
+      ...input.claim.task,
+      lastHeartbeatAt: input.now,
+      updatedAt: input.now
+    },
+    run: {
+      ...input.claim.run,
+      lastHeartbeatAt: input.now,
+      updatedAt: input.now
+    }
+  };
+}
+
+export function buildRunningTaskClaim(input: {
+  claim: BackgroundTaskClaim;
+  workerId: string;
+  now: string;
+}): BackgroundTaskClaim {
+  requireActiveTaskStatus(input.claim.task, ["claimed"], "mark running");
+  return {
+    task: {
+      ...input.claim.task,
+      status: "running",
+      claimedBy: input.workerId,
+      lastHeartbeatAt: input.now,
+      updatedAt: input.now
+    },
+    run: {
+      ...input.claim.run,
+      status: "running",
+      workerId: input.workerId,
+      lastHeartbeatAt: input.now,
+      updatedAt: input.now
+    }
+  };
+}
+
+export function buildWaitingTaskClaim(
+  claim: BackgroundTaskClaim,
+  input: TaskWaitingForInputInput | TaskWaitingForMainAgentInput,
+  now: string,
+  status: Extract<
+    BackgroundTaskStatus,
+    "waiting_for_input" | "waiting_for_main_agent"
+  >
+): BackgroundTaskClaim {
+  requireActiveTaskStatus(
+    claim.task,
+    ["claimed", "running", "cancelling"],
+    status === "waiting_for_input"
+      ? "mark waiting for input"
+      : "mark waiting for main agent"
+  );
+  return {
+    task: finishTaskClaim(
+      {
+        ...claim.task,
+        status,
+        taskState: resolveClaimTaskState({
+          task: claim.task,
+          taskState: input.taskState
+        }),
+        resultSummary: resolveClaimTaskResultSummary({
+          task: claim.task,
+          resultSummary: input.resultSummary,
+          taskState: input.taskState
+        })
+      },
+      now
+    ),
+    run: finishRun(claim.run, status, now, {
+      resultSummary: resolveClaimRunResultSummary({
+        task: claim.task,
+        run: claim.run,
+        resultSummary: input.resultSummary,
+        taskState: input.taskState
+      })
+    })
+  };
+}
+
+export function buildFinishedTaskClaim(
+  claim: BackgroundTaskClaim,
+  input: CompleteTaskInput | FailTaskInput | CancelTaskInput,
+  now: string,
+  status: Extract<BackgroundTaskStatus, "completed" | "failed" | "cancelled">
+): BackgroundTaskClaim {
+  requireActiveTaskStatus(
+    claim.task,
+    ["claimed", "running", "cancelling"],
+    status === "completed" ? "complete" : status === "failed" ? "fail" : "cancel"
+  );
+  const errorSummary =
+    status === "failed" && "errorSummary" in input ? input.errorSummary : null;
+  const task = finishTaskClaim(
+    {
+      ...claim.task,
+      status,
+      taskState: resolveClaimTaskState({
+        task: claim.task,
+        taskState: input.taskState
+      }),
+      lastError: errorSummary ?? claim.task.lastError,
+      resultSummary: resolveClaimTaskResultSummary({
+        task: claim.task,
+        resultSummary: input.resultSummary,
+        taskState: input.taskState
+      }),
+      completedAt: now
+    },
+    now
+  );
+  return {
+    task: {
+      ...task,
+      completedAt: now
+    },
+    run: finishRun(claim.run, status, now, {
+      errorSummary,
+      resultSummary: resolveClaimRunResultSummary({
+        task: claim.task,
+        run: claim.run,
+        resultSummary: input.resultSummary,
+        taskState: input.taskState
+      })
+    })
+  };
+}
+
+export function buildCancelRequestTask(
+  task: BackgroundTaskRecord,
+  now: string
+): BackgroundTaskRecord {
+  if (
+    task.status === "cancelled" ||
+    task.status === "completed" ||
+    task.status === "failed"
+  ) {
+    return cloneTask(task);
+  }
+
+  if (task.status === "queued") {
+    return {
+      ...task,
+      status: "cancelled",
+      cancelRequested: false,
+      completedAt: now,
+      updatedAt: now
+    };
+  }
+
+  return {
+    ...task,
+    status: "cancelling",
+    cancelRequested: true,
+    updatedAt: now
+  };
+}
+
+export function buildRescheduledQueuedTask(
+  task: BackgroundTaskRecord,
+  input: RescheduleQueuedTaskInput,
+  now: string
+): BackgroundTaskRecord {
+  requireActiveTaskStatus(task, ["queued"], "reschedule queued");
+  return {
+    ...task,
+    payload: structuredClone(input.payload ?? task.payload) as BackgroundTaskPayload,
+    resultSummary: resolveStringOrNullPatch(
+      input.resultSummary,
+      task.resultSummary
+    ),
+    lastError: resolveStringOrNullPatch(input.lastError, task.lastError),
+    availableAt: resolveStringOrNullPatch(input.availableAt, task.availableAt),
+    deadlineAt: resolveStringOrNullPatch(input.deadlineAt, task.deadlineAt),
+    updatedAt: now
+  };
+}
+
+export function buildRequeuedTask(
+  task: BackgroundTaskRecord,
+  input: RequeueExistingTaskInput,
+  now: string
+): BackgroundTaskRecord {
+  if (
+    task.status === "queued" ||
+    task.status === "claimed" ||
+    task.status === "running" ||
+    task.status === "cancelling"
+  ) {
+    throw new Error(`Task ${task.taskId} is already active.`);
+  }
+
+  const taskState = input.taskState ?? task.taskState ?? null;
+  return {
+    ...task,
+    status: "queued",
+    payload: structuredClone(input.payload ?? task.payload) as BackgroundTaskPayload,
+    taskState: cloneTaskState(taskState),
+    resultSummary: resolveTaskResultSummary({
+      taskState,
+      fallback: input.resultSummary ?? task.resultSummary
+    }),
+    lastError: resolveStringOrNullPatch(input.lastError, task.lastError),
+    availableAt: resolveStringOrNullPatch(input.availableAt, null),
+    deadlineAt: resolveStringOrNullPatch(input.deadlineAt, task.deadlineAt),
+    attemptCount: 0,
+    maxAttempts: Math.max(1, Math.floor(input.maxAttempts ?? task.maxAttempts)),
+    cancelRequested: false,
+    activeRunId: null,
+    claimedBy: null,
+    claimedAt: null,
+    lastHeartbeatAt: null,
+    completedAt: null,
+    updatedAt: now
+  };
+}
+
+export function buildStaleClaimTransition(input: {
+  task: BackgroundTaskRecord;
+  run?: BackgroundTaskRunRecord | null | undefined;
+  now: string;
+  errorSummary?: string;
+}): {
+  task: BackgroundTaskRecord;
+  run: BackgroundTaskRunRecord | null;
+} {
+  const errorSummary =
+    input.errorSummary ?? "Worker claim expired before completion.";
+  const shouldRetry = input.task.attemptCount < input.task.maxAttempts;
+  return {
+    task: {
+      ...input.task,
+      status: shouldRetry ? "queued" : "failed",
+      cancelRequested: false,
+      activeRunId: null,
+      claimedBy: null,
+      claimedAt: null,
+      lastHeartbeatAt: null,
+      lastError: shouldRetry ? input.task.lastError : errorSummary,
+      completedAt: shouldRetry ? null : input.now,
+      updatedAt: input.now
+    },
+    run: input.run
+      ? finishRun(input.run, "failed", input.now, {
+          errorSummary
+        })
+      : null
   };
 }
 
