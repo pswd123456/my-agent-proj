@@ -11,10 +11,9 @@ import type {
 } from "@ai-app-template/agent";
 import type {
   SettingsPermissionToolOption,
+  SessionSettingsInput,
   RoutineRecord,
-  SessionSettingsRecord,
-  UserContextHookRecord,
-  WorkspaceSkillSettingRecord
+  SessionSettingsRecord
 } from "@ai-app-template/domain";
 
 export interface ApiClientConfig {
@@ -97,37 +96,22 @@ export interface CreateSessionForkPayload {
   assistantMessageId?: string;
 }
 
-export interface UpdateSessionSettingsPayload {
-  model?: string;
-  thinkingEffort?: string;
-  yoloMode?: boolean;
+export type UpdateSessionSettingsPayload = Pick<
+  SessionSettingsInput,
+  | "model"
+  | "thinkingEffort"
+  | "yoloMode"
+  | "shellAllowPatterns"
+  | "shellDenyPatterns"
+  | "toolAllowList"
+  | "toolAskList"
+  | "toolDenyList"
+  | "enabledCapabilityPacks"
+> & {
   planModeEnabled?: boolean;
-  shellAllowPatterns?: string[];
-  shellDenyPatterns?: string[];
-  toolAllowList?: string[];
-  toolAskList?: string[];
-  toolDenyList?: string[];
-  enabledCapabilityPacks?: string[];
-}
+};
 
-export interface UpdateUserSettingsPayload {
-  workingDirectory?: string;
-  model?: string;
-  thinkingEffort?: string;
-  yoloMode?: boolean;
-  contextWindow?: number;
-  maxTurns?: number;
-  shellAllowPatterns?: string[];
-  shellDenyPatterns?: string[];
-  toolAllowList?: string[];
-  toolAskList?: string[];
-  toolDenyList?: string[];
-  enabledCapabilityPacks?: string[];
-  workspaceSkillSettings?: WorkspaceSkillSettingRecord[];
-  userContextHooks?: UserContextHookRecord[];
-  debugConversationView?: boolean;
-  userCustomPrompt?: string;
-}
+export type UpdateUserSettingsPayload = SessionSettingsInput;
 
 export interface UserSettingsPayload {
   settings: SessionSettingsRecord;

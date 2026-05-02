@@ -164,7 +164,7 @@ export const foundation = {
   }
 } as const;
 
-export const semantic = {
+const nightSemantic = {
   color: {
     bg: {
       canvas: foundation.color.ink[950],
@@ -250,9 +250,76 @@ export const semantic = {
   }
 } as const;
 
+const daySemantic = {
+  color: {
+    bg: {
+      canvas: foundation.color.sand[50],
+      surface: "rgba(255, 252, 244, 0.9)",
+      elevated: "rgba(255, 255, 255, 0.96)",
+      muted: "rgba(75, 60, 46, 0.06)",
+      accent: foundation.color.jade[100]
+    },
+    text: {
+      primary: foundation.color.ink[900],
+      secondary: foundation.color.ink[700],
+      muted: foundation.color.ink[400],
+      accent: foundation.color.jade[700],
+      inverse: foundation.color.sand[50]
+    },
+    border: {
+      subtle: "rgba(75, 60, 46, 0.12)",
+      strong: "rgba(75, 60, 46, 0.22)",
+      accent: "rgba(15, 126, 102, 0.36)"
+    },
+    status: {
+      success: foundation.color.jade[600],
+      warning: foundation.color.amber[500],
+      danger: foundation.color.berry[500]
+    }
+  },
+  control: {
+    field: {
+      background: "rgba(255, 252, 244, 0.96)",
+      border: "rgba(75, 60, 46, 0.14)",
+      borderHover: "rgba(75, 60, 46, 0.26)",
+      borderFocus: "rgba(15, 126, 102, 0.36)"
+    },
+    menu: {
+      background: "rgba(255, 252, 244, 0.98)",
+      border: "rgba(75, 60, 46, 0.16)",
+      itemHover: "rgba(75, 60, 46, 0.07)",
+      itemSelected: "rgba(207, 247, 233, 0.82)",
+      icon: foundation.color.ink[600]
+    }
+  },
+  typography: nightSemantic.typography,
+  surface: {
+    panel: {
+      background: "rgba(255, 252, 244, 0.9)",
+      borderColor: "rgba(75, 60, 46, 0.12)",
+      shadow: foundation.shadow.md
+    },
+    card: {
+      background: "rgba(255, 255, 255, 0.96)",
+      borderColor: "rgba(75, 60, 46, 0.14)",
+      shadow: foundation.shadow.sm
+    }
+  }
+} as const;
+
+export const semanticThemes = {
+  night: nightSemantic,
+  day: daySemantic
+} as const;
+
+export type SemanticThemeName = keyof typeof semanticThemes;
+
+export const semantic = semanticThemes.night;
+
 export const tokens = {
   foundation,
-  semantic
+  semantic,
+  semanticThemes
 } as const;
 
 export interface TokenItem {
