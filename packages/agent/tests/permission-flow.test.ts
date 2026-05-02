@@ -7,7 +7,10 @@ import { createMemoryRoutineRepository } from "@ai-app-template/db";
 
 import { createAgentRuntime } from "../src/runtime.js";
 import type { RunStreamEvent } from "../src/events.js";
-import { createMemorySessionManager } from "../src/session/index.js";
+import {
+  createPostgresTestSessionManager,
+  type PostgresTestSessionManager
+} from "../../../tests/helpers/postgres-session-manager.js";
 import { matchesPermissionRuleLists } from "../src/runtime/permission-rules.js";
 import { handlePendingPermissionReply } from "../src/runtime/permission.js";
 import { executeToolAction } from "../src/runtime/tool-execution.js";
@@ -21,12 +24,10 @@ async function createWorkspaceRoot(): Promise<string> {
 }
 
 async function readFileIntoSession(input: {
-  sessionManager: ReturnType<typeof createMemorySessionManager>;
+  sessionManager: PostgresTestSessionManager;
   routineRepository: ReturnType<typeof createMemoryRoutineRepository>;
   toolRegistry: ReturnType<typeof createWorkspaceToolRegistry>;
-  session: Awaited<
-    ReturnType<ReturnType<typeof createMemorySessionManager>["createSession"]>
-  >;
+  session: Awaited<ReturnType<PostgresTestSessionManager["createSession"]>>;
   path: string;
 }) {
   const result = await executeToolAction({
@@ -54,7 +55,7 @@ async function readFileIntoSession(input: {
 describe("Stage 4 permission flow", () => {
   test("pauses for permission without writing an assistant guidance block", async () => {
     const workspaceRoot = await createWorkspaceRoot();
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
     const emittedEvents: RunStreamEvent[] = [];
 
@@ -274,7 +275,7 @@ describe("Stage 4 permission flow", () => {
 
   test("allows creating a new file without approval", async () => {
     const workspaceRoot = await createWorkspaceRoot();
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
 
     try {
@@ -316,7 +317,7 @@ describe("Stage 4 permission flow", () => {
 
   test("blocks ordinary workspace file mutations while plan mode is enabled", async () => {
     const workspaceRoot = await createWorkspaceRoot();
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
 
     try {
@@ -358,7 +359,7 @@ describe("Stage 4 permission flow", () => {
   });
 
   test("blocks todo tools while plan mode is enabled", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
 
     const session = await sessionManager.createSession({
@@ -394,7 +395,7 @@ describe("Stage 4 permission flow", () => {
   });
 
   test("pauses for a structured user question outside plan mode", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
 
     const session = await sessionManager.createSession({
@@ -441,7 +442,7 @@ describe("Stage 4 permission flow", () => {
   });
 
   test("pauses for multiple structured user questions", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
 
     const session = await sessionManager.createSession({
@@ -527,7 +528,7 @@ describe("Stage 4 permission flow", () => {
 
   test("pauses for a structured user question in plan mode and resumes on the next reply", async () => {
     const workspaceRoot = await createWorkspaceRoot();
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
     const emittedEvents: RunStreamEvent[] = [];
     let modelCallCount = 0;
@@ -635,7 +636,7 @@ describe("Stage 4 permission flow", () => {
   });
 
   test("rejects multiple recommended clarification options", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
 
     const session = await sessionManager.createSession({
@@ -687,7 +688,7 @@ describe("Stage 4 permission flow", () => {
 
   test("pauses for permission before overwriting an existing file and resumes after approval", async () => {
     const workspaceRoot = await createWorkspaceRoot();
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
     const toolRegistry = createWorkspaceToolRegistry({
       workingDirectory: workspaceRoot
@@ -814,7 +815,7 @@ describe("Stage 4 permission flow", () => {
 
   test("keeps the workspace unchanged when the user rejects a destructive request", async () => {
     const workspaceRoot = await createWorkspaceRoot();
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
     const toolRegistry = createWorkspaceToolRegistry({
       workingDirectory: workspaceRoot
@@ -882,7 +883,7 @@ describe("Stage 4 permission flow", () => {
 
   test("asks once before explicit workspace escapes and reuses that approval within the session", async () => {
     const workspaceRoot = await createWorkspaceRoot();
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
     const toolRegistry = createWorkspaceToolRegistry({
       workingDirectory: workspaceRoot
@@ -992,7 +993,7 @@ describe("Stage 4 permission flow", () => {
 
   test("keeps workspace escape approval session-scoped and separate from tool allow lists", async () => {
     const workspaceRoot = await createWorkspaceRoot();
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
     const toolRegistry = createWorkspaceToolRegistry({
       workingDirectory: workspaceRoot
@@ -1082,7 +1083,7 @@ describe("Stage 4 permission flow", () => {
 
   test("consumes explicit permission replies before the model sees the pending request", async () => {
     const workspaceRoot = await createWorkspaceRoot();
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
     const toolRegistry = createWorkspaceToolRegistry({
       workingDirectory: workspaceRoot
@@ -1161,7 +1162,7 @@ describe("Stage 4 permission flow", () => {
 
   test("consumes explicit tool permission replies before the model sees the pending request", async () => {
     const workspaceRoot = await createWorkspaceRoot();
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
     const toolRegistry = createWorkspaceToolRegistry({
       workingDirectory: workspaceRoot
@@ -1249,7 +1250,7 @@ describe("Stage 4 permission flow", () => {
 
   test("skips destructive file approval when yolo mode is enabled", async () => {
     const workspaceRoot = await createWorkspaceRoot();
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
     const toolRegistry = createWorkspaceToolRegistry({
       workingDirectory: workspaceRoot
@@ -1392,7 +1393,7 @@ describe("Stage 4 permission flow", () => {
 
   test("does not reset the remaining turn budget after a permission approval", async () => {
     const workspaceRoot = await createWorkspaceRoot();
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
     const toolRegistry = createWorkspaceToolRegistry({
       workingDirectory: workspaceRoot
@@ -1483,7 +1484,7 @@ describe("Stage 4 permission flow", () => {
 
   test("preserves pending conflict confirmation while pausing for permission", async () => {
     const workspaceRoot = await createWorkspaceRoot();
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
     const toolRegistry = createWorkspaceToolRegistry({
       workingDirectory: workspaceRoot

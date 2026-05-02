@@ -7,7 +7,7 @@ import {
   createFileTraceManager,
   type RunStreamEvent
 } from "../src/index.js";
-import { createMemorySessionManager } from "../src/session/index.js";
+import { createPostgresTestSessionManager } from "../../../tests/helpers/postgres-session-manager.js";
 import { ToolRegistry } from "../src/tools/registry.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
@@ -16,7 +16,7 @@ import path from "node:path";
 describe("runtime failure persistence", () => {
   test("persists failed status when the model run throws", async () => {
     const traceDir = await mkdtemp(path.join(os.tmpdir(), "runtime-failure-"));
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
     const traceManager = createFileTraceManager(traceDir);
     const runtime = createAgentRuntime({

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createPostgresTestSessionManager } from "../../../tests/helpers/postgres-session-manager.js";
 
 import {
   createMemoryBackgroundTaskRepository,
@@ -10,7 +11,6 @@ import {
   createBackgroundTaskManager,
   createDelegateAgentService,
   createDelegateAgentTool,
-  createMemorySessionManager,
   type RunStreamEvent
 } from "../src/index.js";
 import { ToolRegistry } from "../src/tools/registry.js";
@@ -120,7 +120,7 @@ function createNoopTool(): RuntimeTool {
 
 describe("delegate runtime behavior", () => {
   test("suspends the parent run after delegate_agent reports an active background task", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
     const backgroundTaskRepository = createMemoryBackgroundTaskRepository();
     const backgroundTaskManager = createBackgroundTaskManager({
@@ -203,7 +203,7 @@ describe("delegate runtime behavior", () => {
   });
 
   test("lets unblocking delegates continue through other work before suspending", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
     const backgroundTaskRepository = createMemoryBackgroundTaskRepository();
     const backgroundTaskManager = createBackgroundTaskManager({
@@ -318,7 +318,7 @@ describe("delegate runtime behavior", () => {
   });
 
   test("consumes background notifications that arrive during the previous turn", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
     let requestCount = 0;
 
@@ -411,7 +411,7 @@ describe("delegate runtime behavior", () => {
   });
 
   test("clears externally injected background notifications after a completed turn", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
     let requestCount = 0;
 

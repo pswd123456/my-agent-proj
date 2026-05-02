@@ -3,14 +3,14 @@ import { describe, expect, test } from "bun:test";
 import { createMemoryRoutineRepository } from "@ai-app-template/db";
 
 import { createAgentRuntime, type RunStreamEvent } from "../src/index.js";
-import { createMemorySessionManager } from "../src/session/index.js";
+import { createPostgresTestSessionManager } from "../../../tests/helpers/postgres-session-manager.js";
 import { createWorkspaceToolRegistry } from "../src/tools/index.js";
 
 describe("text tool call fallback", () => {
   test("does not persist raw TOOL_CALL markup as assistant text", async () => {
     let callCount = 0;
     const emittedEvents: RunStreamEvent[] = [];
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
 
     const runtime = createAgentRuntime({

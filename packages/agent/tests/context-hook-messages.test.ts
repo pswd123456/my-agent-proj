@@ -7,7 +7,7 @@ import {
   type AnthropicMessageRequest,
   type RunStreamEvent
 } from "../src/index.js";
-import { createMemorySessionManager } from "../src/session/index.js";
+import { createPostgresTestSessionManager } from "../../../tests/helpers/postgres-session-manager.js";
 import { ToolRegistry } from "../src/tools/registry.js";
 
 function requestText(request: AnthropicMessageRequest): string {
@@ -23,7 +23,7 @@ function requestText(request: AnthropicMessageRequest): string {
 describe("message user context hooks", () => {
   test("runs session and run start hook messages before the user message, then run end hooks", async () => {
     const requests: AnthropicMessageRequest[] = [];
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
     let callCount = 0;
 

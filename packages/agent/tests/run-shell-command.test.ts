@@ -1,13 +1,14 @@
 import { describe, expect, test } from "bun:test";
+import { createPostgresTestSessionManager } from "../../../tests/helpers/postgres-session-manager.js";
 
 import { createMemoryBackgroundTaskRepository } from "@ai-app-template/db";
 
-import { createBackgroundTaskManager, createMemorySessionManager } from "../src/index.js";
+import { createBackgroundTaskManager } from "../src/index.js";
 import { createRunShellCommandTool } from "../src/tools/run-shell-command.js";
 import type { ToolExecutionContext } from "../src/tools/runtime-tool.js";
 
 async function createContext(): Promise<ToolExecutionContext> {
-  const sessionManager = createMemorySessionManager();
+  const sessionManager = await createPostgresTestSessionManager();
   const backgroundTaskManager = createBackgroundTaskManager({
     sessionManager,
     repository: createMemoryBackgroundTaskRepository()

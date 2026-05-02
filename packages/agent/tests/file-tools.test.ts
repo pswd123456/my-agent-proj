@@ -13,6 +13,7 @@ import path from "node:path";
 import { createReadFileTool } from "../src/tools/read-file.js";
 import { createWriteFileTool } from "../src/tools/write-file.js";
 import { createDeleteFileTool } from "../src/tools/delete-file.js";
+import { createManagePathTool } from "../src/tools/manage-path.js";
 import {
   applyUnifiedPatch,
   invertUnifiedPatch,
@@ -962,6 +963,116 @@ describe("delete_file", () => {
     await expect(
       readFile(path.join(workspace, "alpha.txt"), "utf8")
     ).resolves.toBe("one\n");
+  });
+});
+
+describe("manage_path", () => {
+  test("copies a workspace file without removing the source", async () => {
+    const workspace = await createWorkspace();
+    await writeFile(path.join(workspace, "source.txt"), "hello\n");
+
+    const result = await createManagePathTool(workspace).execute(
+      {
+        action: "copy",
+        source_path: "source.txt",
+        target_path: "target.txt"
+      },
+      createContext(workspace)
+    );
+
+    expect(result.state).toBe("success");
+    expect(result.result.code).toBe("PATH_COPIED");
+    expect(result.result.data).toMatchObject({
+      action: "copy",
+      source_path: "source.txt",
+      target_path: "target.txt",
+      kind: "file"
+    });
+    await expect(
+      readFile(path.join(workspace, "source.txt"), "utf8")
+    ).resolves.toBe("hello\n");
+    await expect(
+      readFile(path.join(workspace, "target.txt"), "utf8")
+    ).resolves.toBe("hello\n");
+  });
+
+  test("moves a workspace file and reports the combined path action", async () => {
+    const workspace = await createWorkspace();
+    await writeFile(path.join(workspace, "old.txt"), "hello\n");
+
+    const tool = createManagePathTool(workspace);
+    const permission = await tool.getPermissionRequest?.(
+      {
+        action: "move",
+        source_path: "old.txt",
+        target_path: "new.txt"
+      },
+      createContext(workspace)
+    );
+    expect(permission?.contextNote).toContain("移动或重命名路径");
+
+    const result = await tool.execute(
+      {
+        action: "move",
+        source_path: "old.txt",
+        target_path: "new.txt"
+      },
+      createContext(workspace)
+    );
+
+    expect(result.state).toBe("success");
+    expect(result.result.code).toBe("PATH_MOVED");
+    expect(result.result.data).toMatchObject({
+      action: "move",
+      source_path: "old.txt",
+      target_path: "new.txt",
+      kind: "file"
+    });
+    await expect(
+      readFile(path.join(workspace, "old.txt"), "utf8")
+    ).rejects.toThrow();
+    await expect(
+      readFile(path.join(workspace, "new.txt"), "utf8")
+    ).resolves.toBe("hello\n");
+  });
+
+  test("asks before copying over an existing target", async () => {
+    const workspace = await createWorkspace();
+    await writeFile(path.join(workspace, "source.txt"), "next\n");
+    await writeFile(path.join(workspace, "target.txt"), "old\n");
+
+    const permission = await createManagePathTool(
+      workspace
+    ).getPermissionRequest?.(
+      {
+        action: "copy",
+        source_path: "source.txt",
+        target_path: "target.txt"
+      },
+      createContext(workspace)
+    );
+
+    expect(permission?.contextNote).toBe("复制到已存在目标路径时需要审批。");
+  });
+
+  test("rejects invalid combined path actions", async () => {
+    const workspace = await createWorkspace();
+
+    const result = await createManagePathTool(workspace).execute(
+      {
+        action: "delete",
+        source_path: "source.txt",
+        target_path: "target.txt"
+      },
+      createContext(workspace)
+    );
+
+    expect(result.state).toBe("failed");
+    expect(result.result.code).toBe("INVALID_TOOL_INPUT");
+    expect(result.result.validationErrors).toContainEqual({
+      field: "action",
+      issue: 'action must be either "copy" or "move".'
+    });
   });
 });
 

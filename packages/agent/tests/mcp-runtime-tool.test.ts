@@ -9,7 +9,7 @@ import { loadWorkspaceMcpTools } from "../src/mcp/client-manager.js";
 import { namespaceMcpToolName } from "../src/mcp/tool-adapter.js";
 import { handlePendingPermissionReply } from "../src/runtime/permission.js";
 import { executeToolAction } from "../src/runtime/tool-execution.js";
-import { createMemorySessionManager } from "../src/session/index.js";
+import { createPostgresTestSessionManager } from "../../../tests/helpers/postgres-session-manager.js";
 import { ToolRegistry } from "../src/tools/registry.js";
 
 async function createWorkspaceRoot(): Promise<string> {
@@ -28,7 +28,7 @@ async function writeConfig(
 describe("MCP runtime tool integration", () => {
   test("MCP tools pause for approval and resume after confirmation", async () => {
     const workspaceRoot = await createWorkspaceRoot();
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
     const fixtureScript = path.resolve(
       import.meta.dir,

@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { createMemorySessionManager } from "../src/session/index.js";
+import {
+  createPostgresTestSessionManager,
+  type PostgresTestSessionManager
+} from "../../../tests/helpers/postgres-session-manager.js";
 import {
   createManageCapabilityPacksTool,
   createPlanningToolRegistry
@@ -8,7 +11,7 @@ import {
 import type { ToolExecutionContext } from "../src/tools/runtime-tool.js";
 
 async function createSessionContext(
-  sessionManager: ReturnType<typeof createMemorySessionManager>,
+  sessionManager: PostgresTestSessionManager,
   sessionId: string
 ): Promise<ToolExecutionContext> {
   const session = await sessionManager.getSession(sessionId);
@@ -49,7 +52,7 @@ async function createSessionContext(
 
 describe("manage_capability_packs tool", () => {
   test("lists the current capability pack state", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const session = await sessionManager.createSession({
       workingDirectory: "/tmp/workspace",
       userId: "pack-user",
@@ -74,7 +77,7 @@ describe("manage_capability_packs tool", () => {
   });
 
   test("enables and disables packs with idempotent updates", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const session = await sessionManager.createSession({
       workingDirectory: "/tmp/workspace",
       userId: "pack-user",
@@ -134,7 +137,7 @@ describe("manage_capability_packs tool", () => {
   });
 
   test("rejects unknown packs", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const session = await sessionManager.createSession({
       workingDirectory: "/tmp/workspace",
       userId: "pack-user"
@@ -153,7 +156,7 @@ describe("manage_capability_packs tool", () => {
   });
 
   test("can enable the lsp capability pack", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const session = await sessionManager.createSession({
       workingDirectory: "/tmp/workspace",
       userId: "pack-user",

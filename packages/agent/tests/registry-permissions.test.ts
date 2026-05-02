@@ -19,7 +19,6 @@ describe("ToolRegistry stage4 metadata contract", () => {
 
     expect(registry.list().map((tool) => tool.name)).toEqual([
       "apply_patch",
-      "copy_path",
       "create_directory",
       "delete_file",
       "delete_path",
@@ -30,7 +29,7 @@ describe("ToolRegistry stage4 metadata contract", () => {
       "list_directory",
       "load_skill",
       "make_http_request",
-      "move_path",
+      "manage_path",
       "read_file",
       "run_shell_command",
       "search_skill",

@@ -5,7 +5,7 @@ import { createMemoryRoutineRepository } from "@ai-app-template/db";
 import type { AnthropicMessageRequest } from "../src/model.js";
 import { DEFAULT_DEEPSEEK_MODEL } from "../src/models/service.js";
 import { createAgentRuntime } from "../src/runtime.js";
-import { createMemorySessionManager } from "../src/session/index.js";
+import { createPostgresTestSessionManager } from "../../../tests/helpers/postgres-session-manager.js";
 import { ToolRegistry } from "../src/tools/registry.js";
 import type { RuntimeTool } from "../src/tools/runtime-tool.js";
 
@@ -139,7 +139,7 @@ function createDeepSeekModelService(client: {
 describe("thinking context persistence", () => {
   test("passes DeepSeek thinking effort through Anthropic-compatible request options", async () => {
     const requests: AnthropicMessageRequest[] = [];
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
     const client = {
       messages: {
@@ -176,7 +176,7 @@ describe("thinking context persistence", () => {
 
   test("sends runtime context before conversation history so tool results stay last", async () => {
     const requests: AnthropicMessageRequest[] = [];
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
     let callCount = 0;
 
@@ -251,7 +251,7 @@ describe("thinking context persistence", () => {
 
   test("persists signed thinking blocks and replays them in the next prompt", async () => {
     const requests: AnthropicMessageRequest[] = [];
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
     let callCount = 0;
 
@@ -393,7 +393,7 @@ describe("thinking context persistence", () => {
   });
 
   test("does not persist thinking from text tool-call fallback turns", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
     let callCount = 0;
 
@@ -460,7 +460,7 @@ describe("thinking context persistence", () => {
   });
 
   test("does not crash or persist thinking blocks without signatures", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
 
     const runtime = createAgentRuntime({
@@ -516,7 +516,7 @@ describe("thinking context persistence", () => {
 
   test("replays historical thinking blocks when the selected model supports thinking input", async () => {
     const requests: AnthropicMessageRequest[] = [];
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
     const client = {
       messages: {
@@ -598,7 +598,7 @@ describe("thinking context persistence", () => {
 
   test("replays multi-tool thinking turns as one assistant message with grouped tool results", async () => {
     const requests: AnthropicMessageRequest[] = [];
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
     let callCount = 0;
 
@@ -746,7 +746,7 @@ describe("thinking context persistence", () => {
 
   test("preserves the full tool-use turn after permission approval before returning to the model", async () => {
     const requests: AnthropicMessageRequest[] = [];
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
     let callCount = 0;
 

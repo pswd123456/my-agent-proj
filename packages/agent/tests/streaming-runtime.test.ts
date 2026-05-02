@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { createMemoryRoutineRepository } from "@ai-app-template/db";
 
 import { createAgentRuntime, type RunStreamEvent } from "../src/index.js";
-import { createMemorySessionManager } from "../src/session/index.js";
+import { createPostgresTestSessionManager } from "../../../tests/helpers/postgres-session-manager.js";
 import type { TraceEvent, TraceManager, TraceRecord } from "../src/trace.js";
 import { ToolRegistry } from "../src/tools/registry.js";
 
@@ -25,7 +25,7 @@ class MemoryTraceManager implements TraceManager {
 
 describe("runtime streaming assistant text", () => {
   test("emits prompt trace events with composition stats", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
     const runtime = createAgentRuntime({
       client: {
@@ -79,7 +79,7 @@ describe("runtime streaming assistant text", () => {
   });
 
   test("streams incremental assistant_text events but records only the final assistant block in trace", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
     const traceManager = new MemoryTraceManager();
     const runtime = createAgentRuntime({
@@ -217,7 +217,7 @@ describe("runtime streaming assistant text", () => {
   });
 
   test("streams incremental thinking events but records only the final thinking block in trace", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
     const traceManager = new MemoryTraceManager();
     const runtime = createAgentRuntime({

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { createMemoryRoutineRepository } from "@ai-app-template/db";
 
-import { createMemorySessionManager } from "../src/session/index.js";
+import { createPostgresTestSessionManager } from "../../../tests/helpers/postgres-session-manager.js";
 import { executeToolAction } from "../src/runtime/tool-execution.js";
 import type { TraceEvent, TraceManager, TraceRecord } from "../src/trace.js";
 import { ToolRegistry } from "../src/tools/registry.js";
@@ -31,7 +31,7 @@ describe("tool execution", () => {
       "middle-content-that-must-survive",
       "B".repeat(1_400)
     ].join("\n");
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
     const traceManager = new MemoryTraceManager();
     const details = {

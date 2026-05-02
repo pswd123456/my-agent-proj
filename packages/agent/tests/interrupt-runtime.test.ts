@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { createPostgresTestSessionManager } from "../../../tests/helpers/postgres-session-manager.js";
 
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -8,7 +9,6 @@ import { createMemoryRoutineRepository } from "@ai-app-template/db";
 
 import {
   createAgentRuntime,
-  createMemorySessionManager,
   createWorkspaceToolRegistry,
   type AnthropicRequestOptions,
   type RunStreamEvent
@@ -30,7 +30,7 @@ afterAll(async () => {
 
 describe("runtime interrupt handling", () => {
   test("persists partial streamed assistant text when the user interrupts mid-stream", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
     let aborted = false;
 
@@ -157,7 +157,7 @@ describe("runtime interrupt handling", () => {
   });
 
   test("interrupts a model stream before the first model event arrives", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
     let sessionId = "";
     let requestSignal: AbortSignal | null = null;
@@ -235,7 +235,7 @@ describe("runtime interrupt handling", () => {
     );
     cleanupPaths.add(workspaceRoot);
 
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
     const server = Bun.serve({
       port: 0,

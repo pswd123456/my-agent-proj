@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { createMemoryRoutineRepository } from "@ai-app-template/db";
 
 import { createAgentRuntime } from "../src/index.js";
-import { createMemorySessionManager } from "../src/session/index.js";
+import { createPostgresTestSessionManager } from "../../../tests/helpers/postgres-session-manager.js";
 import { ToolRegistry } from "../src/tools/registry.js";
 import type { RuntimeTool } from "../src/tools/runtime-tool.js";
 
@@ -104,7 +104,7 @@ function createWriteProbeTool(state: {
 
 describe("tool orchestration", () => {
   test("runs consecutive concurrency-safe tools in parallel and preserves the serial boundary for mutations", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
     const state = {
       activeReads: 0,

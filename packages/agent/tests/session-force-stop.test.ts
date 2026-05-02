@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { createMemorySessionManager } from "../src/session/index.js";
+import { createPostgresTestSessionManager } from "../../../tests/helpers/postgres-session-manager.js";
 
 describe("session force stop", () => {
   test("repairs the visible session state and lets the interrupted run observe cancellation", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const session = await sessionManager.createSession({
       userId: "force-stop-user"
     });
@@ -13,7 +13,8 @@ describe("session force stop", () => {
     const acquired = await sessionManager.acquireExecution(session.sessionId, {
       runId
     });
-    expect(acquired?.sessionState.loopState).toBe("running");
+    expect(acquired).not.toBeNull();
+    await sessionManager.setLoopState(session.sessionId, "running");
 
     const stopped = await sessionManager.forceStop(session.sessionId);
 

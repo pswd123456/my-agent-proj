@@ -2,7 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import { createMemorySessionManager } from "../src/session/index.js";
+import {
+  createPostgresTestSessionManager,
+  type PostgresTestSessionManager
+} from "../../../tests/helpers/postgres-session-manager.js";
 import { resolveLegacyTaskBriefPath } from "../src/session/task-brief.js";
 import {
   createEditTaskBriefTool,
@@ -17,7 +20,7 @@ import {
 import type { ToolExecutionContext } from "../src/tools/runtime-tool.js";
 
 async function createSessionContext(
-  sessionManager: ReturnType<typeof createMemorySessionManager>,
+  sessionManager: PostgresTestSessionManager,
   sessionId: string
 ): Promise<ToolExecutionContext> {
   const session = await sessionManager.getSession(sessionId);
@@ -58,7 +61,7 @@ async function createSessionContext(
 
 describe("todo tools", () => {
   test("replace_todo_list persists a new session todo state and get_todo_list reads it back", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const session = await sessionManager.createSession({
       workingDirectory: "/tmp/workspace",
       userId: "todo-user"
@@ -99,7 +102,7 @@ describe("todo tools", () => {
   });
 
   test("update_todo_items keeps one active item and can clear the todo state", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const session = await sessionManager.createSession({
       workingDirectory: "/tmp/workspace",
       userId: "todo-user"
@@ -220,7 +223,7 @@ describe("todo tools", () => {
   });
 
   test("replace_task_brief writes the bound markdown file and get_task_brief reads it back", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const session = await sessionManager.createSession({
       workingDirectory: "/tmp/workspace",
       userId: "todo-user",
@@ -293,7 +296,7 @@ describe("todo tools", () => {
   });
 
   test("read_task_brief supports line windows and search_task_brief returns line numbers", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const session = await sessionManager.createSession({
       workingDirectory: "/tmp/workspace",
       userId: "todo-user",
@@ -335,7 +338,7 @@ describe("todo tools", () => {
   });
 
   test("edit_task_brief replaces an inclusive line range", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const session = await sessionManager.createSession({
       workingDirectory: "/tmp/workspace",
       userId: "todo-user",
@@ -400,7 +403,7 @@ describe("todo tools", () => {
   });
 
   test("replace_task_brief requires plan_name before the first write", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const session = await sessionManager.createSession({
       workingDirectory: "/tmp/workspace",
       userId: "todo-user",
@@ -419,7 +422,7 @@ describe("todo tools", () => {
   });
 
   test("replace_task_brief upgrades a legacy flat binding when plan_name is provided", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const session = await sessionManager.createSession({
       workingDirectory: "/tmp/workspace",
       userId: "todo-user",
@@ -453,7 +456,7 @@ describe("todo tools", () => {
   });
 
   test("replace_task_brief asks for plan_name when a legacy binding has no file yet", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const session = await sessionManager.createSession({
       workingDirectory: "/tmp/workspace",
       userId: "todo-user",

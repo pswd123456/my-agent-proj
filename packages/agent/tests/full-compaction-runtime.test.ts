@@ -4,7 +4,7 @@ import { createMemoryRoutineRepository } from "@ai-app-template/db";
 
 import { createAgentRuntime } from "../src/runtime.js";
 import { fullCompactionTestUtils } from "../src/runtime/compaction.js";
-import { createMemorySessionManager } from "../src/session/index.js";
+import { createPostgresTestSessionManager } from "../../../tests/helpers/postgres-session-manager.js";
 import type { AnthropicMessageRequest } from "../src/model.js";
 import { getUserContextHookConfigHash } from "../src/subagent-hooks.js";
 import type { TraceEvent, TraceManager, TraceRecord } from "../src/trace.js";
@@ -137,7 +137,7 @@ describe("full compaction runtime", () => {
   });
 
   test("runs history compaction once, then full compaction, and keeps only the retained tail", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
     const traceManager = new MemoryTraceManager();
     const requests: AnthropicMessageRequest[] = [];

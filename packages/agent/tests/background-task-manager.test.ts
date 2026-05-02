@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { createPostgresTestSessionManager } from "../../../tests/helpers/postgres-session-manager.js";
 
 import { createMemoryBackgroundTaskRepository } from "@ai-app-template/db";
 
 import {
   createBackgroundTaskManager,
-  createMemorySessionManager,
   runBackgroundTask
 } from "../src/index.js";
 import { scheduleBackgroundTaskPollWakeup } from "../src/background-tasks/orchestration.js";
@@ -28,7 +28,7 @@ function createDelegateTaskCard() {
 
 describe("background task manager", () => {
   test("enqueue creates an isolated child session and preserves the parent session", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const repository = createMemoryBackgroundTaskRepository();
     const manager = createBackgroundTaskManager({
       sessionManager,
@@ -57,7 +57,7 @@ describe("background task manager", () => {
     expect(child).not.toBeNull();
     expect(child?.sessionId).not.toBe(parent.sessionId);
     expect(child?.workingDirectory).toBe("/tmp/child");
-    expect(child?.context.userId).toBe("cli-user");
+    expect(child?.context.userId).toBe(sessionManager.testUserId("cli-user"));
     expect(child?.context.yoloMode).toBe(false);
     expect(child?.context.toolAllowList).toEqual([]);
 
@@ -67,7 +67,7 @@ describe("background task manager", () => {
   });
 
   test("surfaces invalid task transitions through the manager", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const repository = createMemoryBackgroundTaskRepository();
     const manager = createBackgroundTaskManager({
       sessionManager,
@@ -93,7 +93,7 @@ describe("background task manager", () => {
   });
 
   test("does not create a child session for background shell tasks", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const repository = createMemoryBackgroundTaskRepository();
     const manager = createBackgroundTaskManager({
       sessionManager,
@@ -119,7 +119,7 @@ describe("background task manager", () => {
 
 describe("background task runner", () => {
   test("maps completed, waiting, and cancelled runtime results without polluting the parent session", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const repository = createMemoryBackgroundTaskRepository();
     const manager = createBackgroundTaskManager({
       sessionManager,
@@ -311,7 +311,7 @@ describe("background task runner", () => {
   });
 
   test("injects a parent-session notification and queues a reusable wakeup after subagent completion", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const repository = createMemoryBackgroundTaskRepository();
     const manager = createBackgroundTaskManager({
       sessionManager,
@@ -380,7 +380,7 @@ describe("background task runner", () => {
   });
 
   test("backs off delegate poll wakeups without running the parent model", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const repository = createMemoryBackgroundTaskRepository();
     const manager = createBackgroundTaskManager({
       sessionManager,
@@ -450,7 +450,7 @@ describe("background task runner", () => {
   });
 
   test("merges new task ids into an existing queued poll wakeup", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const repository = createMemoryBackgroundTaskRepository();
     const manager = createBackgroundTaskManager({
       sessionManager,
@@ -499,7 +499,7 @@ describe("background task runner", () => {
   });
 
   test("expedites a future delegate poll wakeup when the subagent completes", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const repository = createMemoryBackgroundTaskRepository();
     const manager = createBackgroundTaskManager({
       sessionManager,
@@ -576,7 +576,7 @@ describe("background task runner", () => {
   });
 
   test("keeps notifications queued without wakeup when the parent is waiting for user input", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const repository = createMemoryBackgroundTaskRepository();
     const manager = createBackgroundTaskManager({
       sessionManager,

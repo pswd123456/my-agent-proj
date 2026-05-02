@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createPostgresTestSessionManager } from "../../../tests/helpers/postgres-session-manager.js";
 
 import {
   createMemoryBackgroundTaskRepository,
@@ -7,8 +8,7 @@ import {
 
 import {
   createAgentRuntime,
-  createBackgroundTaskManager,
-  createMemorySessionManager
+  createBackgroundTaskManager
 } from "../src/index.js";
 import type { AnthropicMessageRequest } from "../src/model.js";
 import { getUserContextHookConfigHash } from "../src/subagent-hooks.js";
@@ -33,7 +33,7 @@ class MemoryTraceManager implements TraceManager {
 
 describe("subagent hook runtime", () => {
   test("session_started blocking hook schedules a hook task and suspends before the first model request", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const backgroundTaskRepository = createMemoryBackgroundTaskRepository();
     const backgroundTaskManager = createBackgroundTaskManager({
       sessionManager,
@@ -133,7 +133,7 @@ describe("subagent hook runtime", () => {
   });
 
   test("materializes completed hook notifications into runtime context on the next run", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const traceManager = new MemoryTraceManager();
     const requests: AnthropicMessageRequest[] = [];
 
@@ -254,7 +254,7 @@ describe("subagent hook runtime", () => {
   });
 
   test("does not inject materialized results after the hook configuration changes", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const traceManager = new MemoryTraceManager();
 
     const runtime = createAgentRuntime({

@@ -3,12 +3,12 @@ import { describe, expect, test } from "bun:test";
 import { createMemoryRoutineRepository } from "@ai-app-template/db";
 
 import { createAgentRuntime } from "../src/runtime.js";
-import { createMemorySessionManager } from "../src/session/index.js";
+import { createPostgresTestSessionManager } from "../../../tests/helpers/postgres-session-manager.js";
 import { ToolRegistry } from "../src/tools/registry.js";
 
 describe("context window preflight", () => {
   test("fails before the main assistant turn when compaction still cannot fit the prompt into the context window", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
     const requests: Array<{ system: string; messageCount: number }> = [];
 

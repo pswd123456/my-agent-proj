@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createPostgresTestSessionManager } from "../../../tests/helpers/postgres-session-manager.js";
 
 import {
   createMemoryBackgroundTaskRepository,
@@ -8,8 +9,7 @@ import {
 import {
   createBackgroundTaskManager,
   createDelegateAgentService,
-  createDelegateAgentTool,
-  createMemorySessionManager
+  createDelegateAgentTool
 } from "../src/index.js";
 import { executeToolAction } from "../src/runtime/tool-execution.js";
 import { ToolRegistry } from "../src/tools/registry.js";
@@ -33,7 +33,7 @@ function createTaskCard() {
 
 describe("delegate agent service", () => {
   test("starts an isolated child session and requeues the same delegate for follow-up", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const repository = createMemoryBackgroundTaskRepository();
     const taskManager = createBackgroundTaskManager({
       sessionManager,
@@ -73,7 +73,7 @@ describe("delegate agent service", () => {
     expect(task?.parentSessionId).toBe(parent.sessionId);
     expect(child?.workingDirectory).toBe("/tmp/parent");
     expect(child?.model).toBe("MiniMax-M2.7");
-    expect(child?.context.userId).toBe("user-a");
+    expect(child?.context.userId).toBe(sessionManager.testUserId("user-a"));
     expect(child?.context.yoloMode).toBe(false);
     expect(child?.context.toolAllowList).toEqual([]);
     expect(
@@ -137,7 +137,7 @@ describe("delegate agent tool", () => {
     expect(anthropicTool.description).toContain('"action":"start"');
     expect(anthropicTool.description).toContain('"action":"permission"');
 
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const repository = createMemoryBackgroundTaskRepository();
     const routineRepository = createMemoryRoutineRepository();
     const taskManager = createBackgroundTaskManager({
@@ -186,7 +186,7 @@ describe("delegate agent tool", () => {
   });
 
   test("returns delegate views without exposing child session ids and resolves permission decisions", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const repository = createMemoryBackgroundTaskRepository();
     const routineRepository = createMemoryRoutineRepository();
     const taskManager = createBackgroundTaskManager({
@@ -302,7 +302,7 @@ describe("delegate agent tool", () => {
   });
 
   test("normalizes unblocking wait options and rejects them for get", async () => {
-    const sessionManager = createMemorySessionManager();
+    const sessionManager = await createPostgresTestSessionManager();
     const repository = createMemoryBackgroundTaskRepository();
     const routineRepository = createMemoryRoutineRepository();
     const taskManager = createBackgroundTaskManager({
