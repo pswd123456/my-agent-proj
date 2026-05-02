@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 
 import {
+  DEFAULT_SESSION_MAX_TURNS,
   createAgentRuntime,
   createBackgroundTaskManager,
   createDefaultToolRegistry,
@@ -33,7 +34,10 @@ import {
 const workspaceRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const stateDirectory = resolveSessionStateDirectory(workspaceRoot);
 const traceManager = createFileTraceManager(stateDirectory);
-const systemLogManager = createFileSystemLogManager(stateDirectory, process.env);
+const systemLogManager = createFileSystemLogManager(
+  stateDirectory,
+  process.env
+);
 const workerLogger = createLogger({
   manager: systemLogManager,
   component: "worker"
@@ -59,7 +63,8 @@ await ensureProductSchema(database);
 
 const routineRepository = createPostgresRoutineRepository(database);
 const sessionManager = createPostgresSessionManager(database);
-const backgroundTaskRepository = createPostgresBackgroundTaskRepository(database);
+const backgroundTaskRepository =
+  createPostgresBackgroundTaskRepository(database);
 const settingsPermissionToolOptions = listSettingsPermissionToolOptions({
   workingDirectory: workspaceRoot,
   routineRepository
@@ -109,7 +114,7 @@ async function createRuntimeHandle(
       userContextHooks: settings.userContextHooks,
       workspaceSkillSettings: settings.workspaceSkillSettings,
       userCustomPrompt: settings.userCustomPrompt,
-      maxTurns: 50,
+      maxTurns: DEFAULT_SESSION_MAX_TURNS,
       maxTokens,
       ...(toolChoice ? { toolChoice } : {})
     }),
@@ -161,8 +166,7 @@ async function reconcileStaleTasks(): Promise<void> {
               summary: latestResponse.summary,
               content: latestResponse.content,
               responseKind: latestResponse.kind,
-              expectedParentReply:
-                delegateState?.expectedParentReply ?? "none",
+              expectedParentReply: delegateState?.expectedParentReply ?? "none",
               ...(latestResponse.request
                 ? { request: latestResponse.request }
                 : {})
