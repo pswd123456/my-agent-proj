@@ -31,7 +31,8 @@ async function createTestApp(options?: {
       async readEvents() {
         return [];
       },
-      async deleteEvents() {}
+      async deleteEvents() {},
+      async truncateEventsAfterTurn() {}
     },
     systemLogManager,
     apiLogger: createLogger({

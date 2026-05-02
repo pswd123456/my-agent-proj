@@ -7,9 +7,11 @@ import {
   applyUnifiedPatch,
   cloneForkSessionSnapshot,
   copyTaskBriefForFork,
+  createRewriteRewindSnapshot,
   createRunErrorEvent,
   createRunTraceEvent,
   discoverWorkspaceSkills,
+  getCheckpointTriggerUserBlock,
   findDuplicateWorkspaceMcpServerNames,
   invertUnifiedPatch,
   loadWorkspaceMcpTools,
@@ -45,6 +47,7 @@ import type {
   SessionManager,
   SessionForkCheckpoint,
   SessionForkTarget,
+  SessionRewriteTarget,
   SessionSnapshot,
   SystemLogManager,
   TraceEvent,
@@ -100,6 +103,11 @@ const createSessionForkBodySchema = z
       message: "checkpointId or assistantMessageId is required."
     }
   );
+
+const recoverRewriteTargetBodySchema = z.object({
+  checkpointId: z.string().min(1),
+  userMessageId: z.string().min(1)
+});
 
 function hasDuplicateMcpServerNames(
   servers: UpdateUserSettingsMcpPayload["servers"]
@@ -374,6 +382,78 @@ function toSessionForkTarget(
     responseGroupId: checkpoint.responseGroupId ?? null,
     canFork: true
   };
+}
+
+function buildMessageHookContentSet(
+  settings: Pick<SessionSettingsRecord, "userContextHooks">
+): Set<string> {
+  return new Set(
+    (settings.userContextHooks ?? [])
+      .filter(
+        (hook) =>
+          hook.enabled &&
+          (hook.behavior ?? (hook.event === "run_end" ? "message" : "context")) ===
+            "message" &&
+          hook.content.trim().length > 0
+      )
+      .map((hook) => hook.content.trim())
+  );
+}
+
+function resolveLatestRewriteTarget(input: {
+  session: SessionSnapshot;
+  checkpoints: SessionForkCheckpoint[];
+  messageHookContents: Set<string>;
+}): SessionRewriteTarget | null {
+  for (let index = input.checkpoints.length - 1; index >= 0; index -= 1) {
+    const checkpoint = input.checkpoints[index];
+    if (!checkpoint) {
+      continue;
+    }
+
+    const triggerBlock = getCheckpointTriggerUserBlock({
+      session: input.session,
+      checkpoint
+    });
+    if (!triggerBlock) {
+      continue;
+    }
+
+    if (triggerBlock.source === "hook_message") {
+      continue;
+    }
+
+    if (
+      typeof triggerBlock.source !== "string" &&
+      input.messageHookContents.has(triggerBlock.content.trim())
+    ) {
+      return null;
+    }
+
+    return {
+      checkpointId: checkpoint.id,
+      userMessageId: triggerBlock.id,
+      turnCount: checkpoint.turnCount
+    };
+  }
+
+  return null;
+}
+
+function countTraceInputTokensBeforeTurn(
+  events: Awaited<ReturnType<TraceManager["readEvents"]>>,
+  turnCount: number
+): number {
+  return events.reduce((total, record) => {
+    if (
+      record.event.kind !== "response" ||
+      record.event.turnCount >= turnCount
+    ) {
+      return total;
+    }
+
+    return total + Math.max(0, record.event.usage.inputTokens ?? 0);
+  }, 0);
 }
 
 function resolveForkTaskBriefPath(input: {
@@ -942,9 +1022,18 @@ export function createApiApp(dependencies: ApiAppDependencies) {
 
     const checkpoints =
       await dependencies.sessionManager.listForkCheckpoints(sessionId);
+    const settings = await dependencies.settingsRepository.getOrCreate(
+      session.context.userId
+    );
+    const rewriteTarget = resolveLatestRewriteTarget({
+      session,
+      checkpoints,
+      messageHookContents: buildMessageHookContentSet(settings)
+    });
     return c.json({
       sessionId,
-      forkTargets: checkpoints.map(toSessionForkTarget)
+      forkTargets: checkpoints.map(toSessionForkTarget),
+      rewriteTarget
     });
   });
 
@@ -1008,6 +1097,115 @@ export function createApiApp(dependencies: ApiAppDependencies) {
     });
 
     return c.json({ session: enrichedSession ?? forkSession }, 201);
+  });
+
+  app.post("/sessions/:sessionId/rewrite-target/recover", async (c) => {
+    const requestId = getRequestId(c);
+    const sessionId = c.req.param("sessionId");
+    const session = await dependencies.sessionManager.getSession(sessionId);
+    if (!session) {
+      return c.json({ error: "Session not found." }, 404);
+    }
+
+    if (await dependencies.sessionManager.isExecutionActive(sessionId)) {
+      return c.json({ error: "Session is still running." }, 409);
+    }
+
+    if (
+      session.context.pendingPermissionRequest ||
+      session.context.pendingConfirmationPayload ||
+      session.context.pendingUserQuestionPayload ||
+      session.sessionState.pendingToolCallIds.length > 0 ||
+      session.sessionState.interruptRequested
+    ) {
+      return c.json(
+        {
+          error:
+            "Rewrite is available only after a completed user turn with no pending approval or question."
+        },
+        409
+      );
+    }
+
+    const body = recoverRewriteTargetBodySchema.parse(await c.req.json());
+    const checkpoints =
+      await dependencies.sessionManager.listForkCheckpoints(sessionId);
+    const settings = await dependencies.settingsRepository.getOrCreate(
+      session.context.userId
+    );
+    const rewriteTarget = resolveLatestRewriteTarget({
+      session,
+      checkpoints,
+      messageHookContents: buildMessageHookContentSet(settings)
+    });
+    if (
+      !rewriteTarget ||
+      rewriteTarget.checkpointId !== body.checkpointId ||
+      rewriteTarget.userMessageId !== body.userMessageId
+    ) {
+      return c.json(
+        { error: "Only the latest rewriteable user message can be rewritten." },
+        409
+      );
+    }
+
+    const checkpoint = checkpoints.find(
+      (candidate) => candidate.id === rewriteTarget.checkpointId
+    );
+    if (!checkpoint) {
+      return c.json({ error: "Rewrite checkpoint not found." }, 404);
+    }
+
+    const rewindSnapshot = createRewriteRewindSnapshot({
+      session,
+      checkpoint
+    });
+    const traceRecords = await dependencies.traceManager.readEvents(sessionId);
+    const nextInputTokensCount = countTraceInputTokensBeforeTurn(
+      traceRecords,
+      rewriteTarget.turnCount
+    );
+    let recoveredSession = await dependencies.sessionManager.recover(
+      rewindSnapshot
+    );
+    await dependencies.sessionManager.pruneForkCheckpointsFromTurn(
+      sessionId,
+      rewriteTarget.turnCount
+    );
+    await dependencies.traceManager.truncateEventsAfterTurn(
+      sessionId,
+      rewriteTarget.turnCount
+    );
+    recoveredSession = await dependencies.sessionManager.saveSession({
+      ...recoveredSession,
+      inputTokensCount: nextInputTokensCount
+    });
+
+    const nextCheckpoints =
+      await dependencies.sessionManager.listForkCheckpoints(sessionId);
+    const nextRewriteTarget = resolveLatestRewriteTarget({
+      session: recoveredSession,
+      checkpoints: nextCheckpoints,
+      messageHookContents: buildMessageHookContentSet(settings)
+    });
+
+    await logApiEvent({
+      logger: dependencies.apiLogger,
+      requestId,
+      event: "session_rewrite_recovered",
+      sessionId,
+      details: {
+        checkpointId: rewriteTarget.checkpointId,
+        userMessageId: rewriteTarget.userMessageId,
+        turnCount: rewriteTarget.turnCount
+      }
+    });
+
+    return c.json({
+      session: recoveredSession,
+      forkTargets: nextCheckpoints.map(toSessionForkTarget),
+      rewriteTarget: nextRewriteTarget
+    });
   });
 
   app.patch("/sessions/:sessionId/settings", async (c) => {

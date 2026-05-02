@@ -55,7 +55,8 @@ async function createTestApp() {
         async readEvents() {
           return [];
         },
-        async deleteEvents() {}
+        async deleteEvents() {},
+        async truncateEventsAfterTurn() {}
       },
       systemLogManager,
       apiLogger,
@@ -260,7 +261,8 @@ describe("createApiApp settings bootstrap", () => {
         async readEvents() {
           return [];
         },
-        async deleteEvents() {}
+        async deleteEvents() {},
+        async truncateEventsAfterTurn() {}
       },
       systemLogManager: new FileSystemLogManager(
         await mkdtemp(path.join(os.tmpdir(), "api-log-")),

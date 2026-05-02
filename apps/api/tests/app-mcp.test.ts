@@ -49,7 +49,8 @@ async function createRuntimeTestApp(options?: {
       async readEvents() {
         return [];
       },
-      async deleteEvents() {}
+      async deleteEvents() {},
+      async truncateEventsAfterTurn() {}
     } satisfies ApiAppDependencies["traceManager"]);
   const runtimeFactory =
     options?.runtimeFactory ??
@@ -191,7 +192,8 @@ describe("createApiApp MCP runtime assembly", () => {
           async readEvents() {
             return [];
           },
-          async deleteEvents() {}
+          async deleteEvents() {},
+          async truncateEventsAfterTurn() {}
         }
       }
     );

@@ -40,7 +40,8 @@ async function createTestApp(workspaceRoot: string) {
         async readEvents() {
           return [];
         },
-        async deleteEvents() {}
+        async deleteEvents() {},
+        async truncateEventsAfterTurn() {}
       },
       systemLogManager,
       apiLogger,

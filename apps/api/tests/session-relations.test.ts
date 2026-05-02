@@ -43,7 +43,8 @@ describe("session relation responses", () => {
         async readEvents() {
           return [];
         },
-        async deleteEvents() {}
+        async deleteEvents() {},
+        async truncateEventsAfterTurn() {}
       },
       systemLogManager,
       apiLogger,
@@ -125,7 +126,8 @@ describe("session relation responses", () => {
         },
         async deleteEvents(sessionId: string) {
           deletedTraceSessionIds.push(sessionId);
-        }
+        },
+        async truncateEventsAfterTurn() {}
       },
       systemLogManager,
       apiLogger,

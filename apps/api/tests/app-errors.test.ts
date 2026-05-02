@@ -31,7 +31,8 @@ describe("createApiApp error responses", () => {
         async readEvents() {
           return [];
         },
-        async deleteEvents() {}
+        async deleteEvents() {},
+        async truncateEventsAfterTurn() {}
       },
       systemLogManager: new FileSystemLogManager("/tmp/my-agent-proj-api-error-test"),
       apiLogger: createLogger({
@@ -90,7 +91,8 @@ describe("createApiApp error responses", () => {
         async readEvents() {
           return [];
         },
-        async deleteEvents() {}
+        async deleteEvents() {},
+        async truncateEventsAfterTurn() {}
       },
       systemLogManager: new FileSystemLogManager("/tmp/my-agent-proj-api-error-test"),
       apiLogger: {
