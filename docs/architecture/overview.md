@@ -60,6 +60,7 @@
 - `GET/PATCH/DELETE /sessions/:sessionId`
 - `GET /sessions/:sessionId/fork-targets`
 - `POST /sessions/:sessionId/forks`
+- `POST /sessions/:sessionId/rewrite-target/recover`
 - `PATCH /sessions/:sessionId/settings`
 - `GET /sessions/:sessionId/workspace-files/search`
 - `GET /sessions/:sessionId/skills/search`
@@ -113,6 +114,7 @@
 - 想先建立全局认知：读 `docs/architecture/diagram.md`
 - 想判断主线与专项能力边界：读 `docs/architecture/capability-packs.md`
 - 想确认 API 契约、runtime 装配与 SDK 侧 transport 边界：读 `docs/architecture/api-and-sdk-boundary.md`
+- 想确认 fork / rewrite 的 checkpoint、replay 和 rewind 边界：读 `docs/architecture/session-fork-and-rewrite.md`
 - 想确认工具调用、权限等待、工具结果持久化和并发执行边界：读 `docs/architecture/tool-orchestration.md`
 - 想确认后台任务、子代理和 worker 链路：读 `docs/architecture/background-tasks-and-delegation.md`
 - 想确认 session/settings/background task 的持久化归属：读 `docs/architecture/persistence-and-session-state.md`

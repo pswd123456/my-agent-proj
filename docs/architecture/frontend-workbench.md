@@ -35,6 +35,7 @@
 - session 列表与当前 session hydrate
 - 发起流式执行
 - 轮询 session 列表 / 当前 session
+- hydrate forkTargets / rewriteTarget 并把历史操作映射回对话区
 - 拉 trace、routines、user settings、model catalog
 - 组合多个本地 state slice
 
@@ -80,6 +81,7 @@
 - `createApiClient()`
 - `listSessions()` / `getSession()` / `createSession()`
 - `searchSessions()` / `listSessionForkTargets()` / `createSessionFork()`
+- `recoverRewriteTarget()`
 - `streamSessionExecution()`
 - `chooseDirectory()`
 - `getUserSettingsMcp()` / `updateUserSettingsMcp()` / `getUserSettingsSkills()`
@@ -130,6 +132,7 @@
 会并行拉取：
 
 - `getSession()`
+- `listSessionForkTargets()`
 - `getSessionTrace()`
 - `listSessionRoutines()`
 - `getUserSettingsPayload()`
@@ -137,6 +140,7 @@
 然后分别更新：
 
 - `sessionUiState`
+- `forkTargets` / `rewriteTarget`
 - `traceRecords`
 - `routines`
 - `userSettings`
@@ -158,6 +162,15 @@
 ### 4. 文件变更视图
 
 前端会从 tool result 中提取 `workspace_file_changes`，把一次 run 里的改动整理成可选择、可 `undo` / `reapply` 的视图；真正的文件变更动作还是通过 API 的 `POST /sessions/:sessionId/file-changes` 执行。
+
+### 5. 历史 fork / rewrite 交互
+
+对话区不是自己推断哪些历史节点可 fork 或可 rewrite，而是直接消费 API 返回的历史目标：
+
+- assistant block 旁的 fork 动作来自 `forkTargets`
+- user block 的 rewrite 动作只会绑定到当前 `rewriteTarget`
+
+用户提交 rewrite 时，前端会先调 `recoverRewriteTarget()` 回退 session，再把编辑后的文本当作一次新的普通消息重新提交。也就是说，前端只负责编排交互，不定义 rewind 语义本身。
 
 ## 为什么要把消息编排单独收口
 

@@ -10,6 +10,7 @@
 - [架构文档目录](./architecture/README.md)
 - [API 与 SDK 边界](./architecture/api-and-sdk-boundary.md)
 - [持久化与 Session 状态模型](./architecture/persistence-and-session-state.md)
+- [Session Fork 与 Rewrite](./architecture/session-fork-and-rewrite.md)
 - [前端 Workbench 架构](./architecture/frontend-workbench.md)
 - [Tool 编排与执行边界](./architecture/tool-orchestration.md)
 - [内建 LSP Capability Pack](./architecture/lsp-capability-pack.md)
@@ -34,6 +35,7 @@
 - 做 API 契约、runtime 装配点或 Web 调用边界相关工作时，优先看 `docs/architecture/api-and-sdk-boundary.md` 和 `docs/architecture/firecrawl-web.md`
 - 做 tool 调度、权限等待、工具结果持久化或并发执行边界时，优先看 `docs/architecture/tool-orchestration.md`
 - 做 session/settings/background task 的状态归属、数据表和持久化边界时，优先看 `docs/architecture/persistence-and-session-state.md`
+- 做 session fork、历史改写重试、checkpoint replay 或 fork session 关系定位时，优先看 `docs/architecture/session-fork-and-rewrite.md`
 - 做 LSP 工具、server 生命周期或默认 capability pack 判断时，优先看 `docs/architecture/lsp-capability-pack.md`
 - 判断“当前实现事实”时，优先看 `docs/architecture/` 和代码；`docs/plan/`、`docs/investigation/`、`docs/todo/` 更多是阶段规格、调研记录或验收口径
 - 做工作区 instructions、skills 或 MCP 配置输入时，优先看 `docs/architecture/workspace-agent-config.md`；做 MCP 工具挂载、权限和 trace 链路时，再看 `docs/architecture/mcp-module.md`

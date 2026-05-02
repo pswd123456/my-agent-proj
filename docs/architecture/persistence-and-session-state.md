@@ -55,7 +55,7 @@
 
 ## 状态分桶
 
-当前主链路里的状态可以分成四桶。
+当前主链路里的状态可以分成五桶。
 
 ### 1. 用户级默认值：`agent_settings`
 
@@ -102,7 +102,35 @@
 
 这里的设计重点是：session 恢复依赖数据库里的 snapshot + messages，而不是依赖 trace 回放。
 
-### 3. 后台任务：`background_tasks` + `background_task_runs`
+### 3. Session 历史锚点：`session_fork_checkpoints`
+
+这类状态描述“哪些 assistant 完成点可以作为 fork / rewrite 的恢复锚点”。
+
+这张表保存：
+
+- `assistantMessageId`
+- `turnCount`
+- `baseMessageCount`
+- `snapshotJson`
+- `promptSeedJson`
+
+其中：
+
+- `snapshotJson` 保存该 assistant 回合结束时的 session snapshot
+- `promptSeedJson` 保存当时真正发给模型的 prompt seed，供 fork session 首轮 replay 使用
+- `baseMessageCount` 用来定位触发这轮 assistant 的用户输入边界，而不是简单依赖消息尾部位置
+
+与这张表配套，`agent_sessions` 还会保存：
+
+- `parentSessionId`
+- `parentRelationKind`
+- `forkReplayCheckpointId`
+
+它们表达 fork session 的父子关系，以及 fork session 下一轮是否要按 checkpoint replay 一次。
+
+rewrite recovery 会直接裁掉目标 turn 及之后的 checkpoint，并同步裁掉更晚的 trace 记录；fork 则会从 checkpoint snapshot 复制出新的 session。
+
+### 4. 后台任务：`background_tasks` + `background_task_runs`
 
 这类状态描述“当前会话之外的执行”。
 
@@ -134,7 +162,7 @@
 
 因此 `hook_context_entries` 表示“当前 session 仍应注入给模型的已物化 hook 结果”，而不是所有 hook 执行历史的归档表。
 
-### 4. 领域专项数据：`routines`
+### 5. 领域专项数据：`routines`
 
 这张表承载日程能力本身的业务数据，和 session 恢复、后台任务是并列关系，不应混进 session message 或 session context。
 
@@ -190,6 +218,7 @@
 - `SessionSnapshot` 与数据库行的映射
 - 对话块序列化 / 反序列化
 - execution lease
+- fork checkpoint 的保存 / 查询 / 裁剪
 - runtime 写回 session 的操作
 
 ### 不该发生的混层
@@ -208,3 +237,4 @@
 - session 抽象：`packages/agent/src/session/contracts.ts`
 - Postgres session manager：`packages/agent/src/session/postgres-session-manager.ts`
 - snapshot helper：`packages/agent/src/session/shared.ts`
+- fork / rewrite helper：`packages/agent/src/session/checkpoint.ts`

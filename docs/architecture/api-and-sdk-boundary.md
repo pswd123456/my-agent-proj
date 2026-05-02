@@ -89,6 +89,7 @@
 - `GET/PATCH/DELETE /sessions/:sessionId`
 - `GET /sessions/:sessionId/fork-targets`
 - `POST /sessions/:sessionId/forks`
+- `POST /sessions/:sessionId/rewrite-target/recover`
 - `PATCH /sessions/:sessionId/settings`
 - `POST /sessions/:sessionId/execute`
 - `POST /sessions/:sessionId/execute/stream`
@@ -101,6 +102,9 @@
 这里的关键分工是：
 
 - `POST /sessions`：根据 `explicit override > user settings > repo default` 创建 session
+- `GET /sessions/:sessionId/fork-targets`：返回当前可 fork 的 assistant 节点，以及最近一个可 rewrite 的用户目标
+- `POST /sessions/:sessionId/forks`：从历史 checkpoint 派生一个新的 fork session
+- `POST /sessions/:sessionId/rewrite-target/recover`：把当前 session 回退到最新可改写用户回合之前，供前端改写后重提
 - `PATCH /sessions/:sessionId/settings`：只改当前 session 上下文，不回写用户默认值
 - `execute`：一次性返回 `RunSessionResult`
 - `execute/stream`：通过 SSE 按事件增量回传执行过程
@@ -162,7 +166,11 @@
 - `toSessionSummary()`：统一侧边栏 / rail 使用的摘要字段
 - `appendCacheBust()`：对列表、详情、trace 之类轮询接口禁缓存
 
+除此之外，SDK 还把 fork / rewrite 相关的 transport 收口成 `listSessionForkTargets()`、`createSessionFork()` 和 `recoverRewriteTarget()`，避免 `apps/web` 自己拼这些历史恢复接口。
+
 它仍然保持“薄”，不持有全局状态，也不替代 React 侧 state manager。
+
+fork / rewrite 的更细模块边界见 [Session Fork 与 Rewrite](./session-fork-and-rewrite.md)。
 
 ## 设计约束
 
