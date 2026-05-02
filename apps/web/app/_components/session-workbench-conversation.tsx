@@ -182,6 +182,7 @@ interface SessionWorkbenchConversationPanelProps {
   onAssistantAnimationComplete: (itemKey: string) => void;
   onToggleExpandedItem: (key: string) => void;
   onAutoCollapseComplete: (key: string) => void;
+  headerLeading?: ReactNode;
   headerActions?: ReactNode;
 }
 
@@ -1836,6 +1837,7 @@ export function SessionWorkbenchConversationPanel({
   onAssistantAnimationComplete,
   onToggleExpandedItem,
   onAutoCollapseComplete,
+  headerLeading,
   headerActions
 }: SessionWorkbenchConversationPanelProps) {
   const [quickActionsOpen, setQuickActionsOpen] = useState(false);
@@ -2698,12 +2700,12 @@ export function SessionWorkbenchConversationPanel({
 
   return (
     <section className="rounded-[var(--app-radius-xl)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_96%,transparent)] shadow-none lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:overflow-hidden">
-      <header className="grid gap-3 px-4 pb-3 pt-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
-        <div className="min-w-0">
-          <div className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
-            Active Session
-          </div>
-          <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
+      <header className="flex flex-wrap items-center justify-between gap-3 px-4 pb-3 pt-4">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          {headerLeading ? (
+            <div className="flex shrink-0 items-center">{headerLeading}</div>
+          ) : null}
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <h2 className="min-w-0 truncate font-mono text-sm font-medium text-[var(--app-text-primary)]">
               {currentSession?.sessionId ?? "当前会话"}
             </h2>
@@ -2716,18 +2718,23 @@ export function SessionWorkbenchConversationPanel({
               ariaLabel="复制会话 ID"
             />
           </div>
-          <div className="mt-2">
+        </div>
+        {headerActions ? (
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            <SessionGitStatusHeaderChips
+              workspaceGitStatus={workspaceGitStatus}
+              loading={workspaceGitStatusLoading}
+            />
+            {headerActions}
+          </div>
+        ) : (
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
             <SessionGitStatusHeaderChips
               workspaceGitStatus={workspaceGitStatus}
               loading={workspaceGitStatusLoading}
             />
           </div>
-        </div>
-        {headerActions ? (
-          <div className="flex shrink-0 items-center justify-start gap-3 lg:justify-end lg:justify-self-end">
-            {headerActions}
-          </div>
-        ) : null}
+        )}
       </header>
 
       <div className="px-4 pb-4 lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">

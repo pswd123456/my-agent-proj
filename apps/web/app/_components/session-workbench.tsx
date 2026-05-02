@@ -101,7 +101,6 @@ import {
   type SettingsPageId,
   type SidebarPanelId
 } from "./session-workbench-types";
-import { AppThemeToggle } from "./app-theme-provider";
 
 const apiClient = createApiClient({
   baseUrl: process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api"
@@ -2333,7 +2332,6 @@ export function SessionWorkbench() {
   );
   const headerActions = (
     <>
-      <AppThemeToggle />
       {sidebarToggleButton}
     </>
   );
@@ -2595,7 +2593,7 @@ export function SessionWorkbench() {
                   completeMessageManagerAutoCollapse(current, key)
                 )
               }
-              headerActions={headerActions}
+              headerLeading={sidebarToggleButton}
             />
           )}
         </div>
