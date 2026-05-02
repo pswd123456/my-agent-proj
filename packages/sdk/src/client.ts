@@ -1,13 +1,23 @@
+import {
+  sessionFileChangeActionResultSchema,
+  sessionWorkspaceGitStatusSchema,
+  userSettingsMcpPayloadSchema,
+  workspaceFileSearchResultSchema,
+  workspaceSkillSearchResultSchema
+} from "@ai-app-template/agent/contracts/workspace-api";
 import type {
   RunSessionResult,
   RunStreamEvent,
+  SessionFileChangeActionResult,
   SessionForkTarget,
   SessionSnapshot,
+  SessionWorkspaceGitStatus,
   TraceRecord,
-  WorkspaceMcpConfigDiagnostic,
-  WorkspaceMcpServerConfig,
-  WorkspaceMcpServerLoadSummary,
-  WorkspaceFileChangeSummary
+  UpdateUserSettingsMcpPayload,
+  UserSettingsMcpPayload,
+  WorkspaceFileChangeSummary,
+  WorkspaceFileSearchResult,
+  WorkspaceSkillSearchResult
 } from "@ai-app-template/agent";
 import type {
   CreateSessionPayload,
@@ -96,19 +106,6 @@ export interface UserSettingsPayload {
   permissionTools: SettingsPermissionToolOption[];
 }
 
-export interface UserSettingsMcpPayload {
-  workingDirectory: string;
-  configPath: string;
-  foundConfig: boolean;
-  servers: WorkspaceMcpServerConfig[];
-  serverStatuses: WorkspaceMcpServerLoadSummary[];
-  diagnostics: WorkspaceMcpConfigDiagnostic[];
-}
-
-export interface UpdateUserSettingsMcpPayload {
-  servers: WorkspaceMcpServerConfig[];
-}
-
 export interface UserSettingsSkillItem {
   name: string;
   description: string;
@@ -137,46 +134,6 @@ export interface ChooseDirectoryResult {
   canceled: boolean;
 }
 
-export interface WorkspaceFileSearchItem {
-  path: string;
-  name: string;
-}
-
-export interface WorkspaceFileSearchResult {
-  items: WorkspaceFileSearchItem[];
-  truncated: boolean;
-}
-
-export interface WorkspaceSkillSearchItem {
-  name: string;
-  description: string;
-  relativePath: string;
-}
-
-export interface WorkspaceSkillSearchResult {
-  items: WorkspaceSkillSearchItem[];
-  truncated: boolean;
-}
-
-export interface SessionWorkspaceGitStatus {
-  workingDirectory: string;
-  ok: boolean;
-  code:
-    | "GIT_STATUS_OK"
-    | "GIT_NOT_AVAILABLE"
-    | "NOT_GIT_REPOSITORY"
-    | "GIT_STATUS_FAILED";
-  message: string;
-  branch: string | null;
-  clean: boolean | null;
-  changedPathCount: number;
-  stagedPathCount: number;
-  unstagedPathCount: number;
-  untrackedPathCount: number;
-  addedLineCount: number;
-  removedLineCount: number;
-}
-
 export interface ListSessionRoutinesResult {
   sessionId: string;
   startDate: string;
@@ -199,12 +156,6 @@ export interface StreamSessionExecutionInput {
 }
 
 export interface SessionFileChangeActionInput {
-  sessionId: string;
-  action: "undo" | "reapply";
-  files: WorkspaceFileChangeSummary[];
-}
-
-export interface SessionFileChangeActionResult {
   sessionId: string;
   action: "undo" | "reapply";
   files: WorkspaceFileChangeSummary[];
@@ -585,9 +536,9 @@ export class ApiClient {
         cache: "no-store"
       }
     );
-    return (await ensureOk(response).then((result) =>
-      result.json()
-    )) as UserSettingsMcpPayload;
+    return userSettingsMcpPayloadSchema.parse(
+      await ensureOk(response).then((result) => result.json())
+    );
   }
 
   async getUserSettingsSkills(
@@ -618,9 +569,9 @@ export class ApiClient {
         body: JSON.stringify(input)
       }
     );
-    return (await ensureOk(response).then((result) =>
-      result.json()
-    )) as UserSettingsMcpPayload;
+    return userSettingsMcpPayloadSchema.parse(
+      await ensureOk(response).then((result) => result.json())
+    );
   }
 
   async searchSessionWorkspaceFiles(
@@ -646,9 +597,9 @@ export class ApiClient {
       }
     );
 
-    return (await ensureOk(response).then((result) =>
-      result.json()
-    )) as WorkspaceFileSearchResult;
+    return workspaceFileSearchResultSchema.parse(
+      await ensureOk(response).then((result) => result.json())
+    );
   }
 
   async searchSessionSkills(
@@ -674,9 +625,9 @@ export class ApiClient {
       }
     );
 
-    return (await ensureOk(response).then((result) =>
-      result.json()
-    )) as WorkspaceSkillSearchResult;
+    return workspaceSkillSearchResultSchema.parse(
+      await ensureOk(response).then((result) => result.json())
+    );
   }
 
   async getSessionWorkspaceGitStatus(
@@ -691,9 +642,9 @@ export class ApiClient {
       }
     );
 
-    return (await ensureOk(response).then((result) =>
-      result.json()
-    )) as SessionWorkspaceGitStatus;
+    return sessionWorkspaceGitStatusSchema.parse(
+      await ensureOk(response).then((result) => result.json())
+    );
   }
 
   async updateUserSettingsPayload(
@@ -830,9 +781,9 @@ export class ApiClient {
         })
       }
     );
-    return (await ensureOk(response).then((result) =>
-      result.json()
-    )) as SessionFileChangeActionResult;
+    return sessionFileChangeActionResultSchema.parse(
+      await ensureOk(response).then((result) => result.json())
+    );
   }
 
   async getSessionTrace(sessionId: string): Promise<TraceRecord[]> {
