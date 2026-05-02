@@ -40,6 +40,7 @@ function createSessionSnapshot(): SessionSnapshot {
       pendingConfirmationPayload: null,
       pendingUserQuestionPayload: null,
       pendingBackgroundNotifications: [],
+      hookContextEntries: [],
       todoState: null,
       fullCompactionState: null,
       pendingConflictSummary: null,
@@ -148,6 +149,7 @@ function renderSettings(
       onUserContextHookEnabledChange: () => {},
       onUserContextHookEventChange: () => {},
       onUserContextHookBehaviorChange: () => {},
+      onUserContextHookWaitModeChange: () => {},
       onDeleteUserContextHook: () => {},
       onMoveUserContextHook: () => {},
       ...props
@@ -217,6 +219,30 @@ describe("session-workbench settings mode", () => {
     expect(markup).toContain("Wrap up");
     expect(markup).toContain("结束时补一个 next step。");
     expect(markup).toContain("1/1 enabled");
+  });
+
+  test("renders the wait mode controls for subagent hooks", () => {
+    const settingsForm = createSettingsFormState();
+    settingsForm.userContextHooks = [
+      {
+        id: "hook-subagent",
+        event: "run_started",
+        behavior: "subagent",
+        waitMode: "unblocking",
+        title: "Background research",
+        content: "先整理背景资料。",
+        enabled: true
+      }
+    ];
+
+    const markup = renderSettings({
+      activeSettingsPage: "hooks",
+      settingsForm
+    });
+
+    expect(markup).toContain("Subagent");
+    expect(markup).toContain("Wait Mode");
+    expect(markup).toContain("Unblocking");
   });
 
   test("renders discovered skills on the skills page", () => {

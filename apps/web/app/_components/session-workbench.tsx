@@ -9,6 +9,7 @@ import {
   type ModelCatalogEntry,
   type RoutineRecord,
   type RunStreamEvent,
+  type SessionForkTarget,
   type SessionSnapshot,
   type SessionWorkspaceGitStatus,
   type SettingsPermissionToolOption,
@@ -411,6 +412,7 @@ export function SessionWorkbench() {
     createSessionUiState(null)
   );
   const [traceRecords, setTraceRecords] = useState<TraceRecord[]>([]);
+  const [forkTargets, setForkTargets] = useState<SessionForkTarget[]>([]);
   const [routines, setRoutines] = useState<RoutineRecord[]>([]);
   const [messageManagerState, setMessageManagerState] = useState(() =>
     createMessageManagerState()
@@ -433,6 +435,9 @@ export function SessionWorkbench() {
   const [isSessionRailNarrowViewport, setIsSessionRailNarrowViewport] =
     useState(false);
   const [creatingSession, setCreatingSession] = useState(false);
+  const [forkingAssistantMessageId, setForkingAssistantMessageId] = useState<
+    string | null
+  >(null);
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(
     null
   );
@@ -478,6 +483,15 @@ export function SessionWorkbench() {
   const currentSession = sessionUiState.session;
   const submitting = sessionUiState.submitting;
   const interruptingSessionId = sessionUiState.interruptingSessionId;
+  const forkTargetsByAssistantMessageId = useMemo(
+    () =>
+      new Map(
+        forkTargets.map(
+          (target) => [target.assistantMessageId, target] as const
+        )
+      ),
+    [forkTargets]
+  );
 
   function clearSessionSearch() {
     appliedSessionSearchQueryRef.current = "";
@@ -713,7 +727,10 @@ export function SessionWorkbench() {
       setErrorText(null);
 
       try {
-        const session = await apiClient.getSession(sessionId);
+        const [session, initialForkTargets] = await Promise.all([
+          apiClient.getSession(sessionId),
+          apiClient.listSessionForkTargets(sessionId)
+        ]);
         if (
           cancelled ||
           !shouldApplySelectedSessionResponse({
@@ -736,6 +753,7 @@ export function SessionWorkbench() {
             buildRunFileChangesStatesFromSession(session)
           )
         );
+        setForkTargets(initialForkTargets);
         setTraceRecords([]);
         setRoutines([]);
         setLoadingSession(false);
@@ -870,7 +888,10 @@ export function SessionWorkbench() {
     }
 
     try {
-      const session = await apiClient.getSession(sessionId);
+      const [session, nextForkTargets] = await Promise.all([
+        apiClient.getSession(sessionId),
+        apiClient.listSessionForkTargets(sessionId)
+      ]);
       const week = buildWeekRange(session.context.currentDateContext);
       const [trace, routinesResult, settingsPayload] = await Promise.all([
         apiClient.getSessionTrace(sessionId),
@@ -897,6 +918,7 @@ export function SessionWorkbench() {
       }
 
       setSessionUiState((current) => setSessionSnapshot(current, session));
+      setForkTargets(nextForkTargets);
       setTraceRecords(trace);
       setRoutines(routinesResult.routines);
       if (settingsPayload) {
@@ -1059,6 +1081,7 @@ export function SessionWorkbench() {
       );
       focusConversationView();
       setSessionUiState((current) => setSessionSnapshot(current, session));
+      setForkTargets([]);
       setTraceRecords([]);
       setRoutines([]);
       setRunFileChanges(buildRunFileChangesStatesFromSession(session));
@@ -1077,8 +1100,42 @@ export function SessionWorkbench() {
     selectedSessionIdRef.current = sessionId;
     setSessionRegistry((current) => selectSession(current, sessionId));
     setRunFileChanges([]);
+    setForkTargets([]);
     setMessageManagerState(resetMessageManagerState());
     router.replace(`/?sessionId=${sessionId}`, { scroll: false });
+  }
+
+  async function handleCreateFork(assistantMessageId: string) {
+    if (!currentSession || forkingAssistantMessageId) {
+      return;
+    }
+
+    try {
+      beginSessionListMutation();
+      setForkingAssistantMessageId(assistantMessageId);
+      setErrorText(null);
+      const forkSession = await apiClient.createSessionFork(
+        currentSession.sessionId,
+        { assistantMessageId }
+      );
+      selectedSessionIdRef.current = forkSession.sessionId;
+      setSessionRegistry((current) =>
+        hydrateSelectedSession(upsertSession(current, forkSession), forkSession)
+      );
+      setSessionUiState((current) => setSessionSnapshot(current, forkSession));
+      setForkTargets([]);
+      setTraceRecords([]);
+      setRoutines([]);
+      setRunFileChanges(buildRunFileChangesStatesFromSession(forkSession));
+      setMessageManagerState(resetMessageManagerState());
+      focusConversationView();
+      router.replace(`/?sessionId=${forkSession.sessionId}`, { scroll: false });
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : String(error));
+    } finally {
+      endSessionListMutation();
+      setForkingAssistantMessageId(null);
+    }
   }
 
   async function handleDeleteSession(sessionId: string) {
@@ -1119,6 +1176,7 @@ export function SessionWorkbench() {
       selectedSessionIdRef.current = nextSessionId;
       setSessionRegistry((current) => clearCurrentSession(current));
       setSessionUiState((current) => setSessionSnapshot(current, null));
+      setForkTargets([]);
       setTraceRecords([]);
       setRoutines([]);
       setRunFileChanges([]);
@@ -1138,6 +1196,7 @@ export function SessionWorkbench() {
         hydrateSelectedSession(createSessionRegistryState(), newSession)
       );
       setSessionUiState((current) => setSessionSnapshot(current, newSession));
+      setForkTargets([]);
       router.replace(`/?sessionId=${newSession.sessionId}`, { scroll: false });
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : String(error));
@@ -1170,6 +1229,7 @@ export function SessionWorkbench() {
       await apiClient.clearSessionHistory();
       setSessionRegistry(createSessionRegistryState());
       setSessionUiState((current) => setSessionSnapshot(current, null));
+      setForkTargets([]);
       setTraceRecords([]);
       setRoutines([]);
       setRunFileChanges([]);
@@ -1183,6 +1243,7 @@ export function SessionWorkbench() {
         hydrateSelectedSession(createSessionRegistryState(), newSession)
       );
       setSessionUiState((current) => setSessionSnapshot(current, newSession));
+      setForkTargets([]);
       setRunFileChanges(buildRunFileChangesStatesFromSession(newSession));
       router.replace(`/?sessionId=${newSession.sessionId}`, { scroll: false });
     } catch (error) {
@@ -1722,6 +1783,9 @@ export function SessionWorkbench() {
             id: crypto.randomUUID(),
             behavior: hookType.behavior,
             event: hookType.event,
+            ...(hookType.behavior === "subagent"
+              ? { waitMode: "blocking" as const }
+              : {}),
             title: "",
             content: "",
             enabled: true
@@ -1797,7 +1861,11 @@ export function SessionWorkbench() {
             ? {
                 ...hook,
                 behavior,
-                ...(behavior === "context" && hook.event === "run_end"
+                ...(behavior === "subagent"
+                  ? { waitMode: hook.waitMode ?? "blocking" }
+                  : {}),
+                ...((behavior === "context" || behavior === "subagent") &&
+                hook.event === "run_end"
                   ? { event: "run_started" as const }
                   : {})
               }
@@ -1805,6 +1873,23 @@ export function SessionWorkbench() {
         ),
         hookId
       )
+    );
+    setSettingsForm(nextForm);
+    await handleSaveUserSettings(nextForm);
+  }
+
+  async function handleUserContextHookWaitModeChange(
+    hookId: string,
+    waitMode: NonNullable<
+      SettingsFormState["userContextHooks"][number]["waitMode"]
+    >
+  ) {
+    if (savingSettings) {
+      return;
+    }
+
+    const nextForm = updateUserContextHookList((hooks) =>
+      hooks.map((hook) => (hook.id === hookId ? { ...hook, waitMode } : hook))
     );
     setSettingsForm(nextForm);
     await handleSaveUserSettings(nextForm);
@@ -2297,6 +2382,7 @@ export function SessionWorkbench() {
           <SessionWorkbenchSidebar
             sessions={renderedSessions}
             selectedSessionId={selectedSessionId}
+            debugConversationView={settingsForm.debugConversationView}
             searchValue={sessionSearchQuery}
             activeSidebarPanel={activeSidebarPanel}
             collapsed={false}
@@ -2323,6 +2409,7 @@ export function SessionWorkbench() {
               <SessionWorkbenchSidebar
                 sessions={renderedSessions}
                 selectedSessionId={selectedSessionId}
+                debugConversationView={settingsForm.debugConversationView}
                 searchValue={sessionSearchQuery}
                 activeSidebarPanel={activeSidebarPanel}
                 collapsed={false}
@@ -2414,6 +2501,9 @@ export function SessionWorkbench() {
               onUserContextHookBehaviorChange={(hookId, behavior) =>
                 void handleUserContextHookBehaviorChange(hookId, behavior)
               }
+              onUserContextHookWaitModeChange={(hookId, waitMode) =>
+                void handleUserContextHookWaitModeChange(hookId, waitMode)
+              }
               onDeleteUserContextHook={(hookId) =>
                 void handleDeleteUserContextHook(hookId)
               }
@@ -2499,6 +2589,9 @@ export function SessionWorkbench() {
               onUserContextHookBehaviorChange={(hookId, behavior) =>
                 void handleUserContextHookBehaviorChange(hookId, behavior)
               }
+              onUserContextHookWaitModeChange={(hookId, waitMode) =>
+                void handleUserContextHookWaitModeChange(hookId, waitMode)
+              }
               onDeleteUserContextHook={(hookId) =>
                 void handleDeleteUserContextHook(hookId)
               }
@@ -2531,6 +2624,8 @@ export function SessionWorkbench() {
               showInterruptedHint={showInterruptedHint}
               errorText={errorText}
               runFileChanges={runFileChanges}
+              forkTargetsByAssistantMessageId={forkTargetsByAssistantMessageId}
+              forkingAssistantMessageId={forkingAssistantMessageId}
               modelCatalog={modelCatalog}
               selectedModelId={resolveSelectedModelId({
                 session: currentSession,
@@ -2575,6 +2670,9 @@ export function SessionWorkbench() {
                 void handleRunFileChangeAction(viewKey, action)
               }
               onRunFileSelectionChange={handleRunFileSelectionChange}
+              onCreateFork={(assistantMessageId) =>
+                void handleCreateFork(assistantMessageId)
+              }
               onAssistantAnimationComplete={handleAssistantAnimationComplete}
               onToggleExpandedItem={(key) =>
                 setMessageManagerState((current) =>

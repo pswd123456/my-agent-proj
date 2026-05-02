@@ -15,6 +15,7 @@ import {
 import {
   type ModelCatalogEntry,
   type RunStreamEvent,
+  type SessionForkTarget,
   type SessionSnapshot,
   type SessionWorkspaceGitStatus,
   type WorkspaceFileSearchResult,
@@ -148,6 +149,8 @@ interface SessionWorkbenchConversationPanelProps {
   showInterruptedHint: boolean;
   errorText: string | null;
   runFileChanges: RunFileChangesView[];
+  forkTargetsByAssistantMessageId: Map<string, SessionForkTarget>;
+  forkingAssistantMessageId: string | null;
   onMessageChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onInterrupt: () => void;
@@ -175,10 +178,18 @@ interface SessionWorkbenchConversationPanelProps {
     viewKey: string,
     selectedFileIndexes: number[]
   ) => void;
+  onCreateFork: (assistantMessageId: string) => void;
   onAssistantAnimationComplete: (itemKey: string) => void;
   onToggleExpandedItem: (key: string) => void;
   onAutoCollapseComplete: (key: string) => void;
   headerActions?: ReactNode;
+}
+
+interface AssistantForkAction {
+  assistantMessageId: string;
+  target: SessionForkTarget;
+  pending: boolean;
+  onCreateFork: (assistantMessageId: string) => void;
 }
 
 export interface RunFileChangesView {
@@ -198,6 +209,7 @@ interface AssistantTextBubbleProps {
   animate: boolean;
   labelTimestamp?: string | undefined;
   streaming?: boolean;
+  forkAction?: AssistantForkAction | undefined;
   onAnimationComplete?: (itemKey: string) => void;
 }
 
@@ -556,6 +568,7 @@ function AssistantTextBubble({
   animate,
   labelTimestamp,
   streaming = false,
+  forkAction,
   onAnimationComplete
 }: AssistantTextBubbleProps) {
   return (
@@ -571,13 +584,25 @@ function AssistantTextBubble({
         }`}
         {...(onAnimationComplete ? { onAnimationComplete } : {})}
       />
+      {forkAction ? (
+        <button
+          type="button"
+          disabled={!forkAction.target.canFork || forkAction.pending}
+          title={forkAction.target.disabledReason ?? "基于这条回复创建分支会话"}
+          onClick={() => forkAction.onCreateFork(forkAction.assistantMessageId)}
+          className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-3 py-1 text-[0.72rem] uppercase tracking-[0.14em] text-[var(--app-text-muted)] transition hover:border-[var(--app-border-accent)] hover:text-[var(--app-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {forkAction.pending ? "创建中..." : "Fork"}
+        </button>
+      ) : null}
     </div>
   );
 }
 
 function renderAssistantMessageBlock(
   block: Extract<SessionSnapshot["messages"][number], { kind: "assistant" }>,
-  showTimestamp = false
+  showTimestamp = false,
+  forkAction?: AssistantForkAction
 ) {
   return (
     <AssistantTextBubble
@@ -586,6 +611,7 @@ function renderAssistantMessageBlock(
       content={block.content}
       animate={false}
       labelTimestamp={showTimestamp ? block.createdAt : undefined}
+      forkAction={forkAction}
     />
   );
 }
@@ -672,7 +698,8 @@ function renderToolResultBlock(
 function renderConversationBlock(
   block: SessionSnapshot["messages"][number],
   timestampedAssistantMessageIds: Set<string>,
-  userHook?: TimelineUserHookMetadata
+  userHook?: TimelineUserHookMetadata,
+  forkAction?: AssistantForkAction
 ) {
   if (block.kind === "user") {
     if (userHook) {
@@ -685,7 +712,8 @@ function renderConversationBlock(
   if (block.kind === "assistant") {
     return renderAssistantMessageBlock(
       block,
-      timestampedAssistantMessageIds.has(block.id)
+      timestampedAssistantMessageIds.has(block.id),
+      forkAction
     );
   }
 
@@ -718,7 +746,8 @@ function renderExecutionEvent(
   recentAssistantEventKeys: Set<string>,
   timestampedAssistantEventKeys: Set<string>,
   onAssistantAnimationComplete: (itemKey: string) => void,
-  turnUsageByTurnCount: Map<number, TurnUsageSummary>
+  turnUsageByTurnCount: Map<number, TurnUsageSummary>,
+  forkAction?: AssistantForkAction
 ) {
   if (event.kind === "assistant_text") {
     const eventKey = getTimelineEventKey(event);
@@ -736,6 +765,7 @@ function renderExecutionEvent(
             : undefined
         }
         streaming={streaming}
+        forkAction={forkAction}
         onAnimationComplete={onAssistantAnimationComplete}
       />
     );
@@ -1139,8 +1169,31 @@ function renderTimelineItem(
   timestampedAssistantEventKeys: Set<string>,
   timestampedAssistantMessageIds: Set<string>,
   onAssistantAnimationComplete: (itemKey: string) => void,
-  turnUsageByTurnCount: Map<number, TurnUsageSummary>
+  turnUsageByTurnCount: Map<number, TurnUsageSummary>,
+  forkTargetsByAssistantMessageId: Map<string, SessionForkTarget>,
+  forkingAssistantMessageId: string | null,
+  onCreateFork: (assistantMessageId: string) => void
 ): React.ReactNode {
+  const forkActionForAssistantMessage = (
+    assistantMessageId: string | null
+  ): AssistantForkAction | undefined => {
+    if (!assistantMessageId) {
+      return undefined;
+    }
+
+    const target = forkTargetsByAssistantMessageId.get(assistantMessageId);
+    if (!target) {
+      return undefined;
+    }
+
+    return {
+      assistantMessageId,
+      target,
+      pending: forkingAssistantMessageId === assistantMessageId,
+      onCreateFork
+    };
+  };
+
   if (item.type === "event") {
     return renderExecutionEvent(
       item.event,
@@ -1148,7 +1201,10 @@ function renderTimelineItem(
       recentAssistantEventKeys,
       timestampedAssistantEventKeys,
       onAssistantAnimationComplete,
-      turnUsageByTurnCount
+      turnUsageByTurnCount,
+      item.event.kind === "assistant_text"
+        ? forkActionForAssistantMessage(item.event.assistantMessageId)
+        : undefined
     );
   }
 
@@ -1163,7 +1219,10 @@ function renderTimelineItem(
   return renderConversationBlock(
     item.block,
     timestampedAssistantMessageIds,
-    item.userHook
+    item.userHook,
+    item.block.kind === "assistant"
+      ? forkActionForAssistantMessage(item.block.id)
+      : undefined
   );
 }
 
@@ -1591,12 +1650,15 @@ function renderConversationViewItem(
     recentAssistantEventKeys: Set<string>;
     timestampedAssistantEventKeys: Set<string>;
     timestampedAssistantMessageIds: Set<string>;
+    forkTargetsByAssistantMessageId: Map<string, SessionForkTarget>;
+    forkingAssistantMessageId: string | null;
     autoCollapseKeys: Set<string>;
     onAssistantAnimationComplete: (itemKey: string) => void;
     turnUsageByTurnCount: Map<number, TurnUsageSummary>;
     expandedKeys: Set<string>;
     onToggleExpanded: (key: string) => void;
     onAutoCollapseComplete: (key: string) => void;
+    onCreateFork: (assistantMessageId: string) => void;
   }
 ): React.ReactNode {
   const renderNestedItems = (items: ConversationViewItem[]) =>
@@ -1614,7 +1676,10 @@ function renderConversationViewItem(
       input.timestampedAssistantEventKeys,
       input.timestampedAssistantMessageIds,
       input.onAssistantAnimationComplete,
-      input.turnUsageByTurnCount
+      input.turnUsageByTurnCount,
+      input.forkTargetsByAssistantMessageId,
+      input.forkingAssistantMessageId,
+      input.onCreateFork
     );
   }
 
@@ -1737,6 +1802,8 @@ export function SessionWorkbenchConversationPanel({
   showInterruptedHint,
   errorText,
   runFileChanges,
+  forkTargetsByAssistantMessageId,
+  forkingAssistantMessageId,
   onMessageChange,
   onSubmit,
   onInterrupt,
@@ -1752,6 +1819,7 @@ export function SessionWorkbenchConversationPanel({
   onUserQuestionQuickReply,
   onRunFileChangeAction,
   onRunFileSelectionChange,
+  onCreateFork,
   onAssistantAnimationComplete,
   onToggleExpandedItem,
   onAutoCollapseComplete,
@@ -1946,6 +2014,8 @@ export function SessionWorkbenchConversationPanel({
               conversationProjection.timestampedAssistantEventKeys,
             timestampedAssistantMessageIds:
               conversationProjection.timestampedAssistantMessageIds,
+            forkTargetsByAssistantMessageId,
+            forkingAssistantMessageId,
             autoCollapseKeys: autoCollapsingItemKeys,
             onAssistantAnimationComplete,
             turnUsageByTurnCount,
@@ -1967,7 +2037,8 @@ export function SessionWorkbenchConversationPanel({
                 pendingAssistantRevealSkipKeyRef.current = assistantItemKey;
               }
               onAutoCollapseComplete(key);
-            }
+            },
+            onCreateFork
           })
         }))
         .filter((entry) => hasRenderableTimelineContent(entry.content)),

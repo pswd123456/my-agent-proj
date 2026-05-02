@@ -4,6 +4,7 @@ import {
   USER_CONTEXT_HOOK_BEHAVIOR_OPTIONS,
   USER_CONTEXT_HOOK_CONTEXT_EVENT_OPTIONS,
   USER_CONTEXT_HOOK_EVENT_OPTIONS,
+  USER_CONTEXT_HOOK_WAIT_MODE_OPTIONS,
   type UserContextHookRecord,
   type WorkspaceSkillSettingRecord,
   type WorkspaceMcpConfigDiagnostic,
@@ -136,3 +137,5 @@ export const userContextHookBehaviorOptions =
 export const userContextHookContextEventOptions =
   USER_CONTEXT_HOOK_CONTEXT_EVENT_OPTIONS;
 export const userContextHookEventOptions = USER_CONTEXT_HOOK_EVENT_OPTIONS;
+export const userContextHookWaitModeOptions =
+  USER_CONTEXT_HOOK_WAIT_MODE_OPTIONS;

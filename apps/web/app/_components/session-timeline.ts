@@ -85,6 +85,8 @@ function isVisibleTimelineEvent(event: RunStreamEvent): boolean {
     event.kind !== "response" &&
     event.kind !== "skills_loaded" &&
     event.kind !== "context_hooks_loaded" &&
+    event.kind !== "hook_subagent_scheduled" &&
+    event.kind !== "hook_context_materialized" &&
     event.kind !== "workspace_instructions_loaded" &&
     event.kind !== "mcp_loaded" &&
     event.kind !== "user_question_request" &&
@@ -718,8 +720,10 @@ export function buildTimelineItems(input: {
   );
   const usersByTurnStart = new Map<string, TimelineItem[]>();
   const orphanUsers: TimelineItem[] = [];
-  const shouldDeferPendingUser =
-    hasCurrentPreUserHookItems(userItems, input.pendingUserMessage);
+  const shouldDeferPendingUser = hasCurrentPreUserHookItems(
+    userItems,
+    input.pendingUserMessage
+  );
   let turnStartIndex = 0;
 
   for (const userItem of userItems) {

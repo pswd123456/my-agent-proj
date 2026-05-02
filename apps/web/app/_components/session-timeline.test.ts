@@ -267,6 +267,33 @@ const contextHooksLoadedEvent: Extract<
   hooks: []
 };
 
+const hookSubagentScheduledEvent: Extract<
+  RunStreamEvent,
+  { kind: "hook_subagent_scheduled" }
+> = {
+  kind: "hook_subagent_scheduled",
+  sessionId: "session-1",
+  createdAt: "2026-04-21T18:46:21.742Z",
+  turnCount: 1,
+  taskId: "task-hook-1",
+  hookId: "hook-1",
+  hookEvent: "run_started",
+  waitMode: "blocking",
+  configHash: "config-hash-1"
+};
+
+const hookContextMaterializedEvent: Extract<
+  RunStreamEvent,
+  { kind: "hook_context_materialized" }
+> = {
+  kind: "hook_context_materialized",
+  sessionId: "session-1",
+  createdAt: "2026-04-21T18:46:21.743Z",
+  turnCount: 1,
+  notificationIds: ["notification-1"],
+  entries: []
+};
+
 describe("buildTimelineItems", () => {
   test("keeps turn boundaries and the current turn's thinking ahead of tool calls", () => {
     const items = buildTimelineItems({
@@ -349,6 +376,28 @@ describe("buildTimelineItems", () => {
         .filter((item) => item.type === "event")
         .map((item) => item.event.kind)
     ).toEqual(["turn_start", "tool_result", "assistant_text"]);
+  });
+
+  test("hides internal hook trace events from the visible timeline", () => {
+    const items = buildTimelineItems({
+      messages: [firstUser],
+      historyEvents: [
+        turnStart,
+        skillsLoadedEvent,
+        workspaceInstructionsLoadedEvent,
+        contextHooksLoadedEvent,
+        hookSubagentScheduledEvent,
+        hookContextMaterializedEvent,
+        thinkingEvent
+      ],
+      streamEvents: []
+    });
+
+    expect(
+      items
+        .filter((item) => item.type === "event")
+        .map((item) => item.event.kind)
+    ).toEqual(["turn_start", "thinking"]);
   });
 
   test("uses thinking trace events instead of duplicating persisted thinking blocks", () => {

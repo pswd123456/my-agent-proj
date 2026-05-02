@@ -15,6 +15,7 @@ import {
   userContextHookBehaviorOptions,
   userContextHookContextEventOptions,
   userContextHookEventOptions,
+  userContextHookWaitModeOptions,
   type SettingsFormState,
   type SettingsMcpFormState,
   type SettingsSkillsState,
@@ -154,7 +155,8 @@ function getUserContextHookBehavior(
 }
 
 function getUserContextHookEventOptions(hook: UserContextHookRecord) {
-  return getUserContextHookBehavior(hook) === "context"
+  return getUserContextHookBehavior(hook) === "context" ||
+    getUserContextHookBehavior(hook) === "subagent"
     ? userContextHookContextEventOptions
     : userContextHookEventOptions;
 }
@@ -164,6 +166,9 @@ function formatUserContextHookBehaviorLabel(
 ): string {
   if (behavior === "context") {
     return "Context";
+  }
+  if (behavior === "subagent") {
+    return "Subagent";
   }
 
   return "Send Message";
@@ -175,8 +180,25 @@ function formatUserContextHookBehaviorDescription(
   if (getUserContextHookBehavior(hook) === "context") {
     return "在 prompt runtime context 中注入。";
   }
+  if (getUserContextHookBehavior(hook) === "subagent") {
+    return "预先启动一个子代理，把 final response 注入主会话 context。";
+  }
 
   return "作为一条用户消息按时机执行。";
+}
+
+function formatUserContextHookWaitModeLabel(
+  waitMode: NonNullable<UserContextHookRecord["waitMode"]>
+): string {
+  return waitMode === "unblocking" ? "Unblocking" : "Blocking";
+}
+
+function formatUserContextHookWaitModeDescription(
+  waitMode: NonNullable<UserContextHookRecord["waitMode"]>
+): string {
+  return waitMode === "unblocking"
+    ? "当前 run 先继续，结果在后续 run 自动注入。"
+    : "先等 hook 子代理完成，再继续本次 run。";
 }
 
 function formatUserContextHookEventDescription(
@@ -336,6 +358,10 @@ interface SessionWorkbenchSettingsProps {
     hookId: string,
     behavior: NonNullable<UserContextHookRecord["behavior"]>
   ) => void;
+  onUserContextHookWaitModeChange: (
+    hookId: string,
+    waitMode: NonNullable<UserContextHookRecord["waitMode"]>
+  ) => void;
   onDeleteUserContextHook: (hookId: string) => void;
   onMoveUserContextHook: (hookId: string, direction: "up" | "down") => void;
 }
@@ -384,6 +410,7 @@ export function SessionWorkbenchSettings({
   onUserContextHookEnabledChange,
   onUserContextHookEventChange,
   onUserContextHookBehaviorChange,
+  onUserContextHookWaitModeChange,
   onDeleteUserContextHook,
   onMoveUserContextHook
 }: SessionWorkbenchSettingsProps) {
@@ -1320,6 +1347,16 @@ export function SessionWorkbenchSettings({
                             getUserContextHookBehavior(hook)
                           )}
                         </span>
+                        {getUserContextHookBehavior(hook) === "subagent" ? (
+                          <>
+                            <span>·</span>
+                            <span>
+                              {formatUserContextHookWaitModeLabel(
+                                hook.waitMode ?? "blocking"
+                              )}
+                            </span>
+                          </>
+                        ) : null}
                         <span>·</span>
                         <span>
                           {formatUserContextHookEventLabel(hook.event)}
@@ -1388,6 +1425,32 @@ export function SessionWorkbenchSettings({
                       </div>
                     </label>
                   </div>
+
+                  {getUserContextHookBehavior(hook) === "subagent" ? (
+                    <label className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
+                      <span className={tertiaryHeadingClassName}>Wait Mode</span>
+                      <WorkbenchSelect
+                        value={hook.waitMode ?? "blocking"}
+                        disabled={savingSettings}
+                        ariaLabel="选择 hook 子代理等待模式"
+                        options={userContextHookWaitModeOptions.map((option) => ({
+                          value: option,
+                          label: formatUserContextHookWaitModeLabel(option)
+                        }))}
+                        onValueChange={(waitMode) =>
+                          onUserContextHookWaitModeChange(
+                            hook.id,
+                            waitMode as NonNullable<UserContextHookRecord["waitMode"]>
+                          )
+                        }
+                      />
+                      <div className={fieldDescriptionClassName}>
+                        {formatUserContextHookWaitModeDescription(
+                          hook.waitMode ?? "blocking"
+                        )}
+                      </div>
+                    </label>
+                  ) : null}
 
                   <label className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
                     <span className={tertiaryHeadingClassName}>Content</span>

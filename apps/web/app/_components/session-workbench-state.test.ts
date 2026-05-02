@@ -415,6 +415,51 @@ describe("settings user context hooks", () => {
       event: "run_started"
     });
   });
+
+  test("normalizes subagent hooks with a default blocking wait mode", () => {
+    const settingsForm = toSettingsFormState({
+      userId: "user-1",
+      workingDirectory: "agent-workspace",
+      model: "MiniMax-M2.7",
+      thinkingEffort: "high",
+      yoloMode: false,
+      contextWindow: 200_000,
+      maxTurns: 50,
+      shellAllowPatterns: [],
+      shellDenyPatterns: [],
+      toolAllowList: [],
+      toolAskList: [],
+      toolDenyList: [],
+      enabledCapabilityPacks: [],
+      workspaceSkillSettings: [],
+      userContextHooks: [
+        {
+          id: "hook-subagent",
+          event: "run_started",
+          behavior: "subagent",
+          title: "Background research",
+          content: "先整理背景资料。",
+          enabled: true
+        }
+      ],
+      debugConversationView: false,
+      userCustomPrompt: "",
+      createdAt: "2026-05-01T00:00:00.000Z",
+      updatedAt: "2026-05-01T00:00:00.000Z"
+    });
+
+    expect(normalizeSettingsFormState(settingsForm).userContextHooks).toEqual([
+      {
+        id: "hook-subagent",
+        event: "run_started",
+        behavior: "subagent",
+        waitMode: "blocking",
+        title: "Background research",
+        content: "先整理背景资料。",
+        enabled: true
+      }
+    ]);
+  });
 });
 
 describe("getSessionDisplayState", () => {
@@ -720,6 +765,30 @@ describe("buildSessionSidebarRows", () => {
     ]);
 
     expect([...getAutoCollapsedSessionIds(rows)]).toEqual(["parent"]);
+  });
+
+  test("hides hook child sessions unless debug conversation view is enabled", () => {
+    const sessions = [
+      createSessionSummary("parent", "2026-04-24T02:00:00.000Z"),
+      {
+        ...createSessionSummary(
+          "hook-child",
+          "2026-04-24T03:00:00.000Z",
+          "parent"
+        ),
+        parentRelationKind: "hook_subagent" as const,
+        parentSessionTaskKind: "hook_subagent" as const
+      }
+    ];
+
+    expect(
+      buildSessionSidebarRows(sessions).map((row) => row.session.sessionId)
+    ).toEqual(["parent"]);
+    expect(
+      buildSessionSidebarRows(sessions, {
+        debugConversationView: true
+      }).map((row) => row.session.sessionId)
+    ).toEqual(["parent", "hook-child"]);
   });
 });
 

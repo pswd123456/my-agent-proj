@@ -30,6 +30,7 @@ interface CreateSessionDialogProps {
 interface SessionWorkbenchSidebarProps {
   sessions: SessionSummary[];
   selectedSessionId: string | null;
+  debugConversationView: boolean;
   searchValue: string;
   activeSidebarPanel: SidebarPanelId | null;
   collapsed: boolean;
@@ -649,6 +650,7 @@ export function CreateSessionDialog({
 export function SessionWorkbenchSidebar({
   sessions,
   selectedSessionId,
+  debugConversationView,
   searchValue,
   activeSidebarPanel,
   collapsed,
@@ -673,8 +675,11 @@ export function SessionWorkbenchSidebar({
       ? "w-full max-w-[320px]"
       : "lg:w-[320px]";
   const sidebarRows = useMemo(
-    () => buildSessionSidebarRows(sessions),
-    [sessions]
+    () =>
+      buildSessionSidebarRows(sessions, {
+        debugConversationView
+      }),
+    [debugConversationView, sessions]
   );
   const sessionById = useMemo(
     () =>
@@ -887,14 +892,24 @@ export function SessionWorkbenchSidebar({
               const relationLabel =
                 depth > 0
                   ? session.parentSessionId
-                    ? `子代理 · 父会话 ${session.parentSessionId.slice(0, 8)}`
-                    : "子代理"
+                    ? session.parentRelationKind === "fork"
+                      ? `Fork · 父会话 ${session.parentSessionId.slice(0, 8)}`
+                      : session.parentRelationKind === "hook_subagent"
+                        ? `Hook 子代理 · 父会话 ${session.parentSessionId.slice(0, 8)}`
+                        : `子代理 · 父会话 ${session.parentSessionId.slice(0, 8)}`
+                    : session.parentRelationKind === "fork"
+                      ? "Fork"
+                      : session.parentRelationKind === "hook_subagent"
+                        ? "Hook 子代理"
+                        : "子代理"
                   : childCount > 0
-                    ? `主会话 · ${childCount} 个子代理`
+                    ? `主会话 · ${childCount} 个子分支`
                     : null;
               const relationToneClass =
                 depth > 0
-                  ? "text-[var(--app-status-success)]"
+                  ? session.parentRelationKind === "fork"
+                    ? "text-[var(--app-text-secondary)]"
+                    : "text-[var(--app-status-success)]"
                   : "text-[var(--app-text-secondary)]";
               const rowStyle =
                 depth > 0 ? { marginLeft: `${depth * 0.75}rem` } : undefined;

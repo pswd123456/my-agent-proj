@@ -135,14 +135,22 @@ function sortSessionSummariesByFreshness(
 }
 
 export function buildSessionSidebarRows(
-  sessions: SessionSummary[]
+  sessions: SessionSummary[],
+  options: {
+    debugConversationView?: boolean;
+  } = {}
 ): SessionSidebarRow[] {
+  const visibleSessions = sessions.filter(
+    (session) =>
+      options.debugConversationView === true ||
+      session.parentSessionTaskKind !== "hook_subagent"
+  );
   const sessionsById = new Map(
-    sessions.map((session) => [session.sessionId, session] as const)
+    visibleSessions.map((session) => [session.sessionId, session] as const)
   );
   const childrenByParentId = new Map<string, SessionSummary[]>();
 
-  for (const session of sessions) {
+  for (const session of visibleSessions) {
     const parentSessionId = session.parentSessionId?.trim() ?? null;
     if (
       !parentSessionId ||
@@ -182,7 +190,7 @@ export function buildSessionSidebarRows(
   }
 
   const rootSessions = sortSessionSummariesByFreshness(
-    sessions.filter((session) => {
+    visibleSessions.filter((session) => {
       const parentSessionId = session.parentSessionId?.trim() ?? null;
       return (
         !parentSessionId ||
@@ -196,7 +204,7 @@ export function buildSessionSidebarRows(
     append(session, 0);
   }
 
-  for (const session of sortSessionSummariesByFreshness(sessions)) {
+  for (const session of sortSessionSummariesByFreshness(visibleSessions)) {
     append(session, 0);
   }
 
@@ -1207,20 +1215,29 @@ export function normalizeSettingsFormState(
     ),
     userContextHooks: enforceSingleEnabledUserContextHookType(
       form.userContextHooks
-        .map((hook) => {
+        .flatMap((hook) => {
           const behavior =
             hook.behavior ?? (hook.event === "run_end" ? "message" : "context");
-          return {
+          const normalizedHook = {
             ...hook,
             behavior,
             event:
-              behavior === "context" && hook.event === "run_end"
+              (behavior === "context" || behavior === "subagent") &&
+              hook.event === "run_end"
                 ? "run_started"
                 : hook.event,
             id: hook.id.trim(),
             title: hook.title.trim(),
             content: hook.content.trim()
           };
+          return [
+            behavior === "subagent"
+              ? {
+                  ...normalizedHook,
+                  waitMode: hook.waitMode ?? "blocking"
+                }
+              : normalizedHook
+          ];
         })
         .filter((hook) => hook.id.length > 0 && hook.content.length > 0)
     ),

@@ -35,11 +35,13 @@ describe("sidebar state tone", () => {
 
 describe("session sidebar prompt preview", () => {
   function createSessionSummary(
-    firstUserMessage: string | null
+    firstUserMessage: string | null,
+    overrides: Partial<SessionSummary> = {}
   ): SessionSummary {
     return {
       sessionId: "session-1",
       parentSessionId: null,
+      parentRelationKind: null,
       updatedAt: "2026-04-28T00:00:00.000Z",
       workingDirectory: "/tmp/workspace",
       yoloMode: false,
@@ -55,7 +57,8 @@ describe("session sidebar prompt preview", () => {
       activeBackgroundTaskCount: 0,
       status: "waiting_for_user_input",
       firstUserMessage,
-      lastUserMessage: firstUserMessage
+      lastUserMessage: firstUserMessage,
+      ...overrides
     };
   }
 
@@ -123,7 +126,9 @@ describe("session sidebar prompt preview", () => {
     const markup = renderToStaticMarkup(
       createElement(
         SessionWorkbenchSidebar,
-        createSidebarProps([createSessionSummary("请帮我检查 runtime 的循环退出条件")])
+        createSidebarProps([
+          createSessionSummary("请帮我检查 runtime 的循环退出条件")
+        ])
       )
     );
 
@@ -136,11 +141,39 @@ describe("session sidebar prompt preview", () => {
     const markup = renderToStaticMarkup(
       createElement(
         SessionWorkbenchSidebar,
-        createSidebarProps([createSessionSummary("请帮我检查 runtime 的循环退出条件")])
+        createSidebarProps([
+          createSessionSummary("请帮我检查 runtime 的循环退出条件")
+        ])
       )
     );
 
-    expect(markup.indexOf("创建新会话")).toBeLessThan(markup.indexOf('type="search"'));
+    expect(markup.indexOf("创建新会话")).toBeLessThan(
+      markup.indexOf('type="search"')
+    );
+  });
+
+  test("distinguishes fork children from subagent children in sidebar labels", () => {
+    const markup = renderToStaticMarkup(
+      createElement(
+        SessionWorkbenchSidebar,
+        createSidebarProps([
+          createSessionSummary("父会话", { sessionId: "parent-session" }),
+          createSessionSummary("fork 子会话", {
+            sessionId: "fork-session",
+            parentSessionId: "parent-session",
+            parentRelationKind: "fork"
+          }),
+          createSessionSummary("subagent 子会话", {
+            sessionId: "subagent-session",
+            parentSessionId: "parent-session",
+            parentRelationKind: "subagent"
+          })
+        ])
+      )
+    );
+
+    expect(markup).toContain("Fork · 父会话 parent-s");
+    expect(markup).toContain("子代理 · 父会话 parent-s");
   });
 });
 

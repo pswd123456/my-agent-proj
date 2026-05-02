@@ -1,6 +1,11 @@
 "use client";
 
-import { useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import {
+  useState,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction
+} from "react";
 
 import { WorkbenchPanel } from "@ai-app-template/ui-patterns";
 import type {
@@ -16,6 +21,7 @@ import {
   userContextHookBehaviorOptions,
   userContextHookContextEventOptions,
   userContextHookEventOptions,
+  userContextHookWaitModeOptions,
   type InspectorTabId,
   type SettingsFormState,
   type SettingsMcpFormState,
@@ -47,11 +53,7 @@ const fieldDescriptionClassName =
 const insetSurfaceClassName =
   "rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_86%,var(--app-bg-muted)_14%)]";
 
-function ChevronDownIcon({
-  expanded = false
-}: {
-  expanded?: boolean;
-}) {
+function ChevronDownIcon({ expanded = false }: { expanded?: boolean }) {
   return (
     <svg
       aria-hidden="true"
@@ -141,7 +143,8 @@ function getUserContextHookBehavior(
 }
 
 function getUserContextHookEventOptions(hook: UserContextHookRecord) {
-  return getUserContextHookBehavior(hook) === "context"
+  return getUserContextHookBehavior(hook) === "context" ||
+    getUserContextHookBehavior(hook) === "subagent"
     ? userContextHookContextEventOptions
     : userContextHookEventOptions;
 }
@@ -151,6 +154,9 @@ function formatUserContextHookBehaviorLabel(
 ): string {
   if (behavior === "context") {
     return "Context";
+  }
+  if (behavior === "subagent") {
+    return "Subagent";
   }
 
   return "Send Message";
@@ -162,8 +168,25 @@ function formatUserContextHookBehaviorDescription(
   if (getUserContextHookBehavior(hook) === "context") {
     return "在 prompt runtime context 中注入。";
   }
+  if (getUserContextHookBehavior(hook) === "subagent") {
+    return "预先启动一个子代理，把 final response 注入主会话 context。";
+  }
 
   return "作为一条用户消息按时机执行。";
+}
+
+function formatUserContextHookWaitModeLabel(
+  waitMode: NonNullable<UserContextHookRecord["waitMode"]>
+): string {
+  return waitMode === "unblocking" ? "Unblocking" : "Blocking";
+}
+
+function formatUserContextHookWaitModeDescription(
+  waitMode: NonNullable<UserContextHookRecord["waitMode"]>
+): string {
+  return waitMode === "unblocking"
+    ? "当前 run 先继续，结果在后续 run 自动注入。"
+    : "先等 hook 子代理完成，再继续本次 run。";
 }
 
 function formatUserContextHookEventDescription(
@@ -330,6 +353,10 @@ interface SessionWorkbenchDrawerProps {
     hookId: string,
     behavior: NonNullable<UserContextHookRecord["behavior"]>
   ) => void;
+  onUserContextHookWaitModeChange: (
+    hookId: string,
+    waitMode: NonNullable<UserContextHookRecord["waitMode"]>
+  ) => void;
   onDeleteUserContextHook: (hookId: string) => void;
   onMoveUserContextHook: (hookId: string, direction: "up" | "down") => void;
   headerActions?: ReactNode;
@@ -385,6 +412,7 @@ export function SessionWorkbenchDrawer({
   onUserContextHookEnabledChange,
   onUserContextHookEventChange,
   onUserContextHookBehaviorChange,
+  onUserContextHookWaitModeChange,
   onDeleteUserContextHook,
   onMoveUserContextHook,
   headerActions
@@ -406,8 +434,8 @@ export function SessionWorkbenchDrawer({
   const shellAllowPatternLines = splitEditablePatternLines(
     settingsForm.shellAllowPatterns
   );
-  const enabledWorkspaceSkillCount = settingsSkillsState.skills.filter((skill) =>
-    isWorkspaceSkillEnabled(settingsForm, skill.name)
+  const enabledWorkspaceSkillCount = settingsSkillsState.skills.filter(
+    (skill) => isWorkspaceSkillEnabled(settingsForm, skill.name)
   ).length;
 
   if (!activeSidebarPanel) {
@@ -644,7 +672,10 @@ export function SessionWorkbenchDrawer({
                           <button
                             type="button"
                             onClick={() =>
-                              toggleExpandedId(setExpandedMcpServerIds, server.id)
+                              toggleExpandedId(
+                                setExpandedMcpServerIds,
+                                server.id
+                              )
                             }
                             className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] text-[var(--app-text-muted)] transition hover:border-[var(--app-border-accent)] hover:text-[var(--app-text-primary)]"
                             aria-label={`${expandedMcpServerIds.has(server.id) ? "收起" : "展开"} ${server.name || "MCP server"}`}
@@ -850,7 +881,9 @@ export function SessionWorkbenchDrawer({
                                   )
                                 }
                                 className="flex items-center justify-between gap-3 rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_48%,transparent)] px-3 py-2 text-left"
-                                aria-expanded={expandedMcpToolIds.has(server.id)}
+                                aria-expanded={expandedMcpToolIds.has(
+                                  server.id
+                                )}
                               >
                                 <div>
                                   <div className={tertiaryHeadingClassName}>
@@ -858,8 +891,9 @@ export function SessionWorkbenchDrawer({
                                   </div>
                                   <div className="mt-1 text-xs leading-5 text-[var(--app-text-muted)]">
                                     {
-                                      server.tools.filter((tool) => tool.enabled)
-                                        .length
+                                      server.tools.filter(
+                                        (tool) => tool.enabled
+                                      ).length
                                     }
                                     /{server.tools.length} 已启用
                                   </div>
@@ -896,7 +930,8 @@ export function SessionWorkbenchDrawer({
                                       <WorkbenchSwitch
                                         checked={tool.enabled}
                                         disabled={
-                                          loadingMcpSettings || savingMcpSettings
+                                          loadingMcpSettings ||
+                                          savingMcpSettings
                                         }
                                         ariaLabel={`切换 MCP tool ${tool.name} 的启用状态`}
                                         onChange={(checked) =>
@@ -966,14 +1001,16 @@ export function SessionWorkbenchDrawer({
 
                   {settingsSkillsState.diagnostics.length > 0 ? (
                     <div className="grid gap-2">
-                      {settingsSkillsState.diagnostics.map((diagnostic, index) => (
-                        <div
-                          key={`${diagnostic.relativePath}-${diagnostic.reason}-${index}`}
-                          className="rounded-[var(--app-radius-lg)] border border-[var(--app-status-danger)]/40 bg-[color:color-mix(in_srgb,var(--app-status-danger)_10%,transparent)] px-3 py-2 text-xs leading-5 text-[var(--app-status-danger)]"
-                        >
-                          {diagnostic.relativePath}: {diagnostic.message}
-                        </div>
-                      ))}
+                      {settingsSkillsState.diagnostics.map(
+                        (diagnostic, index) => (
+                          <div
+                            key={`${diagnostic.relativePath}-${diagnostic.reason}-${index}`}
+                            className="rounded-[var(--app-radius-lg)] border border-[var(--app-status-danger)]/40 bg-[color:color-mix(in_srgb,var(--app-status-danger)_10%,transparent)] px-3 py-2 text-xs leading-5 text-[var(--app-status-danger)]"
+                          >
+                            {diagnostic.relativePath}: {diagnostic.message}
+                          </div>
+                        )
+                      )}
                     </div>
                   ) : null}
 
@@ -1372,7 +1409,12 @@ export function SessionWorkbenchDrawer({
                             className="w-full min-w-0 border-none bg-transparent px-0 py-0 text-sm text-[var(--app-text-primary)] outline-none placeholder:text-[var(--app-text-muted)]"
                           />
                           <div className="mt-1 text-xs leading-5 text-[var(--app-text-muted)]">
-                            {formatUserContextHookBehaviorDescription(hook)}{" "}
+                            {formatUserContextHookBehaviorDescription(hook)}
+                            {getUserContextHookBehavior(hook) === "subagent"
+                              ? ` ${formatUserContextHookWaitModeDescription(
+                                  hook.waitMode ?? "blocking"
+                                )}`
+                              : ""}{" "}
                             {formatUserContextHookEventDescription(hook.event)}
                           </div>
                         </div>
@@ -1430,6 +1472,34 @@ export function SessionWorkbenchDrawer({
                           }
                         />
                       </div>
+
+                      {getUserContextHookBehavior(hook) === "subagent" ? (
+                        <div className="grid gap-2 sm:grid-cols-[minmax(0,220px)_1fr] sm:items-center">
+                          <div className={tertiaryHeadingClassName}>
+                            Wait Mode
+                          </div>
+                          <WorkbenchSelect
+                            value={hook.waitMode ?? "blocking"}
+                            disabled={savingSettings}
+                            ariaLabel="选择 hook 子代理等待模式"
+                            options={userContextHookWaitModeOptions.map(
+                              (waitMode) => ({
+                                value: waitMode,
+                                label:
+                                  formatUserContextHookWaitModeLabel(waitMode)
+                              })
+                            )}
+                            onValueChange={(waitMode) =>
+                              onUserContextHookWaitModeChange(
+                                hook.id,
+                                waitMode as NonNullable<
+                                  UserContextHookRecord["waitMode"]
+                                >
+                              )
+                            }
+                          />
+                        </div>
+                      ) : null}
 
                       <label className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
                         <span className={tertiaryHeadingClassName}>
