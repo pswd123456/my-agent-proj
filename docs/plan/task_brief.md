@@ -63,9 +63,7 @@
 
 也就是说，数据库和 session snapshot 持久化的是“是否处于 plan mode”和“brief 绑定路径”，不是一份结构化 `taskBrief` 对象。
 
-### 2. 开启 plan mode 时会绑定 brief 路径
-
-当 session 创建时或通过 session settings 打开 `plan mode` 时，runtime 会为当前 session 绑定默认 brief 路径。
+### 2. 开启 plan mode 时不会自动绑定新 brief 文件
 
 当前行为是：
 
@@ -73,12 +71,6 @@
 - `planName` 由模型在生成计划时填写，例如 `jump_joy_web_game.md`
 - 绑定路径本身会进入 session state
 - 开启 `plan mode` 的瞬间不会自动写入 brief 文件正文
-
-对旧 session 遗留的 legacy flat path 还保留一条兼容分支：
-
-- `.agent/plans/<sessionId>.md` 仍被视为有效旧绑定
-- 如果 legacy 文件缺失，则下一次 `replace_task_brief` 必须补 `plan_name`，runtime 会升级到新的命名路径
-- 如果 legacy 文件已存在，不带 `plan_name` 仍可覆盖旧文件，但新的命名路径仍然是推荐形态
 
 因此，`taskBriefPath` 的存在不等于 brief 文件一定已经创建。
 
@@ -150,8 +142,6 @@
 - `replace_task_brief` 只允许写当前 session 绑定的 brief 路径
 - 写 brief 只能通过 `replace_task_brief`，不要用 shell 重定向或普通 workspace file 工具写入
 - 必要时会自动创建 `.agent/plans/<sessionId>/`
-- 如果 session 仍在 legacy flat 绑定且文件缺失，`replace_task_brief` 会要求先提供 `plan_name`，再把绑定升级到命名路径
-
 当前并没有落地结构化 `update_task_brief` 聚合工具，也没有 section 级工具。
 
 ### 6. 当前 plan mode 会把 todo 从工具面拿掉

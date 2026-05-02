@@ -98,12 +98,6 @@
 
 当前实现里，开启 plan mode 后不会自动为 session 绑定这条路径；第一次写 `task brief` 时，需要通过 `replace_task_brief` 显式提供 `plan_name`，不会在切换瞬间自动写文件。
 
-对于旧 session 可能遗留的 flat legacy 绑定：
-
-- 运行时会继续识别 `.agent/plans/<sessionId>.md`
-- 如果 legacy 文件已经存在，不带 `plan_name` 仍可继续覆盖原文件
-- 如果 legacy 文件还不存在，下一次 `replace_task_brief` 必须提供 `plan_name`，runtime 会把绑定升级到 `.agent/plans/<sessionId>/<planName>.md`
-
 ## 工具面
 
 当前 planning tool surface 里，与 `plan mode` 最直接相关的是下面几类：
