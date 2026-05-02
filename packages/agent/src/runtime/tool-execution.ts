@@ -4,6 +4,7 @@ import type { RunEventSink } from "../events.js";
 import type { BackgroundTaskManager } from "../background-tasks/index.js";
 import type { DelegateAgentService } from "../delegation/index.js";
 import type { SessionManager } from "../session.js";
+import type { Logger } from "../system-log.js";
 import type { TraceEvent, TraceManager } from "../trace.js";
 import type {
   JsonValue,
@@ -58,6 +59,24 @@ export type PreparedToolAction =
         SessionSnapshot["context"]["pendingPermissionRequest"]
       >;
     };
+
+function getToolInputKeys(toolInput: Record<string, JsonValue>): string[] {
+  return Object.keys(toolInput).sort();
+}
+
+function summarizePermissionRequest(
+  request: NonNullable<SessionSnapshot["context"]["pendingPermissionRequest"]>
+): JsonValue {
+  return {
+    toolCallId: request.toolCallId,
+    toolName: request.toolName,
+    family: request.family,
+    permissionProfile: request.permissionProfile,
+    summaryText: request.summaryText,
+    allowWorkspaceEscape: request.allowWorkspaceEscape ?? false,
+    inputKeys: getToolInputKeys(request.toolInput as Record<string, JsonValue>)
+  };
+}
 
 function isYoloAutoAllowTool(
   tool: NonNullable<ReturnType<ToolRegistry["get"]>>,
@@ -194,6 +213,7 @@ export async function persistToolActionCompletion(input: {
   eventSink: RunEventSink | undefined;
   session: SessionSnapshot;
   completion: ToolActionCompletion;
+  toolLogger?: Logger;
 }): Promise<SessionSnapshot> {
   let session = await input.sessionManager.appendBlock(
     input.session.sessionId,
@@ -224,6 +244,18 @@ export async function persistToolActionCompletion(input: {
     });
   }
 
+  await input.toolLogger?.[
+    input.completion.output.isError ? "warn" : "info"
+  ]("tool_finished", {
+    toolCallId: input.completion.toolCallId,
+    toolName: input.completion.toolName,
+    responseGroupId: input.completion.responseGroupId ?? null,
+    isError: input.completion.output.isError,
+    displayText: input.completion.output.displayText,
+    lastError: input.completion.lastError,
+    detailsKind: input.completion.output.details?.kind ?? null
+  });
+
   return session;
 }
 
@@ -242,10 +274,26 @@ export async function prepareToolAction(input: {
   skipPermissionCheck?: boolean;
   abortSignal?: AbortSignal;
   allowWorkspaceEscape?: boolean;
+  toolLogger?: Logger;
+  permissionLogger?: Logger;
 }): Promise<PreparedToolAction> {
+  await input.toolLogger?.info("tool_started", {
+    toolCallId: input.toolCallId,
+    toolName: input.toolName,
+    responseGroupId: input.responseGroupId ?? null,
+    inputKeys: getToolInputKeys(input.toolInput),
+    skipPermissionCheck: input.skipPermissionCheck ?? false,
+    allowWorkspaceEscape: input.allowWorkspaceEscape ?? null
+  });
+
   const tool = input.toolRegistry.get(input.toolName);
   if (!tool) {
     const errorText = `Unknown tool: ${input.toolName}`;
+    await input.toolLogger?.warn("tool_resolution_failed", {
+      toolCallId: input.toolCallId,
+      toolName: input.toolName,
+      reason: errorText
+    });
     return {
       kind: "completed",
       completion: buildToolActionCompletion({
@@ -265,6 +313,15 @@ export async function prepareToolAction(input: {
 
   const validation = tool.validate(input.toolInput);
   if (!validation.ok) {
+    await input.toolLogger?.warn("tool_validation_failed", {
+      toolCallId: input.toolCallId,
+      toolName: input.toolName,
+      inputKeys: getToolInputKeys(input.toolInput),
+      validationErrors: (validation.issues ?? []).map((issue) => ({
+        field: issue.field,
+        issue: issue.issue
+      }))
+    });
     const validationText = JSON.stringify(
       {
         ok: false,
@@ -325,6 +382,13 @@ export async function prepareToolAction(input: {
       });
 
   if (permissionCheck.decision === "block") {
+    await input.permissionLogger?.warn("permission_blocked", {
+      toolCallId: input.toolCallId,
+      toolName: input.toolName,
+      family: tool.family,
+      permissionProfile: tool.permissionProfile,
+      reason: permissionCheck.reason
+    });
     return {
       kind: "completed",
       completion: buildToolActionCompletion({
@@ -352,11 +416,23 @@ export async function prepareToolAction(input: {
   }
 
   if (permissionCheck.decision === "ask_user") {
+    await input.permissionLogger?.info(
+      "permission_requested",
+      summarizePermissionRequest(permissionCheck.request)
+    );
     return {
       kind: "permission_request",
       request: permissionCheck.request
     };
   }
+
+  await input.permissionLogger?.debug("permission_allowed", {
+    toolCallId: input.toolCallId,
+    toolName: input.toolName,
+    family: tool.family,
+    permissionProfile: tool.permissionProfile,
+    skipped: input.skipPermissionCheck ?? false
+  });
 
   return {
     kind: "ready",
@@ -366,7 +442,25 @@ export async function prepareToolAction(input: {
       executionContext
     }),
     async execute() {
-      const result = await tool.execute(validatedInput, executionContext);
+      await input.toolLogger?.info("tool_execution_started", {
+        toolCallId: input.toolCallId,
+        toolName: input.toolName,
+        family: tool.family,
+        isReadOnly: tool.isReadOnly,
+        hasExternalSideEffect: tool.hasExternalSideEffect
+      });
+
+      let result: Awaited<ReturnType<typeof tool.execute>>;
+      try {
+        result = await tool.execute(validatedInput, executionContext);
+      } catch (error) {
+        await input.toolLogger?.error("tool_execution_threw", {
+          toolCallId: input.toolCallId,
+          toolName: input.toolName,
+          error: error instanceof Error ? error.message : String(error)
+        });
+        throw error;
+      }
 
       return buildToolActionCompletion({
         turnCount: input.turnCount,
@@ -404,6 +498,8 @@ export async function executeToolAction(input: {
   skipAppendToolCall?: boolean;
   abortSignal?: AbortSignal;
   allowWorkspaceEscape?: boolean;
+  toolLogger?: Logger;
+  permissionLogger?: Logger;
 }): Promise<ExecuteToolActionResult> {
   let session = input.session;
   if (!(input.skipAppendToolCall ?? false)) {
@@ -456,6 +552,10 @@ export async function executeToolAction(input: {
     ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
     ...(typeof input.allowWorkspaceEscape === "boolean"
       ? { allowWorkspaceEscape: input.allowWorkspaceEscape }
+      : {}),
+    ...(input.toolLogger ? { toolLogger: input.toolLogger } : {}),
+    ...(input.permissionLogger
+      ? { permissionLogger: input.permissionLogger }
       : {})
   });
 
@@ -504,7 +604,8 @@ export async function executeToolAction(input: {
     traceManager: input.traceManager,
     eventSink: input.eventSink,
     session,
-    completion
+    completion,
+    ...(input.toolLogger ? { toolLogger: input.toolLogger } : {})
   });
 
   return {

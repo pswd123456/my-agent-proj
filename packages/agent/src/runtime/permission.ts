@@ -16,6 +16,7 @@ import type { RoutineRepository } from "@ai-app-template/db";
 import type { RunEventSink } from "../events.js";
 import type { BackgroundTaskManager } from "../background-tasks/index.js";
 import type { SessionManager } from "../session.js";
+import type { Logger } from "../system-log.js";
 import type { TraceManager } from "../trace.js";
 import type { JsonValue, RunSessionResult, SessionSnapshot } from "../types.js";
 import type { ToolRegistry } from "../tools/registry.js";
@@ -47,6 +48,8 @@ export async function handlePendingPermissionReply(input: {
     SessionSnapshot["context"]["pendingPermissionRequest"]
   >;
   eventSink: RunEventSink | undefined;
+  toolLogger?: Logger;
+  permissionLogger?: Logger;
 }): Promise<PendingPermissionReplyResult | null> {
   const normalized = normalizeConfirmationReply(input.message);
   const isWorkspaceEscapeRequest =
@@ -76,6 +79,13 @@ export async function handlePendingPermissionReply(input: {
       : await input.sessionManager.setTurnCount(input.session.sessionId, turnCount);
 
   if (isNegativeConfirmationReply(normalized)) {
+    await input.permissionLogger?.info("permission_rejected", {
+      toolCallId: input.pendingPermissionRequest.toolCallId,
+      toolName: input.pendingPermissionRequest.toolName,
+      allowWorkspaceEscape:
+        input.pendingPermissionRequest.allowWorkspaceEscape ?? false,
+      reply: normalized
+    });
     const denialContent = JSON.stringify(
       createToolResult({
         ok: false,
@@ -234,6 +244,16 @@ export async function handlePendingPermissionReply(input: {
       request: input.pendingPermissionRequest
     }
   });
+  await input.permissionLogger?.info("permission_approved", {
+    toolCallId: input.pendingPermissionRequest.toolCallId,
+    toolName: input.pendingPermissionRequest.toolName,
+    allowWorkspaceEscape:
+      input.pendingPermissionRequest.allowWorkspaceEscape ?? false,
+    reply: normalized,
+    grantedSessionShellPattern:
+      approvalRules?.shellAllowPatterns[0] ?? null,
+    grantedSessionTool: approvalRules?.toolAllowList[0] ?? null
+  });
 
   const executed = await executeToolAction({
     sessionManager: input.sessionManager,
@@ -259,6 +279,10 @@ export async function handlePendingPermissionReply(input: {
     skipAppendToolCall: true,
     ...(input.pendingPermissionRequest.allowWorkspaceEscape
       ? { allowWorkspaceEscape: true }
+      : {}),
+    ...(input.toolLogger ? { toolLogger: input.toolLogger } : {}),
+    ...(input.permissionLogger
+      ? { permissionLogger: input.permissionLogger }
       : {})
   });
 
@@ -284,6 +308,11 @@ export async function handlePendingPermissionReply(input: {
   }
 
   if (executed.kind !== "completed") {
+    await input.permissionLogger?.error("permission_resume_failed", {
+      toolCallId: input.pendingPermissionRequest.toolCallId,
+      toolName: input.pendingPermissionRequest.toolName,
+      reason: "approved_request_paused_again"
+    });
     throw new Error(
       `Approved permission request for ${input.pendingPermissionRequest.toolName} unexpectedly paused again.`
     );

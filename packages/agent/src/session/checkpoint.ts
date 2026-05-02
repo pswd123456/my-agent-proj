@@ -31,14 +31,21 @@ export function getCheckpointTriggerUserMessageIndex(input: {
   session: SessionSnapshot;
   checkpoint: SessionForkCheckpoint;
 }): number | null {
-  const triggerIndex = input.checkpoint.baseMessageCount - 1;
-  if (triggerIndex < 0 || triggerIndex >= input.session.messages.length) {
+  const startIndex = Math.min(
+    input.session.messages.length - 1,
+    input.checkpoint.baseMessageCount - 1
+  );
+  if (startIndex < 0 || startIndex >= input.session.messages.length) {
     return null;
   }
 
-  return input.session.messages[triggerIndex]?.kind === "user"
-    ? triggerIndex
-    : null;
+  for (let index = startIndex; index >= 0; index -= 1) {
+    if (input.session.messages[index]?.kind === "user") {
+      return index;
+    }
+  }
+
+  return null;
 }
 
 export function getCheckpointTriggerUserBlock(input: {

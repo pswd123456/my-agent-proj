@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { createPostgresTestSessionManager } from "../../../tests/helpers/postgres-session-manager.js";
+import { createMemoryRoutineRepository } from "@ai-app-template/db";
 
 import {
   buildForkReplayRequestMessages,
@@ -9,6 +11,9 @@ import {
   resolveTaskBriefPathForFork
 } from "../src/session/index.js";
 import type { SessionForkCheckpoint } from "../src/types.js";
+import { createAgentRuntime } from "../src/index.js";
+import { ToolRegistry } from "../src/tools/registry.js";
+import type { RuntimeTool } from "../src/tools/runtime-tool.js";
 
 describe("session fork helpers", () => {
   function createCheckpoint(): SessionForkCheckpoint {
@@ -250,6 +255,81 @@ describe("session fork helpers", () => {
     });
   });
 
+  test("falls back to the nearest preceding user block when legacy baseMessageCount points into tool results", () => {
+    const snapshot = createSnapshot({
+      sessionId: "legacy-rewrite-source",
+      workingDirectory: "/tmp/workspace",
+      model: "MiniMax-M2.7"
+    });
+    snapshot.messages = [
+      {
+        id: "user-1",
+        kind: "user",
+        content: "#git_grouped_commit",
+        source: "user",
+        createdAt: "2026-05-01T00:00:00.000Z"
+      },
+      {
+        id: "assistant-1",
+        kind: "assistant",
+        content: "先加载 skill。",
+        createdAt: "2026-05-01T00:00:01.000Z"
+      },
+      {
+        id: "tool-call-1",
+        kind: "tool call",
+        toolCallId: "call-1",
+        toolName: "load_skill",
+        input: {},
+        state: "success",
+        createdAt: "2026-05-01T00:00:02.000Z"
+      },
+      {
+        id: "tool-result-1",
+        kind: "tool result",
+        toolCallId: "call-1",
+        toolName: "load_skill",
+        output: "ok",
+        isError: false,
+        state: "success",
+        createdAt: "2026-05-01T00:00:03.000Z"
+      },
+      {
+        id: "assistant-2",
+        kind: "assistant",
+        content: "最终总结",
+        createdAt: "2026-05-01T00:00:04.000Z"
+      }
+    ];
+
+    const checkpoint: SessionForkCheckpoint = {
+      id: "legacy-checkpoint",
+      sessionId: snapshot.sessionId,
+      assistantMessageId: "assistant-2",
+      turnCount: 4,
+      baseMessageCount: 4,
+      responseGroupId: null,
+      snapshot,
+      promptSeed: {
+        system: "system",
+        requestMessages: [],
+        runtimeContextMessages: [],
+        tools: [],
+        toolChoice: null
+      },
+      createdAt: "2026-05-01T00:00:05.000Z",
+      updatedAt: "2026-05-01T00:00:05.000Z"
+    };
+
+    expect(
+      getCheckpointTriggerUserBlock({ session: snapshot, checkpoint })
+    ).toMatchObject({
+      id: "user-1",
+      content: "#git_grouped_commit",
+      source: "user"
+    });
+  });
+
   test("rewinds a rewrite snapshot to the start of the trigger turn and recomputes user bounds", () => {
     const snapshot = createSnapshot({
       sessionId: "rewrite-source",
@@ -351,5 +431,107 @@ describe("session fork helpers", () => {
     expect(rewind.sessionState.interruptRequested).toBe(false);
     expect(rewind.inputTokensCount).toBe(0);
     expect(rewind.promptCacheKey).toBe("");
+  });
+
+  test("anchors checkpoint baseMessageCount to the originating user message across multi-step tool turns", async () => {
+    const sessionManager = await createPostgresTestSessionManager();
+    const routineRepository = createMemoryRoutineRepository();
+    let responseIndex = 0;
+
+    const runtime = createAgentRuntime({
+      client: {
+        messages: {
+          async create() {
+            responseIndex += 1;
+            if (responseIndex === 1) {
+              return {
+                content: [
+                  {
+                    type: "tool_use" as const,
+                    id: "tool-call-1",
+                    name: "echo_tool",
+                    input: {}
+                  }
+                ],
+                stop_reason: "tool_use",
+                usage: {
+                  input_tokens: 10,
+                  output_tokens: 5,
+                  cache_creation_input_tokens: 0,
+                  cache_read_input_tokens: 0
+                }
+              };
+            }
+
+            return {
+              content: [{ type: "text" as const, text: "最终结果" }],
+              stop_reason: "end_turn",
+              usage: {
+                input_tokens: 6,
+                output_tokens: 3,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 0
+              }
+            };
+          }
+        }
+      },
+      model: "MiniMax-M2.7",
+      sessionManager,
+      routineRepository,
+      toolRegistry: new ToolRegistry().register({
+        name: "echo_tool",
+        description: "Return ok.",
+        family: "workspace-file",
+        isReadOnly: true,
+        hasExternalSideEffect: false,
+        permissionProfile: "allow",
+        sandboxProfile: "none",
+        inputSchema: {
+          type: "object",
+          properties: {},
+          additionalProperties: false
+        },
+        validate() {
+          return { ok: true, value: {} };
+        },
+        async execute() {
+          return {
+            state: "success",
+            content: "ok",
+            displayText: "ok",
+            result: {
+              ok: true,
+              code: "OK",
+              message: "ok"
+            }
+          };
+        }
+      } satisfies RuntimeTool)
+    });
+
+    const session = await runtime.createSession({
+      workingDirectory: "/tmp/workspace",
+      userId: "runtime-fork-user"
+    });
+    const result = await runtime.run({
+      sessionId: session.sessionId,
+      message: "原始问题"
+    });
+
+    expect(result.status).toBe("completed");
+
+    const checkpoints = await sessionManager.listForkCheckpoints(session.sessionId);
+    expect(checkpoints).toHaveLength(1);
+    expect(checkpoints[0]?.baseMessageCount).toBe(1);
+    expect(
+      getCheckpointTriggerUserBlock({
+        session: result.session,
+        checkpoint: checkpoints[0]!
+      })
+    ).toMatchObject({
+      content: "原始问题",
+      source: "user"
+    });
   });
 });

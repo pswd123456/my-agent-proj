@@ -25,6 +25,7 @@ import {
   buildForkReplayRequestMessages,
   findLastAssistantBlock
 } from "../session/fork.js";
+import { isUserInputMessageBlock } from "../session/shared.js";
 import {
   discoverWorkspaceSkills,
   filterWorkspaceSkills
@@ -200,6 +201,19 @@ function getLastAssistantCheckpointMetadata(session: SessionSnapshot): {
   };
 }
 
+function getCheckpointBaseMessageCount(
+  messages: SessionSnapshot["messages"]
+): number {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const block = messages[index];
+    if (block && isUserInputMessageBlock(block)) {
+      return index + 1;
+    }
+  }
+
+  return messages.length;
+}
+
 export async function runSessionLoop(input: {
   client: AnthropicCompatibleClient;
   prepareMessages?: (messages: AnthropicMessage[]) => AnthropicMessage[];
@@ -225,6 +239,8 @@ export async function runSessionLoop(input: {
   requestOptions?: Partial<Pick<AnthropicMessageRequest, "output_config">>;
   eventSink: RunEventSink | undefined;
   logger?: Logger;
+  toolLogger?: Logger;
+  permissionLogger?: Logger;
   emitCompletedRunEvent?: boolean;
   resumeBlockedBySubagentHook?: boolean;
 }): Promise<RunSessionResult> {
@@ -623,6 +639,12 @@ export async function runSessionLoop(input: {
     notificationIds: string[];
   }): Promise<RunSessionResult | null> {
     let index = 0;
+    const turnToolLogger = input.toolLogger?.child({
+      turnCount: inputForExecution.turnCount
+    });
+    const turnPermissionLogger = input.permissionLogger?.child({
+      turnCount: inputForExecution.turnCount
+    });
 
     while (index < inputForExecution.toolCalls.length) {
       const batch = [];
@@ -648,7 +670,11 @@ export async function runSessionLoop(input: {
           ...(toolCall.responseGroupId
             ? { responseGroupId: toolCall.responseGroupId }
             : {}),
-          ...(input.abortSignal ? { abortSignal: input.abortSignal } : {})
+          ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
+          ...(turnToolLogger ? { toolLogger: turnToolLogger } : {}),
+          ...(turnPermissionLogger
+            ? { permissionLogger: turnPermissionLogger }
+            : {})
         });
 
         if (prepared.kind !== "ready" || !prepared.isConcurrencySafe) {
@@ -670,7 +696,8 @@ export async function runSessionLoop(input: {
             traceManager: input.traceManager,
             eventSink: input.eventSink,
             session,
-            completion
+            completion,
+            ...(turnToolLogger ? { toolLogger: turnToolLogger } : {})
           });
           toolCallCount += 1;
           toolResultCount += 1;
@@ -720,7 +747,11 @@ export async function runSessionLoop(input: {
           : {}),
         eventSink: input.eventSink,
         skipAppendToolCall: true,
-        ...(input.abortSignal ? { abortSignal: input.abortSignal } : {})
+        ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
+        ...(turnToolLogger ? { toolLogger: turnToolLogger } : {}),
+        ...(turnPermissionLogger
+          ? { permissionLogger: turnPermissionLogger }
+          : {})
       });
       session = executed.session;
       toolCallCount += 1;
@@ -777,6 +808,7 @@ export async function runSessionLoop(input: {
 
   try {
     if (pendingPermissionAtStart && input.message) {
+      const permissionTurnCount = Math.max(1, session.sessionState.turnCount);
       const handled = await handlePendingPermissionReply({
         sessionManager: input.sessionManager,
         routineRepository: input.routineRepository,
@@ -789,7 +821,21 @@ export async function runSessionLoop(input: {
         message: input.message,
         permissionReply: input.permissionReply ?? false,
         pendingPermissionRequest: pendingPermissionAtStart,
-        eventSink: input.eventSink
+        eventSink: input.eventSink,
+        ...(input.toolLogger
+          ? {
+              toolLogger: input.toolLogger.child({
+                turnCount: permissionTurnCount
+              })
+            }
+          : {}),
+        ...(input.permissionLogger
+          ? {
+              permissionLogger: input.permissionLogger.child({
+                turnCount: permissionTurnCount
+              })
+            }
+          : {})
       });
       if (handled?.kind === "completed") {
         return handled.result;
@@ -894,6 +940,9 @@ export async function runSessionLoop(input: {
       session.sessionId,
       "running"
     );
+    const checkpointBaseMessageCount = getCheckpointBaseMessageCount(
+      session.messages
+    );
 
     {
       const interrupted = await maybeCompleteInterrupted();
@@ -906,6 +955,10 @@ export async function runSessionLoop(input: {
       consumedPermissionReply &&
       session.sessionState.pendingToolCallIds.length > 0
     ) {
+      await input.logger?.info("resume_pending_tool_calls", {
+        turnCount: Math.max(1, carriedTurnCount),
+        count: session.sessionState.pendingToolCallIds.length
+      });
       const pendingToolCalls = getUnresolvedPendingToolCalls(session);
       const resumedExecution = await executeToolCallsWithOrchestration({
         toolCalls: pendingToolCalls,
@@ -943,6 +996,7 @@ export async function runSessionLoop(input: {
           (notification) => notification.id
         );
       visibleBackgroundNotificationIds = notificationIdsVisibleThisTurn;
+      const turnRuntimeLogger = input.logger?.child({ turnCount });
 
       {
         const interrupted = await maybeCompleteInterrupted();
@@ -952,7 +1006,6 @@ export async function runSessionLoop(input: {
       }
 
       currentTurnForkCheckpointSeed = null;
-      const baseMessageCount = session.messages.length;
       const shouldUseForkReplay =
         turn === carriedTurnCount &&
         typeof session.forkReplayCheckpointId === "string" &&
@@ -1008,7 +1061,7 @@ export async function runSessionLoop(input: {
         consumedForkReplayCheckpointId = replayCheckpoint.id;
         currentTurnForkCheckpointSeed = {
           turnCount,
-          baseMessageCount,
+          baseMessageCount: checkpointBaseMessageCount,
           promptSeed: {
             system: promptSystem,
             requestMessages: structuredClone(requestMessages),
@@ -1064,7 +1117,7 @@ export async function runSessionLoop(input: {
           summarizePromptEnvelopeComposition(promptEnvelope);
         currentTurnForkCheckpointSeed = {
           turnCount,
-          baseMessageCount,
+          baseMessageCount: checkpointBaseMessageCount,
           promptSeed: {
             system: promptSystem,
             requestMessages: structuredClone(requestMessages),
@@ -1457,6 +1510,11 @@ export async function runSessionLoop(input: {
       }
 
       if (resolvedToolCalls.length > 0) {
+        await turnRuntimeLogger?.info("tool_calls_detected", {
+          count: resolvedToolCalls.length,
+          recoveredFromText:
+            toolCalls.length === 0 && recoveredToolCalls.length > 0
+        });
         if (toolCalls.length === 0 && recoveredToolCalls.length > 0) {
           await emitTraceEvent({
             traceManager: input.traceManager,

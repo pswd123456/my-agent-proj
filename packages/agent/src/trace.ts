@@ -290,11 +290,20 @@ export type TraceEvent =
 export interface TraceRecord {
   sessionId: string;
   createdAt: string;
+  runId?: string;
   event: TraceEvent;
 }
 
+export interface TraceAppendOptions {
+  runId?: string;
+}
+
 export interface TraceManager {
-  appendEvent(sessionId: string, event: TraceEvent): Promise<void>;
+  appendEvent(
+    sessionId: string,
+    event: TraceEvent,
+    options?: TraceAppendOptions
+  ): Promise<void>;
   readEvents(sessionId: string): Promise<TraceRecord[]>;
   deleteEvents(sessionId: string): Promise<void>;
   truncateEventsAfterTurn(sessionId: string, turnCount: number): Promise<void>;
@@ -315,11 +324,16 @@ export class FileTraceManager implements TraceManager {
     await fs.mkdir(this.tracesDirectory, { recursive: true });
   }
 
-  async appendEvent(sessionId: string, event: TraceEvent): Promise<void> {
+  async appendEvent(
+    sessionId: string,
+    event: TraceEvent,
+    options?: TraceAppendOptions
+  ): Promise<void> {
     await this.ensureDirectories();
     const record: TraceRecord = {
       sessionId,
       createdAt: new Date().toISOString(),
+      ...(options?.runId ? { runId: options.runId } : {}),
       event: structuredClone(event)
     };
 
@@ -344,6 +358,7 @@ export class FileTraceManager implements TraceManager {
               parsed &&
               typeof parsed.sessionId === "string" &&
               typeof parsed.createdAt === "string" &&
+              (parsed.runId === undefined || typeof parsed.runId === "string") &&
               typeof parsed.event === "object" &&
               parsed.event !== null
             ) {
@@ -400,4 +415,45 @@ export function createFileTraceManager(
   baseDirectory: string
 ): FileTraceManager {
   return new FileTraceManager(baseDirectory);
+}
+
+class RunScopedTraceManager implements TraceManager {
+  constructor(
+    private readonly traceManager: TraceManager,
+    private readonly runId: string
+  ) {}
+
+  appendEvent(
+    sessionId: string,
+    event: TraceEvent,
+    options?: TraceAppendOptions
+  ): Promise<void> {
+    return this.traceManager.appendEvent(sessionId, event, {
+      ...options,
+      runId: options?.runId ?? this.runId
+    });
+  }
+
+  readEvents(sessionId: string): Promise<TraceRecord[]> {
+    return this.traceManager.readEvents(sessionId);
+  }
+
+  deleteEvents(sessionId: string): Promise<void> {
+    return this.traceManager.deleteEvents(sessionId);
+  }
+
+  truncateEventsAfterTurn(sessionId: string, turnCount: number): Promise<void> {
+    return this.traceManager.truncateEventsAfterTurn(sessionId, turnCount);
+  }
+}
+
+export function createRunScopedTraceManager(
+  traceManager: TraceManager | undefined,
+  runId: string
+): TraceManager | undefined {
+  if (!traceManager) {
+    return undefined;
+  }
+
+  return new RunScopedTraceManager(traceManager, runId);
 }

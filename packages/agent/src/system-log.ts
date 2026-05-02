@@ -29,6 +29,8 @@ export interface SystemLogQuery {
   sessionId?: string;
   level?: SystemLogLevel;
   component?: SystemLogComponent;
+  runId?: string;
+  requestId?: string;
   limit?: number;
   cursor?: string;
 }
@@ -67,10 +69,37 @@ const LEVEL_WEIGHT: Record<SystemLogLevel, number> = {
 
 const ACTIVE_LOG_FILENAME = "system.log.jsonl";
 const DETAIL_MAX_STRING_LENGTH = 400;
+const DETAIL_TRUNCATED_STRING_EDGE_LENGTH = 180;
 const DETAIL_MAX_ARRAY_LENGTH = 20;
 const DETAIL_MAX_OBJECT_KEYS = 20;
 const DEFAULT_QUERY_LIMIT = 100;
 const MAX_QUERY_LIMIT = 500;
+
+function truncateStringForLog(value: string): string {
+  if (value.length <= DETAIL_MAX_STRING_LENGTH) {
+    return value;
+  }
+
+  const omittedCount = value.length - DETAIL_TRUNCATED_STRING_EDGE_LENGTH * 2;
+  return [
+    value.slice(0, DETAIL_TRUNCATED_STRING_EDGE_LENGTH),
+    `...[truncated ${omittedCount} chars]...`,
+    value.slice(-DETAIL_TRUNCATED_STRING_EDGE_LENGTH)
+  ].join("\n");
+}
+
+function limitArrayEntries<T>(entries: readonly T[], maxEntries: number): T[] {
+  if (entries.length <= maxEntries) {
+    return [...entries];
+  }
+
+  const headCount = Math.ceil(maxEntries / 2);
+  const tailCount = Math.floor(maxEntries / 2);
+  return [
+    ...entries.slice(0, headCount),
+    ...entries.slice(entries.length - tailCount)
+  ];
+}
 
 function sanitizeValue(value: JsonValue | undefined, depth = 0): JsonValue {
   if (typeof value === "undefined") {
@@ -86,11 +115,7 @@ function sanitizeValue(value: JsonValue | undefined, depth = 0): JsonValue {
   }
 
   if (typeof value === "string") {
-    if (value.length <= DETAIL_MAX_STRING_LENGTH) {
-      return value;
-    }
-
-    return `${value.slice(0, DETAIL_MAX_STRING_LENGTH)}… [truncated ${value.length - DETAIL_MAX_STRING_LENGTH} chars]`;
+    return truncateStringForLog(value);
   }
 
   if (Array.isArray(value)) {
@@ -98,11 +123,15 @@ function sanitizeValue(value: JsonValue | undefined, depth = 0): JsonValue {
       return `[truncated array:${value.length}]`;
     }
 
-    const limited = value.slice(0, DETAIL_MAX_ARRAY_LENGTH).map((entry) =>
-      sanitizeValue(entry, depth + 1)
+    const limited = limitArrayEntries(value, DETAIL_MAX_ARRAY_LENGTH).map(
+      (entry) => sanitizeValue(entry, depth + 1)
     );
     if (value.length > DETAIL_MAX_ARRAY_LENGTH) {
-      limited.push(`[truncated ${value.length - DETAIL_MAX_ARRAY_LENGTH} items]`);
+      limited.splice(
+        Math.ceil(limited.length / 2),
+        0,
+        `[truncated ${value.length - DETAIL_MAX_ARRAY_LENGTH} items]`
+      );
     }
     return limited;
   }
@@ -111,7 +140,10 @@ function sanitizeValue(value: JsonValue | undefined, depth = 0): JsonValue {
     return "[truncated object]";
   }
 
-  const entries = Object.entries(value).slice(0, DETAIL_MAX_OBJECT_KEYS);
+  const entries = limitArrayEntries(
+    Object.entries(value),
+    DETAIL_MAX_OBJECT_KEYS
+  );
   const sanitized: Record<string, JsonValue> = {};
   for (const [key, entry] of entries) {
     sanitized[key] = sanitizeValue(entry as JsonValue, depth + 1);
@@ -288,6 +320,8 @@ export class FileSystemLogManager implements SystemLogManager {
       .filter((record) => (input.sessionId ? record.sessionId === input.sessionId : true))
       .filter((record) => (input.level ? record.level === input.level : true))
       .filter((record) => (input.component ? record.component === input.component : true))
+      .filter((record) => (input.runId ? record.runId === input.runId : true))
+      .filter((record) => (input.requestId ? record.requestId === input.requestId : true))
       .sort((left, right) => right.timestamp.localeCompare(left.timestamp));
 
     const page = filtered.slice(startIndex, startIndex + limit);

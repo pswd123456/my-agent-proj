@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 
-import type { Logger, SystemLogManager } from "./system-log.js";
+import {
+  createLogger,
+  type Logger,
+  type SystemLogManager
+} from "./system-log.js";
 
 import type { RoutineRepository } from "@ai-app-template/db";
 import {
@@ -31,7 +35,6 @@ import type {
 } from "./types.js";
 import type { SessionManager } from "./session.js";
 import type { ToolRegistry } from "./tools/registry.js";
-import type { TraceManager } from "./trace.js";
 import type { RunEventSink } from "./events.js";
 import type { DelegateAgentService } from "./delegation/index.js";
 import type { BackgroundTaskManager } from "./background-tasks/index.js";
@@ -46,6 +49,10 @@ import {
   getUserContextHookConfigHash,
   isSubagentUserContextHook
 } from "./subagent-hooks.js";
+import {
+  createRunScopedTraceManager,
+  type TraceManager
+} from "./trace.js";
 
 export interface AgentRuntimeOptions {
   systemLogManager?: SystemLogManager;
@@ -228,6 +235,7 @@ export class AgentRuntime {
   private async schedulePreRunSubagentHooks(input: {
     session: SessionSnapshot;
     message: string;
+    traceManager?: TraceManager | undefined;
   }): Promise<{
     session: SessionSnapshot;
     blockingTaskIds: string[];
@@ -324,8 +332,8 @@ export class AgentRuntime {
         },
         taskState: this.buildHookSubagentTaskState(hook)
       });
-      if (this.options.traceManager) {
-        await this.options.traceManager.appendEvent(input.session.sessionId, {
+      if (input.traceManager) {
+        await input.traceManager.appendEvent(input.session.sessionId, {
           kind: "hook_subagent_scheduled",
           turnCount: Math.max(0, input.session.sessionState.turnCount),
           taskId: task.taskId,
@@ -480,10 +488,28 @@ export class AgentRuntime {
     }
 
     const runId = randomUUID();
+    const traceManager = createRunScopedTraceManager(
+      this.options.traceManager,
+      runId
+    );
     const runtimeLogger = this.runtimeLogger?.child({
       sessionId: input.sessionId,
       runId
     });
+    const toolLogger = this.options.systemLogManager
+      ? createLogger({
+          manager: this.options.systemLogManager,
+          component: "tool-execution",
+          context: { sessionId: input.sessionId, runId }
+        })
+      : undefined;
+    const permissionLogger = this.options.systemLogManager
+      ? createLogger({
+          manager: this.options.systemLogManager,
+          component: "permission",
+          context: { sessionId: input.sessionId, runId }
+        })
+      : undefined;
     const executionLeaseTimeoutMs =
       this.options.executionLeaseTimeoutMs ??
       DEFAULT_EXECUTION_LEASE_TIMEOUT_MS;
@@ -537,7 +563,8 @@ export class AgentRuntime {
       ) {
         const scheduled = await this.schedulePreRunSubagentHooks({
           session,
-          message: input.message!
+          message: input.message!,
+          traceManager
         });
         session = scheduled.session;
         if (scheduled.blockingTaskIds.length > 0) {
@@ -562,7 +589,7 @@ export class AgentRuntime {
           );
           const blockedResult = await completeLocally({
             sessionManager: this.options.sessionManager,
-            traceManager: this.options.traceManager,
+            traceManager,
             session,
             turnCount: Math.max(0, session.sessionState.turnCount),
             loopState: "waiting for input",
@@ -590,7 +617,7 @@ export class AgentRuntime {
         sessionManager: this.options.sessionManager,
         routineRepository: this.options.routineRepository,
         toolRegistry: this.options.toolRegistry,
-        traceManager: this.options.traceManager,
+        traceManager,
         promptBuilder: this.promptBuilder,
         userContextHooks: this.options.userContextHooks ?? [],
         workspaceSkillSettings: this.options.workspaceSkillSettings ?? [],
@@ -624,7 +651,9 @@ export class AgentRuntime {
           ? { resumeBlockedBySubagentHook: true }
           : {}),
         ...(requestOptions ? { requestOptions } : {}),
-        ...(runtimeLogger ? { logger: runtimeLogger } : {})
+        ...(runtimeLogger ? { logger: runtimeLogger } : {}),
+        ...(toolLogger ? { toolLogger } : {}),
+        ...(permissionLogger ? { permissionLogger } : {})
       };
       let currentSession = session;
       let aggregateResult: RunSessionResult | null = null;

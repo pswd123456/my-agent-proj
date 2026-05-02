@@ -18,9 +18,31 @@ import {
   createPlanningToolRegistry,
   createWorkspaceToolRegistry
 } from "../src/tools/registry.js";
+import {
+  createLogger,
+  type SystemLogManager,
+  type SystemLogQuery,
+  type SystemLogQueryResult,
+  type SystemLogRecord
+} from "../src/system-log.js";
 
 async function createWorkspaceRoot(): Promise<string> {
   return mkdtemp(path.join(tmpdir(), "agent-stage4-"));
+}
+
+class MemorySystemLogManager implements SystemLogManager {
+  readonly records: SystemLogRecord[] = [];
+
+  async append(record: SystemLogRecord): Promise<void> {
+    this.records.push(structuredClone(record));
+  }
+
+  async query(_input?: SystemLogQuery): Promise<SystemLogQueryResult> {
+    return {
+      records: [...this.records],
+      nextCursor: null
+    };
+  }
 }
 
 async function readFileIntoSession(input: {
@@ -58,6 +80,7 @@ describe("Stage 4 permission flow", () => {
     const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
     const emittedEvents: RunStreamEvent[] = [];
+    const systemLogManager = new MemorySystemLogManager();
 
     try {
       await writeFile(
@@ -93,6 +116,7 @@ describe("Stage 4 permission flow", () => {
         toolRegistry: createWorkspaceToolRegistry({
           workingDirectory: workspaceRoot
         }),
+        systemLogManager,
         maxTurns: 2
       });
 
@@ -124,6 +148,20 @@ describe("Stage 4 permission flow", () => {
       ).toBe(false);
       expect(
         emittedEvents.some((event) => event.kind === "permission_request")
+      ).toBe(true);
+      expect(
+        systemLogManager.records.some(
+          (record) =>
+            record.component === "permission" &&
+            record.event === "permission_requested"
+        )
+      ).toBe(true);
+      expect(
+        systemLogManager.records.some(
+          (record) =>
+            record.component === "tool-execution" &&
+            record.event === "tool_started"
+        )
       ).toBe(true);
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true });
@@ -319,6 +357,7 @@ describe("Stage 4 permission flow", () => {
     const workspaceRoot = await createWorkspaceRoot();
     const sessionManager = await createPostgresTestSessionManager();
     const routineRepository = createMemoryRoutineRepository();
+    const systemLogManager = new MemorySystemLogManager();
 
     try {
       const session = await sessionManager.createSession({
@@ -326,6 +365,24 @@ describe("Stage 4 permission flow", () => {
         model: "MiniMax-M2.7",
         userId: "stage4-user",
         planModeEnabled: true
+      });
+      const toolLogger = createLogger({
+        manager: systemLogManager,
+        component: "tool-execution",
+        context: {
+          sessionId: session.sessionId,
+          runId: "permission-blocked",
+          turnCount: 1
+        }
+      });
+      const permissionLogger = createLogger({
+        manager: systemLogManager,
+        component: "permission",
+        context: {
+          sessionId: session.sessionId,
+          runId: "permission-blocked",
+          turnCount: 1
+        }
       });
       const executed = await executeToolAction({
         sessionManager,
@@ -342,7 +399,9 @@ describe("Stage 4 permission flow", () => {
           path: "todo.txt",
           content: "blocked"
         },
-        eventSink: undefined
+        eventSink: undefined,
+        toolLogger,
+        permissionLogger
       });
 
       expect(executed.kind).toBe("completed");
@@ -353,6 +412,21 @@ describe("Stage 4 permission flow", () => {
       expect(executed.output.displayText).toContain(
         "Plan mode blocks workspace file mutations"
       );
+      expect(
+        systemLogManager.records.some(
+          (record) =>
+            record.component === "permission" &&
+            record.event === "permission_blocked"
+        )
+      ).toBe(true);
+      expect(
+        systemLogManager.records.some(
+          (record) =>
+            record.component === "tool-execution" &&
+            record.event === "tool_finished" &&
+            (record.details as Record<string, unknown>).isError === true
+        )
+      ).toBe(true);
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true });
     }
@@ -693,6 +767,7 @@ describe("Stage 4 permission flow", () => {
     const toolRegistry = createWorkspaceToolRegistry({
       workingDirectory: workspaceRoot
     });
+    const systemLogManager = new MemorySystemLogManager();
 
     try {
       await writeFile(
@@ -717,6 +792,24 @@ describe("Stage 4 permission flow", () => {
         session: createdSession,
         path: "existing.txt"
       });
+      const toolLogger = createLogger({
+        manager: systemLogManager,
+        component: "tool-execution",
+        context: {
+          sessionId: session.sessionId,
+          runId: "permission-approval",
+          turnCount: 1
+        }
+      });
+      const permissionLogger = createLogger({
+        manager: systemLogManager,
+        component: "permission",
+        context: {
+          sessionId: session.sessionId,
+          runId: "permission-approval",
+          turnCount: 1
+        }
+      });
 
       const permissionRequest = await executeToolAction({
         sessionManager,
@@ -731,7 +824,9 @@ describe("Stage 4 permission flow", () => {
           path: "existing.txt",
           content: "after"
         },
-        eventSink: undefined
+        eventSink: undefined,
+        toolLogger,
+        permissionLogger
       });
 
       expect(permissionRequest.kind).toBe("permission_request");
@@ -757,7 +852,9 @@ describe("Stage 4 permission flow", () => {
         message: "确认",
         pendingPermissionRequest:
           permissionRequest.session.context.pendingPermissionRequest!,
-        eventSink: undefined
+        eventSink: undefined,
+        toolLogger,
+        permissionLogger
       });
 
       expect(resumed?.kind).toBe("approved");
@@ -777,6 +874,35 @@ describe("Stage 4 permission flow", () => {
       expect(sessionAfterApproval?.context.pendingPermissionRequest).toBeNull();
       expect(sessionAfterApproval?.context.status).toBe("running");
       expect(sessionAfterApproval?.sessionState.loopState).toBe("running");
+      expect(
+        systemLogManager.records.some(
+          (record) =>
+            record.component === "permission" &&
+            record.event === "permission_requested"
+        )
+      ).toBe(true);
+      expect(
+        systemLogManager.records.some(
+          (record) =>
+            record.component === "permission" &&
+            record.event === "permission_approved"
+        )
+      ).toBe(true);
+      expect(
+        systemLogManager.records.some(
+          (record) =>
+            record.component === "tool-execution" &&
+            record.event === "tool_execution_started"
+        )
+      ).toBe(true);
+      expect(
+        systemLogManager.records.some(
+          (record) =>
+            record.component === "tool-execution" &&
+            record.event === "tool_finished" &&
+            (record.details as Record<string, unknown>).isError === false
+        )
+      ).toBe(true);
 
       const secondPermissionRequest = await executeToolAction({
         sessionManager,
@@ -791,7 +917,25 @@ describe("Stage 4 permission flow", () => {
           path: "existing-2.txt",
           content: "after-2"
         },
-        eventSink: undefined
+        eventSink: undefined,
+        toolLogger: createLogger({
+          manager: systemLogManager,
+          component: "tool-execution",
+          context: {
+            sessionId: resumed.session.sessionId,
+            runId: "permission-approval",
+            turnCount: 2
+          }
+        }),
+        permissionLogger: createLogger({
+          manager: systemLogManager,
+          component: "permission",
+          context: {
+            sessionId: resumed.session.sessionId,
+            runId: "permission-approval",
+            turnCount: 2
+          }
+        })
       });
 
       expect(secondPermissionRequest.kind).toBe("permission_request");
@@ -820,6 +964,7 @@ describe("Stage 4 permission flow", () => {
     const toolRegistry = createWorkspaceToolRegistry({
       workingDirectory: workspaceRoot
     });
+    const systemLogManager = new MemorySystemLogManager();
 
     try {
       await writeFile(
@@ -831,6 +976,24 @@ describe("Stage 4 permission flow", () => {
         workingDirectory: workspaceRoot,
         model: "MiniMax-M2.7",
         userId: "stage4-user"
+      });
+      const toolLogger = createLogger({
+        manager: systemLogManager,
+        component: "tool-execution",
+        context: {
+          sessionId: session.sessionId,
+          runId: "permission-rejection",
+          turnCount: 1
+        }
+      });
+      const permissionLogger = createLogger({
+        manager: systemLogManager,
+        component: "permission",
+        context: {
+          sessionId: session.sessionId,
+          runId: "permission-rejection",
+          turnCount: 1
+        }
       });
 
       const permissionRequest = await executeToolAction({
@@ -845,7 +1008,9 @@ describe("Stage 4 permission flow", () => {
         toolInput: {
           path: "existing.txt"
         },
-        eventSink: undefined
+        eventSink: undefined,
+        toolLogger,
+        permissionLogger
       });
 
       expect(permissionRequest.kind).toBe("permission_request");
@@ -862,7 +1027,9 @@ describe("Stage 4 permission flow", () => {
         message: "取消",
         pendingPermissionRequest:
           permissionRequest.session.context.pendingPermissionRequest!,
-        eventSink: undefined
+        eventSink: undefined,
+        toolLogger,
+        permissionLogger
       });
 
       expect(rejected?.kind).toBe("completed");
@@ -876,6 +1043,20 @@ describe("Stage 4 permission flow", () => {
       expect(rejected.result.session.context.status).toBe(
         "waiting_for_user_input"
       );
+      expect(
+        systemLogManager.records.some(
+          (record) =>
+            record.component === "permission" &&
+            record.event === "permission_requested"
+        )
+      ).toBe(true);
+      expect(
+        systemLogManager.records.some(
+          (record) =>
+            record.component === "permission" &&
+            record.event === "permission_rejected"
+        )
+      ).toBe(true);
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true });
     }
