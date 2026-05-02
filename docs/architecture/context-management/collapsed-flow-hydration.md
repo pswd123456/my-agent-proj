@@ -103,7 +103,17 @@
 
 如果 final assistant 后面混入了本不该可见的诊断尾项，compact 就会被误判。因此后续若新增 trace event，先判断它是不是“叙事事件”，再决定要不要进入 timeline。
 
-### 4. 排查时优先复现同一个 session 的投影差异
+### 4. 流式 assistant text 不等于最终回复
+
+运行中的 `assistant_text` 只能代表“当前已经流出的文本块”，不能单凭它在当前帧位于尾部就判断它是 final response。真实运行中可能出现：
+
+- assistant 先输出一段过程文字
+- 后续继续发起 tool call
+- 前端若提前折叠，会出现“先折叠一下、再展开”的闪动
+
+因此 live stream 中只有在同一段后面已经出现终态事件（例如 `run_complete`）时，才允许把它当作最终 assistant 触发自动折叠。历史已落盘的 assistant 或已完成 trace 仍可按最终段正常折叠。
+
+### 5. 排查时优先复现同一个 session 的投影差异
 
 这类问题最有效的排查方式不是先猜滚动或动画，而是直接比较：
 
