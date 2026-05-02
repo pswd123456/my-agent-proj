@@ -442,6 +442,10 @@ function renderPendingHookRun(
   hookRun: TimelinePendingHookRun,
   createdAt: string
 ) {
+  const hasSubagentHook = hookRun.hooks.some(
+    (hook) => hook.behavior === "subagent"
+  );
+
   return (
     <div
       key={`pending-hook-${createdAt}`}
@@ -450,9 +454,18 @@ function renderPendingHookRun(
       <MessageRoleLabel role="hook" timestamp={createdAt} />
       <div className="ml-auto flex max-w-[88%] flex-col gap-2 rounded-[var(--app-radius-md)] rounded-br-sm border border-[color:color-mix(in_srgb,var(--app-border-accent)_68%,var(--app-border-subtle)_32%)] bg-[color:color-mix(in_srgb,var(--app-border-accent)_10%,var(--app-bg-elevated)_90%)] px-4 py-3 text-sm leading-7 text-[var(--app-text-primary)]">
         <div className="flex items-center gap-2 font-mono text-[0.66rem] uppercase tracking-[0.16em] text-[var(--app-text-muted)]">
-          <span className="text-[var(--app-status-success)]">HOOK ACTIVE</span>
-          <span className="tracking-[0.08em]">生效中</span>
+          <span className="text-[var(--app-status-success)]">
+            {hasSubagentHook ? "HOOK SUBAGENT" : "HOOK ACTIVE"}
+          </span>
+          <span className="tracking-[0.08em]">
+            {hasSubagentHook ? "子代理运行中" : "生效中"}
+          </span>
         </div>
+        {hasSubagentHook ? (
+          <div className="text-xs leading-6 text-[var(--app-text-secondary)]">
+            hook 子代理正在整理上下文，完成后会继续当前请求。
+          </div>
+        ) : null}
         <div className="flex flex-wrap gap-2">
           {hookRun.hooks.map((hook, index) => (
             <span

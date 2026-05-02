@@ -147,7 +147,14 @@ function resolvePendingPreUserHooks(input: {
   const isFirstRun = input.session?.context.firstUserMessage == null;
   const hooks = input.hooks
     .filter((hook) => hook.enabled)
-    .filter((hook) => inferUserContextHookBehavior(hook) === "message")
+    .filter((hook) => {
+      const behavior = inferUserContextHookBehavior(hook);
+      return (
+        behavior === "message" ||
+        (behavior === "subagent" &&
+          (hook.waitMode ?? "blocking") === "blocking")
+      );
+    })
     .filter(
       (hook) =>
         hook.event === "run_started" ||
@@ -155,6 +162,7 @@ function resolvePendingPreUserHooks(input: {
     )
     .map((hook) => ({
       event: hook.event,
+      behavior: inferUserContextHookBehavior(hook),
       title: hook.title.trim()
     }));
 
@@ -163,7 +171,7 @@ function resolvePendingPreUserHooks(input: {
   }
 
   return {
-    runCount: hooks.length,
+    runCount: hooks.filter((hook) => hook.behavior === "message").length,
     hooks
   };
 }

@@ -12,6 +12,7 @@ import {
   buildMessageManagerProjection,
   completeMessageManagerAutoCollapse,
   createMessageManagerState,
+  finishMessageManagerRun,
   registerMessageManagerCollapsedFlows
 } from "./session-message-manager";
 
@@ -225,6 +226,54 @@ describe("session-message-manager", () => {
 
     const projection = buildMessageManagerProjection({
       session: createSession([]),
+      traceRecords: [],
+      debugConversationView: false,
+      state
+    });
+
+    expect(compactKinds(projection)).toEqual(["pending-hook"]);
+  });
+
+  test("keeps a blocking subagent hook hint while its background task is active", () => {
+    let state = createMessageManagerState();
+    state = beginMessageManagerRun(state, {
+      message: {
+        createdAt: "2026-04-27T00:00:01.000Z",
+        text: "先处理这个请求"
+      },
+      pendingPreUserHooks: {
+        runCount: 0,
+        hooks: [
+          {
+            event: "run_started",
+            behavior: "subagent",
+            title: "长期记忆"
+          }
+        ]
+      }
+    });
+
+    const activeSession = createSession([]);
+    activeSession.context.activeBackgroundTaskCount = 1;
+    activeSession.context.status = "waiting_for_user_input";
+    activeSession.sessionState.loopState = "waiting for input";
+
+    state = appendMessageManagerEvent(state, {
+      kind: "run_complete",
+      sessionId: "session-1",
+      createdAt: "2026-04-27T00:00:02.000Z",
+      finalAnswer: null,
+      status: "waiting for input",
+      stopReason: "background_task_running",
+      toolCallCount: 0,
+      toolResultCount: 0,
+      toolOutputs: [],
+      session: activeSession
+    });
+    state = finishMessageManagerRun(state);
+
+    const projection = buildMessageManagerProjection({
+      session: activeSession,
       traceRecords: [],
       debugConversationView: false,
       state

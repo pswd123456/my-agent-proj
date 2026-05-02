@@ -6,6 +6,7 @@ import type {
 
 export interface TimelineUserHookMetadata {
   event: UserContextHookRecord["event"];
+  behavior?: NonNullable<UserContextHookRecord["behavior"]>;
   title: string;
 }
 

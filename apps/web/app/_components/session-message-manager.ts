@@ -176,6 +176,10 @@ export function finishMessageManagerRun(
     return state;
   }
 
+  if (shouldPreservePendingPreUserHooksAfterFinish(state)) {
+    return state;
+  }
+
   return {
     ...state,
     pendingUserMessage: null,
@@ -525,20 +529,40 @@ function countStreamTurnStarts(events: RunStreamEvent[]): number {
 }
 
 function shouldShowPendingPreUserHooks(
-  state: MessageManagerState
+  state: MessageManagerState,
+  session?: SessionSnapshot | null
 ): boolean {
   if (!state.pendingPreUserHooks) {
     return false;
   }
 
-  return countStreamTurnStarts(state.streamEvents) <= state.pendingPreUserHooks.runCount;
+  const latestRunComplete = getLatestRunCompleteEvent(state.streamEvents);
+  const hasSubagentHook = state.pendingPreUserHooks.hooks.some(
+    (hook) => hook.behavior === "subagent"
+  );
+  if (
+    hasSubagentHook &&
+    latestRunComplete?.stopReason === "background_task_running" &&
+    countStreamTurnStarts(state.streamEvents) === 0
+  ) {
+    return (
+      (session?.context.activeBackgroundTaskCount ?? 0) > 0 ||
+      latestRunComplete.session.context.activeBackgroundTaskCount > 0
+    );
+  }
+
+  return (
+    countStreamTurnStarts(state.streamEvents) <=
+    state.pendingPreUserHooks.runCount
+  );
 }
 
 function toTimelinePendingHookRun(
-  state: MessageManagerState
+  state: MessageManagerState,
+  session?: SessionSnapshot | null
 ): TimelinePendingHookRun | null {
   if (
-    !shouldShowPendingPreUserHooks(state) ||
+    !shouldShowPendingPreUserHooks(state, session) ||
     !state.pendingPreUserHooks ||
     !state.pendingUserMessage
   ) {
@@ -552,13 +576,41 @@ function toTimelinePendingHookRun(
 }
 
 function getVisiblePendingUserMessage(
-  state: MessageManagerState
+  state: MessageManagerState,
+  session?: SessionSnapshot | null
 ): PendingUserMessage | null {
-  if (shouldShowPendingPreUserHooks(state)) {
+  if (shouldShowPendingPreUserHooks(state, session)) {
     return null;
   }
 
   return state.pendingUserMessage;
+}
+
+function getLatestRunCompleteEvent(events: RunStreamEvent[]) {
+  return [...events]
+    .reverse()
+    .find(
+      (event): event is Extract<RunStreamEvent, { kind: "run_complete" }> =>
+        event.kind === "run_complete"
+    );
+}
+
+function shouldPreservePendingPreUserHooksAfterFinish(
+  state: MessageManagerState
+): boolean {
+  if (
+    !state.pendingPreUserHooks?.hooks.some(
+      (hook) => hook.behavior === "subagent"
+    )
+  ) {
+    return false;
+  }
+
+  const latestRunComplete = getLatestRunCompleteEvent(state.streamEvents);
+  return (
+    latestRunComplete?.stopReason === "background_task_running" &&
+    latestRunComplete.session.context.activeBackgroundTaskCount > 0
+  );
 }
 
 export function buildMessageManagerProjection(input: {
@@ -593,12 +645,15 @@ export function buildMessageManagerProjection(input: {
     messages: input.session?.messages ?? [],
     historyEvents,
     streamEvents: input.state.streamEvents,
-    pendingUserMessage: getVisiblePendingUserMessage(input.state),
+    pendingUserMessage: getVisiblePendingUserMessage(
+      input.state,
+      input.session
+    ),
     ...(input.userContextHooks
       ? { userContextHooks: input.userContextHooks }
       : {}),
-    ...(toTimelinePendingHookRun(input.state)
-      ? { pendingHookRun: toTimelinePendingHookRun(input.state) }
+    ...(toTimelinePendingHookRun(input.state, input.session)
+      ? { pendingHookRun: toTimelinePendingHookRun(input.state, input.session) }
       : {})
   });
   const conversationItems = buildConversationViewItems({
