@@ -12,7 +12,6 @@ import type { LspServerManager } from "../lsp/index.js";
 import { createApplyPatchTool } from "./apply-patch.js";
 import { createAskForConfirmationTool } from "./ask-for-confirmation.js";
 import { createAskUserQuestionTool } from "./ask-user-question.js";
-import { createCopyPathTool } from "./copy-path.js";
 import { createCreateDirectoryTool } from "./create-directory.js";
 import { createCreateRoutineTool } from "./create-routine.js";
 import { createDelegateAgentTool } from "./delegate-agent.js";
@@ -36,8 +35,8 @@ import { createListDirectoryTool } from "./list-directory.js";
 import { createLoadSkillTool } from "./load-skill.js";
 import { createLspTools } from "./lsp.js";
 import { createManageCapabilityPacksTool } from "./manage-capability-packs.js";
+import { createManagePathTool } from "./manage-path.js";
 import { createMakeHttpRequestTool } from "./make-http-request.js";
-import { createMovePathTool } from "./move-path.js";
 import { createReadFileTool } from "./read-file.js";
 import { createReadTaskBriefTool } from "./read-task-brief.js";
 import { createReplaceTodoListTool } from "./replace-todo-list.js";
@@ -175,8 +174,7 @@ export function createWorkspaceToolRegistry(options: {
     createCreateDirectoryTool(options.workingDirectory),
     createDeleteFileTool(options.workingDirectory),
     createDeletePathTool(options.workingDirectory),
-    createMovePathTool(options.workingDirectory),
-    createCopyPathTool(options.workingDirectory),
+    createManagePathTool(options.workingDirectory),
     createGitStatusTool(),
     createGitDiffToolUncached(),
     createGitDiffCachedTool(),
@@ -186,7 +184,10 @@ export function createWorkspaceToolRegistry(options: {
       options.workingDirectory,
       options.workspaceSkillSettings
     ),
-    createLoadSkillTool(options.workingDirectory, options.workspaceSkillSettings)
+    createLoadSkillTool(
+      options.workingDirectory,
+      options.workspaceSkillSettings
+    )
   ]);
 }
 
