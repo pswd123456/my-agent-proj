@@ -4,7 +4,15 @@ const USER_CONTEXT_HOOK_EVENT_SET = new Set([
   "run_end"
 ] as const);
 
-const USER_CONTEXT_HOOK_BEHAVIOR_SET = new Set(["context", "message"] as const);
+const USER_CONTEXT_HOOK_BEHAVIOR_SET = new Set([
+  "context",
+  "message",
+  "subagent"
+] as const);
+const USER_CONTEXT_HOOK_WAIT_MODE_SET = new Set([
+  "blocking",
+  "unblocking"
+] as const);
 
 export const USER_CONTEXT_HOOK_EVENT_OPTIONS = [
   "session_started",
@@ -22,7 +30,12 @@ export const USER_CONTEXT_HOOK_MESSAGE_EVENT_OPTIONS =
 
 export const USER_CONTEXT_HOOK_BEHAVIOR_OPTIONS = [
   "context",
-  "message"
+  "message",
+  "subagent"
+] as const;
+export const USER_CONTEXT_HOOK_WAIT_MODE_OPTIONS = [
+  "blocking",
+  "unblocking"
 ] as const;
 
 export type UserContextHookEvent =
@@ -30,6 +43,8 @@ export type UserContextHookEvent =
 
 export type UserContextHookBehavior =
   (typeof USER_CONTEXT_HOOK_BEHAVIOR_OPTIONS)[number];
+export type UserContextHookWaitMode =
+  (typeof USER_CONTEXT_HOOK_WAIT_MODE_OPTIONS)[number];
 
 export type UserContextHookTypeKey =
   `${UserContextHookBehavior}:${UserContextHookEvent}`;
@@ -39,7 +54,9 @@ export const USER_CONTEXT_HOOK_TYPES = [
   { behavior: "context", event: "run_started" },
   { behavior: "message", event: "session_started" },
   { behavior: "message", event: "run_started" },
-  { behavior: "message", event: "run_end" }
+  { behavior: "message", event: "run_end" },
+  { behavior: "subagent", event: "session_started" },
+  { behavior: "subagent", event: "run_started" }
 ] as const satisfies ReadonlyArray<{
   behavior: UserContextHookBehavior;
   event: UserContextHookEvent;
@@ -49,6 +66,7 @@ export interface UserContextHookRecord {
   id: string;
   event: UserContextHookEvent;
   behavior?: UserContextHookBehavior;
+  waitMode?: UserContextHookWaitMode;
   title: string;
   content: string;
   enabled: boolean;
@@ -79,6 +97,18 @@ export function normalizeUserContextHookBehavior(
 
   return USER_CONTEXT_HOOK_BEHAVIOR_SET.has(value as UserContextHookBehavior)
     ? (value as UserContextHookBehavior)
+    : null;
+}
+
+export function normalizeUserContextHookWaitMode(
+  value: unknown
+): UserContextHookWaitMode | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  return USER_CONTEXT_HOOK_WAIT_MODE_SET.has(value as UserContextHookWaitMode)
+    ? (value as UserContextHookWaitMode)
     : null;
 }
 
@@ -129,6 +159,7 @@ export function normalizeUserContextHooks(
     const id = typeof item.id === "string" ? item.id.trim() : "";
     const event = normalizeUserContextHookEvent(item.event);
     const explicitBehavior = normalizeUserContextHookBehavior(item.behavior);
+    const waitMode = normalizeUserContextHookWaitMode(item.waitMode);
     const behavior = event
       ? inferUserContextHookBehavior({
           event,
@@ -164,6 +195,9 @@ export function normalizeUserContextHooks(
       id,
       event,
       ...(explicitBehavior ? { behavior } : {}),
+      ...(behavior === "subagent"
+        ? { waitMode: waitMode ?? "blocking" }
+        : {}),
       title: typeof item.title === "string" ? item.title.trim() : "",
       content,
       enabled

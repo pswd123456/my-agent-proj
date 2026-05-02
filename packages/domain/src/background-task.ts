@@ -1,9 +1,14 @@
 import type { CapabilityPackName } from "./session-settings.js";
 import type { DomainJsonValue } from "./json.js";
+import type {
+  UserContextHookEvent,
+  UserContextHookWaitMode
+} from "./user-context-hooks.js";
 
 export const BACKGROUND_TASK_KIND_OPTIONS = [
   "cron_job",
   "subagent",
+  "hook_subagent",
   "session_wakeup",
   "shell_command"
 ] as const;
@@ -115,9 +120,30 @@ export interface ShellCommandTaskState {
   latestResult: ShellCommandResultEnvelope | null;
 }
 
+export interface HookSubagentBackgroundTaskResultEnvelope {
+  type: "hook_subagent";
+  hookId: string;
+  hookEvent: Extract<UserContextHookEvent, "session_started" | "run_started">;
+  waitMode: UserContextHookWaitMode;
+  title: string;
+  configHash: string;
+  content: string;
+}
+
+export interface HookSubagentTaskState {
+  kind: "hook_subagent";
+  hookId: string;
+  hookEvent: Extract<UserContextHookEvent, "session_started" | "run_started">;
+  waitMode: UserContextHookWaitMode;
+  title: string;
+  configHash: string;
+  latestResult: HookSubagentBackgroundTaskResultEnvelope | null;
+}
+
 export type BackgroundTaskState =
   | DelegateTaskState
-  | ShellCommandTaskState;
+  | ShellCommandTaskState
+  | HookSubagentTaskState;
 
 export type DelegatePermissionDecision = "approve" | "reject";
 
@@ -159,7 +185,8 @@ export interface DelegateBackgroundTaskResultEnvelope {
 
 export type BackgroundTaskResultEnvelope =
   | DelegateBackgroundTaskResultEnvelope
-  | ShellCommandResultEnvelope;
+  | ShellCommandResultEnvelope
+  | HookSubagentBackgroundTaskResultEnvelope;
 
 export interface BackgroundTaskHandle {
   taskId: string;

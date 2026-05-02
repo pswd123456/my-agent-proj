@@ -7,6 +7,10 @@ import type {
   DelegateExpectedParentReply,
   DelegateRequestKind
 } from "./background-task.js";
+import type {
+  UserContextHookEvent,
+  UserContextHookWaitMode
+} from "./user-context-hooks.js";
 
 export type ScheduleSessionStatus =
   | "running"
@@ -241,6 +245,17 @@ export interface SessionBackgroundNotification {
   consumedAt?: string | null;
 }
 
+export interface HookContextEntry {
+  hookId: string;
+  hookEvent: UserContextHookEvent;
+  waitMode: UserContextHookWaitMode;
+  taskId: string;
+  title: string;
+  configHash: string;
+  content: string;
+  createdAt: string;
+}
+
 export type TodoItemStatus = "pending" | "in_progress" | "done" | "cancelled";
 
 export interface SessionTodoItem {
@@ -293,6 +308,7 @@ export interface ScheduleSessionContext {
   pendingConfirmationPayload: PendingConfirmationPayload | null;
   pendingUserQuestionPayload: PendingUserQuestionPayload | null;
   pendingBackgroundNotifications: SessionBackgroundNotification[];
+  hookContextEntries: HookContextEntry[];
   todoState?: SessionTodoState | null;
   fullCompactionState?: SessionFullCompactionState | null;
   pendingConflictSummary: string | null;

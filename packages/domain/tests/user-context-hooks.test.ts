@@ -69,4 +69,45 @@ describe("user context hooks", () => {
       })
     ).toBe("message:run_end");
   });
+
+  test("defaults subagent hooks to blocking wait mode", () => {
+    expect(
+      normalizeUserContextHooks([
+        {
+          id: "hook-subagent",
+          event: "run_started",
+          behavior: "subagent",
+          title: "Background research",
+          content: "先整理背景资料。",
+          enabled: true
+        }
+      ])
+    ).toEqual([
+      {
+        id: "hook-subagent",
+        event: "run_started",
+        behavior: "subagent",
+        waitMode: "blocking",
+        title: "Background research",
+        content: "先整理背景资料。",
+        enabled: true
+      }
+    ]);
+  });
+
+  test("rejects unsupported run_end subagent hooks", () => {
+    expect(
+      normalizeUserContextHooks([
+        {
+          id: "hook-invalid",
+          event: "run_end",
+          behavior: "subagent",
+          waitMode: "unblocking",
+          title: "Invalid",
+          content: "这条不应该保留。",
+          enabled: true
+        }
+      ])
+    ).toEqual([]);
+  });
 });
