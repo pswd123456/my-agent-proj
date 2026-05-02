@@ -33,6 +33,7 @@ import {
   WorkbenchSelect,
   WorkbenchSwitch
 } from "./session-workbench-shared";
+import { AppThemeToggle } from "./app-theme-provider";
 
 const sectionHeadingClassName =
   "text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]";
@@ -1671,8 +1672,9 @@ export function SessionWorkbenchSettings({
                 {page?.description ?? "管理默认设置。"}
               </p>
             </div>
-            <div className="text-xs text-[var(--app-text-muted)]">
-              {settingsMeta}
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-3 text-xs text-[var(--app-text-muted)]">
+              <AppThemeToggle />
+              <span>{settingsMeta}</span>
             </div>
           </div>
         </header>

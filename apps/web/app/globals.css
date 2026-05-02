@@ -4,6 +4,10 @@
   color-scheme: dark;
 }
 
+:root[data-app-theme="day"] {
+  color-scheme: light;
+}
+
 html,
 body {
   margin: 0;

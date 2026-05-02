@@ -130,13 +130,11 @@ function getToolAction(
   if (
     [
       "write_file",
-      "edit_file",
       "apply_patch",
       "replace_task_brief",
       "edit_task_brief",
       "create_directory",
-      "copy_path",
-      "move_path",
+      "manage_path",
       "delete_file",
       "delete_path",
       "create_routine",

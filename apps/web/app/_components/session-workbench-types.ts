@@ -73,7 +73,7 @@ export const MAX_TURNS_LIMIT = 200;
 export const DEFAULT_CONTEXT_WINDOW = 200_000;
 
 export type InspectorTabId = (typeof inspectorTabs)[number]["id"];
-export type SidebarPanelId = "settings" | "hooks" | "calendar" | "inspector";
+export type SidebarPanelId = "settings" | "calendar" | "inspector";
 export type SettingsPageId = (typeof settingsPages)[number]["id"];
 
 export interface TurnUsageSummary {

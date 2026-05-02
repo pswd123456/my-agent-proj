@@ -1,19 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import type {
-  RoutineRecord,
-  SessionSnapshot,
-  SettingsPermissionToolOption
-} from "@ai-app-template/sdk";
+import type { RoutineRecord, SessionSnapshot } from "@ai-app-template/sdk";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import type { InspectorProjection } from "./session-message-manager";
 import { SessionWorkbenchDrawer } from "./session-workbench-drawer";
-import type {
-  SettingsFormState,
-  SettingsMcpFormState,
-  SettingsSkillsState
-} from "./session-workbench-types";
 
 function createSessionSnapshot(): SessionSnapshot {
   return {
@@ -63,45 +54,6 @@ function createSessionSnapshot(): SessionSnapshot {
   };
 }
 
-function createSettingsFormState(): SettingsFormState {
-  return {
-    workingDirectory: "/tmp/workspace",
-    model: "MiniMax-M2.7",
-    thinkingEffort: "medium",
-    yoloMode: false,
-    contextWindow: "200000",
-    maxTurns: "50",
-    shellAllowPatterns: "",
-    shellDenyPatterns: "",
-    toolAllowList: [],
-    toolAskList: [],
-    toolDenyList: [],
-    enabledCapabilityPacks: ["workspace"],
-    workspaceSkillSettings: [],
-    userContextHooks: [],
-    debugConversationView: false,
-    userCustomPrompt: ""
-  };
-}
-
-function createSettingsSkillsState(): SettingsSkillsState {
-  return {
-    workingDirectory: "/tmp/workspace",
-    skills: [],
-    diagnostics: []
-  };
-}
-
-function createSettingsMcpFormState(): SettingsMcpFormState {
-  return {
-    workingDirectory: "/tmp/workspace",
-    configPath: "/tmp/workspace/.agent/.config.toml",
-    foundConfig: true,
-    diagnostics: [],
-    servers: []
-  };
-}
-
 function createInspectorProjection(): InspectorProjection {
   return {
     inspectorEvents: [],
@@ -113,280 +65,86 @@ function createInspectorProjection(): InspectorProjection {
   };
 }
 
-const permissionTools: SettingsPermissionToolOption[] = [];
-const groupedRoutines = new Map<string, RoutineRecord[]>();
+function renderDrawer(
+  props: Partial<Parameters<typeof SessionWorkbenchDrawer>[0]> = {}
+): string {
+  return renderToStaticMarkup(
+    createElement(SessionWorkbenchDrawer, {
+      activeSidebarPanel: "calendar",
+      currentSession: createSessionSnapshot(),
+      submitting: false,
+      resettingRoutines: false,
+      weekDates: [],
+      groupedRoutines: new Map(),
+      inspectorProjection: createInspectorProjection(),
+      activeTab: "prompt",
+      onResetAllRoutines: () => {},
+      onSelectTab: () => {},
+      ...props
+    })
+  );
+}
 
 describe("session-workbench drawer", () => {
-  test("shows clear-history failures in the settings panel", () => {
-    const markup = renderToStaticMarkup(
-      createElement(SessionWorkbenchDrawer, {
-        activeSidebarPanel: "settings",
-        currentSession: createSessionSnapshot(),
-        loadingSession: false,
-        submitting: false,
-        resettingRoutines: false,
-        settingsMeta: "user cli-user",
-        settingsStatusText: "",
-        settingsForm: createSettingsFormState(),
-        settingsMcpForm: createSettingsMcpFormState(),
-        settingsSkillsState: createSettingsSkillsState(),
-        permissionTools,
-        loadingSettings: false,
-        savingSettings: false,
-        loadingMcpSettings: false,
-        loadingSkillsSettings: false,
-        savingMcpSettings: false,
-        mcpSettingsErrorText: null,
-        clearingSessionHistory: false,
-        clearHistoryErrorText:
-          "One or more sessions are currently running. Wait for active runs to finish before clearing history.",
-        choosingWorkingDirectory: false,
-        pendingPermissionToolName: null,
-        weekDates: [],
-        groupedRoutines,
-        inspectorProjection: createInspectorProjection(),
-        activeTab: "prompt",
-        onResetAllRoutines: () => {},
-        onSelectTab: () => {},
-        onSettingsFormChange: () => {},
-        onSettingsBlur: () => {},
-        onChooseWorkingDirectory: () => {},
-        onClearSessionHistory: () => {},
-        onSettingsYoloModeChange: () => {},
-        onSettingsDebugConversationViewChange: () => {},
-        onSettingsPermissionToolToggle: () => {},
-        onSettingsCapabilityPackToggle: () => {},
-        onSettingsShellAllowPatternRemove: () => {},
-        onSettingsSkillEnabledChange: () => {},
-        onAddMcpServer: () => {},
-        onMcpServerChange: () => {},
-        onMcpServerTransportChange: () => {},
-        onMcpServerEnabledChange: () => {},
-        onMcpToolEnabledChange: () => {},
-        onDeleteMcpServer: () => {},
-        onMcpSettingsBlur: () => {},
-        onAddUserContextHook: () => {},
-        onUserContextHookChange: () => {},
-        onUserContextHookBlur: () => {},
-        onUserContextHookEnabledChange: () => {},
-        onUserContextHookEventChange: () => {},
-        onUserContextHookBehaviorChange: () => {},
-        onDeleteUserContextHook: () => {},
-        onMoveUserContextHook: () => {}
-      })
-    );
+  test("does not render the settings panel in the drawer", () => {
+    const markup = renderDrawer({
+      activeSidebarPanel: "settings"
+    });
 
-    expect(markup).toContain("清除历史会话");
-    expect(markup).toContain(
-      "One or more sessions are currently running. Wait for active runs to finish before clearing history."
-    );
+    expect(markup).toBe("");
   });
 
-  test("renders saved shell allow patterns in the settings panel", () => {
-    const settingsForm = createSettingsFormState();
-    settingsForm.shellAllowPatterns = "git *\nbun test *";
+  test("renders calendar routines", () => {
+    const routine: RoutineRecord = {
+      id: "routine-1",
+      userId: "user-1",
+      name: "Deep work",
+      description: null,
+      date: "2026-04-30",
+      startTime: "09:00",
+      endTime: "10:00",
+      durationMinutes: 60,
+      startAt: "2026-04-30T09:00:00.000Z",
+      endAt: "2026-04-30T10:00:00.000Z",
+      status: "active",
+      source: "user_confirmed",
+      createdAt: "2026-04-30T00:00:00.000Z",
+      updatedAt: "2026-04-30T00:00:00.000Z"
+    };
 
-    const markup = renderToStaticMarkup(
-      createElement(SessionWorkbenchDrawer, {
-        activeSidebarPanel: "settings",
-        currentSession: createSessionSnapshot(),
-        loadingSession: false,
-        submitting: false,
-        resettingRoutines: false,
-        settingsMeta: "user cli-user",
-        settingsStatusText: "",
-        settingsForm,
-        settingsMcpForm: createSettingsMcpFormState(),
-        settingsSkillsState: createSettingsSkillsState(),
-        permissionTools,
-        loadingSettings: false,
-        savingSettings: false,
-        loadingMcpSettings: false,
-        loadingSkillsSettings: false,
-        savingMcpSettings: false,
-        mcpSettingsErrorText: null,
-        clearingSessionHistory: false,
-        clearHistoryErrorText: null,
-        choosingWorkingDirectory: false,
-        pendingPermissionToolName: null,
-        weekDates: [],
-        groupedRoutines,
-        inspectorProjection: createInspectorProjection(),
-        activeTab: "prompt",
-        onResetAllRoutines: () => {},
-        onSelectTab: () => {},
-        onSettingsFormChange: () => {},
-        onSettingsBlur: () => {},
-        onChooseWorkingDirectory: () => {},
-        onClearSessionHistory: () => {},
-        onSettingsYoloModeChange: () => {},
-        onSettingsDebugConversationViewChange: () => {},
-        onSettingsPermissionToolToggle: () => {},
-        onSettingsCapabilityPackToggle: () => {},
-        onSettingsShellAllowPatternRemove: () => {},
-        onSettingsSkillEnabledChange: () => {},
-        onAddMcpServer: () => {},
-        onMcpServerChange: () => {},
-        onMcpServerTransportChange: () => {},
-        onMcpServerEnabledChange: () => {},
-        onMcpToolEnabledChange: () => {},
-        onDeleteMcpServer: () => {},
-        onMcpSettingsBlur: () => {},
-        onAddUserContextHook: () => {},
-        onUserContextHookChange: () => {},
-        onUserContextHookBlur: () => {},
-        onUserContextHookEnabledChange: () => {},
-        onUserContextHookEventChange: () => {},
-        onUserContextHookBehaviorChange: () => {},
-        onDeleteUserContextHook: () => {},
-        onMoveUserContextHook: () => {}
-      })
-    );
+    const markup = renderDrawer({
+      weekDates: ["2026-04-30"],
+      groupedRoutines: new Map([["2026-04-30", [routine]]])
+    });
 
-    expect(markup).toContain("Allow Patterns");
-    expect(markup).toContain("git *");
-    expect(markup).toContain("bun test *");
-    expect(markup).toContain("移除");
+    expect(markup).toContain("日程视图");
+    expect(markup).toContain("Deep work");
+    expect(markup).toContain("09:00 - 10:00");
   });
 
-  test("renders the custom prompt field in the settings panel", () => {
-    const settingsForm = createSettingsFormState();
-    settingsForm.userCustomPrompt = "先确认上下文，再动手。";
-
-    const markup = renderToStaticMarkup(
-      createElement(SessionWorkbenchDrawer, {
-        activeSidebarPanel: "settings",
-        currentSession: createSessionSnapshot(),
-        loadingSession: false,
-        submitting: false,
-        resettingRoutines: false,
-        settingsMeta: "user cli-user",
-        settingsStatusText: "",
-        settingsForm,
-        settingsMcpForm: createSettingsMcpFormState(),
-        settingsSkillsState: createSettingsSkillsState(),
-        permissionTools,
-        loadingSettings: false,
-        savingSettings: false,
-        loadingMcpSettings: false,
-        loadingSkillsSettings: false,
-        savingMcpSettings: false,
-        mcpSettingsErrorText: null,
-        clearingSessionHistory: false,
-        clearHistoryErrorText: null,
-        choosingWorkingDirectory: false,
-        pendingPermissionToolName: null,
-        weekDates: [],
-        groupedRoutines,
-        inspectorProjection: createInspectorProjection(),
-        activeTab: "prompt",
-        onResetAllRoutines: () => {},
-        onSelectTab: () => {},
-        onSettingsFormChange: () => {},
-        onSettingsBlur: () => {},
-        onChooseWorkingDirectory: () => {},
-        onClearSessionHistory: () => {},
-        onSettingsYoloModeChange: () => {},
-        onSettingsDebugConversationViewChange: () => {},
-        onSettingsPermissionToolToggle: () => {},
-        onSettingsCapabilityPackToggle: () => {},
-        onSettingsShellAllowPatternRemove: () => {},
-        onSettingsSkillEnabledChange: () => {},
-        onAddMcpServer: () => {},
-        onMcpServerChange: () => {},
-        onMcpServerTransportChange: () => {},
-        onMcpServerEnabledChange: () => {},
-        onMcpToolEnabledChange: () => {},
-        onDeleteMcpServer: () => {},
-        onMcpSettingsBlur: () => {},
-        onAddUserContextHook: () => {},
-        onUserContextHookChange: () => {},
-        onUserContextHookBlur: () => {},
-        onUserContextHookEnabledChange: () => {},
-        onUserContextHookEventChange: () => {},
-        onUserContextHookBehaviorChange: () => {},
-        onDeleteUserContextHook: () => {},
-        onMoveUserContextHook: () => {}
-      })
-    );
-
-    expect(markup).toContain("Custom Prompt");
-    expect(markup).toContain("先确认上下文，再动手。");
-    expect(markup).toContain("适合放长期偏好、回答约束或固定执行提醒");
-  });
-
-  test("renders the hooks panel with saved hook items", () => {
-    const settingsForm = createSettingsFormState();
-    settingsForm.userContextHooks = [
-      {
-        id: "hook-1",
-        event: "run_end",
-        title: "Wrap up",
-        content: "结束时补一个 next step。",
-        enabled: true
+  test("renders inspector details", () => {
+    const markup = renderDrawer({
+      activeSidebarPanel: "inspector",
+      inspectorProjection: {
+        ...createInspectorProjection(),
+        inspectorEvents: [
+          {
+            kind: "run_complete",
+            createdAt: "2026-04-30T00:00:00.000Z",
+            sessionId: "session-1",
+            finalAnswer: null,
+            status: "waiting for input",
+            stopReason: null,
+            toolCallCount: 0,
+            toolResultCount: 0,
+            toolOutputs: [],
+            session: createSessionSnapshot()
+          }
+        ]
       }
-    ];
+    });
 
-    const markup = renderToStaticMarkup(
-      createElement(SessionWorkbenchDrawer, {
-        activeSidebarPanel: "hooks",
-        currentSession: createSessionSnapshot(),
-        loadingSession: false,
-        submitting: false,
-        resettingRoutines: false,
-        settingsMeta: "user cli-user",
-        settingsStatusText: "",
-        settingsForm,
-        settingsMcpForm: createSettingsMcpFormState(),
-        settingsSkillsState: createSettingsSkillsState(),
-        permissionTools,
-        loadingSettings: false,
-        savingSettings: false,
-        loadingMcpSettings: false,
-        loadingSkillsSettings: false,
-        savingMcpSettings: false,
-        mcpSettingsErrorText: null,
-        clearingSessionHistory: false,
-        clearHistoryErrorText: null,
-        choosingWorkingDirectory: false,
-        pendingPermissionToolName: null,
-        weekDates: [],
-        groupedRoutines,
-        inspectorProjection: createInspectorProjection(),
-        activeTab: "prompt",
-        onResetAllRoutines: () => {},
-        onSelectTab: () => {},
-        onSettingsFormChange: () => {},
-        onSettingsBlur: () => {},
-        onChooseWorkingDirectory: () => {},
-        onClearSessionHistory: () => {},
-        onSettingsYoloModeChange: () => {},
-        onSettingsDebugConversationViewChange: () => {},
-        onSettingsPermissionToolToggle: () => {},
-        onSettingsCapabilityPackToggle: () => {},
-        onSettingsShellAllowPatternRemove: () => {},
-        onSettingsSkillEnabledChange: () => {},
-        onAddMcpServer: () => {},
-        onMcpServerChange: () => {},
-        onMcpServerTransportChange: () => {},
-        onMcpServerEnabledChange: () => {},
-        onMcpToolEnabledChange: () => {},
-        onDeleteMcpServer: () => {},
-        onMcpSettingsBlur: () => {},
-        onAddUserContextHook: () => {},
-        onUserContextHookChange: () => {},
-        onUserContextHookBlur: () => {},
-        onUserContextHookEnabledChange: () => {},
-        onUserContextHookEventChange: () => {},
-        onUserContextHookBehaviorChange: () => {},
-        onDeleteUserContextHook: () => {},
-        onMoveUserContextHook: () => {}
-      })
-    );
-
-    expect(markup).toContain("配置 context 注入或自动发送消息");
-    expect(markup).toContain("Wrap up");
-    expect(markup).toContain("结束时补一个 next step。");
-    expect(markup).toContain("1/1 enabled");
+    expect(markup).toContain("调试详情");
+    expect(markup).toContain("1 events");
   });
 });

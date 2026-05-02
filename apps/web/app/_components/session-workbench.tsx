@@ -25,6 +25,7 @@ import {
   buildWeekRange,
   buildMcpServersFromForm,
   buildSessionSettingsPatchFromUserSettings,
+  buildUserSettingsPayloadFromForm,
   canInterruptSessionExecution,
   createEmptyMcpServerFormState,
   findReusableNewSessionSummary,
@@ -98,6 +99,7 @@ import {
   type SettingsPageId,
   type SidebarPanelId
 } from "./session-workbench-types";
+import { AppThemeToggle } from "./app-theme-provider";
 
 const apiClient = createApiClient({
   baseUrl: process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api"
@@ -1555,28 +1557,7 @@ export function SessionWorkbench() {
     try {
       const updatedPayload = await apiClient.updateUserSettingsPayload(
         targetUserId,
-        {
-          workingDirectory: normalizedForm.workingDirectory,
-          model: normalizedForm.model,
-          thinkingEffort: normalizedForm.thinkingEffort,
-          yoloMode: normalizedForm.yoloMode,
-          contextWindow: normalizeContextWindow(normalizedForm.contextWindow),
-          maxTurns: normalizeMaxTurns(normalizedForm.maxTurns),
-          shellAllowPatterns: splitPatternLines(
-            normalizedForm.shellAllowPatterns
-          ),
-          shellDenyPatterns: splitPatternLines(
-            normalizedForm.shellDenyPatterns
-          ),
-          toolAllowList: normalizedForm.toolAllowList,
-          toolAskList: normalizedForm.toolAskList,
-          toolDenyList: normalizedForm.toolDenyList,
-          enabledCapabilityPacks: normalizedForm.enabledCapabilityPacks,
-          workspaceSkillSettings: normalizedForm.workspaceSkillSettings,
-          userContextHooks: normalizedForm.userContextHooks,
-          debugConversationView: normalizedForm.debugConversationView,
-          userCustomPrompt: normalizedForm.userCustomPrompt
-        }
+        buildUserSettingsPayloadFromForm(normalizedForm)
       );
       const updated = updatedPayload.settings;
       setUserSettings(updated);
@@ -2365,6 +2346,12 @@ export function SessionWorkbench() {
       {isSessionRailCollapsed ? ">>" : "<<"}
     </button>
   );
+  const headerActions = (
+    <>
+      <AppThemeToggle />
+      {sidebarToggleButton}
+    </>
+  );
 
   function handleAssistantAnimationComplete(itemKey: string) {
     setMessageManagerState((current) =>
@@ -2529,90 +2516,15 @@ export function SessionWorkbench() {
             <SessionWorkbenchDrawer
               activeSidebarPanel={activeSidebarPanel}
               currentSession={currentSession}
-              loadingSession={loadingSession}
               submitting={submitting}
               resettingRoutines={resettingRoutines}
-              settingsMeta={settingsMeta}
-              settingsStatusText={settingsStatusText}
-              settingsForm={settingsForm}
-              settingsMcpForm={settingsMcpForm}
-              settingsSkillsState={settingsSkillsState}
-              permissionTools={permissionTools}
-              loadingSettings={loadingSettings}
-              savingSettings={savingSettings}
-              loadingMcpSettings={loadingMcpSettings}
-              loadingSkillsSettings={loadingSkillsSettings}
-              savingMcpSettings={savingMcpSettings}
-              mcpSettingsErrorText={mcpSettingsErrorText}
-              clearingSessionHistory={clearingSessionHistory}
-              clearHistoryErrorText={clearHistoryErrorText}
-              choosingWorkingDirectory={choosingWorkingDirectory}
-              pendingPermissionToolName={pendingPermissionToolName}
               weekDates={weekDates}
               groupedRoutines={groupedRoutines}
               inspectorProjection={inspectorProjection}
               activeTab={activeTab}
               onResetAllRoutines={() => void handleResetAllRoutines()}
               onSelectTab={setActiveTab}
-              onSettingsFormChange={handleSettingsFormChange}
-              onSettingsBlur={() => void handleSaveUserSettings()}
-              onChooseWorkingDirectory={() =>
-                void handleChooseWorkingDirectory()
-              }
-              onClearSessionHistory={() => void handleClearSessionHistory()}
-              onSettingsYoloModeChange={(checked) =>
-                void handleSettingsYoloModeChange(checked)
-              }
-              onSettingsDebugConversationViewChange={(checked) =>
-                void handleSettingsDebugConversationViewChange(checked)
-              }
-              onSettingsPermissionToolToggle={(toolName, target) =>
-                void handleSettingsPermissionToolToggle(toolName, target)
-              }
-              onSettingsCapabilityPackToggle={(packName) =>
-                void handleSettingsCapabilityPackToggle(packName)
-              }
-              onSettingsShellAllowPatternRemove={(pattern) =>
-                void handleSettingsShellAllowPatternRemove(pattern)
-              }
-              onSettingsSkillEnabledChange={(skillName, enabled) =>
-                void handleSettingsSkillEnabledChange(skillName, enabled)
-              }
-              onAddMcpServer={handleAddMcpServer}
-              onMcpServerChange={handleMcpServerChange}
-              onMcpServerTransportChange={handleMcpServerTransportChange}
-              onMcpServerEnabledChange={(serverId, enabled) =>
-                void handleMcpServerEnabledChange(serverId, enabled)
-              }
-              onMcpToolEnabledChange={(serverId, toolName, enabled) =>
-                void handleMcpToolEnabledChange(serverId, toolName, enabled)
-              }
-              onDeleteMcpServer={(serverId) =>
-                void handleDeleteMcpServer(serverId)
-              }
-              onMcpSettingsBlur={() => void handleSaveMcpSettings()}
-              onAddUserContextHook={handleAddUserContextHook}
-              onUserContextHookChange={handleUserContextHookChange}
-              onUserContextHookBlur={() => void handleSaveUserSettings()}
-              onUserContextHookEnabledChange={(hookId, enabled) =>
-                void handleUserContextHookEnabledChange(hookId, enabled)
-              }
-              onUserContextHookEventChange={(hookId, event) =>
-                void handleUserContextHookEventChange(hookId, event)
-              }
-              onUserContextHookBehaviorChange={(hookId, behavior) =>
-                void handleUserContextHookBehaviorChange(hookId, behavior)
-              }
-              onUserContextHookWaitModeChange={(hookId, waitMode) =>
-                void handleUserContextHookWaitModeChange(hookId, waitMode)
-              }
-              onDeleteUserContextHook={(hookId) =>
-                void handleDeleteUserContextHook(hookId)
-              }
-              onMoveUserContextHook={(hookId, direction) =>
-                void handleMoveUserContextHook(hookId, direction)
-              }
-              headerActions={sidebarToggleButton}
+              headerActions={headerActions}
             />
           ) : (
             <SessionWorkbenchConversationPanel
@@ -2698,7 +2610,7 @@ export function SessionWorkbench() {
                   completeMessageManagerAutoCollapse(current, key)
                 )
               }
-              headerActions={sidebarToggleButton}
+              headerActions={headerActions}
             />
           )}
         </div>

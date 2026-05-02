@@ -1060,13 +1060,13 @@ describe("buildConversationViewItems compact mode", () => {
     const editCall: Extract<RunStreamEvent, { kind: "tool_call" }> = {
       ...currentToolCall,
       toolCallId: "call-edit-file",
-      toolName: "edit_file",
+      toolName: "apply_patch",
       input: { path: "apps/web/app/page.tsx", startLine: 10, endLine: 11 }
     };
     const editResult: Extract<RunStreamEvent, { kind: "tool_result" }> = {
       ...currentToolResult,
       toolCallId: "call-edit-file",
-      toolName: "edit_file",
+      toolName: "apply_patch",
       details: fileChangeDetails
     };
 
@@ -1094,7 +1094,7 @@ describe("buildConversationViewItems compact mode", () => {
       id: "tool-call-message-1",
       kind: "tool call",
       toolCallId: "call-edit-history",
-      toolName: "edit_file",
+      toolName: "apply_patch",
       input: { path: "apps/web/app/page.tsx", startLine: 10, endLine: 11 },
       state: "pending",
       createdAt: "2026-04-21T18:46:21.700Z"
@@ -1106,7 +1106,7 @@ describe("buildConversationViewItems compact mode", () => {
       id: "tool-result-message-1",
       kind: "tool result",
       toolCallId: "call-edit-history",
-      toolName: "edit_file",
+      toolName: "apply_patch",
       output: '{"ok":true}',
       isError: false,
       state: "success",

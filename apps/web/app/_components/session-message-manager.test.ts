@@ -290,7 +290,7 @@ describe("session-message-manager", () => {
       createdAt: "2026-04-27T00:00:02.000Z",
       turnCount: 1,
       toolCallId: "tool-1",
-      toolName: "edit_file",
+      toolName: "apply_patch",
       input: { path: "apps/web/app/page.tsx" }
     };
     state = appendMessageManagerEvent(state, toolCall);
@@ -300,10 +300,10 @@ describe("session-message-manager", () => {
       createdAt: "2026-04-27T00:00:03.000Z",
       turnCount: 1,
       toolCallId: "tool-1",
-      toolName: "edit_file",
+      toolName: "apply_patch",
       request: {
         toolCallId: "tool-1",
-        toolName: "edit_file",
+        toolName: "apply_patch",
         toolInput: { path: "apps/web/app/page.tsx" },
         family: "workspace-file",
         permissionProfile: "always-ask-user",
@@ -317,7 +317,7 @@ describe("session-message-manager", () => {
       createdAt: "2026-04-27T00:00:04.000Z",
       turnCount: 1,
       toolCallId: "tool-1",
-      toolName: "edit_file",
+      toolName: "apply_patch",
       output: "ok",
       displayText: "已更新文件",
       isError: false
