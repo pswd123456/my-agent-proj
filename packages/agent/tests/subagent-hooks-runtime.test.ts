@@ -70,6 +70,7 @@ describe("subagent hook runtime", () => {
           event: "session_started",
           behavior: "subagent",
           waitMode: "blocking",
+          maxTurns: 37,
           title: "预运行检查",
           content: "先检查仓库当前实现，再给主会话补充上下文。",
           enabled: true
@@ -106,6 +107,7 @@ describe("subagent hook runtime", () => {
     expect(hookTask?.payload.message).toBe(
       "先检查仓库当前实现，再给主会话补充上下文。"
     );
+    expect(hookTask?.payload.maxTurns).toBe(37);
     expect(hookTask?.payload.metadata).toMatchObject({
       hookId: "hook-blocking",
       hookEvent: "session_started",
@@ -117,6 +119,7 @@ describe("subagent hook runtime", () => {
 
     expect(wakeupTask?.kind).toBe("session_wakeup");
     expect(wakeupTask?.payload.message).toBe("继续");
+    expect(wakeupTask?.payload.maxTurns).toBe(session.maxTurns);
     expect(wakeupTask?.payload.metadata).toMatchObject({
       reason: "background_task_poll",
       skipSubagentHooks: true

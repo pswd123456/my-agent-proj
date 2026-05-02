@@ -18,7 +18,6 @@ import { streamAnthropicMessage } from "../model.js";
 import {
   buildPromptRequestMessages,
   summarizePromptEnvelopeComposition,
-  toAnthropicMessages,
   type PromptBuilder
 } from "../prompt.js";
 import type { SessionManager } from "../session.js";
@@ -84,6 +83,10 @@ interface StreamedThinkingSnapshot {
   thinkingMessageId: string;
   text: string;
   signature: string;
+}
+
+function normalizeThinkingSignature(signature: unknown): string {
+  return typeof signature === "string" ? signature : "";
 }
 
 interface TurnForkCheckpointSeed {
@@ -1310,7 +1313,7 @@ export async function runSessionLoop(input: {
               {
                 blockIndex,
                 text: block.thinking,
-                signature: block.signature
+                signature: normalizeThinkingSignature(block.signature)
               }
             ]
           : []

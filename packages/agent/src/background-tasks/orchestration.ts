@@ -110,7 +110,9 @@ export async function scheduleBackgroundTaskPollWakeup(input: {
     return;
   }
 
-  const parentSession = await input.sessionManager.getSession(input.parentSessionId);
+  const parentSession = await input.sessionManager.getSession(
+    input.parentSessionId
+  );
   if (!parentSession) {
     return;
   }
@@ -211,7 +213,7 @@ export async function scheduleBackgroundTaskPollWakeup(input: {
     message: input.wakeupMessage ?? "",
     workingDirectory: parentSession.workingDirectory,
     model: parentSession.model,
-    maxTurns: Math.min(parentSession.maxTurns, 8),
+    maxTurns: parentSession.maxTurns,
     userId: parentSession.context.userId,
     enabledCapabilityPacks: parentSession.context.enabledCapabilityPacks,
     metadata: nextMetadata,

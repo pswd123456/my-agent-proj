@@ -38,7 +38,9 @@ function createNotification(input: {
   result?: BackgroundTaskResultEnvelope | null;
 }): SessionBackgroundNotification {
   const delegateTitle =
-    input.task.taskState?.kind === "delegate" ? input.task.taskState.title : null;
+    input.task.taskState?.kind === "delegate"
+      ? input.task.taskState.title
+      : null;
   return {
     id: randomUUID(),
     kind: input.kind,
@@ -230,7 +232,7 @@ export async function enqueueBackgroundNotification(input: {
     message: input.wakeupMessage ?? "",
     workingDirectory: parentSession.workingDirectory,
     model: parentSession.model,
-    maxTurns: Math.min(parentSession.maxTurns, 8),
+    maxTurns: parentSession.maxTurns,
     userId: parentSession.context.userId,
     enabledCapabilityPacks: parentSession.context.enabledCapabilityPacks,
     metadata: {

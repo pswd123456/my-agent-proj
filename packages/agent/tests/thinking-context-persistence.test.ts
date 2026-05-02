@@ -459,6 +459,61 @@ describe("thinking context persistence", () => {
     ).toBe(false);
   });
 
+  test("does not crash or persist thinking blocks without signatures", async () => {
+    const sessionManager = createMemorySessionManager();
+    const routineRepository = createMemoryRoutineRepository();
+
+    const runtime = createAgentRuntime({
+      client: {
+        messages: {
+          async create() {
+            return {
+              content: [
+                {
+                  type: "thinking",
+                  thinking: "Provider returned thinking without a signature."
+                } as unknown as {
+                  type: "thinking";
+                  thinking: string;
+                  signature: string;
+                },
+                {
+                  type: "text",
+                  text: "done"
+                }
+              ],
+              stop_reason: "end_turn"
+            };
+          }
+        }
+      },
+      model: "MiniMax-M2.7",
+      sessionManager,
+      routineRepository,
+      toolRegistry: new ToolRegistry(),
+      maxTurns: 1,
+      maxTokens: 128
+    });
+
+    const session = await runtime.createSession({
+      workingDirectory: "/tmp/workspace",
+      userId: "unsigned-thinking-test"
+    });
+
+    const result = await runtime.run({
+      sessionId: session.sessionId,
+      message: "Answer with unsigned thinking."
+    });
+
+    expect(result.status).toBe("completed");
+    expect(result.finalAnswer).toBe("done");
+    expect(
+      result.session.messages.some(
+        (block) => block.kind === "assistant thinking"
+      )
+    ).toBe(false);
+  });
+
   test("replays historical thinking blocks when the selected model supports thinking input", async () => {
     const requests: AnthropicMessageRequest[] = [];
     const sessionManager = createMemorySessionManager();

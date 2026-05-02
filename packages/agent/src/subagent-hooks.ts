@@ -5,6 +5,7 @@ import type {
   SessionBackgroundNotification,
   UserContextHookRecord
 } from "@ai-app-template/domain";
+import { normalizeUserContextHookMaxTurns } from "@ai-app-template/domain";
 
 import type { SessionSnapshot } from "./types.js";
 
@@ -24,7 +25,7 @@ export function isSubagentUserContextHook(
 export function getUserContextHookConfigHash(
   hook: Pick<
     UserContextHookRecord,
-    "event" | "behavior" | "waitMode" | "title" | "content"
+    "event" | "behavior" | "waitMode" | "maxTurns" | "title" | "content"
   >
 ): string {
   return createHash("sha256")
@@ -33,6 +34,7 @@ export function getUserContextHookConfigHash(
         event: hook.event,
         behavior: hook.behavior ?? null,
         waitMode: hook.waitMode ?? "blocking",
+        maxTurns: normalizeUserContextHookMaxTurns(hook.maxTurns),
         title: hook.title.trim(),
         content: hook.content.trim()
       })

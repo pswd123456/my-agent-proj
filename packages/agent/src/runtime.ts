@@ -5,6 +5,7 @@ import type { Logger, SystemLogManager } from "./system-log.js";
 import type { RoutineRepository } from "@ai-app-template/db";
 import {
   DEFAULT_SESSION_MODEL,
+  normalizeUserContextHookMaxTurns,
   normalizeThinkingEffort,
   type UserContextHookRecord,
   type WorkspaceSkillSettingRecord
@@ -289,7 +290,7 @@ export class AgentRuntime {
         message: hook.content.trim(),
         workingDirectory: input.session.workingDirectory,
         model: input.session.model,
-        maxTurns: Math.min(input.session.maxTurns, 8),
+        maxTurns: normalizeUserContextHookMaxTurns(hook.maxTurns),
         userId: input.session.context.userId,
         enabledCapabilityPacks: input.session.context.enabledCapabilityPacks,
         metadata: {

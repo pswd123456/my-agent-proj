@@ -3,6 +3,7 @@ export * from "./context-hooks.js";
 export * from "./delegation/index.js";
 export * from "./events.js";
 export * from "./mcp/index.js";
+export { DEFAULT_SESSION_MAX_TURNS } from "@ai-app-template/domain";
 export * from "./model.js";
 export {
   AnthropicCompatibleModelService,
