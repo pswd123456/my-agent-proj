@@ -16,6 +16,7 @@ import {
   type ModelCatalogEntry,
   type RunStreamEvent,
   type SessionForkTarget,
+  type SessionRewriteTarget,
   type SessionSnapshot,
   type SessionWorkspaceGitStatus,
   type WorkspaceFileSearchResult,
@@ -151,6 +152,10 @@ interface SessionWorkbenchConversationPanelProps {
   runFileChanges: RunFileChangesView[];
   forkTargetsByAssistantMessageId: Map<string, SessionForkTarget>;
   forkingAssistantMessageId: string | null;
+  rewriteTarget: SessionRewriteTarget | null;
+  editingRewriteMessageId: string | null;
+  rewriteDraft: string;
+  recoveringRewriteTarget: boolean;
   onMessageChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onInterrupt: () => void;
@@ -179,6 +184,12 @@ interface SessionWorkbenchConversationPanelProps {
     selectedFileIndexes: number[]
   ) => void;
   onCreateFork: (assistantMessageId: string) => void;
+  onStartRewrite: (
+    block: Extract<SessionSnapshot["messages"][number], { kind: "user" }>
+  ) => void;
+  onRewriteDraftChange: (value: string) => void;
+  onCancelRewrite: () => void;
+  onSubmitRewrite: () => void | Promise<void>;
   onAssistantAnimationComplete: (itemKey: string) => void;
   onToggleExpandedItem: (key: string) => void;
   onAutoCollapseComplete: (key: string) => void;
@@ -191,6 +202,19 @@ interface AssistantForkAction {
   target: SessionForkTarget;
   pending: boolean;
   onCreateFork: (assistantMessageId: string) => void;
+}
+
+interface UserRewriteAction {
+  target: SessionRewriteTarget;
+  active: boolean;
+  draft: string;
+  pending: boolean;
+  onStartRewrite: (
+    block: Extract<SessionSnapshot["messages"][number], { kind: "user" }>
+  ) => void;
+  onDraftChange: (value: string) => void;
+  onCancel: () => void;
+  onSubmit: () => void | Promise<void>;
 }
 
 export interface RunFileChangesView {
@@ -393,12 +417,65 @@ function escapeTimelineItemKey(key: string): string {
 }
 
 function renderUserMessageBlock(
-  block: Extract<SessionSnapshot["messages"][number], { kind: "user" }>
+  block: Extract<SessionSnapshot["messages"][number], { kind: "user" }>,
+  rewriteAction?: UserRewriteAction
 ) {
+  const isEditing = rewriteAction?.active ?? false;
   return (
     <div key={block.id} className="flex flex-col items-end gap-1">
       <MessageRoleLabel role="user" timestamp={block.createdAt} />
-      <div className={getBubbleClass("user")}>{block.content}</div>
+      <div className={`${getBubbleClass("user")} flex max-w-[88%] flex-col gap-3`}>
+        {isEditing ? (
+          <>
+            <textarea
+              value={rewriteAction?.draft ?? ""}
+              onChange={(event) =>
+                rewriteAction?.onDraftChange(event.currentTarget.value)
+              }
+              rows={4}
+              disabled={rewriteAction?.pending}
+              className="w-full resize-none rounded-[var(--app-radius-md)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-canvas)_10%,var(--app-bg-surface)_90%)] px-3 py-2 text-sm leading-7 text-[var(--app-text-primary)] outline-none transition focus:border-[var(--app-border-accent)] disabled:cursor-not-allowed disabled:opacity-70"
+            />
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                disabled={rewriteAction?.pending}
+                onClick={rewriteAction?.onCancel}
+                className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-3 py-1.5 text-[0.72rem] uppercase tracking-[0.12em] text-[var(--app-text-secondary)] transition hover:border-[var(--app-border-accent)] hover:text-[var(--app-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                disabled={
+                  rewriteAction?.pending ||
+                  !rewriteAction?.draft.trim().length
+                }
+                onClick={rewriteAction?.onSubmit}
+                className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-accent)] px-3 py-1.5 text-[0.72rem] uppercase tracking-[0.12em] text-[var(--app-text-primary)] transition hover:border-[var(--app-status-success)] hover:text-[var(--app-status-success)] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {rewriteAction?.pending ? "回退中..." : "改写并重试"}
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div>{block.content}</div>
+            {rewriteAction ? (
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  disabled={rewriteAction.pending}
+                  onClick={() => rewriteAction.onStartRewrite(block)}
+                  className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-3 py-1 text-[0.72rem] uppercase tracking-[0.12em] text-[var(--app-text-muted)] transition hover:border-[var(--app-border-accent)] hover:text-[var(--app-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  改写
+                </button>
+              </div>
+            ) : null}
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -713,14 +790,15 @@ function renderConversationBlock(
   block: SessionSnapshot["messages"][number],
   timestampedAssistantMessageIds: Set<string>,
   userHook?: TimelineUserHookMetadata,
-  forkAction?: AssistantForkAction
+  forkAction?: AssistantForkAction,
+  rewriteAction?: UserRewriteAction
 ) {
   if (block.kind === "user") {
     if (userHook) {
       return renderHookMessageBlock(block, userHook);
     }
 
-    return renderUserMessageBlock(block);
+    return renderUserMessageBlock(block, rewriteAction);
   }
 
   if (block.kind === "assistant") {
@@ -1186,8 +1264,18 @@ function renderTimelineItem(
   turnUsageByTurnCount: Map<number, TurnUsageSummary>,
   forkTargetsByAssistantMessageId: Map<string, SessionForkTarget>,
   forkingAssistantMessageId: string | null,
-  onCreateFork: (assistantMessageId: string) => void
-): React.ReactNode {
+  onCreateFork: (assistantMessageId: string) => void,
+  rewriteTarget: SessionRewriteTarget | null,
+  editingRewriteMessageId: string | null,
+  rewriteDraft: string,
+  recoveringRewriteTarget: boolean,
+  onStartRewrite: (
+    block: Extract<SessionSnapshot["messages"][number], { kind: "user" }>
+  ) => void,
+  onRewriteDraftChange: (value: string) => void,
+  onCancelRewrite: () => void,
+  onSubmitRewrite: () => void | Promise<void>
+): ReactNode {
   const forkActionForAssistantMessage = (
     assistantMessageId: string | null
   ): AssistantForkAction | undefined => {
@@ -1205,6 +1293,25 @@ function renderTimelineItem(
       target,
       pending: forkingAssistantMessageId === assistantMessageId,
       onCreateFork
+    };
+  };
+
+  const rewriteActionForUserMessage = (
+    block: Extract<SessionSnapshot["messages"][number], { kind: "user" }>
+  ): UserRewriteAction | undefined => {
+    if (!rewriteTarget || rewriteTarget.userMessageId !== block.id) {
+      return undefined;
+    }
+
+    return {
+      target: rewriteTarget,
+      active: editingRewriteMessageId === block.id,
+      draft: rewriteDraft,
+      pending: recoveringRewriteTarget,
+      onStartRewrite,
+      onDraftChange: onRewriteDraftChange,
+      onCancel: onCancelRewrite,
+      onSubmit: onSubmitRewrite
     };
   };
 
@@ -1236,6 +1343,9 @@ function renderTimelineItem(
     item.userHook,
     item.block.kind === "assistant"
       ? forkActionForAssistantMessage(item.block.id)
+      : undefined,
+    item.block.kind === "user" && !item.userHook
+      ? rewriteActionForUserMessage(item.block)
       : undefined
   );
 }
@@ -1244,7 +1354,7 @@ function renderCompactToolItem(
   item: CompactToolViewItem,
   expanded: boolean,
   onToggleExpanded: (key: string) => void,
-  renderNestedItems: (items: ConversationViewItem[]) => React.ReactNode
+  renderNestedItems: (items: ConversationViewItem[]) => ReactNode
 ) {
   const fileChangeRows = getCompactToolFileChangeRows(item);
   const taskBriefPreview = item.taskBriefPreview;
@@ -1526,7 +1636,7 @@ function renderCompactFileBatchItem(
   item: CompactFileBatchViewItem,
   expanded: boolean,
   onToggleExpanded: (key: string) => void,
-  renderNestedItems: (items: ConversationViewItem[]) => React.ReactNode
+  renderNestedItems: (items: ConversationViewItem[]) => ReactNode
 ) {
   return (
     <article key={item.key} className={getInspectorCardClass()}>
@@ -1566,7 +1676,7 @@ function renderCompactCollapsedFlowItem(
   autoCollapseOnMount: boolean,
   onToggleExpanded: (key: string) => void,
   onAutoCollapseComplete: (key: string) => void,
-  renderNestedItems: (items: ConversationViewItem[]) => React.ReactNode
+  renderNestedItems: (items: ConversationViewItem[]) => ReactNode
 ) {
   return (
     <CompactCollapsedFlowCard
@@ -1586,7 +1696,7 @@ function CompactCollapsedFlowCard(props: {
   autoCollapseOnMount: boolean;
   onToggleExpanded: (key: string) => void;
   onAutoCollapseComplete: (key: string) => void;
-  renderNestedItems: (items: ConversationViewItem[]) => React.ReactNode;
+  renderNestedItems: (items: ConversationViewItem[]) => ReactNode;
 }) {
   const {
     item,
@@ -1673,8 +1783,18 @@ function renderConversationViewItem(
     onToggleExpanded: (key: string) => void;
     onAutoCollapseComplete: (key: string) => void;
     onCreateFork: (assistantMessageId: string) => void;
+    rewriteTarget: SessionRewriteTarget | null;
+    editingRewriteMessageId: string | null;
+    rewriteDraft: string;
+    recoveringRewriteTarget: boolean;
+    onStartRewrite: (
+      block: Extract<SessionSnapshot["messages"][number], { kind: "user" }>
+    ) => void;
+    onRewriteDraftChange: (value: string) => void;
+    onCancelRewrite: () => void;
+    onSubmitRewrite: () => void | Promise<void>;
   }
-): React.ReactNode {
+): ReactNode {
   const renderNestedItems = (items: ConversationViewItem[]) =>
     items.map((nestedItem) => (
       <div key={nestedItem.key} className="min-w-0">
@@ -1693,7 +1813,15 @@ function renderConversationViewItem(
       input.turnUsageByTurnCount,
       input.forkTargetsByAssistantMessageId,
       input.forkingAssistantMessageId,
-      input.onCreateFork
+      input.onCreateFork,
+      input.rewriteTarget,
+      input.editingRewriteMessageId,
+      input.rewriteDraft,
+      input.recoveringRewriteTarget,
+      input.onStartRewrite,
+      input.onRewriteDraftChange,
+      input.onCancelRewrite,
+      input.onSubmitRewrite
     );
   }
 
@@ -1727,7 +1855,7 @@ function renderConversationViewItem(
   );
 }
 
-function hasRenderableTimelineContent(node: React.ReactNode): boolean {
+function hasRenderableTimelineContent(node: ReactNode): boolean {
   return node !== null && node !== undefined && node !== false;
 }
 
@@ -1818,6 +1946,10 @@ export function SessionWorkbenchConversationPanel({
   runFileChanges,
   forkTargetsByAssistantMessageId,
   forkingAssistantMessageId,
+  rewriteTarget,
+  editingRewriteMessageId,
+  rewriteDraft,
+  recoveringRewriteTarget,
   onMessageChange,
   onSubmit,
   onInterrupt,
@@ -1834,6 +1966,10 @@ export function SessionWorkbenchConversationPanel({
   onRunFileChangeAction,
   onRunFileSelectionChange,
   onCreateFork,
+  onStartRewrite,
+  onRewriteDraftChange,
+  onCancelRewrite,
+  onSubmitRewrite,
   onAssistantAnimationComplete,
   onToggleExpandedItem,
   onAutoCollapseComplete,
@@ -1956,10 +2092,14 @@ export function SessionWorkbenchConversationPanel({
     pendingPermissionRequest,
     feedback: permissionCardFeedback
   });
+  const composerLocked =
+    editingRewriteMessageId !== null || recoveringRewriteTarget;
   const composerActionView = buildComposerActionView({
     canInterrupt,
     interrupting,
-    canSubmit: Boolean(currentSession && message.trim() && !submitting)
+    canSubmit: Boolean(
+      currentSession && message.trim() && !submitting && !composerLocked
+    )
   });
   const peakTurnContextTokens = useMemo(
     () => getPeakTurnContextTokens(turnUsageByTurnCount),
@@ -2053,7 +2193,15 @@ export function SessionWorkbenchConversationPanel({
               }
               onAutoCollapseComplete(key);
             },
-            onCreateFork
+            onCreateFork,
+            rewriteTarget,
+            editingRewriteMessageId,
+            rewriteDraft,
+            recoveringRewriteTarget,
+            onStartRewrite,
+            onRewriteDraftChange,
+            onCancelRewrite,
+            onSubmitRewrite
           })
         }))
         .filter((entry) => hasRenderableTimelineContent(entry.content)),
@@ -2066,7 +2214,18 @@ export function SessionWorkbenchConversationPanel({
       expandedItemKeys,
       collapsedFlowAnchorsByKey,
       onToggleExpandedItem,
-      onAutoCollapseComplete
+      onAutoCollapseComplete,
+      forkTargetsByAssistantMessageId,
+      forkingAssistantMessageId,
+      onCreateFork,
+      rewriteTarget,
+      editingRewriteMessageId,
+      rewriteDraft,
+      recoveringRewriteTarget,
+      onStartRewrite,
+      onRewriteDraftChange,
+      onCancelRewrite,
+      onSubmitRewrite
     ]
   );
 
@@ -3295,6 +3454,7 @@ export function SessionWorkbenchConversationPanel({
                   <textarea
                     ref={composerTextareaRef}
                     value={message}
+                    disabled={composerLocked}
                     onFocus={() => setComposerFocused(true)}
                     onBlur={() => setComposerFocused(false)}
                     onChange={(event) =>
@@ -3305,8 +3465,10 @@ export function SessionWorkbenchConversationPanel({
                     }
                     onKeyDown={handleComposerKeyDown}
                     rows={3}
-                    placeholder="输入你的请求"
-                    className="relative z-10 w-full resize-none rounded-[var(--app-radius-lg)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-canvas)_14%,var(--app-bg-surface)_86%)] px-4 pb-14 pt-3 text-sm leading-7 text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
+                    placeholder={
+                      composerLocked ? "完成当前改写后再继续输入" : "输入你的请求"
+                    }
+                    className="relative z-10 w-full resize-none rounded-[var(--app-radius-lg)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-canvas)_14%,var(--app-bg-surface)_86%)] px-4 pb-14 pt-3 text-sm leading-7 text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)] disabled:cursor-not-allowed disabled:opacity-60"
                   />
                   <div
                     ref={quickActionsRef}
@@ -3355,7 +3517,7 @@ export function SessionWorkbenchConversationPanel({
                         type="button"
                         aria-label="打开会话快捷操作"
                         aria-expanded={quickActionsOpen}
-                        disabled={!currentSession}
+                        disabled={!currentSession || composerLocked}
                         onClick={() =>
                           setQuickActionsOpen((current) => !current)
                         }

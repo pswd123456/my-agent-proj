@@ -253,6 +253,13 @@ function getUserHookMetadata(
     return undefined;
   }
 
+  if (block.source === "hook_message" && block.hookEvent) {
+    return {
+      event: block.hookEvent,
+      title: block.hookTitle ?? ""
+    };
+  }
+
   return metadataByContent.get(block.content.trim());
 }
 

@@ -10,6 +10,7 @@ import {
   type RoutineRecord,
   type RunStreamEvent,
   type SessionForkTarget,
+  type SessionRewriteTarget,
   type SessionSnapshot,
   type SessionWorkspaceGitStatus,
   type SettingsPermissionToolOption,
@@ -424,6 +425,8 @@ export function SessionWorkbench() {
   );
   const [traceRecords, setTraceRecords] = useState<TraceRecord[]>([]);
   const [forkTargets, setForkTargets] = useState<SessionForkTarget[]>([]);
+  const [rewriteTarget, setRewriteTarget] =
+    useState<SessionRewriteTarget | null>(null);
   const [routines, setRoutines] = useState<RoutineRecord[]>([]);
   const [messageManagerState, setMessageManagerState] = useState(() =>
     createMessageManagerState()
@@ -449,6 +452,12 @@ export function SessionWorkbench() {
   const [forkingAssistantMessageId, setForkingAssistantMessageId] = useState<
     string | null
   >(null);
+  const [editingRewriteMessageId, setEditingRewriteMessageId] = useState<
+    string | null
+  >(null);
+  const [rewriteDraft, setRewriteDraft] = useState("");
+  const [recoveringRewriteTarget, setRecoveringRewriteTarget] =
+    useState(false);
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(
     null
   );
@@ -523,9 +532,13 @@ export function SessionWorkbench() {
 
   function resetSelectedSessionResources() {
     setForkTargets([]);
+    setRewriteTarget(null);
     setTraceRecords([]);
     setRoutines([]);
     setRunFileChanges([]);
+    setEditingRewriteMessageId(null);
+    setRewriteDraft("");
+    setRecoveringRewriteTarget(false);
     setMessageManagerState(resetMessageManagerState());
   }
 
@@ -778,7 +791,7 @@ export function SessionWorkbench() {
       setErrorText(null);
 
       try {
-        const [session, initialForkTargets] = await Promise.all([
+        const [session, historyTargets] = await Promise.all([
           apiClient.getSession(sessionId),
           apiClient.listSessionForkTargets(sessionId)
         ]);
@@ -801,7 +814,8 @@ export function SessionWorkbench() {
             buildRunFileChangesStatesFromSession(session)
           )
         );
-        setForkTargets(initialForkTargets);
+        setForkTargets(historyTargets.forkTargets);
+        setRewriteTarget(historyTargets.rewriteTarget);
         setLoadingSession(false);
 
         const week = buildWeekRange(session.context.currentDateContext);
@@ -934,7 +948,7 @@ export function SessionWorkbench() {
     }
 
     try {
-      const [session, nextForkTargets] = await Promise.all([
+      const [session, historyTargets] = await Promise.all([
         apiClient.getSession(sessionId),
         apiClient.listSessionForkTargets(sessionId)
       ]);
@@ -964,7 +978,8 @@ export function SessionWorkbench() {
       }
 
       hydrateCurrentSession(session);
-      setForkTargets(nextForkTargets);
+      setForkTargets(historyTargets.forkTargets);
+      setRewriteTarget(historyTargets.rewriteTarget);
       setTraceRecords(trace);
       setRoutines(routinesResult.routines);
       if (settingsPayload) {
@@ -1262,22 +1277,54 @@ export function SessionWorkbench() {
     }
   }
 
-  async function submitSessionMessage(
-    nextMessage: string,
-    options?: { permissionReply?: boolean }
-  ) {
-    if (!currentSession || !nextMessage.trim() || submitting) {
+  function handleStartRewrite(block: Extract<SessionSnapshot["messages"][number], { kind: "user" }>) {
+    if (
+      !rewriteTarget ||
+      rewriteTarget.userMessageId !== block.id ||
+      recoveringRewriteTarget
+    ) {
       return;
     }
 
-    const sessionId = currentSession.sessionId;
+    setEditingRewriteMessageId(block.id);
+    setRewriteDraft(block.content);
+    setErrorText(null);
+  }
+
+  function handleCancelRewrite() {
+    if (recoveringRewriteTarget) {
+      return;
+    }
+
+    setEditingRewriteMessageId(null);
+    setRewriteDraft("");
+  }
+
+  async function submitSessionMessage(
+    nextMessage: string,
+    options?: {
+      permissionReply?: boolean;
+      sessionOverride?: SessionSnapshot | null;
+    }
+  ) {
+    const activeSession = options?.sessionOverride ?? currentSession;
+    if (
+      !activeSession ||
+      !nextMessage.trim() ||
+      submitting ||
+      recoveringRewriteTarget
+    ) {
+      return;
+    }
+
+    const sessionId = activeSession.sessionId;
     const nextMaxTurns = normalizeMaxTurns(maxTurns);
 
     setMaxTurns(String(nextMaxTurns));
     if (!(options?.permissionReply ?? false)) {
       const pendingPreUserHooks = resolvePendingPreUserHooks({
         hooks: settingsForm.userContextHooks,
-        session: currentSession
+        session: activeSession
       });
       setMessageManagerState((current) =>
         beginMessageManagerRun(current, {
@@ -1293,6 +1340,8 @@ export function SessionWorkbench() {
     setSessionUiState((current) => beginSessionSubmission(current));
     setActiveTab("prompt");
     setErrorText(null);
+    setEditingRewriteMessageId(null);
+    setRewriteDraft("");
 
     try {
       const isActiveStreamSession = () =>
@@ -1375,6 +1424,48 @@ export function SessionWorkbench() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     await submitSessionMessage(message.trim());
+  }
+
+  async function handleSubmitRewrite() {
+    if (
+      !currentSession ||
+      !rewriteTarget ||
+      editingRewriteMessageId !== rewriteTarget.userMessageId ||
+      !rewriteDraft.trim()
+    ) {
+      return;
+    }
+
+    const nextMessage = rewriteDraft.trim();
+    setRecoveringRewriteTarget(true);
+    setErrorText(null);
+
+    try {
+      const recovered = await apiClient.recoverRewriteTarget(
+        currentSession.sessionId,
+        {
+          checkpointId: rewriteTarget.checkpointId,
+          userMessageId: rewriteTarget.userMessageId
+        }
+      );
+      hydrateCurrentSession(recovered.session);
+      setForkTargets(recovered.forkTargets);
+      setRewriteTarget(recovered.rewriteTarget);
+      setTraceRecords((current) =>
+        current.filter((record) => record.event.turnCount < rewriteTarget.turnCount)
+      );
+      setRunFileChanges(buildRunFileChangesStatesFromSession(recovered.session));
+      setMessageManagerState(resetMessageManagerState());
+      setEditingRewriteMessageId(null);
+      setRewriteDraft("");
+      await submitSessionMessage(nextMessage, {
+        sessionOverride: recovered.session
+      });
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : String(error));
+    } finally {
+      setRecoveringRewriteTarget(false);
+    }
   }
 
   async function handlePermissionQuickReply(
@@ -2535,6 +2626,10 @@ export function SessionWorkbench() {
               runFileChanges={runFileChanges}
               forkTargetsByAssistantMessageId={forkTargetsByAssistantMessageId}
               forkingAssistantMessageId={forkingAssistantMessageId}
+              rewriteTarget={rewriteTarget}
+              editingRewriteMessageId={editingRewriteMessageId}
+              rewriteDraft={rewriteDraft}
+              recoveringRewriteTarget={recoveringRewriteTarget}
               modelCatalog={modelCatalog}
               selectedModelId={resolveSelectedModelId({
                 session: currentSession,
@@ -2582,6 +2677,10 @@ export function SessionWorkbench() {
               onCreateFork={(assistantMessageId) =>
                 void handleCreateFork(assistantMessageId)
               }
+              onStartRewrite={handleStartRewrite}
+              onRewriteDraftChange={setRewriteDraft}
+              onCancelRewrite={handleCancelRewrite}
+              onSubmitRewrite={() => void handleSubmitRewrite()}
               onAssistantAnimationComplete={handleAssistantAnimationComplete}
               onToggleExpandedItem={(key) =>
                 setMessageManagerState((current) =>

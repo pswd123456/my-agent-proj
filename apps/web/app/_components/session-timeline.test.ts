@@ -1987,4 +1987,75 @@ describe("buildConversationViewItems compact mode", () => {
       }).assistantItemKey
     ).toBe("event-assistant_text-assistant-final");
   });
+
+  test("prefers persisted hook metadata over content fallback for hook messages", () => {
+    const items = buildTimelineItems({
+      messages: [
+        {
+          id: "hook-user-1",
+          kind: "user",
+          content: "同一段 hook 文案",
+          source: "hook_message",
+          hookEvent: "run_end",
+          hookTitle: "持久化标题",
+          createdAt: "2026-04-21T18:46:03.349Z"
+        }
+      ],
+      historyEvents: [],
+      streamEvents: [],
+      userContextHooks: [
+        {
+          id: "hook-legacy",
+          event: "run_started",
+          behavior: "message",
+          title: "回退标题",
+          content: "同一段 hook 文案",
+          enabled: true
+        }
+      ]
+    });
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      type: "message",
+      userHook: {
+        event: "run_end",
+        title: "持久化标题"
+      }
+    });
+  });
+
+  test("falls back to hook content matching for legacy sessions without metadata", () => {
+    const items = buildTimelineItems({
+      messages: [
+        {
+          id: "hook-user-legacy",
+          kind: "user",
+          content: "旧 hook 文案",
+          createdAt: "2026-04-21T18:46:03.349Z"
+        }
+      ],
+      historyEvents: [],
+      streamEvents: [],
+      userContextHooks: [
+        {
+          id: "hook-legacy",
+          event: "run_end",
+          behavior: "message",
+          title: "回退标题",
+          content: "旧 hook 文案",
+          enabled: true
+        }
+      ]
+    });
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      type: "message",
+      userHook: {
+        event: "run_end",
+        title: "回退标题"
+      }
+    });
+  });
 });
