@@ -1,14 +1,14 @@
-import type { RunStreamEvent, SessionSnapshot } from "@ai-app-template/sdk";
+import {
+  TODO_TOOL_NAMES,
+  type RunStreamEvent,
+  type SessionSnapshot
+} from "@ai-app-template/sdk";
 
 type SessionTodoState = SessionSnapshot["context"]["todoState"];
 type ToolResultEvent = Extract<RunStreamEvent, { kind: "tool_result" }>;
 type TodoItemStatus = NonNullable<SessionTodoState>["items"][number]["status"];
 
-const TODO_TOOL_NAMES = new Set([
-  "get_todo_list",
-  "replace_todo_list",
-  "update_todo_items"
-]);
+const TODO_TOOL_NAME_SET = new Set<string>(TODO_TOOL_NAMES);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -67,7 +67,7 @@ function coerceTodoState(value: unknown): SessionTodoState | undefined {
 }
 
 export function isTodoToolName(toolName: string): boolean {
-  return TODO_TOOL_NAMES.has(toolName);
+  return TODO_TOOL_NAME_SET.has(toolName);
 }
 
 export function getTodoStateFromToolResultEvent(

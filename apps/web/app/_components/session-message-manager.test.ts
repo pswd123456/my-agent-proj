@@ -13,8 +13,12 @@ import {
   completeMessageManagerAutoCollapse,
   createMessageManagerState,
   finishMessageManagerRun,
+  markMessageManagerAnimationComplete,
+  resetMessageManagerState,
+  resetMessageManagerViewState,
   registerMessageManagerCollapsedFlows
 } from "./session-message-manager";
+import { getTimelineEventKey } from "./session-timeline";
 
 function createSession(messages: SessionSnapshot["messages"]): SessionSnapshot {
   return {
@@ -107,7 +111,98 @@ function compactKinds(
   });
 }
 
+function createAnimatedEvent(kind: "assistant_text" | "thinking"): RunStreamEvent {
+  if (kind === "thinking") {
+    return {
+      kind,
+      sessionId: "session-1",
+      createdAt: "2026-04-27T00:00:02.000Z",
+      turnCount: 1,
+      text: "thinking",
+      signature: "sig-1"
+    } as RunStreamEvent;
+  }
+
+  return {
+    kind,
+    sessionId: "session-1",
+    createdAt: "2026-04-27T00:00:02.000Z",
+    turnCount: 1,
+    assistantMessageId: "assistant-1",
+    text: "hello",
+    snapshot: "hello"
+  } as RunStreamEvent;
+}
+
 describe("session-message-manager", () => {
+  test("beginMessageManagerRun resets stream state and stores pending user message", () => {
+    let state = appendMessageManagerEvent(
+      createMessageManagerState(),
+      createAnimatedEvent("assistant_text")
+    );
+
+    state = beginMessageManagerRun(state, {
+      message: {
+        createdAt: "2026-04-27T00:00:01.000Z",
+        text: "hi"
+      }
+    });
+
+    expect(state.pendingUserMessage?.text).toBe("hi");
+    expect(state.streamEvents).toHaveLength(0);
+    expect(state.recentAssistantEventKeys.size).toBe(0);
+  });
+
+  test("assistant and thinking stream events are tracked for animation cleanup", () => {
+    let state = beginMessageManagerRun(createMessageManagerState(), {
+      message: {
+        createdAt: "2026-04-27T00:00:01.000Z",
+        text: "hi"
+      }
+    });
+    state = appendMessageManagerEvent(state, createAnimatedEvent("assistant_text"));
+    state = appendMessageManagerEvent(state, createAnimatedEvent("thinking"));
+
+    const keys = [...state.recentAssistantEventKeys];
+    expect(state.recentAssistantEventKeys).toEqual(
+      new Set([
+        getTimelineEventKey(createAnimatedEvent("assistant_text")),
+        getTimelineEventKey(createAnimatedEvent("thinking"))
+      ])
+    );
+
+    state = markMessageManagerAnimationComplete(state, keys[0]!);
+    expect(state.recentAssistantEventKeys.size).toBe(1);
+    expect(
+      markMessageManagerAnimationComplete(state, keys[1]!)
+        .recentAssistantEventKeys.size
+    ).toBe(0);
+  });
+
+  test("finish and reset helpers clear the intended message manager state", () => {
+    let state = beginMessageManagerRun(createMessageManagerState(), {
+      message: {
+        createdAt: "2026-04-27T00:00:01.000Z",
+        text: "hi"
+      }
+    });
+    state = appendMessageManagerEvent(state, createAnimatedEvent("assistant_text"));
+    state = registerMessageManagerCollapsedFlows(state, [
+      "compact-collapsed-flow-assistant-1"
+    ]);
+
+    const finished = finishMessageManagerRun(state);
+    expect(finished.pendingUserMessage).toBeNull();
+    expect(finished.pendingPreUserHooks).toBeNull();
+
+    expect(resetMessageManagerViewState(finished)).toMatchObject({
+      expandedItemKeys: new Set(),
+      autoCollapsingItemKeys: new Set(),
+      seenCollapsedFlowKeys: new Set()
+    });
+    expect(resetMessageManagerState()).toEqual(createMessageManagerState());
+  });
+
   test("dedupes persisted assistant output against the active stream overlay", () => {
     let state = createMessageManagerState();
     state = appendMessageManagerEvent(state, {

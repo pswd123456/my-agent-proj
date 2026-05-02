@@ -399,7 +399,7 @@ export function buildRunFileChangesState(
 }
 
 type RefreshSelectedSessionOptions = {
-  resetRunView?: boolean;
+  resetMessageManagerState?: boolean;
   syncSettings?: boolean;
   showLoadingSettings?: boolean;
 };
@@ -888,7 +888,7 @@ export function SessionWorkbench() {
     options: RefreshSelectedSessionOptions = {}
   ) {
     const {
-      resetRunView: shouldResetRunView = true,
+      resetMessageManagerState: shouldResetMessageManagerState = true,
       syncSettings = true,
       showLoadingSettings = true
     } = options;
@@ -944,7 +944,7 @@ export function SessionWorkbench() {
           buildRunFileChangesStatesFromSession(session)
         )
       );
-      if (shouldResetRunView) {
+      if (shouldResetMessageManagerState) {
         setMessageManagerState(resetMessageManagerState());
       }
     } finally {
@@ -971,7 +971,7 @@ export function SessionWorkbench() {
 
       backgroundRefreshInFlightRef.current = true;
       void refreshSelectedSession(sessionId, {
-        resetRunView: false,
+        resetMessageManagerState: false,
         syncSettings: false,
         showLoadingSettings: false
       })
