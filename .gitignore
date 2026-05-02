@@ -3,7 +3,6 @@
 
 # Dependencies and package-manager state
 node_modules/
-.pnpm-store/
 .npm/
 .yarn/
 
@@ -27,7 +26,6 @@ storybook-static/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-pnpm-debug.log*
 
 # Editor / IDE
 .idea/
