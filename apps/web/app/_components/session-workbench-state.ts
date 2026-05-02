@@ -14,6 +14,8 @@ import type {
   WorkspaceMcpServerConfig
 } from "@ai-app-template/sdk";
 import {
+  findDuplicateWorkspaceMcpServerNames,
+  normalizeWorkspaceMcpServerConfig,
   USER_CONTEXT_HOOK_TYPES,
   getUserContextHookTypeKey
 } from "@ai-app-template/sdk";
@@ -924,6 +926,7 @@ function formatMcpServerFormState(
   index: number
 ): SettingsMcpServerFormState {
   const status = statuses.find((item) => item.name === server.name);
+
   if (server.transport === "stdio") {
     return {
       id: `${server.name || "stdio"}-${index}`,
@@ -1031,32 +1034,29 @@ export function buildMcpServersFromForm(
   form: SettingsMcpFormState
 ): WorkspaceMcpServerConfig[] {
   const servers: WorkspaceMcpServerConfig[] = [];
-  const names = new Set<string>();
 
   for (const server of form.servers) {
     const name = server.name.trim();
     if (!name) {
       throw new Error("MCP server name is required.");
     }
-    if (names.has(name)) {
-      throw new Error(`MCP server name is duplicated: ${name}`);
-    }
-    names.add(name);
 
     if (server.transport === "stdio") {
       const command = server.command.trim();
       if (!command) {
         throw new Error(`MCP stdio server ${name} requires a command.`);
       }
-      servers.push({
-        name,
-        transport: "stdio",
-        enabled: server.enabled,
-        disabledTools: [...new Set(server.disabledTools)],
-        command,
-        args: splitMcpLines(server.args),
-        env: parseMcpRecordText(server.env)
-      });
+      servers.push(
+        normalizeWorkspaceMcpServerConfig({
+          name: server.name,
+          transport: "stdio",
+          enabled: server.enabled,
+          disabledTools: server.disabledTools,
+          command: server.command,
+          args: splitMcpLines(server.args),
+          env: parseMcpRecordText(server.env)
+        })
+      );
       continue;
     }
 
@@ -1064,14 +1064,21 @@ export function buildMcpServersFromForm(
     if (!url) {
       throw new Error(`MCP HTTP server ${name} requires a URL.`);
     }
-    servers.push({
-      name,
-      transport: "http",
-      enabled: server.enabled,
-      disabledTools: [...new Set(server.disabledTools)],
-      url,
-      headers: parseMcpRecordText(server.headers)
-    });
+    servers.push(
+      normalizeWorkspaceMcpServerConfig({
+        name,
+        transport: "http",
+        enabled: server.enabled,
+        disabledTools: server.disabledTools,
+        url: server.url,
+        headers: parseMcpRecordText(server.headers)
+      })
+    );
+  }
+
+  const duplicateNames = findDuplicateWorkspaceMcpServerNames(servers);
+  if (duplicateNames.length > 0) {
+    throw new Error(`MCP server name is duplicated: ${duplicateNames[0]}`);
   }
 
   return servers;

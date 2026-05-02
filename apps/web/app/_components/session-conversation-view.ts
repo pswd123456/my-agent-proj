@@ -1,6 +1,6 @@
 import type { RunStreamEvent, SessionSnapshot } from "@ai-app-template/sdk";
 
-import { type TimelineItem } from "./session-timeline";
+import { getTimelineEventKey, type TimelineItem } from "./session-timeline";
 
 export type ConversationViewMode = "compact" | "debug";
 
@@ -542,6 +542,16 @@ function getCollapsedFlowAssistantAnchorKey(
   return null;
 }
 
+function isLiveAssistantTextItem(
+  item: ConversationViewItem,
+  streamEventKeys: Set<string>
+): boolean {
+  const assistantEvent = getAssistantEvent(item);
+  return assistantEvent
+    ? streamEventKeys.has(getTimelineEventKey(assistantEvent))
+    : false;
+}
+
 function isAssistantMessageItem(item: ConversationViewItem): boolean {
   return (
     item.type === "timeline" &&
@@ -640,8 +650,16 @@ function compactFinalFlowSegment(
     trailingItems.some(isRunCompleteItem) &&
     trailingItems.every(isRunCompleteItem);
   const endsOnFinalAssistant = trailingItems.length === 0;
+  const finalAssistantIsLive = isLiveAssistantTextItem(
+    finalAssistantItem,
+    streamEventKeys
+  );
 
   if (!hasOnlyTerminalTrailingItems && !endsOnFinalAssistant) {
+    return items;
+  }
+
+  if (finalAssistantIsLive && !hasOnlyTerminalTrailingItems) {
     return items;
   }
 

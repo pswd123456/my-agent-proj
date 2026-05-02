@@ -774,7 +774,7 @@ describe("session-message-manager", () => {
     ]);
   });
 
-  test("marks a streaming final assistant after tool execution as newly collapsed", () => {
+  test("does not auto-collapse live assistant text before the run terminal confirms it is final", () => {
     const session = createSession([
       userBlock("user-1", "总结一下", "2026-04-27T00:00:01.500Z")
     ]);
@@ -839,12 +839,10 @@ describe("session-message-manager", () => {
       state
     });
 
-    expect(projection.conversation.newlyCollapsedFlowKeys).toEqual([
-      "compact-collapsed-flow-assistant-live"
-    ]);
+    expect(projection.conversation.newlyCollapsedFlowKeys).toHaveLength(0);
     expect(compactKinds(projection)).toEqual([
       "user",
-      "compact-collapsed-flow",
+      "compact-tool",
       "assistant_text"
     ]);
   });

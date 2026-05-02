@@ -1318,8 +1318,8 @@ describe("buildConversationViewItems compact mode", () => {
     ).toBe(false);
   });
 
-  test("folds as soon as the final assistant starts streaming after tool execution", () => {
-    const streamingAssistantEvent: Extract<
+  test("does not fold live assistant text until the run terminal confirms it is final", () => {
+    const liveAssistantEvent: Extract<
       RunStreamEvent,
       { kind: "assistant_text" }
     > = {
@@ -1338,24 +1338,18 @@ describe("buildConversationViewItems compact mode", () => {
         eventItem(thinkingEvent),
         eventItem(currentToolCall),
         eventItem(currentToolResult),
-        eventItem(streamingAssistantEvent)
+        eventItem(liveAssistantEvent)
       ],
       mode: "compact",
-      streamEventKeys: new Set([getTimelineEventKey(streamingAssistantEvent)])
+      streamEventKeys: new Set([getTimelineEventKey(liveAssistantEvent)])
     });
 
     expect(view.map((item) => item.type)).toEqual([
       "timeline",
-      "compact-collapsed-flow",
+      "timeline",
+      "compact-tool",
       "timeline"
     ]);
-    if (view[1]?.type === "compact-collapsed-flow") {
-      expect(view[1].hiddenCount).toBe(1);
-      expect(view[1].originalItems.map((item) => item.type)).toEqual([
-        "timeline",
-        "compact-tool"
-      ]);
-    }
   });
 
   test("folds settled assistant history even when no run_complete event is present", () => {

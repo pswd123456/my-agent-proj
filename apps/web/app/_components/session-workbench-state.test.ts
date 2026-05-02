@@ -297,6 +297,87 @@ describe("MCP settings state", () => {
       }
     ]);
   });
+
+  test("normalizes MCP form servers before saving", () => {
+    expect(
+      buildMcpServersFromForm({
+        workingDirectory: "/tmp/workspace",
+        configPath: "/tmp/workspace/.agent/.config.toml",
+        foundConfig: true,
+        diagnostics: [],
+        servers: [
+          {
+            id: "server-1",
+            name: " local_echo ",
+            transport: "stdio",
+            enabled: true,
+            disabledTools: [" write ", "", "write"],
+            status: "unknown",
+            tools: [],
+            error: null,
+            command: " node ",
+            args: " server.js \n",
+            env: "",
+            url: "",
+            headers: ""
+          }
+        ]
+      })
+    ).toEqual([
+      {
+        name: "local_echo",
+        transport: "stdio",
+        enabled: true,
+        disabledTools: ["write"],
+        command: "node",
+        args: ["server.js"],
+        env: {}
+      }
+    ]);
+  });
+
+  test("treats trimmed MCP server names as duplicates", () => {
+    expect(() =>
+      buildMcpServersFromForm({
+        workingDirectory: "/tmp/workspace",
+        configPath: "/tmp/workspace/.agent/.config.toml",
+        foundConfig: true,
+        diagnostics: [],
+        servers: [
+          {
+            id: "server-1",
+            name: " local_echo ",
+            transport: "stdio",
+            enabled: true,
+            disabledTools: [],
+            status: "unknown",
+            tools: [],
+            error: null,
+            command: "node",
+            args: "",
+            env: "",
+            url: "",
+            headers: ""
+          },
+          {
+            id: "server-2",
+            name: "local_echo",
+            transport: "http",
+            enabled: true,
+            disabledTools: [],
+            status: "unknown",
+            tools: [],
+            error: null,
+            command: "",
+            args: "",
+            env: "",
+            url: "https://example.com/mcp",
+            headers: ""
+          }
+        ]
+      })
+    ).toThrow("MCP server name is duplicated: local_echo");
+  });
 });
 
 describe("settings shell patterns", () => {
