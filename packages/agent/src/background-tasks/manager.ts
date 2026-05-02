@@ -3,7 +3,6 @@ import type { BackgroundTaskManager, EnqueueBackgroundTaskInput } from "./contra
 import {
   type BackgroundTaskExecutor,
   type BackgroundTaskPayload,
-  type BackgroundTaskState,
   normalizeCapabilityPacks,
   sanitizeSessionMaxTurns
 } from "@ai-app-template/domain";
@@ -47,7 +46,8 @@ export class DefaultBackgroundTaskManager implements BackgroundTaskManager {
             model: input.model,
             maxTurns,
             enabledCapabilityPacks,
-            ...(typeof input.userId === "string" ? { userId: input.userId } : {})
+            userId:
+              input.userId ?? input.sessionSeed?.userId ?? "cli-user"
           })
       : null;
 
@@ -107,110 +107,65 @@ export class DefaultBackgroundTaskManager implements BackgroundTaskManager {
     }
   }
 
-  async claimNextTask(workerId: string) {
+  claimNextTask: BackgroundTaskRepository["claimNextTask"] = (workerId) => {
     return this.options.repository.claimNextTask(workerId);
-  }
+  };
 
-  async getTask(taskId: string) {
+  getTask: BackgroundTaskRepository["getTask"] = (taskId) => {
     return this.options.repository.getTask(taskId);
-  }
+  };
 
-  async getWakeupTaskBySessionId(sessionId: string) {
+  getWakeupTaskBySessionId: BackgroundTaskRepository["getWakeupTaskBySessionId"] = (
+    sessionId
+  ) => {
     return this.options.repository.getWakeupTaskBySessionId(sessionId);
-  }
+  };
 
-  async rescheduleQueuedTask(input: {
-    taskId: string;
-    payload?: BackgroundTaskPayload;
-    resultSummary?: string | null;
-    lastError?: string | null;
-    availableAt?: string | null;
-    deadlineAt?: string | null;
-  }) {
+  rescheduleQueuedTask: BackgroundTaskRepository["rescheduleQueuedTask"] = (
+    input
+  ) => {
     return this.options.repository.rescheduleQueuedTask(input);
-  }
+  };
 
-  async heartbeatTask(input: {
-    taskId: string;
-    runId: string;
-    workerId: string;
-  }) {
+  heartbeatTask: BackgroundTaskRepository["heartbeatTask"] = (input) => {
     return this.options.repository.heartbeatTask(input);
-  }
+  };
 
-  async markTaskRunning(input: {
-    taskId: string;
-    runId: string;
-    workerId: string;
-  }) {
+  markTaskRunning: BackgroundTaskRepository["markTaskRunning"] = (input) => {
     return this.options.repository.markTaskRunning(input);
-  }
+  };
 
-  async markTaskWaitingForInput(input: {
-    taskId: string;
-    runId: string;
-    workerId: string;
-    resultSummary?: string | null;
-    taskState?: BackgroundTaskState | null;
-  }) {
+  markTaskWaitingForInput: BackgroundTaskRepository["markTaskWaitingForInput"] = (
+    input
+  ) => {
     return this.options.repository.markTaskWaitingForInput(input);
-  }
+  };
 
-  async markTaskWaitingForMainAgent(input: {
-    taskId: string;
-    runId: string;
-    workerId: string;
-    resultSummary?: string | null;
-    taskState?: BackgroundTaskState | null;
-  }) {
+  markTaskWaitingForMainAgent: BackgroundTaskRepository["markTaskWaitingForMainAgent"] = (
+    input
+  ) => {
     return this.options.repository.markTaskWaitingForMainAgent(input);
-  }
+  };
 
-  async completeTask(input: {
-    taskId: string;
-    runId: string;
-    workerId: string;
-    resultSummary?: string | null;
-    taskState?: BackgroundTaskState | null;
-  }) {
+  completeTask: BackgroundTaskRepository["completeTask"] = (input) => {
     return this.options.repository.completeTask(input);
-  }
+  };
 
-  async failTask(input: {
-    taskId: string;
-    runId: string;
-    workerId: string;
-    errorSummary: string;
-    resultSummary?: string | null;
-    taskState?: BackgroundTaskState | null;
-  }) {
+  failTask: BackgroundTaskRepository["failTask"] = (input) => {
     return this.options.repository.failTask(input);
-  }
+  };
 
-  async requestCancel(taskId: string) {
+  requestCancel: BackgroundTaskRepository["requestCancel"] = (taskId) => {
     return this.options.repository.requestCancel(taskId);
-  }
+  };
 
-  async cancelTask(input: {
-    taskId: string;
-    runId: string;
-    workerId: string;
-    resultSummary?: string | null;
-    taskState?: BackgroundTaskState | null;
-  }) {
+  cancelTask: BackgroundTaskRepository["cancelTask"] = (input) => {
     return this.options.repository.cancelTask(input);
-  }
+  };
 
-  async requeueTask(input: {
-    taskId: string;
-    payload?: BackgroundTaskPayload;
-    taskState?: BackgroundTaskState | null;
-    resultSummary?: string | null;
-    lastError?: string | null;
-    availableAt?: string | null;
-    deadlineAt?: string | null;
-    maxAttempts?: number;
-  }) {
+  async requeueTask(
+    input: Parameters<BackgroundTaskRepository["requeueTask"]>[0]
+  ) {
     return this.options.repository.requeueTask({
       ...input,
       availableAt: input.availableAt ?? null,
@@ -224,9 +179,11 @@ export class DefaultBackgroundTaskManager implements BackgroundTaskManager {
     });
   }
 
-  async requeueStaleClaims(staleBefore: string) {
+  requeueStaleClaims: BackgroundTaskRepository["requeueStaleClaims"] = (
+    staleBefore
+  ) => {
     return this.options.repository.requeueStaleClaims(staleBefore);
-  }
+  };
 
   async listTasksByParentSession(parentSessionId: string) {
     const tasks = await this.options.repository.listTasks();

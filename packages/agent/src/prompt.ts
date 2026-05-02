@@ -17,7 +17,10 @@ import type { ToolRegistry } from "./tools/registry.js";
 import type { WorkspaceInstructionsDescriptor } from "./workspace-instructions/index.js";
 import type { ResolvedUserContextHookSection } from "./context-hooks.js";
 import type { HookContextEntry } from "@ai-app-template/domain";
-import { normalizeCapabilityPacks } from "@ai-app-template/domain";
+import {
+  PLANNING_STATE_TOOL_NAMES,
+  normalizeCapabilityPacks
+} from "@ai-app-template/domain";
 import {
   describeTaskBriefBinding,
   type TaskBriefBindingInfo
@@ -125,11 +128,9 @@ const EPHEMERAL_CACHE_CONTROL = {
   type: "ephemeral"
 } as const;
 
-const PLAN_MODE_DISABLED_TOOL_NAMES = new Set([
-  "get_todo_list",
-  "replace_todo_list",
-  "update_todo_items"
-]);
+const PLAN_MODE_DISABLED_TOOL_NAMES = new Set<string>(
+  PLANNING_STATE_TOOL_NAMES
+);
 
 export const HISTORY_COMPACTION_TRIGGER_RATIO = 0.95;
 export const HISTORY_COMPACTION_TAIL_MESSAGES = 18;

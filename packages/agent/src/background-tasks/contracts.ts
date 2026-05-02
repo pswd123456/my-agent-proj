@@ -1,5 +1,4 @@
 import type {
-  BackgroundTaskClaim,
   BackgroundTaskPayload,
   BackgroundTaskKind,
   BackgroundTaskRecord,
@@ -8,6 +7,7 @@ import type {
   BackgroundTaskWaitMode,
   CapabilityPackName,
 } from "@ai-app-template/domain";
+import type { BackgroundTaskRepository } from "@ai-app-template/db";
 
 import type { CreateSessionInput, JsonValue, SessionSnapshot } from "../types.js";
 
@@ -34,79 +34,27 @@ export interface EnqueueBackgroundTaskInput {
   availableAt?: string | null;
 }
 
-export interface BackgroundTaskManager {
+type BackgroundTaskRepositoryManagerMethods = Pick<
+  BackgroundTaskRepository,
+  | "claimNextTask"
+  | "heartbeatTask"
+  | "markTaskRunning"
+  | "markTaskWaitingForInput"
+  | "markTaskWaitingForMainAgent"
+  | "completeTask"
+  | "failTask"
+  | "requestCancel"
+  | "cancelTask"
+  | "getTask"
+  | "getWakeupTaskBySessionId"
+  | "rescheduleQueuedTask"
+  | "requeueTask"
+  | "requeueStaleClaims"
+>;
+
+export interface BackgroundTaskManager
+  extends BackgroundTaskRepositoryManagerMethods {
   enqueueTask(input: EnqueueBackgroundTaskInput): Promise<BackgroundTaskRecord>;
-  claimNextTask(workerId: string): Promise<BackgroundTaskClaim | null>;
-  heartbeatTask(input: {
-    taskId: string;
-    runId: string;
-    workerId: string;
-  }): Promise<BackgroundTaskClaim | null>;
-  markTaskRunning(input: {
-    taskId: string;
-    runId: string;
-    workerId: string;
-  }): Promise<BackgroundTaskClaim>;
-  markTaskWaitingForInput(input: {
-    taskId: string;
-    runId: string;
-    workerId: string;
-    resultSummary?: string | null;
-    taskState?: BackgroundTaskState | null;
-  }): Promise<BackgroundTaskClaim>;
-  markTaskWaitingForMainAgent(input: {
-    taskId: string;
-    runId: string;
-    workerId: string;
-    resultSummary?: string | null;
-    taskState?: BackgroundTaskState | null;
-  }): Promise<BackgroundTaskClaim>;
-  completeTask(input: {
-    taskId: string;
-    runId: string;
-    workerId: string;
-    resultSummary?: string | null;
-    taskState?: BackgroundTaskState | null;
-  }): Promise<BackgroundTaskClaim>;
-  failTask(input: {
-    taskId: string;
-    runId: string;
-    workerId: string;
-    errorSummary: string;
-    resultSummary?: string | null;
-    taskState?: BackgroundTaskState | null;
-  }): Promise<BackgroundTaskClaim>;
-  requestCancel(taskId: string): Promise<BackgroundTaskRecord | null>;
-  cancelTask(input: {
-    taskId: string;
-    runId: string;
-    workerId: string;
-    resultSummary?: string | null;
-    taskState?: BackgroundTaskState | null;
-  }): Promise<BackgroundTaskClaim>;
-  getTask(taskId: string): Promise<BackgroundTaskRecord | null>;
-  getWakeupTaskBySessionId(
-    sessionId: string
-  ): Promise<BackgroundTaskRecord | null>;
-  rescheduleQueuedTask(input: {
-    taskId: string;
-    payload?: BackgroundTaskPayload;
-    resultSummary?: string | null;
-    lastError?: string | null;
-    availableAt?: string | null;
-    deadlineAt?: string | null;
-  }): Promise<BackgroundTaskRecord>;
-  requeueTask(input: {
-    taskId: string;
-    payload?: BackgroundTaskPayload;
-    taskState?: BackgroundTaskState | null;
-    resultSummary?: string | null;
-    lastError?: string | null;
-    availableAt?: string | null;
-    deadlineAt?: string | null;
-    maxAttempts?: number;
-  }): Promise<BackgroundTaskRecord>;
-  requeueStaleClaims(staleBefore: string): Promise<BackgroundTaskRecord[]>;
   listTasksByParentSession(
     parentSessionId: string
   ): Promise<BackgroundTaskRecord[]>;

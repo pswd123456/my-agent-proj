@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createPostgresTestSessionManager } from "../../../tests/helpers/postgres-session-manager.js";
 
 import {
   hasActiveExecutionLease,
@@ -8,7 +9,7 @@ import {
   toIsoString,
   type SessionMessageRow
 } from "../src/session/postgres-session-manager.js";
-import { isConversationBlock } from "../src/session/shared.js";
+import { createSnapshot, isConversationBlock } from "../src/session/shared.js";
 import { DEFAULT_EXECUTION_LEASE_TIMEOUT_MS } from "../src/session/contracts.js";
 
 describe("toIsoString", () => {
@@ -250,5 +251,73 @@ describe("hasActiveExecutionLease", () => {
         activeRunStartedAt: null
       })
     ).toBe(false);
+  });
+});
+
+describe("PostgresSessionManager fork checkpoints", () => {
+  test("upserts fork checkpoints by assistant message", async () => {
+    const sessionManager = await createPostgresTestSessionManager();
+    let session = createSnapshot({
+      sessionId: sessionManager.testId("fork-upsert-session"),
+      workingDirectory: "/tmp/workspace",
+      model: "MiniMax-M2.7",
+      userId: "fork-upsert-user"
+    });
+    session.messages = [
+      {
+        id: sessionManager.testId("user-1"),
+        kind: "user",
+        content: "开始",
+        createdAt: "2026-05-02T00:00:00.000Z"
+      },
+      {
+        id: sessionManager.testId("assistant-1"),
+        kind: "assistant",
+        content: "我先处理。",
+        createdAt: "2026-05-02T00:00:01.000Z"
+      }
+    ];
+    session = await sessionManager.recover(session);
+
+    const checkpoint = {
+      id: sessionManager.testId("checkpoint-1"),
+      sessionId: session.sessionId,
+      assistantMessageId: sessionManager.testId("assistant-1"),
+      turnCount: 1,
+      baseMessageCount: 2,
+      responseGroupId: "group-1",
+      snapshot: session,
+      promptSeed: {
+        system: "system",
+        requestMessages: [],
+        runtimeContextMessages: [],
+        tools: [],
+        toolChoice: null
+      },
+      createdAt: "2026-05-02T00:00:02.000Z",
+      updatedAt: "2026-05-02T00:00:02.000Z"
+    };
+
+    const firstSaved = await sessionManager.saveForkCheckpoint(checkpoint);
+    const secondSaved = await sessionManager.saveForkCheckpoint({
+      ...checkpoint,
+      id: sessionManager.testId("checkpoint-2"),
+      turnCount: 2,
+      baseMessageCount: 3,
+      responseGroupId: "group-2",
+      createdAt: "2026-05-02T00:00:03.000Z",
+      updatedAt: "2026-05-02T00:00:03.000Z"
+    });
+
+    expect(secondSaved.id).toBe(firstSaved.id);
+    expect(secondSaved.turnCount).toBe(2);
+    expect(secondSaved.baseMessageCount).toBe(3);
+    expect(secondSaved.responseGroupId).toBe("group-2");
+
+    const checkpoints = await sessionManager.listForkCheckpoints(
+      session.sessionId
+    );
+    expect(checkpoints).toHaveLength(1);
+    expect(checkpoints[0]?.id).toBe(firstSaved.id);
   });
 });

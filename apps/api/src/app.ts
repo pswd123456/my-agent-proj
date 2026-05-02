@@ -42,18 +42,18 @@ import type {
 } from "@ai-app-template/agent";
 import {
   DEFAULT_SESSION_SETTINGS_USER_ID,
-  SESSION_MAX_TURNS_LIMIT,
-  THINKING_EFFORT_OPTIONS,
-  USER_CONTEXT_HOOK_BEHAVIOR_OPTIONS,
-  USER_CONTEXT_HOOK_EVENT_OPTIONS,
-  USER_CONTEXT_HOOK_WAIT_MODE_OPTIONS,
+  createSessionPayloadSchema,
+  executeSessionPayloadSchema,
   isWorkspaceSkillEnabled,
   normalizeThinkingEffort,
   normalizeCapabilityPacks,
   normalizeSettingsPermissionRules,
   sanitizeContextWindow,
   sanitizeSessionMaxTurns,
+  updateSessionSettingsPayloadSchema,
+  updateUserSettingsPayloadSchema,
   type SettingsPermissionToolOption,
+  type UpdateUserSettingsPayload,
   type WorkspaceSkillSettingRecord
 } from "@ai-app-template/domain";
 import type {
@@ -78,27 +78,6 @@ export interface ApiAppContext {
   };
 }
 
-const createSessionBodySchema = z.object({
-  workingDirectory: z.string().optional(),
-  model: z.string().optional(),
-  thinkingEffort: z.enum(THINKING_EFFORT_OPTIONS).optional(),
-  userId: z.string().optional(),
-  yoloMode: z.boolean().optional(),
-  planModeEnabled: z.boolean().optional(),
-  contextWindow: z.number().int().min(1000).optional(),
-  maxTurns: z.number().int().min(1).optional(),
-  enabledCapabilityPacks: z.array(z.string()).optional()
-});
-
-function hasAnyDefinedField<T extends Record<string, unknown>>(
-  value: T,
-  fieldNames: readonly (keyof T)[]
-): boolean {
-  return fieldNames.some(
-    (fieldName) => typeof value[fieldName] !== "undefined"
-  );
-}
-
 const createSessionForkBodySchema = z
   .object({
     checkpointId: z.string().optional(),
@@ -115,83 +94,8 @@ const createSessionForkBodySchema = z
     }
   );
 
-const updateSessionSettingsBodyShape = {
-  model: z.string().optional(),
-  thinkingEffort: z.enum(THINKING_EFFORT_OPTIONS).optional(),
-  yoloMode: z.boolean().optional(),
-  planModeEnabled: z.boolean().optional(),
-  shellAllowPatterns: z.array(z.string()).optional(),
-  shellDenyPatterns: z.array(z.string()).optional(),
-  toolAllowList: z.array(z.string()).optional(),
-  toolAskList: z.array(z.string()).optional(),
-  toolDenyList: z.array(z.string()).optional(),
-  enabledCapabilityPacks: z.array(z.string()).optional()
-};
-
-const updateSessionSettingsFieldNames = Object.keys(
-  updateSessionSettingsBodyShape
-) as Array<keyof typeof updateSessionSettingsBodyShape>;
-
-const updateSessionSettingsBodySchema = z
-  .object(updateSessionSettingsBodyShape)
-  .refine(
-    (value) => hasAnyDefinedField(value, updateSessionSettingsFieldNames),
-    {
-      message: "At least one session settings field is required."
-    }
-  );
-
-const updateUserSettingsBodyShape = {
-  workingDirectory: z.string().optional(),
-  model: z.string().optional(),
-  thinkingEffort: z.enum(THINKING_EFFORT_OPTIONS).optional(),
-  yoloMode: z.boolean().optional(),
-  contextWindow: z.number().int().min(1000).optional(),
-  maxTurns: z.number().int().min(1).optional(),
-  shellAllowPatterns: z.array(z.string()).optional(),
-  shellDenyPatterns: z.array(z.string()).optional(),
-  toolAllowList: z.array(z.string()).optional(),
-  toolAskList: z.array(z.string()).optional(),
-  toolDenyList: z.array(z.string()).optional(),
-  enabledCapabilityPacks: z.array(z.string()).optional(),
-  workspaceSkillSettings: z
-    .array(
-      z.object({
-        skillName: z.string().min(1),
-        enabled: z.boolean()
-      })
-    )
-    .optional(),
-  userContextHooks: z
-    .array(
-      z.object({
-        id: z.string().min(1),
-        event: z.enum(USER_CONTEXT_HOOK_EVENT_OPTIONS),
-        behavior: z.enum(USER_CONTEXT_HOOK_BEHAVIOR_OPTIONS).optional(),
-        waitMode: z.enum(USER_CONTEXT_HOOK_WAIT_MODE_OPTIONS).optional(),
-        maxTurns: z.number().int().min(1).optional(),
-        title: z.string(),
-        content: z.string().min(1),
-        enabled: z.boolean()
-      })
-    )
-    .optional(),
-  debugConversationView: z.boolean().optional(),
-  userCustomPrompt: z.string().optional()
-};
-
-const updateUserSettingsFieldNames = Object.keys(
-  updateUserSettingsBodyShape
-) as Array<keyof typeof updateUserSettingsBodyShape>;
-
-const updateUserSettingsBodySchema = z
-  .object(updateUserSettingsBodyShape)
-  .refine((value) => hasAnyDefinedField(value, updateUserSettingsFieldNames), {
-    message: "At least one settings field is required."
-  });
-
 function toUserContextHookRecords(
-  hooks: z.infer<typeof updateUserSettingsBodySchema>["userContextHooks"]
+  hooks: UpdateUserSettingsPayload["userContextHooks"]
 ): UserContextHookRecord[] | undefined {
   if (!Array.isArray(hooks)) {
     return undefined;
@@ -210,9 +114,7 @@ function toUserContextHookRecords(
 }
 
 function toWorkspaceSkillSettingRecords(
-  settings: z.infer<
-    typeof updateUserSettingsBodySchema
-  >["workspaceSkillSettings"]
+  settings: UpdateUserSettingsPayload["workspaceSkillSettings"]
 ): WorkspaceSkillSettingRecord[] | undefined {
   if (!Array.isArray(settings)) {
     return undefined;
@@ -297,12 +199,6 @@ function matchesSessionSearch(
     return block.content.toLocaleLowerCase().includes(normalizedQuery);
   });
 }
-
-const executeSessionBodySchema = z.object({
-  message: z.string().min(1),
-  maxTurns: z.number().int().min(1).max(SESSION_MAX_TURNS_LIMIT).optional(),
-  permissionReply: z.boolean().optional()
-});
 
 const workspaceFileChangeSchema = z.object({
   path: z.string().min(1),
@@ -961,7 +857,7 @@ export function createApiApp(dependencies: ApiAppDependencies) {
 
   app.post("/sessions", async (c) => {
     const requestId = getRequestId(c);
-    const body = createSessionBodySchema.parse(await c.req.json());
+    const body = createSessionPayloadSchema.parse(await c.req.json());
     const userId = resolveUserId(dependencies, body.userId);
     const settings = await dependencies.settingsRepository.getOrCreate(userId);
     const requestedModel = resolveRequestedModel(dependencies, body.model);
@@ -1065,7 +961,7 @@ export function createApiApp(dependencies: ApiAppDependencies) {
 
   app.patch("/users/:userId/settings", async (c) => {
     const userId = resolveUserId(dependencies, c.req.param("userId"));
-    const body = updateUserSettingsBodySchema.parse(await c.req.json());
+    const body = updateUserSettingsPayloadSchema.parse(await c.req.json());
     const requestedModel = resolveRequestedModel(dependencies, body.model);
     const workspaceSkillSettings = toWorkspaceSkillSettingRecords(
       body.workspaceSkillSettings
@@ -1228,7 +1124,7 @@ export function createApiApp(dependencies: ApiAppDependencies) {
       return c.json({ error: "Session not found." }, 404);
     }
 
-    const body = updateSessionSettingsBodySchema.parse(await c.req.json());
+    const body = updateSessionSettingsPayloadSchema.parse(await c.req.json());
     const requestedModel = resolveRequestedModel(dependencies, body.model);
     const permissionRules = normalizeSettingsPermissionRules(
       {
@@ -1522,7 +1418,7 @@ export function createApiApp(dependencies: ApiAppDependencies) {
       );
     }
 
-    const body = executeSessionBodySchema.parse(await c.req.json());
+    const body = executeSessionPayloadSchema.parse(await c.req.json());
     const sessionId = c.req.param("sessionId");
     const currentSession =
       await dependencies.sessionManager.getSession(sessionId);
@@ -1575,7 +1471,7 @@ export function createApiApp(dependencies: ApiAppDependencies) {
       );
     }
 
-    const body = executeSessionBodySchema.parse(await c.req.json());
+    const body = executeSessionPayloadSchema.parse(await c.req.json());
     const sessionId = c.req.param("sessionId");
     const currentSession =
       await dependencies.sessionManager.getSession(sessionId);

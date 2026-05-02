@@ -1,4 +1,7 @@
-import type { PendingPermissionRequest } from "@ai-app-template/domain";
+import {
+  PLANNING_STATE_TOOL_NAMES,
+  type PendingPermissionRequest
+} from "@ai-app-template/domain";
 
 import { createToolResult } from "../tools/tool-result.js";
 import type {
@@ -30,11 +33,9 @@ export type PermissionCheckResult =
   | PermissionAskUserResult
   | PermissionBlockResult;
 
-const PLAN_MODE_DISABLED_TODO_TOOLS = new Set([
-  "get_todo_list",
-  "replace_todo_list",
-  "update_todo_items"
-]);
+const PLAN_MODE_DISABLED_TODO_TOOLS = new Set<string>(
+  PLANNING_STATE_TOOL_NAMES
+);
 
 function isYoloAutoAllowTool(tool: RuntimeTool): boolean {
   return (

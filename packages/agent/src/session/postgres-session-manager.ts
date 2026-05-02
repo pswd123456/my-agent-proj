@@ -823,7 +823,7 @@ export class PostgresSessionManager implements SessionManager {
   ): Promise<SessionForkCheckpoint> {
     const nextCheckpoint = structuredClone(checkpoint) as SessionForkCheckpoint;
     const savedAt = new Date().toISOString();
-    await this.db
+    const rows = await this.db
       .insert(sessionForkCheckpoints)
       .values({
         id: nextCheckpoint.id,
@@ -844,9 +844,11 @@ export class PostgresSessionManager implements SessionManager {
         updatedAt: savedAt
       })
       .onConflictDoUpdate({
-        target: sessionForkCheckpoints.id,
+        target: [
+          sessionForkCheckpoints.sessionId,
+          sessionForkCheckpoints.assistantMessageId
+        ],
         set: {
-          assistantMessageId: nextCheckpoint.assistantMessageId,
           turnCount: nextCheckpoint.turnCount,
           baseMessageCount: nextCheckpoint.baseMessageCount,
           responseGroupId: nextCheckpoint.responseGroupId ?? null,
@@ -860,9 +862,10 @@ export class PostgresSessionManager implements SessionManager {
           >,
           updatedAt: savedAt
         }
-      });
+      })
+      .returning();
 
-    const saved = await this.getForkCheckpoint(nextCheckpoint.id);
+    const saved = rows[0] ? toSessionForkCheckpoint(rows[0]) : null;
     if (!saved) {
       throw new Error(`Failed to save fork checkpoint ${nextCheckpoint.id}`);
     }
