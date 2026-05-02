@@ -489,6 +489,7 @@ export class ApiClient {
     payload: RecoverRewriteTargetPayload
   ): Promise<{
     session: SessionSnapshot;
+    traceRecords: TraceRecord[];
     forkTargets: SessionForkTarget[];
     rewriteTarget: SessionRewriteTarget | null;
   }> {
@@ -504,6 +505,7 @@ export class ApiClient {
       result.json()
     )) as {
       session: SessionSnapshot;
+      traceRecords: TraceRecord[];
       forkTargets: SessionForkTarget[];
       rewriteTarget: SessionRewriteTarget | null;
     };
