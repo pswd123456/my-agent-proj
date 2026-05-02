@@ -167,7 +167,7 @@
 - 申请 / 释放 execution lease
 - 中断正在运行的 session
 
-当前主链路用的是 `PostgresSessionManager`。`memory` / `file` 实现更多是测试或调试用途，不是应用默认路径。
+当前仓库只保留 `PostgresSessionManager` 这一条 session 持久化实现。测试与 smoke 也通过 PostgreSQL 夹具运行，避免新增 session 字段或执行锁语义时出现多套实现漂移。
 
 ## 设计边界
 

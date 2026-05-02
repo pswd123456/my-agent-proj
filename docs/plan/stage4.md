@@ -95,8 +95,7 @@ Stage 4 固定采用单一 `Flat Tool Registry` 作为 runtime 标准入口。
 - `write_file`
 - `create_directory`
 - `delete_path`
-- `move_path`
-- `copy_path`
+- `manage_path`
 
 #### shell 类
 
@@ -344,8 +343,8 @@ trace 至少要能回答：
 - 新建目录不触发审批，可直接执行
 - 对已存在文件执行写操作时，会进入权限等待
 - `delete_path` 会进入权限等待
-- `move_path` 会进入权限等待
-- `copy_path` 在目标已存在时会进入权限等待
+- `manage_path` 的 `move` 操作会进入权限等待
+- `manage_path` 的 `copy` 操作在目标已存在时会进入权限等待
 - shell 工具总是进入权限等待
 - network 工具总是进入权限等待
 - 任意文件路径越出 `workingDirectory` 时直接阻断，不进入审批

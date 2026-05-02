@@ -158,8 +158,7 @@
 
 - `create_directory`
 - `write_file`
-- `copy_path`
-- `move_path`
+- `manage_path`
 - `delete_path`
 - `apply_patch`
 - `get_todo_list`
