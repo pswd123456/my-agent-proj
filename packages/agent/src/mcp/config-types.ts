@@ -1,62 +1,100 @@
-export type WorkspaceMcpTransportKind = "stdio" | "http";
+import { z } from "zod";
 
-export interface WorkspaceMcpConfigDiagnostic {
-  scope: "file" | "server";
-  code:
-    | "invalid_toml"
-    | "invalid_root"
-    | "duplicate_server"
-    | "invalid_server"
-    | "invalid_field";
-  message: string;
-  serverName?: string;
-}
+export const workspaceMcpTransportKindSchema = z.enum(["stdio", "http"]);
 
-export interface WorkspaceMcpStdioServerConfig {
-  name: string;
-  transport: "stdio";
-  enabled: boolean;
-  disabledTools: string[];
-  command: string;
-  args: string[];
-  env: Record<string, string>;
-}
+export type WorkspaceMcpTransportKind = z.infer<
+  typeof workspaceMcpTransportKindSchema
+>;
 
-export interface WorkspaceMcpHttpServerConfig {
-  name: string;
-  transport: "http";
-  enabled: boolean;
-  disabledTools: string[];
-  url: string;
-  headers: Record<string, string>;
-}
+export const workspaceMcpConfigDiagnosticSchema = z.object({
+  scope: z.enum(["file", "server"]),
+  code: z.enum([
+    "invalid_toml",
+    "invalid_root",
+    "duplicate_server",
+    "invalid_server",
+    "invalid_field"
+  ]),
+  message: z.string(),
+  serverName: z.string().optional()
+});
 
-export type WorkspaceMcpServerConfig =
-  | WorkspaceMcpStdioServerConfig
-  | WorkspaceMcpHttpServerConfig;
+export type WorkspaceMcpConfigDiagnostic = z.infer<
+  typeof workspaceMcpConfigDiagnosticSchema
+>;
 
-export interface WorkspaceMcpConfigLoadResult {
-  configPath: string;
-  foundConfig: boolean;
-  servers: WorkspaceMcpServerConfig[];
-  diagnostics: WorkspaceMcpConfigDiagnostic[];
-}
+const workspaceMcpStringRecordSchema = z.record(z.string(), z.string());
 
-export interface WorkspaceMcpServerLoadSummary {
-  name: string;
-  transport: WorkspaceMcpTransportKind;
-  status: "loaded" | "failed" | "disabled";
-  toolNames: string[];
-  tools?: WorkspaceMcpToolLoadSummary[];
-  error?: string;
-}
+export const workspaceMcpStdioServerConfigSchema = z.object({
+  name: z.string().trim().min(1),
+  transport: z.literal("stdio"),
+  enabled: z.boolean(),
+  disabledTools: z.array(z.string()),
+  command: z.string().trim().min(1),
+  args: z.array(z.string()),
+  env: workspaceMcpStringRecordSchema
+});
 
-export interface WorkspaceMcpToolLoadSummary {
-  name: string;
-  runtimeName: string;
-  description: string | null;
-  enabled: boolean;
-}
+export type WorkspaceMcpStdioServerConfig = z.infer<
+  typeof workspaceMcpStdioServerConfigSchema
+>;
+
+export const workspaceMcpHttpServerConfigSchema = z.object({
+  name: z.string().trim().min(1),
+  transport: z.literal("http"),
+  enabled: z.boolean(),
+  disabledTools: z.array(z.string()),
+  url: z.string().trim().url(),
+  headers: workspaceMcpStringRecordSchema
+});
+
+export type WorkspaceMcpHttpServerConfig = z.infer<
+  typeof workspaceMcpHttpServerConfigSchema
+>;
+
+export const workspaceMcpServerConfigSchema = z.discriminatedUnion(
+  "transport",
+  [workspaceMcpStdioServerConfigSchema, workspaceMcpHttpServerConfigSchema]
+);
+
+export type WorkspaceMcpServerConfig = z.infer<
+  typeof workspaceMcpServerConfigSchema
+>;
+
+export const workspaceMcpConfigLoadResultSchema = z.object({
+  configPath: z.string(),
+  foundConfig: z.boolean(),
+  servers: z.array(workspaceMcpServerConfigSchema),
+  diagnostics: z.array(workspaceMcpConfigDiagnosticSchema)
+});
+
+export type WorkspaceMcpConfigLoadResult = z.infer<
+  typeof workspaceMcpConfigLoadResultSchema
+>;
+
+export const workspaceMcpToolLoadSummarySchema = z.object({
+  name: z.string(),
+  runtimeName: z.string(),
+  description: z.string().nullable(),
+  enabled: z.boolean()
+});
+
+export type WorkspaceMcpToolLoadSummary = z.infer<
+  typeof workspaceMcpToolLoadSummarySchema
+>;
+
+export const workspaceMcpServerLoadSummarySchema = z.object({
+  name: z.string(),
+  transport: workspaceMcpTransportKindSchema,
+  status: z.enum(["loaded", "failed", "disabled"]),
+  toolNames: z.array(z.string()),
+  tools: z.array(workspaceMcpToolLoadSummarySchema).optional(),
+  error: z.string().optional()
+});
+
+export type WorkspaceMcpServerLoadSummary = z.infer<
+  typeof workspaceMcpServerLoadSummarySchema
+>;
 
 export interface WorkspaceMcpLoadResult {
   configPath: string;

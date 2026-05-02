@@ -3,7 +3,8 @@ import { describe, expect, test } from "bun:test";
 import {
   buildForkReplayRequestMessages,
   cloneForkSessionSnapshot,
-  createSnapshot
+  createSnapshot,
+  resolveTaskBriefPathForFork
 } from "../src/session/index.js";
 import type { SessionForkCheckpoint } from "../src/types.js";
 
@@ -159,5 +160,17 @@ describe("session fork helpers", () => {
     ).toEqual(
       checkpoint.snapshot.messages.map(({ id: _id, ...message }) => message)
     );
+  });
+
+  test("maps a named task brief onto the fork session path with the same file name", () => {
+    expect(
+      resolveTaskBriefPathForFork({
+        workingDirectory: "/tmp/workspace",
+        sourceSessionId: "source-session",
+        sourceTaskBriefPath: "/tmp/workspace/.agent/plans/source-session/plan.md",
+        targetSessionId: "fork-session",
+        planModeEnabled: true
+      })
+    ).toBe("/tmp/workspace/.agent/plans/fork-session/plan.md");
   });
 });

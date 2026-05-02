@@ -6,7 +6,6 @@ import {
   createPostgresTestSessionManager,
   type PostgresTestSessionManager
 } from "../../../tests/helpers/postgres-session-manager.js";
-import { resolveLegacyTaskBriefPath } from "../src/session/task-brief.js";
 import {
   createEditTaskBriefTool,
   createGetTaskBriefTool,
@@ -413,65 +412,6 @@ describe("todo tools", () => {
     const replaceResult = await createReplaceTaskBriefTool().execute(
       {
         content: "# Task Brief\n\n## Goal\nJump joy web game\n"
-      },
-      await createSessionContext(sessionManager, session.sessionId)
-    );
-
-    expect(replaceResult.state).toBe("failed");
-    expect(replaceResult.content).toContain("Provide plan_name");
-  });
-
-  test("replace_task_brief upgrades a legacy flat binding when plan_name is provided", async () => {
-    const sessionManager = await createPostgresTestSessionManager();
-    const session = await sessionManager.createSession({
-      workingDirectory: "/tmp/workspace",
-      userId: "todo-user",
-      planModeEnabled: true
-    });
-    await sessionManager.updateContext(session.sessionId, {
-      taskBriefPath: resolveLegacyTaskBriefPath(
-        "/tmp/workspace",
-        session.sessionId
-      )
-    });
-
-    const content = "# Task Brief\n\n## Goal\nUpgrade legacy plan path\n";
-    const replaceResult = await createReplaceTaskBriefTool().execute(
-      { plan_name: "upgrade_legacy_plan", content },
-      await createSessionContext(sessionManager, session.sessionId)
-    );
-
-    expect(replaceResult.state).toBe("success");
-
-    const persisted = await sessionManager.getSession(session.sessionId);
-    expect(persisted?.context.taskBriefPath).toBe(
-      path.join(
-        "/tmp/workspace",
-        ".agent",
-        "plans",
-        session.sessionId,
-        "upgrade_legacy_plan.md"
-      )
-    );
-  });
-
-  test("replace_task_brief asks for plan_name when a legacy binding has no file yet", async () => {
-    const sessionManager = await createPostgresTestSessionManager();
-    const session = await sessionManager.createSession({
-      workingDirectory: "/tmp/workspace",
-      userId: "todo-user",
-      planModeEnabled: true
-    });
-    await sessionManager.updateContext(session.sessionId, {
-      taskBriefPath: resolveLegacyTaskBriefPath(
-        "/tmp/workspace",
-        session.sessionId
-      )
-    });
-
-    const replaceResult = await createReplaceTaskBriefTool().execute(
-      {
-        content: "# Task Brief\n\n## Goal\nUpgrade legacy plan path\n"
       },
       await createSessionContext(sessionManager, session.sessionId)
     );

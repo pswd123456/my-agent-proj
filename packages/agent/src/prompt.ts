@@ -328,8 +328,6 @@ function createTaskBriefWriteRule(binding: TaskBriefBindingInfo): string {
   switch (binding.state) {
     case "unbound":
       return "include plan_name on the first replace_task_brief call.";
-    case "bound_legacy":
-      return "include plan_name on the next replace_task_brief call to upgrade this legacy binding.";
     case "bound_named":
       return binding.planFileName
         ? `omit plan_name unless you are reusing ${binding.planFileName}.`

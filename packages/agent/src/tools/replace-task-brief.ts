@@ -1,4 +1,4 @@
-import { existsSync, promises as fs } from "node:fs";
+import { promises as fs } from "node:fs";
 import path from "node:path";
 
 import { z } from "zod";
@@ -57,38 +57,6 @@ async function getBoundTaskBriefPath(
     }
 
     return { ok: true, path: binding.path };
-  }
-
-  if (binding.state === "bound_legacy" && binding.path) {
-    if (typeof planName === "string" && planName.trim().length > 0) {
-      const normalizedPlanName = normalizeTaskBriefPlanName(planName);
-      if (!normalizedPlanName) {
-        return {
-          ok: false,
-          message: "The provided plan_name is invalid."
-        };
-      }
-      const nextPath = resolveTaskBriefPath(
-        context.workingDirectory,
-        context.sessionId,
-        normalizedPlanName
-      );
-      await context.sessionManager.updateContext(context.sessionId, {
-        taskBriefPath: nextPath
-      });
-      context.sessionContext.taskBriefPath = nextPath;
-      return { ok: true, path: nextPath };
-    }
-
-    if (existsSync(binding.path)) {
-      return { ok: true, path: binding.path };
-    }
-
-    return {
-      ok: false,
-      message:
-        "This session uses a legacy task brief binding without a file yet. Provide plan_name on the next replace_task_brief call to upgrade it to a named path."
-    };
   }
 
   if (binding.state === "invalid") {

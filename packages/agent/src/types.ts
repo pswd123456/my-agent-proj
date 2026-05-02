@@ -8,6 +8,7 @@ import type {
   AnthropicToolChoice,
   AnthropicToolDefinition
 } from "./model.js";
+import { z } from "zod";
 
 export type LoopState =
   | "running"
@@ -25,15 +26,27 @@ export type JsonValue =
   | JsonValue[]
   | { readonly [key: string]: JsonValue };
 
-export type WorkspaceFileChangeAction = "modify" | "create" | "delete";
+export const workspaceFileChangeActionSchema = z.enum([
+  "modify",
+  "create",
+  "delete"
+]);
 
-export interface WorkspaceFileChangeSummary {
-  path: string;
-  action: WorkspaceFileChangeAction;
-  addedLineCount: number;
-  removedLineCount: number;
-  diff: string;
-}
+export type WorkspaceFileChangeAction = z.infer<
+  typeof workspaceFileChangeActionSchema
+>;
+
+export const workspaceFileChangeSummarySchema = z.object({
+  path: z.string().min(1),
+  action: workspaceFileChangeActionSchema,
+  addedLineCount: z.number().int().min(0),
+  removedLineCount: z.number().int().min(0),
+  diff: z.string().min(1)
+});
+
+export type WorkspaceFileChangeSummary = z.infer<
+  typeof workspaceFileChangeSummarySchema
+>;
 
 export interface WorkspaceFileChangesToolResultDetails {
   kind: "workspace_file_changes";

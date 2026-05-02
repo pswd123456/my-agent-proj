@@ -9,6 +9,14 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./contracts/workspace-api": {
+      "types": "./dist/contracts/workspace-api.d.ts",
+      "import": "./dist/contracts/workspace-api.js"
+    },
+    "./runtime/assembly": {
+      "types": "./dist/runtime/assembly.d.ts",
+      "import": "./dist/runtime/assembly.js"
     }
   },
   "scripts": {

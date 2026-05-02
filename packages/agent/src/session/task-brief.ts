@@ -28,7 +28,6 @@ export interface TaskBriefReadResult {
 export type TaskBriefBindingState =
   | "unbound"
   | "bound_named"
-  | "bound_legacy"
   | "invalid";
 
 export interface TaskBriefBindingInfo {
@@ -48,18 +47,6 @@ export function resolveTaskBriefDirectory(
     ".agent",
     "plans",
     sessionId
-  );
-}
-
-export function resolveLegacyTaskBriefPath(
-  workingDirectory: string,
-  sessionId: string
-): string {
-  return path.join(
-    path.resolve(workingDirectory),
-    ".agent",
-    "plans",
-    `${sessionId}.md`
   );
 }
 
@@ -112,13 +99,6 @@ export function isBoundTaskBriefPath(input: {
     return false;
   }
 
-  if (
-    normalized ===
-    resolveLegacyTaskBriefPath(input.workingDirectory, input.sessionId)
-  ) {
-    return true;
-  }
-
   const expectedDirectory = resolveTaskBriefDirectory(
     input.workingDirectory,
     input.sessionId
@@ -140,17 +120,6 @@ export function describeTaskBriefBinding(input: {
     return {
       state: "unbound",
       path: null,
-      planFileName: null
-    };
-  }
-
-  if (
-    normalized ===
-    resolveLegacyTaskBriefPath(input.workingDirectory, input.sessionId)
-  ) {
-    return {
-      state: "bound_legacy",
-      path: normalized,
       planFileName: null
     };
   }
@@ -208,6 +177,37 @@ export function readTaskBrief(
     content: content.slice(0, maxCharacters),
     truncated: true
   };
+}
+
+export function resolveTaskBriefPathForFork(input: {
+  workingDirectory: string;
+  sourceSessionId: string;
+  sourceTaskBriefPath: string | null | undefined;
+  targetSessionId: string;
+  planModeEnabled: boolean;
+}): string | null {
+  const normalizedSourcePath = normalizeTaskBriefPath(input.sourceTaskBriefPath);
+
+  const binding = describeTaskBriefBinding({
+    workingDirectory: input.workingDirectory,
+    sessionId: input.sourceSessionId,
+    taskBriefPath: normalizedSourcePath
+  });
+
+  if (binding.state === "bound_named" && binding.planFileName) {
+    return resolveTaskBriefPath(
+      input.workingDirectory,
+      input.targetSessionId,
+      binding.planFileName
+    );
+  }
+
+  return resolveTaskBriefPathForSession({
+    workingDirectory: input.workingDirectory,
+    sessionId: input.targetSessionId,
+    planModeEnabled: input.planModeEnabled,
+    taskBriefPath: null
+  });
 }
 
 function slugifyPlanName(source: string): string {

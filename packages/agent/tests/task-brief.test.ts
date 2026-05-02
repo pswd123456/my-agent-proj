@@ -4,7 +4,6 @@ import {
   describeTaskBriefBinding,
   normalizeTaskBriefPlanName,
   isBoundTaskBriefPath,
-  resolveLegacyTaskBriefPath,
   resolveTaskBriefPath,
   resolveTaskBriefPathForSession
 } from "../src/session/task-brief.js";
@@ -28,22 +27,28 @@ describe("task brief path helpers", () => {
     expect(resolved).toBeNull();
   });
 
-  test("accepts legacy flat task brief paths for existing sessions", () => {
-    const legacyPath = resolveLegacyTaskBriefPath(
-      "/tmp/workspace",
-      "session-1"
-    );
-
+  test("only treats named task brief files under the session plan directory as bound", () => {
     expect(
       isBoundTaskBriefPath({
         workingDirectory: "/tmp/workspace",
         sessionId: "session-1",
-        taskBriefPath: legacyPath
+        taskBriefPath: resolveTaskBriefPath(
+          "/tmp/workspace",
+          "session-1",
+          "jump_joy_web_game.md"
+        )
       })
     ).toBe(true);
+    expect(
+      isBoundTaskBriefPath({
+        workingDirectory: "/tmp/workspace",
+        sessionId: "session-1",
+        taskBriefPath: "/tmp/workspace/.agent/plans/session-1.md"
+      })
+    ).toBe(false);
   });
 
-  test("describes unbound, named, and legacy binding states", () => {
+  test("describes unbound, named, and invalid binding states", () => {
     expect(
       describeTaskBriefBinding({
         workingDirectory: "/tmp/workspace",
@@ -53,18 +58,6 @@ describe("task brief path helpers", () => {
     ).toEqual({
       state: "unbound",
       path: null,
-      planFileName: null
-    });
-
-    expect(
-      describeTaskBriefBinding({
-        workingDirectory: "/tmp/workspace",
-        sessionId: "session-1",
-        taskBriefPath: resolveLegacyTaskBriefPath("/tmp/workspace", "session-1")
-      })
-    ).toEqual({
-      state: "bound_legacy",
-      path: resolveLegacyTaskBriefPath("/tmp/workspace", "session-1"),
       planFileName: null
     });
 
@@ -86,6 +79,18 @@ describe("task brief path helpers", () => {
         "jump_joy_web_game.md"
       ),
       planFileName: "jump_joy_web_game.md"
+    });
+
+    expect(
+      describeTaskBriefBinding({
+        workingDirectory: "/tmp/workspace",
+        sessionId: "session-1",
+        taskBriefPath: "/tmp/workspace/.agent/plans/session-1.md"
+      })
+    ).toEqual({
+      state: "invalid",
+      path: "/tmp/workspace/.agent/plans/session-1.md",
+      planFileName: null
     });
   });
 });
