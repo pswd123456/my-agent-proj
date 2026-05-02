@@ -61,9 +61,12 @@
 ### 2. 用户级默认设置
 
 - `GET /users/:userId/settings`
+- `GET /users/:userId/settings/mcp`
+- `PUT /users/:userId/settings/mcp`
+- `GET /users/:userId/settings/skills`
 - `PATCH /users/:userId/settings`
 
-这组接口对应 `agent_settings`，保存跨 session 复用的默认值，例如：
+这组接口以 `agent_settings` 为核心，同时暴露基于用户默认工作目录读取或写入的 workspace 配置视图。`agent_settings` 保存跨 session 复用的默认值，例如：
 
 - `workingDirectory`
 - `model`
@@ -72,18 +75,25 @@
 - `maxTurns`
 - shell / tool 权限规则
 - `enabledCapabilityPacks`
+- `workspaceSkillSettings`
 - `userContextHooks`
 - `debugConversationView`
 - `userCustomPrompt`
 
+其中 `/settings/mcp` 读写的是当前用户默认工作目录下的 `.agent/.config.toml`，`/settings/skills` 读取当前用户默认工作目录下的 `.agent/skills/`，它们不是把 MCP server 或 skill 文件内容复制进 `agent_settings`。
+
 ### 3. Session 生命周期与执行
 
 - `GET/POST /sessions`
+- `GET /sessions/search`
 - `GET/PATCH/DELETE /sessions/:sessionId`
+- `GET /sessions/:sessionId/fork-targets`
+- `POST /sessions/:sessionId/forks`
 - `PATCH /sessions/:sessionId/settings`
 - `POST /sessions/:sessionId/execute`
 - `POST /sessions/:sessionId/execute/stream`
 - `POST /sessions/:sessionId/interrupt`
+- `POST /sessions/:sessionId/force-stop`
 - `POST /sessions/:sessionId/snapshot`
 - `POST /sessions/:sessionId/recover`
 - `DELETE /sessions/history`
@@ -99,11 +109,13 @@
 
 - `GET /sessions/:sessionId/workspace-files/search`
 - `GET /sessions/:sessionId/skills/search`
+- `GET /sessions/:sessionId/git-status`
 - `POST /sessions/:sessionId/file-changes`
 
 这组接口服务的是 workbench 交互，不是模型工具本身：
 
 - 搜文件和搜 skill 用于 composer / UI 辅助
+- `git-status` 用于 UI 展示当前工作区文件状态
 - `file-changes` 用于前端对一次 run 产生的 patch 做 `undo` / `reapply`
 
 ### 5. 可观测性与专项数据

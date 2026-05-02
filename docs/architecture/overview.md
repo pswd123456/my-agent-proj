@@ -55,14 +55,19 @@
 - `GET /`
 - `GET /models`
 - `GET/POST /sessions`
+- `GET /sessions/search`
 - `DELETE /sessions/history`
 - `GET/PATCH/DELETE /sessions/:sessionId`
+- `GET /sessions/:sessionId/fork-targets`
+- `POST /sessions/:sessionId/forks`
 - `PATCH /sessions/:sessionId/settings`
 - `GET /sessions/:sessionId/workspace-files/search`
 - `GET /sessions/:sessionId/skills/search`
+- `GET /sessions/:sessionId/git-status`
 - `POST /sessions/:sessionId/execute`
 - `POST /sessions/:sessionId/execute/stream`
 - `POST /sessions/:sessionId/interrupt`
+- `POST /sessions/:sessionId/force-stop`
 - `POST /sessions/:sessionId/file-changes`
 - `POST /sessions/:sessionId/snapshot`
 - `POST /sessions/:sessionId/recover`
@@ -70,6 +75,8 @@
 - `GET /system-logs`
 - `POST /directory-picker`
 - `GET/PATCH /users/:userId/settings`
+- `GET/PUT /users/:userId/settings/mcp`
+- `GET /users/:userId/settings/skills`
 - `GET /sessions/:sessionId/routines`
 - `POST /sessions/:sessionId/routines/reset`
 
@@ -81,7 +88,7 @@
 - 任务主记录保存在 `background_tasks`
 - 每次执行尝试保存在 `background_task_runs`
 - 当前支持 `agent_session` 与 `shell_command` 两类执行后端
-- 领域模型里还保留 `cron_job` 这个 task kind，但当前 API / worker 主链路真正会创建和处理的是 `subagent`、`shell_command` 与 `session_wakeup`
+- 领域模型里还保留 `cron_job` 这个 task kind，但当前 API / worker 主链路真正会创建和处理的是 `subagent`、`hook_subagent`、`shell_command` 与 `session_wakeup`
 - `apps/worker` 负责轮询和执行这些任务，`packages/agent/src/background-tasks/` 负责通用 orchestration，`packages/agent/src/delegation/` 负责主 agent 发起与回复 delegated subagent
 - 当前没有公开 background task API，也没有 cron tool surface；`subagent` 是内部任务类型，不是对外 HTTP 接口
 
@@ -95,6 +102,8 @@
 - tool 编排：`packages/agent/src/runtime/run-loop.ts`、`packages/agent/src/runtime/tool-execution.ts`
 - background task：`packages/agent/src/background-tasks/`
 - delegation：`packages/agent/src/delegation/`
+- API 路由：`apps/api/src/app.ts`
+- Web SDK：`packages/sdk/src/client.ts`
 - 工作区 `.agent/` 配置：`docs/architecture/workspace-agent-config.md`
 - workspace instructions：`packages/agent/src/workspace-instructions/`
 - 数据表：`packages/db/src/schema.ts`

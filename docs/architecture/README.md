@@ -41,6 +41,7 @@
 - 做工作区 MCP 挂载、权限、trace 或模块拆分时，读 [MCP 模块落地](./mcp-module.md)
 - 做后台任务、子代理执行或 worker 轮询链路时，读 [后台任务与 delegation](./background-tasks-and-delegation.md)
 - 做 trace / system log 排查、session 级定位或 prompt/tool/permission 链路诊断时，读 [Trace / Log 排查](./trace-debugging.md)
+- 做 session 搜索、fork、force-stop、settings MCP/skills 或 git-status 这类 workbench 辅助接口时，读 [API 与 SDK 边界](./api-and-sdk-boundary.md)，再对照 `apps/api/src/app.ts` 与 `packages/sdk/src/client.ts`
 
 ## 使用边界
 

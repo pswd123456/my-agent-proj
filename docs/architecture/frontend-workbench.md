@@ -48,16 +48,14 @@
 
 - `session-registry-manager.ts`：session 列表、当前选中 session、摘要合并
 - `session-state-manager.ts`：当前 session 的 optimistic UI、提交态、中断态、stream event 写回
-- `session-message-manager.ts`：把 `session.messages + trace + live stream overlay` 收口成前端消息投影
-- `run-view-state-manager.ts`：当前 run 的增量事件与 pending user message
+- `session-message-manager.ts`：把 `session.messages + trace + live stream overlay`、pending user message、动画 key 和折叠状态收口成前端消息投影
 - `session-todo-state.ts`：todo tool result 驱动的 UI 状态
 
 这几个切片分别回答不同问题：
 
 - 哪些 session 在左侧 rail 里出现
 - 当前 session 正在发生什么
-- 对话区应该怎么把历史、流式、折叠流、inspector 事件拼起来
-- 本轮 run 的临时动画 / overlay 如何处理
+- 对话区应该怎么把历史、流式、pending user、折叠流、inspector 事件和动画 key 拼起来
 
 ### 4. 展示组件层
 
@@ -81,8 +79,11 @@
 
 - `createApiClient()`
 - `listSessions()` / `getSession()` / `createSession()`
+- `searchSessions()` / `listSessionForkTargets()` / `createSessionFork()`
 - `streamSessionExecution()`
 - `chooseDirectory()`
+- `getUserSettingsMcp()` / `updateUserSettingsMcp()` / `getUserSettingsSkills()`
+- `getSessionWorkspaceGitStatus()` / `forceStopSessionExecution()`
 - `getSessionTrace()`
 - `toSessionSummary()`
 
@@ -215,8 +216,7 @@ Workbench 总体架构文档只描述它在系统里的位置，不重复 messag
 - 工作台容器：`apps/web/app/_components/session-workbench.tsx`
 - session 列表状态：`apps/web/app/_components/session-registry-manager.ts`
 - 当前 session UI 状态：`apps/web/app/_components/session-state-manager.ts`
-- run 临时视图状态：`apps/web/app/_components/run-view-state-manager.ts`
-- 消息投影：`apps/web/app/_components/session-message-manager.ts`
+- 消息投影与 run 临时视图状态：`apps/web/app/_components/session-message-manager.ts`
 - 展示组件：`apps/web/app/_components/session-workbench-*.tsx`
 - SDK：`packages/sdk/src/client.ts`
 - 布局 patterns：`packages/ui-patterns/src/`

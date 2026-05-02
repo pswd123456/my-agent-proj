@@ -127,15 +127,15 @@
 
 建议目标：
 
-抽成 `run-view-state-manager`，统一管理一次运行期的前端可视态。
+统一管理一次运行期的前端可视态。当前实现已由 `session-message-manager` 承担，不再保留独立的 run view manager。
 
 建议职责：
 
-- `beginRun(message)`
-- `appendStreamEvent(event)`
+- `beginMessageManagerRun(message)`
+- `appendMessageManagerEvent(event)`
 - `markAssistantAnimationComplete(key)`
-- `finishRun()`
-- `resetRunView()`
+- `finishMessageManagerRun()`
+- `resetMessageManagerState()`
 
 至少纳入：
 
@@ -252,7 +252,7 @@
 - sidebar / header / drawer 均通过同一 registry 取当前 session 与 summary
 - URL query 只作为 registry 的输入/输出边界，不再和内部状态双向散落耦合
 
-### Step 2. 落 `run-view-state-manager`
+### Step 2. 落运行期视图状态 manager
 
 目标：
 
@@ -281,8 +281,8 @@
   - 负责当前 session 的运行态推进
 - `session-registry-manager`
   - 负责 session 集合、当前选中 session、summary 同步
-- `run-view-state-manager`
-  - 负责一次运行期的前端临时展示态
+- `session-message-manager`
+  - 负责消息投影与一次运行期的前端临时展示态
 
 后续如 settings 继续复杂化，再新增：
 

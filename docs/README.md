@@ -12,8 +12,10 @@
 - [持久化与 Session 状态模型](./architecture/persistence-and-session-state.md)
 - [前端 Workbench 架构](./architecture/frontend-workbench.md)
 - [Tool 编排与执行边界](./architecture/tool-orchestration.md)
+- [内建 LSP Capability Pack](./architecture/lsp-capability-pack.md)
 - [Firecrawl Web 接入](./architecture/firecrawl-web.md)
 - [后台任务与 delegation](./architecture/background-tasks-and-delegation.md)
+- [工作区 `.agent/` 运行配置](./architecture/workspace-agent-config.md)
 - [MCP 模块落地](./architecture/mcp-module.md)
 - [Trace / Log 排查](./architecture/trace-debugging.md)
 - [阶段文档目录](./plan/README.md)
@@ -32,8 +34,9 @@
 - 做 API 契约、runtime 装配点或 Web 调用边界相关工作时，优先看 `docs/architecture/api-and-sdk-boundary.md` 和 `docs/architecture/firecrawl-web.md`
 - 做 tool 调度、权限等待、工具结果持久化或并发执行边界时，优先看 `docs/architecture/tool-orchestration.md`
 - 做 session/settings/background task 的状态归属、数据表和持久化边界时，优先看 `docs/architecture/persistence-and-session-state.md`
+- 做 LSP 工具、server 生命周期或默认 capability pack 判断时，优先看 `docs/architecture/lsp-capability-pack.md`
 - 判断“当前实现事实”时，优先看 `docs/architecture/` 和代码；`docs/plan/`、`docs/investigation/`、`docs/todo/` 更多是阶段规格、调研记录或验收口径
-- 做工作区 MCP 配置、挂载或权限相关工作时，优先看 `docs/architecture/mcp-module.md`
+- 做工作区 instructions、skills 或 MCP 配置输入时，优先看 `docs/architecture/workspace-agent-config.md`；做 MCP 工具挂载、权限和 trace 链路时，再看 `docs/architecture/mcp-module.md`
 - 做 trace / system log 排查、session 级诊断或 prompt/tool/permission 链路定位时，优先看 `docs/architecture/trace-debugging.md`
 - 如果要判断“仓库主线是什么、哪些只是专项能力”，优先看 `docs/architecture/capability-packs.md`
 - 做 messages 管理、compact、tool result 上下文或 prompt 分层时，优先看 `docs/architecture/context-management/`
