@@ -6,6 +6,7 @@ import {
   applyStreamEventToSessionState,
   beginSessionInterrupt,
   beginSessionSubmission,
+  clearSessionUiState,
   createSessionUiState,
   rollbackSessionUiState,
   setSessionSnapshot
@@ -294,5 +295,22 @@ describe("session-state-manager", () => {
     expect(rolledBack.interruptingSessionId).toBeNull();
     expect(rolledBack.optimisticSessionSnapshot).toBeNull();
     expect(rolledBack.session).toEqual(original);
+  });
+
+  test("clears the hydrated session and transient flags when selection changes", () => {
+    const original = createSessionSnapshot();
+    original.context.status = "running";
+    original.sessionState.loopState = "running";
+    const optimistic = beginSessionInterrupt(
+      beginSessionSubmission(createSessionUiState(original)),
+      original.sessionId
+    );
+
+    expect(clearSessionUiState(optimistic)).toEqual({
+      session: null,
+      submitting: false,
+      interruptingSessionId: null,
+      optimisticSessionSnapshot: null
+    });
   });
 });

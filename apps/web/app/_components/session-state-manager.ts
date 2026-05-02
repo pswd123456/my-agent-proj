@@ -40,6 +40,24 @@ export function setSessionSnapshot(
   };
 }
 
+export function clearSessionUiState(state: SessionUiState): SessionUiState {
+  if (
+    state.session === null &&
+    state.submitting === false &&
+    state.interruptingSessionId === null &&
+    state.optimisticSessionSnapshot === null
+  ) {
+    return state;
+  }
+
+  return {
+    session: null,
+    submitting: false,
+    interruptingSessionId: null,
+    optimisticSessionSnapshot: null
+  };
+}
+
 export function beginSessionSubmission(state: SessionUiState): SessionUiState {
   if (!state.session) {
     return state;
@@ -319,8 +337,7 @@ export function applyStreamEventToSessionState(
     case "turn_end":
       return {
         ...nextBaseState,
-        submitting:
-          event.loopState === "completed" ? state.submitting : false,
+        submitting: event.loopState === "completed" ? state.submitting : false,
         session: {
           ...current,
           sessionState: {

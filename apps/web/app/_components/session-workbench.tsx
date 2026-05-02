@@ -46,6 +46,7 @@ import {
   toSettingsSkillsState
 } from "./session-workbench-state";
 import {
+  applyStreamEventToSessionRegistry,
   bootstrapSessions,
   clearCurrentSession,
   createSessionRegistryState,
@@ -70,6 +71,7 @@ import {
 } from "./session-message-manager";
 import {
   applyStreamEventToSessionState,
+  clearSessionUiState,
   beginSessionInterrupt,
   beginSessionSubmission,
   createSessionUiState,
@@ -509,9 +511,50 @@ export function SessionWorkbench() {
     setAppliedSessionSearchQuery("");
   }
 
+  function replaceSessionRoute(sessionId: string | null) {
+    router.replace(sessionId ? `/?sessionId=${sessionId}` : "/", {
+      scroll: false
+    });
+  }
+
+  function setSelectedSessionIdState(sessionId: string | null) {
+    selectedSessionIdRef.current = sessionId;
+    setSessionRegistry((current) => selectSession(current, sessionId));
+  }
+
+  function resetSelectedSessionResources() {
+    setForkTargets([]);
+    setTraceRecords([]);
+    setRoutines([]);
+    setRunFileChanges([]);
+    setMessageManagerState(resetMessageManagerState());
+  }
+
+  function hydrateCurrentSession(session: SessionSnapshot | null) {
+    setSessionUiState((current) =>
+      session
+        ? setSessionSnapshot(current, session)
+        : clearSessionUiState(current)
+    );
+    setSessionRegistry((current) =>
+      session
+        ? hydrateSelectedSession(current, session)
+        : clearCurrentSession(current)
+    );
+  }
+
   useEffect(() => {
     selectedSessionIdRef.current = selectedSessionId;
   }, [selectedSessionId]);
+
+  useEffect(() => {
+    if (!currentSession || currentSession.sessionId === selectedSessionId) {
+      return;
+    }
+
+    hydrateCurrentSession(null);
+    resetSelectedSessionResources();
+  }, [currentSession, selectedSessionId]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -619,8 +662,8 @@ export function SessionWorkbench() {
   }, [currentSession?.sessionId, currentSession?.workingDirectory]);
 
   const renderedSessions = useMemo(
-    () => deriveRenderedSessions({ ...sessionRegistry, currentSession }),
-    [currentSession, sessionRegistry]
+    () => deriveRenderedSessions(sessionRegistry),
+    [sessionRegistry]
   );
 
   function getCreateSessionPayload(): { userId?: string } {
@@ -698,11 +741,10 @@ export function SessionWorkbench() {
           setModelCatalog(modelsResult.models);
         }
         const nextRegistry = bootstrapSessions(snapshots, requestedSessionId);
+        selectedSessionIdRef.current = nextRegistry.selectedSessionId;
         setSessionRegistry(nextRegistry);
         if (nextRegistry.selectedSessionId) {
-          router.replace(`/?sessionId=${nextRegistry.selectedSessionId}`, {
-            scroll: false
-          });
+          replaceSessionRoute(nextRegistry.selectedSessionId);
         }
       } catch (error) {
         if (!cancelled) {
@@ -752,11 +794,8 @@ export function SessionWorkbench() {
           return;
         }
 
-        setSessionUiState((current) => setSessionSnapshot(current, session));
+        hydrateCurrentSession(session);
         setMaxTurns(String(session.maxTurns));
-        setSessionRegistry((current) =>
-          hydrateSelectedSession(current, session)
-        );
         setRunFileChanges((current) =>
           mergeRunFileChangesStates(
             current,
@@ -764,8 +803,6 @@ export function SessionWorkbench() {
           )
         );
         setForkTargets(initialForkTargets);
-        setTraceRecords([]);
-        setRoutines([]);
         setLoadingSession(false);
 
         const week = buildWeekRange(session.context.currentDateContext);
@@ -927,7 +964,7 @@ export function SessionWorkbench() {
         return;
       }
 
-      setSessionUiState((current) => setSessionSnapshot(current, session));
+      hydrateCurrentSession(session);
       setForkTargets(nextForkTargets);
       setTraceRecords(trace);
       setRoutines(routinesResult.routines);
@@ -937,7 +974,6 @@ export function SessionWorkbench() {
         setSettingsForm(toSettingsFormState(settingsPayload.settings));
       }
       setMaxTurns(String(session.maxTurns));
-      setSessionRegistry((current) => hydrateSelectedSession(current, session));
       setRunFileChanges((current) =>
         mergeRunFileChangesStates(
           current,
@@ -1068,14 +1104,8 @@ export function SessionWorkbench() {
       clearSessionSearch();
       setErrorText(null);
       focusConversationView();
-      setSessionRegistry((current) =>
-        selectSession(current, reusableSession.sessionId)
-      );
-      setRunFileChanges([]);
-      setMessageManagerState(resetMessageManagerState());
-      router.replace(`/?sessionId=${reusableSession.sessionId}`, {
-        scroll: false
-      });
+      setSelectedSessionIdState(reusableSession.sessionId);
+      replaceSessionRoute(reusableSession.sessionId);
       return;
     }
 
@@ -1085,18 +1115,12 @@ export function SessionWorkbench() {
       setErrorText(null);
       beginSessionListMutation();
       const session = await apiClient.createSession(getCreateSessionPayload());
-      selectedSessionIdRef.current = session.sessionId;
-      setSessionRegistry((current) =>
-        upsertSession(selectSession(current, session.sessionId), session)
-      );
+      setSelectedSessionIdState(session.sessionId);
+      hydrateCurrentSession(session);
       focusConversationView();
-      setSessionUiState((current) => setSessionSnapshot(current, session));
-      setForkTargets([]);
-      setTraceRecords([]);
-      setRoutines([]);
+      resetSelectedSessionResources();
       setRunFileChanges(buildRunFileChangesStatesFromSession(session));
-      setMessageManagerState(resetMessageManagerState());
-      router.replace(`/?sessionId=${session.sessionId}`, { scroll: false });
+      replaceSessionRoute(session.sessionId);
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : String(error));
     } finally {
@@ -1107,12 +1131,8 @@ export function SessionWorkbench() {
 
   function handleSelectSession(sessionId: string) {
     focusConversationView();
-    selectedSessionIdRef.current = sessionId;
-    setSessionRegistry((current) => selectSession(current, sessionId));
-    setRunFileChanges([]);
-    setForkTargets([]);
-    setMessageManagerState(resetMessageManagerState());
-    router.replace(`/?sessionId=${sessionId}`, { scroll: false });
+    setSelectedSessionIdState(sessionId);
+    replaceSessionRoute(sessionId);
   }
 
   async function handleCreateFork(assistantMessageId: string) {
@@ -1128,18 +1148,12 @@ export function SessionWorkbench() {
         currentSession.sessionId,
         { assistantMessageId }
       );
-      selectedSessionIdRef.current = forkSession.sessionId;
-      setSessionRegistry((current) =>
-        hydrateSelectedSession(upsertSession(current, forkSession), forkSession)
-      );
-      setSessionUiState((current) => setSessionSnapshot(current, forkSession));
-      setForkTargets([]);
-      setTraceRecords([]);
-      setRoutines([]);
+      setSelectedSessionIdState(forkSession.sessionId);
+      hydrateCurrentSession(forkSession);
+      resetSelectedSessionResources();
       setRunFileChanges(buildRunFileChangesStatesFromSession(forkSession));
-      setMessageManagerState(resetMessageManagerState());
       focusConversationView();
-      router.replace(`/?sessionId=${forkSession.sessionId}`, { scroll: false });
+      replaceSessionRoute(forkSession.sessionId);
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : String(error));
     } finally {
@@ -1162,7 +1176,7 @@ export function SessionWorkbench() {
     try {
       beginSessionListMutation();
       if (selectedSessionId === sessionId) {
-        selectedSessionIdRef.current = null;
+        setSelectedSessionIdState(null);
       }
       await apiClient.deleteSession(sessionId);
       const searchQuery = appliedSessionSearchQueryRef.current;
@@ -1183,31 +1197,21 @@ export function SessionWorkbench() {
       }
 
       const nextSessionId = refreshedSessions[0]?.sessionId ?? null;
-      selectedSessionIdRef.current = nextSessionId;
-      setSessionRegistry((current) => clearCurrentSession(current));
-      setSessionUiState((current) => setSessionSnapshot(current, null));
-      setForkTargets([]);
-      setTraceRecords([]);
-      setRoutines([]);
-      setRunFileChanges([]);
-      setMessageManagerState(resetMessageManagerState());
+      setSelectedSessionIdState(nextSessionId);
+      hydrateCurrentSession(null);
+      resetSelectedSessionResources();
 
       if (nextSessionId) {
-        setSessionRegistry((current) => selectSession(current, nextSessionId));
-        router.replace(`/?sessionId=${nextSessionId}`, { scroll: false });
+        replaceSessionRoute(nextSessionId);
         return;
       }
 
       const newSession = await apiClient.createSession(
         getCreateSessionPayload()
       );
-      selectedSessionIdRef.current = newSession.sessionId;
-      setSessionRegistry(
-        hydrateSelectedSession(createSessionRegistryState(), newSession)
-      );
-      setSessionUiState((current) => setSessionSnapshot(current, newSession));
-      setForkTargets([]);
-      router.replace(`/?sessionId=${newSession.sessionId}`, { scroll: false });
+      setSelectedSessionIdState(newSession.sessionId);
+      hydrateCurrentSession(newSession);
+      replaceSessionRoute(newSession.sessionId);
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : String(error));
     } finally {
@@ -1234,28 +1238,20 @@ export function SessionWorkbench() {
 
     try {
       beginSessionListMutation();
-      selectedSessionIdRef.current = null;
+      setSelectedSessionIdState(null);
       clearSessionSearch();
       await apiClient.clearSessionHistory();
       setSessionRegistry(createSessionRegistryState());
-      setSessionUiState((current) => setSessionSnapshot(current, null));
-      setForkTargets([]);
-      setTraceRecords([]);
-      setRoutines([]);
-      setRunFileChanges([]);
-      setMessageManagerState(resetMessageManagerState());
+      hydrateCurrentSession(null);
+      resetSelectedSessionResources();
       focusConversationView();
       const newSession = await apiClient.createSession(
         getCreateSessionPayload()
       );
-      selectedSessionIdRef.current = newSession.sessionId;
-      setSessionRegistry(
-        hydrateSelectedSession(createSessionRegistryState(), newSession)
-      );
-      setSessionUiState((current) => setSessionSnapshot(current, newSession));
-      setForkTargets([]);
+      setSelectedSessionIdState(newSession.sessionId);
+      hydrateCurrentSession(newSession);
       setRunFileChanges(buildRunFileChangesStatesFromSession(newSession));
-      router.replace(`/?sessionId=${newSession.sessionId}`, { scroll: false });
+      replaceSessionRoute(newSession.sessionId);
     } catch (error) {
       const nextErrorText =
         error instanceof Error ? error.message : String(error);
@@ -1320,6 +1316,9 @@ export function SessionWorkbench() {
               setSessionUiState((current) =>
                 applyStreamEventToSessionState(current, runEvent)
               );
+              setSessionRegistry((current) =>
+                applyStreamEventToSessionRegistry(current, runEvent)
+              );
             }
 
             if (
@@ -1329,13 +1328,12 @@ export function SessionWorkbench() {
             ) {
               const nextSession = runEvent.session;
               if (nextSession) {
-                setSessionRegistry((current) =>
-                  upsertSession(current, nextSession)
-                );
-                if (isActiveSession) {
-                  setSessionUiState((current) =>
-                    setSessionSnapshot(current, nextSession)
+                if (!isActiveSession) {
+                  setSessionRegistry((current) =>
+                    upsertSession(current, nextSession)
                   );
+                }
+                if (isActiveSession) {
                   setRunFileChanges((current) =>
                     mergeRunFileChangesStates(
                       current,
@@ -1422,10 +1420,7 @@ export function SessionWorkbench() {
       const result = forceStopRequested
         ? await apiClient.forceStopSessionExecution(sessionId)
         : await apiClient.interruptSessionExecution(sessionId);
-      setSessionUiState((current) =>
-        setSessionSnapshot(current, result.session)
-      );
-      setSessionRegistry((current) => upsertSession(current, result.session));
+      hydrateCurrentSession(result.session);
       if (result.session.sessionState.loopState === "interrupted") {
         setMessageManagerState((current) => finishMessageManagerRun(current));
       }
@@ -1582,10 +1577,7 @@ export function SessionWorkbench() {
           currentSession.sessionId,
           buildSessionSettingsPatchFromUserSettings(updated)
         );
-        setSessionUiState((current) =>
-          setSessionSnapshot(current, syncedSession)
-        );
-        setSessionRegistry((current) => upsertSession(current, syncedSession));
+        hydrateCurrentSession(syncedSession);
       }
       return true;
     } catch (error) {
@@ -2057,10 +2049,7 @@ export function SessionWorkbench() {
           model
         }
       );
-      setSessionUiState((current) =>
-        setSessionSnapshot(current, updatedSession)
-      );
-      setSessionRegistry((current) => upsertSession(current, updatedSession));
+      hydrateCurrentSession(updatedSession);
 
       const settingsPayload = await apiClient.updateUserSettingsPayload(
         currentSession.context.userId,
@@ -2089,10 +2078,7 @@ export function SessionWorkbench() {
           thinkingEffort: normalizedThinkingEffort
         }
       );
-      setSessionUiState((current) =>
-        setSessionSnapshot(current, updatedSession)
-      );
-      setSessionRegistry((current) => upsertSession(current, updatedSession));
+      hydrateCurrentSession(updatedSession);
 
       const settingsPayload = await apiClient.updateUserSettingsPayload(
         currentSession.context.userId,
@@ -2119,8 +2105,7 @@ export function SessionWorkbench() {
           planModeEnabled: checked
         }
       );
-      setSessionUiState((current) => setSessionSnapshot(current, updated));
-      setSessionRegistry((current) => upsertSession(current, updated));
+      hydrateCurrentSession(updated);
       return true;
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : String(error));

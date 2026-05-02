@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { SessionSnapshot } from "@ai-app-template/sdk";
 
 import {
+  applyStreamEventToSessionRegistry,
   bootstrapSessions,
   createSessionRegistryState,
   deleteSession,
@@ -30,16 +31,31 @@ function createSessionSnapshot(
       userId: "user-1",
       currentDateContext: "2026-04-24",
       yoloMode: false,
+      planModeEnabled: false,
+      taskBriefPath: null,
+      workspaceEscapeAllowed: false,
+      shellAllowPatterns: [],
+      shellDenyPatterns: [],
+      toolAllowList: [],
+      toolAskList: [],
+      toolDenyList: [],
+      enabledCapabilityPacks: [],
+      activeBackgroundTaskCount: 0,
       pendingPermissionRequest: null,
       pendingConfirmationPayload: null,
-      pendingUserQuestionPayload: null
+      pendingUserQuestionPayload: null,
+      pendingBackgroundNotifications: [],
+      pendingConflictSummary: null,
+      firstUserMessage: null,
+      lastUserMessage: null
     },
     sessionState: {
       loopState: "waiting for input",
       turnCount: 0,
       lastError: null,
       pendingToolCallIds: [],
-      interruptRequested: false
+      interruptRequested: false,
+      historyCompactionsSinceFullCompaction: 0
     }
   };
 }
@@ -106,5 +122,56 @@ describe("session-registry-manager", () => {
     const next = deleteSession(selected, "session-2");
     expect(next.selectedSessionId).toBe("session-1");
     expect(next.currentSession).toBeNull();
+  });
+
+  test("clears the hydrated current session when selecting a different session", () => {
+    const first = createSessionSnapshot(
+      "session-1",
+      "2026-04-24T00:00:00.000Z"
+    );
+    const second = createSessionSnapshot(
+      "session-2",
+      "2026-04-24T01:00:00.000Z"
+    );
+    const state = hydrateSelectedSession(
+      bootstrapSessions([first, second], "session-1"),
+      first
+    );
+
+    const next = selectSession(state, "session-2");
+    expect(next.selectedSessionId).toBe("session-2");
+    expect(next.currentSession).toBeNull();
+  });
+
+  test("applies active stream events through the registry manager", () => {
+    const session = createSessionSnapshot(
+      "session-1",
+      "2026-04-24T00:00:00.000Z"
+    );
+    const state = hydrateSelectedSession(createSessionRegistryState(), session);
+
+    const next = applyStreamEventToSessionRegistry(state, {
+      kind: "permission_approved",
+      sessionId: "session-1",
+      createdAt: "2026-04-24T00:00:01.000Z",
+      turnCount: 1,
+      toolCallId: "call-1",
+      toolName: "read_file",
+      request: {
+        toolCallId: "call-1",
+        toolName: "read_file",
+        toolInput: { path: "../README.md" },
+        family: "workspace-file",
+        permissionProfile: "always-ask-user",
+        summaryText: "读取工作区外文件",
+        createdAt: "2026-04-24T00:00:00.000Z"
+      }
+    });
+
+    expect(next.currentSession?.context.status).toBe("running");
+    expect(next.currentSession?.sessionState.loopState).toBe(
+      "waiting for tool result"
+    );
+    expect(deriveRenderedSessions(next)[0]?.status).toBe("running");
   });
 });

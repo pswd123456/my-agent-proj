@@ -6,9 +6,11 @@ import {
 
 import {
   findReusableNewSessionSummary,
+  applyStreamEventToSession,
   mergeSessionSummary,
   sortSessionSummaries
 } from "./session-workbench-state";
+import type { RunStreamEvent } from "@ai-app-template/sdk";
 
 export type SessionRegistryState = {
   sessions: SessionSummary[];
@@ -55,7 +57,11 @@ export function selectSession(
 
   return {
     ...state,
-    selectedSessionId: sessionId
+    selectedSessionId: sessionId,
+    currentSession:
+      state.currentSession?.sessionId === sessionId
+        ? state.currentSession
+        : null
   };
 }
 
@@ -104,6 +110,23 @@ export function clearCurrentSession(
   return {
     ...state,
     currentSession: null
+  };
+}
+
+export function applyStreamEventToSessionRegistry(
+  state: SessionRegistryState,
+  event: RunStreamEvent
+): SessionRegistryState {
+  const currentSession = state.currentSession;
+  if (!currentSession || currentSession.sessionId !== event.sessionId) {
+    return state;
+  }
+
+  const nextSession = applyStreamEventToSession(currentSession, event);
+  return {
+    sessions: upsertSessionSummary(state.sessions, nextSession),
+    selectedSessionId: nextSession.sessionId,
+    currentSession: nextSession
   };
 }
 
