@@ -1,6 +1,7 @@
 import type {
   RunSessionResult,
   RunStreamEvent,
+  SessionForkTarget,
   SessionSnapshot,
   TraceRecord,
   WorkspaceMcpConfigDiagnostic,
@@ -35,6 +36,8 @@ interface ApiErrorPayload {
 export interface SessionSummary {
   sessionId: string;
   parentSessionId?: string | null;
+  parentRelationKind?: SessionSnapshot["parentRelationKind"];
+  parentSessionTaskKind?: SessionSnapshot["parentSessionTaskKind"];
   updatedAt: string;
   workingDirectory: string;
   yoloMode: boolean;
@@ -87,6 +90,11 @@ export interface CreateSessionPayload {
   contextWindow?: number;
   maxTurns?: number;
   enabledCapabilityPacks?: string[];
+}
+
+export interface CreateSessionForkPayload {
+  checkpointId?: string;
+  assistantMessageId?: string;
 }
 
 export interface UpdateSessionSettingsPayload {
@@ -338,6 +346,8 @@ function toSessionSummary(session: SessionSnapshot): SessionSummary {
   return {
     sessionId: session.sessionId,
     parentSessionId: session.parentSessionId ?? null,
+    parentRelationKind: session.parentRelationKind ?? null,
+    parentSessionTaskKind: session.parentSessionTaskKind ?? null,
     updatedAt: session.updatedAt,
     workingDirectory: session.workingDirectory,
     yoloMode: session.context.yoloMode,
@@ -513,6 +523,44 @@ export class ApiClient {
       session: SessionSnapshot;
     };
     return payload.session;
+  }
+
+  async listSessionForkTargets(
+    sessionId: string
+  ): Promise<SessionForkTarget[]> {
+    const response = await this.fetchImpl(
+      appendCacheBust(
+        buildUrl(this.baseUrl, `/sessions/${sessionId}/fork-targets`)
+      ),
+      {
+        cache: "no-store"
+      }
+    );
+    await ensureOk(response);
+    const payload = (await response.json()) as {
+      sessionId: string;
+      forkTargets: SessionForkTarget[];
+    };
+    return payload.forkTargets;
+  }
+
+  async createSessionFork(
+    sessionId: string,
+    payload: CreateSessionForkPayload
+  ): Promise<SessionSnapshot> {
+    const response = await this.fetchImpl(
+      buildUrl(this.baseUrl, `/sessions/${sessionId}/forks`),
+      {
+        method: "POST",
+        headers: toJsonHeaders(),
+        body: JSON.stringify(payload)
+      }
+    );
+    await ensureOk(response);
+    const result = (await response.json()) as {
+      session: SessionSnapshot;
+    };
+    return result.session;
   }
 
   async updateSessionSettings(

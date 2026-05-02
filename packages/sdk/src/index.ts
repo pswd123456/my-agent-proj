@@ -1,6 +1,7 @@
 export type {
   RunSessionResult,
   RunStreamEvent,
+  SessionForkTarget,
   SessionSnapshot,
   TraceRecord,
   WorkspaceMcpConfigDiagnostic,
@@ -25,6 +26,7 @@ export {
   USER_CONTEXT_HOOK_BEHAVIOR_OPTIONS,
   USER_CONTEXT_HOOK_CONTEXT_EVENT_OPTIONS,
   USER_CONTEXT_HOOK_EVENT_OPTIONS,
+  USER_CONTEXT_HOOK_WAIT_MODE_OPTIONS,
   USER_CONTEXT_HOOK_TYPES,
   getUserContextHookTypeKey
 } from "@ai-app-template/domain";
@@ -33,6 +35,7 @@ export type {
   ApiClientConfig,
   ChooseDirectoryInput,
   ChooseDirectoryResult,
+  CreateSessionForkPayload,
   CreateSessionPayload,
   InterruptSessionResult,
   ListModelsResult,
