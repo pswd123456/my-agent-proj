@@ -1451,9 +1451,7 @@ export function SessionWorkbench() {
       hydrateCurrentSession(recovered.session);
       setForkTargets(recovered.forkTargets);
       setRewriteTarget(recovered.rewriteTarget);
-      setTraceRecords((current) =>
-        current.filter((record) => record.event.turnCount < rewriteTarget.turnCount)
-      );
+      setTraceRecords(recovered.traceRecords);
       setRunFileChanges(buildRunFileChangesStatesFromSession(recovered.session));
       setMessageManagerState(resetMessageManagerState());
       setEditingRewriteMessageId(null);

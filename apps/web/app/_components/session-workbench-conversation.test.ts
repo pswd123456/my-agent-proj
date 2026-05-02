@@ -17,6 +17,8 @@ import {
   buildSessionGitStatusSummary,
   buildUserQuestionCardView,
   buildUserQuestionReplyMessage,
+  renderAssistantMessageBlock,
+  renderUserMessageBlock,
   SessionGitStatusHeaderChips,
   getConfirmationKey,
   getUnifiedDiffLineTone,
@@ -449,6 +451,36 @@ describe("session git status header", () => {
 
     expect(markup).toContain("git clean");
     expect(markup).toContain(">main<");
+  });
+});
+
+describe("message copy buttons", () => {
+  test("renders a copy button for user messages", () => {
+    const markup = renderToStaticMarkup(
+      renderUserMessageBlock({
+        id: "user-msg-1",
+        kind: "user",
+        content: "请把这个需求拆成两步。",
+        createdAt: "2026-05-02T08:00:00.000Z"
+      })
+    );
+
+    expect(markup).toContain("复制用户消息");
+    expect(markup).toContain(">复制<");
+  });
+
+  test("renders a copy button for assistant messages", () => {
+    const markup = renderToStaticMarkup(
+      renderAssistantMessageBlock({
+        id: "assistant-msg-1",
+        kind: "assistant",
+        content: "先补按钮，再补测试。",
+        createdAt: "2026-05-02T08:01:00.000Z"
+      })
+    );
+
+    expect(markup).toContain("复制助手消息");
+    expect(markup).toContain(">复制<");
   });
 });
 

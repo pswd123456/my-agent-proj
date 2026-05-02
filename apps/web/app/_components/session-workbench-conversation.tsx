@@ -416,7 +416,7 @@ function escapeTimelineItemKey(key: string): string {
   return key.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 }
 
-function renderUserMessageBlock(
+export function renderUserMessageBlock(
   block: Extract<SessionSnapshot["messages"][number], { kind: "user" }>,
   rewriteAction?: UserRewriteAction
 ) {
@@ -461,8 +461,19 @@ function renderUserMessageBlock(
         ) : (
           <>
             <div>{block.content}</div>
-            {rewriteAction ? (
-              <div className="flex justify-end">
+            {rewriteAction || block.content.trim().length > 0 ? (
+              <div className="flex flex-wrap justify-end gap-2">
+                {block.content.trim().length > 0 ? (
+                  <CopyTextButton
+                    text={block.content}
+                    label="复制"
+                    copiedLabel="已复制"
+                    failedLabel="复制失败"
+                    title="复制用户消息"
+                    ariaLabel="复制用户消息"
+                  />
+                ) : null}
+                {rewriteAction ? (
                 <button
                   type="button"
                   disabled={rewriteAction.pending}
@@ -471,6 +482,7 @@ function renderUserMessageBlock(
                 >
                   改写
                 </button>
+                ) : null}
               </div>
             ) : null}
           </>
@@ -675,22 +687,38 @@ function AssistantTextBubble({
         }`}
         {...(onAnimationComplete ? { onAnimationComplete } : {})}
       />
-      {forkAction ? (
-        <button
-          type="button"
-          disabled={!forkAction.target.canFork || forkAction.pending}
-          title={forkAction.target.disabledReason ?? "基于这条回复创建分支会话"}
-          onClick={() => forkAction.onCreateFork(forkAction.assistantMessageId)}
-          className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-3 py-1 text-[0.72rem] uppercase tracking-[0.14em] text-[var(--app-text-muted)] transition hover:border-[var(--app-border-accent)] hover:text-[var(--app-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {forkAction.pending ? "创建中..." : "Fork"}
-        </button>
+      {content.trim().length > 0 || forkAction ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {content.trim().length > 0 ? (
+            <CopyTextButton
+              text={content}
+              label="复制"
+              copiedLabel="已复制"
+              failedLabel="复制失败"
+              title="复制助手消息"
+              ariaLabel="复制助手消息"
+            />
+          ) : null}
+          {forkAction ? (
+            <button
+              type="button"
+              disabled={!forkAction.target.canFork || forkAction.pending}
+              title={forkAction.target.disabledReason ?? "基于这条回复创建分支会话"}
+              onClick={() =>
+                forkAction.onCreateFork(forkAction.assistantMessageId)
+              }
+              className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-3 py-1 text-[0.72rem] uppercase tracking-[0.14em] text-[var(--app-text-muted)] transition hover:border-[var(--app-border-accent)] hover:text-[var(--app-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {forkAction.pending ? "创建中..." : "Fork"}
+            </button>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );
 }
 
-function renderAssistantMessageBlock(
+export function renderAssistantMessageBlock(
   block: Extract<SessionSnapshot["messages"][number], { kind: "assistant" }>,
   showTimestamp = false,
   forkAction?: AssistantForkAction
