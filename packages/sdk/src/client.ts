@@ -10,10 +10,17 @@ import type {
   WorkspaceFileChangeSummary
 } from "@ai-app-template/agent";
 import type {
+  CreateSessionPayload,
   SettingsPermissionToolOption,
-  SessionSettingsInput,
   RoutineRecord,
-  SessionSettingsRecord
+  SessionSettingsRecord,
+  UpdateSessionSettingsPayload,
+  UpdateUserSettingsPayload
+} from "@ai-app-template/domain";
+export type {
+  CreateSessionPayload,
+  UpdateSessionSettingsPayload,
+  UpdateUserSettingsPayload
 } from "@ai-app-template/domain";
 
 export interface ApiClientConfig {
@@ -79,39 +86,10 @@ export interface InterruptSessionResult {
   session: SessionSnapshot;
 }
 
-export interface CreateSessionPayload {
-  workingDirectory?: string;
-  model?: string;
-  thinkingEffort?: string;
-  userId?: string;
-  yoloMode?: boolean;
-  planModeEnabled?: boolean;
-  contextWindow?: number;
-  maxTurns?: number;
-  enabledCapabilityPacks?: string[];
-}
-
 export interface CreateSessionForkPayload {
   checkpointId?: string;
   assistantMessageId?: string;
 }
-
-export type UpdateSessionSettingsPayload = Pick<
-  SessionSettingsInput,
-  | "model"
-  | "thinkingEffort"
-  | "yoloMode"
-  | "shellAllowPatterns"
-  | "shellDenyPatterns"
-  | "toolAllowList"
-  | "toolAskList"
-  | "toolDenyList"
-  | "enabledCapabilityPacks"
-> & {
-  planModeEnabled?: boolean;
-};
-
-export type UpdateUserSettingsPayload = SessionSettingsInput;
 
 export interface UserSettingsPayload {
   settings: SessionSettingsRecord;
