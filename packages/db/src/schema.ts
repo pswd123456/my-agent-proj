@@ -16,6 +16,7 @@ import type {
 } from "@ai-app-template/domain";
 import {
   DEFAULT_SESSION_MODEL,
+  DEFAULT_SESSION_MAX_TURNS,
   DEFAULT_THINKING_EFFORT,
   type ThinkingEffort
 } from "@ai-app-template/domain";
@@ -119,7 +120,7 @@ export const agentSessions = pgTable(
       .notNull()
       .default(false),
     contextWindow: integer("context_window").notNull().default(200000),
-    maxTurns: integer("max_turns").notNull().default(50),
+    maxTurns: integer("max_turns").notNull().default(DEFAULT_SESSION_MAX_TURNS),
     shellAllowPatterns: jsonb("shell_allow_patterns")
       .$type<string[]>()
       .notNull()
@@ -226,7 +227,7 @@ export const agentSettings = pgTable("agent_settings", {
     .default(DEFAULT_THINKING_EFFORT),
   yoloMode: boolean("yolo_mode").notNull().default(false),
   contextWindow: integer("context_window").notNull().default(200000),
-  maxTurns: integer("max_turns").notNull().default(50),
+  maxTurns: integer("max_turns").notNull().default(DEFAULT_SESSION_MAX_TURNS),
   shellAllowPatterns: jsonb("shell_allow_patterns")
     .$type<string[]>()
     .notNull()

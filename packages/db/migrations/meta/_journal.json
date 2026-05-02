@@ -169,6 +169,13 @@
       "when": 1778227200000,
       "tag": "0023_worthless_joystick",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1778313600000,
+      "tag": "0024_outstanding_longshot",
+      "breakpoints": true
     }
   ]
 }

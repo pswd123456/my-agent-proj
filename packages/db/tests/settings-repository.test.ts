@@ -218,6 +218,7 @@ describe("MemorySettingsRepository", () => {
           event: "session_started",
           behavior: "subagent",
           waitMode: "unblocking",
+          maxTurns: 100,
           title: "Background research",
           content: "先整理背景资料。",
           enabled: true
@@ -231,6 +232,7 @@ describe("MemorySettingsRepository", () => {
         event: "session_started",
         behavior: "subagent",
         waitMode: "unblocking",
+        maxTurns: 100,
         title: "Background research",
         content: "先整理背景资料。",
         enabled: true
