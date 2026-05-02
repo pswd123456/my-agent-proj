@@ -5,14 +5,20 @@ import { z } from "zod";
 import {
   listSettingsPermissionToolOptions,
   applyUnifiedPatch,
+  cloneForkSessionSnapshot,
+  copyTaskBriefForFork,
   createRunErrorEvent,
   createRunTraceEvent,
+  describeTaskBriefBinding,
   discoverWorkspaceSkills,
   invertUnifiedPatch,
   loadWorkspaceMcpTools,
   ModelUnavailableError,
   parseUnifiedPatch,
   readManageableWorkspaceMcpConfig,
+  resolveLegacyTaskBriefPath,
+  resolveTaskBriefPath,
+  resolveTaskBriefPathForSession,
   replaceWorkspaceMcpConfigServers,
   searchWorkspaceFiles,
   searchWorkspaceSkills,
@@ -27,6 +33,8 @@ import type {
   JsonValue,
   Logger,
   SessionManager,
+  SessionForkCheckpoint,
+  SessionForkTarget,
   SessionSnapshot,
   SystemLogManager,
   TraceEvent,
@@ -38,6 +46,7 @@ import {
   THINKING_EFFORT_OPTIONS,
   USER_CONTEXT_HOOK_BEHAVIOR_OPTIONS,
   USER_CONTEXT_HOOK_EVENT_OPTIONS,
+  USER_CONTEXT_HOOK_WAIT_MODE_OPTIONS,
   isWorkspaceSkillEnabled,
   normalizeThinkingEffort,
   normalizeCapabilityPacks,
@@ -80,6 +89,22 @@ const createSessionBodySchema = z.object({
   maxTurns: z.number().int().min(1).optional(),
   enabledCapabilityPacks: z.array(z.string()).optional()
 });
+
+const createSessionForkBodySchema = z
+  .object({
+    checkpointId: z.string().optional(),
+    assistantMessageId: z.string().optional()
+  })
+  .refine(
+    (value) =>
+      (typeof value.checkpointId === "string" &&
+        value.checkpointId.trim().length > 0) ||
+      (typeof value.assistantMessageId === "string" &&
+        value.assistantMessageId.trim().length > 0),
+    {
+      message: "checkpointId or assistantMessageId is required."
+    }
+  );
 
 const updateSessionSettingsBodySchema = z
   .object({
@@ -139,6 +164,7 @@ const updateUserSettingsBodySchema = z
           id: z.string().min(1),
           event: z.enum(USER_CONTEXT_HOOK_EVENT_OPTIONS),
           behavior: z.enum(USER_CONTEXT_HOOK_BEHAVIOR_OPTIONS).optional(),
+          waitMode: z.enum(USER_CONTEXT_HOOK_WAIT_MODE_OPTIONS).optional(),
           title: z.string(),
           content: z.string().min(1),
           enabled: z.boolean()
@@ -182,6 +208,7 @@ function toUserContextHookRecords(
     id: hook.id,
     event: hook.event,
     ...(hook.behavior ? { behavior: hook.behavior } : {}),
+    ...(hook.waitMode ? { waitMode: hook.waitMode } : {}),
     title: hook.title,
     content: hook.content,
     enabled: hook.enabled
@@ -515,6 +542,77 @@ function toCreateSessionInput(input: {
       input.enabledCapabilityPacksOverride ??
       input.settings.enabledCapabilityPacks
   };
+}
+
+function toSessionForkTarget(
+  checkpoint: SessionForkCheckpoint
+): SessionForkTarget {
+  return {
+    checkpointId: checkpoint.id,
+    assistantMessageId: checkpoint.assistantMessageId,
+    turnCount: checkpoint.turnCount,
+    responseGroupId: checkpoint.responseGroupId ?? null,
+    canFork: true
+  };
+}
+
+function resolveForkTaskBriefPath(input: {
+  sourceSession: SessionSnapshot;
+  targetSessionId: string;
+}): string | null {
+  const sourcePath = input.sourceSession.context.taskBriefPath;
+  const binding = describeTaskBriefBinding({
+    workingDirectory: input.sourceSession.workingDirectory,
+    sessionId: input.sourceSession.sessionId,
+    taskBriefPath: sourcePath
+  });
+
+  if (binding.state === "bound_named" && binding.planFileName) {
+    return resolveTaskBriefPath(
+      input.sourceSession.workingDirectory,
+      input.targetSessionId,
+      binding.planFileName
+    );
+  }
+
+  if (binding.state === "bound_legacy") {
+    return resolveLegacyTaskBriefPath(
+      input.sourceSession.workingDirectory,
+      input.targetSessionId
+    );
+  }
+
+  return resolveTaskBriefPathForSession({
+    workingDirectory: input.sourceSession.workingDirectory,
+    sessionId: input.targetSessionId,
+    planModeEnabled: input.sourceSession.context.planModeEnabled,
+    taskBriefPath: null
+  });
+}
+
+async function createForkSessionFromCheckpoint(input: {
+  dependencies: ApiAppDependencies;
+  sourceSession: SessionSnapshot;
+  checkpoint: SessionForkCheckpoint;
+}): Promise<SessionSnapshot> {
+  const forkSessionId = randomUUID();
+  const forkTaskBriefPath = resolveForkTaskBriefPath({
+    sourceSession: input.sourceSession,
+    targetSessionId: forkSessionId
+  });
+  const forkSnapshot = cloneForkSessionSnapshot({
+    checkpoint: input.checkpoint,
+    sessionId: forkSessionId,
+    taskBriefPath: forkTaskBriefPath
+  });
+
+  await input.dependencies.sessionManager.recover(forkSnapshot);
+  await copyTaskBriefForFork({
+    sourceTaskBriefPath: input.sourceSession.context.taskBriefPath,
+    targetTaskBriefPath: forkTaskBriefPath
+  });
+
+  return forkSnapshot;
 }
 
 function encodeSseEvent<T extends { kind: string }>(event: T): Uint8Array {
@@ -1050,6 +1148,83 @@ export function createApiApp(dependencies: ApiAppDependencies) {
       })
     )[0];
     return c.json({ session: enrichedSession ?? session });
+  });
+
+  app.get("/sessions/:sessionId/fork-targets", async (c) => {
+    const sessionId = c.req.param("sessionId");
+    const session = await dependencies.sessionManager.getSession(sessionId);
+    if (!session) {
+      return c.json({ error: "Session not found." }, 404);
+    }
+
+    const checkpoints =
+      await dependencies.sessionManager.listForkCheckpoints(sessionId);
+    return c.json({
+      sessionId,
+      forkTargets: checkpoints.map(toSessionForkTarget)
+    });
+  });
+
+  app.post("/sessions/:sessionId/forks", async (c) => {
+    const requestId = getRequestId(c);
+    const sessionId = c.req.param("sessionId");
+    const sourceSession =
+      await dependencies.sessionManager.getSession(sessionId);
+    if (!sourceSession) {
+      return c.json({ error: "Session not found." }, 404);
+    }
+
+    const body = createSessionForkBodySchema.parse(await c.req.json());
+    const checkpoint =
+      (typeof body.checkpointId === "string" &&
+      body.checkpointId.trim().length > 0
+        ? await dependencies.sessionManager.getForkCheckpoint(
+            body.checkpointId.trim()
+          )
+        : null) ??
+      (typeof body.assistantMessageId === "string" &&
+      body.assistantMessageId.trim().length > 0
+        ? await dependencies.sessionManager.findForkCheckpointByAssistantMessage(
+            sessionId,
+            body.assistantMessageId.trim()
+          )
+        : null);
+
+    if (!checkpoint || checkpoint.sessionId !== sessionId) {
+      return c.json(
+        {
+          error:
+            "Fork checkpoint not found for this message. Historical reconstruction is not available for this target yet."
+        },
+        404
+      );
+    }
+
+    const forkSession = await createForkSessionFromCheckpoint({
+      dependencies,
+      sourceSession,
+      checkpoint
+    });
+    const enrichedSession = (
+      await enrichSessionSnapshotsWithParentRelation({
+        sessions: [forkSession],
+        backgroundTaskRepository: dependencies.backgroundTaskRepository
+      })
+    )[0];
+
+    await logApiEvent({
+      logger: dependencies.apiLogger,
+      requestId,
+      event: "session_fork_created",
+      sessionId: forkSession.sessionId,
+      details: {
+        parentSessionId: sessionId,
+        checkpointId: checkpoint.id,
+        assistantMessageId: checkpoint.assistantMessageId
+      }
+    });
+
+    return c.json({ session: enrichedSession ?? forkSession }, 201);
   });
 
   app.patch("/sessions/:sessionId/settings", async (c) => {

@@ -3,11 +3,23 @@ import type { SessionSnapshot } from "@ai-app-template/agent";
 
 function buildParentSessionIdMap(
   tasks: Awaited<ReturnType<BackgroundTaskRepository["listTasks"]>>
-): Map<string, string> {
-  const parentSessionIdByChildSessionId = new Map<string, string>();
+): Map<
+  string,
+  {
+    parentSessionId: string;
+    taskKind: NonNullable<SessionSnapshot["parentSessionTaskKind"]>;
+  }
+> {
+  const parentSessionIdByChildSessionId = new Map<
+    string,
+    {
+      parentSessionId: string;
+      taskKind: NonNullable<SessionSnapshot["parentSessionTaskKind"]>;
+    }
+  >();
 
   for (const task of tasks) {
-    if (task.kind !== "subagent") {
+    if (task.kind !== "subagent" && task.kind !== "hook_subagent") {
       continue;
     }
 
@@ -19,10 +31,10 @@ function buildParentSessionIdMap(
       continue;
     }
 
-    parentSessionIdByChildSessionId.set(
-      task.childSessionId,
-      task.parentSessionId
-    );
+    parentSessionIdByChildSessionId.set(task.childSessionId, {
+      parentSessionId: task.parentSessionId,
+      taskKind: task.kind
+    });
   }
 
   return parentSessionIdByChildSessionId;
@@ -42,7 +54,21 @@ export async function enrichSessionSnapshotsWithParentRelation(input: {
   return input.sessions.map((session) => ({
     ...session,
     parentSessionId:
-      parentSessionIdByChildSessionId.get(session.sessionId) ?? null
+      session.parentSessionId ??
+      parentSessionIdByChildSessionId.get(session.sessionId)?.parentSessionId ??
+      null,
+    parentRelationKind:
+      session.parentRelationKind ??
+      (parentSessionIdByChildSessionId.get(session.sessionId)?.taskKind ===
+      "hook_subagent"
+        ? "hook_subagent"
+        : parentSessionIdByChildSessionId.has(session.sessionId)
+          ? "subagent"
+          : null),
+    parentSessionTaskKind:
+      session.parentSessionTaskKind ??
+      parentSessionIdByChildSessionId.get(session.sessionId)?.taskKind ??
+      null
   }));
 }
 
