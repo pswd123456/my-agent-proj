@@ -20,21 +20,27 @@ export interface SettingsPermissionToolOption {
   capabilityPack: string | null;
 }
 
+export const TODO_TOOL_NAMES = [
+  "get_todo_list",
+  "replace_todo_list",
+  "update_todo_items"
+] as const;
+
+export const PLANNING_STATE_TOOL_NAMES = TODO_TOOL_NAMES;
+
 export const PERMISSION_TOOL_OPTIONS = [
   "ask_user_question",
   "delegate_agent",
   "edit_task_brief",
   "get_current_time",
   "get_task_brief",
-  "get_todo_list",
+  ...PLANNING_STATE_TOOL_NAMES,
   "manage_capability_packs",
   "read_task_brief",
   "replace_task_brief",
-  "replace_todo_list",
   "load_skill",
   "search_task_brief",
   "search_skill",
-  "update_todo_items",
   "apply_patch",
   "read_file",
   "list_directory",

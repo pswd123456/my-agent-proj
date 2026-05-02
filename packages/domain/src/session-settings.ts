@@ -13,6 +13,7 @@ import {
   type ThinkingEffort
 } from "./session-context.js";
 import type { UserContextHookRecord } from "./user-context-hooks.js";
+import type { UpdateUserSettingsPayload } from "./settings-payload-schema.js";
 import type { WorkspaceSkillSettingRecord } from "./workspace-skills.js";
 
 export const DEFAULT_SESSION_SETTINGS_USER_ID = "cli-user";
@@ -56,24 +57,7 @@ export interface SessionSettingsRecord {
   updatedAt: string;
 }
 
-export interface SessionSettingsInput {
-  workingDirectory?: string;
-  model?: string;
-  thinkingEffort?: ThinkingEffort;
-  yoloMode?: boolean;
-  contextWindow?: number;
-  maxTurns?: number;
-  shellAllowPatterns?: string[];
-  shellDenyPatterns?: string[];
-  toolAllowList?: string[];
-  toolAskList?: string[];
-  toolDenyList?: string[];
-  enabledCapabilityPacks?: string[];
-  workspaceSkillSettings?: WorkspaceSkillSettingRecord[];
-  userContextHooks?: UserContextHookRecord[];
-  debugConversationView?: boolean;
-  userCustomPrompt?: string;
-}
+export type SessionSettingsInput = UpdateUserSettingsPayload;
 
 export function resolveSessionSettingsDefaults(
   userId = DEFAULT_SESSION_SETTINGS_USER_ID,
