@@ -17,6 +17,7 @@ import type {
 
 import {
   capabilityPackOptions,
+  DEFAULT_MAX_TURNS,
   MAX_TURNS_LIMIT,
   userContextHookBehaviorOptions,
   userContextHookContextEventOptions,
@@ -1474,30 +1475,59 @@ export function SessionWorkbenchDrawer({
                       </div>
 
                       {getUserContextHookBehavior(hook) === "subagent" ? (
-                        <div className="grid gap-2 sm:grid-cols-[minmax(0,220px)_1fr] sm:items-center">
-                          <div className={tertiaryHeadingClassName}>
-                            Wait Mode
+                        <div className="grid gap-3">
+                          <div className="grid gap-2 sm:grid-cols-[minmax(0,220px)_1fr] sm:items-center">
+                            <div className={tertiaryHeadingClassName}>
+                              Wait Mode
+                            </div>
+                            <WorkbenchSelect
+                              value={hook.waitMode ?? "blocking"}
+                              disabled={savingSettings}
+                              ariaLabel="选择 hook 子代理等待模式"
+                              options={userContextHookWaitModeOptions.map(
+                                (waitMode) => ({
+                                  value: waitMode,
+                                  label:
+                                    formatUserContextHookWaitModeLabel(waitMode)
+                                })
+                              )}
+                              onValueChange={(waitMode) =>
+                                onUserContextHookWaitModeChange(
+                                  hook.id,
+                                  waitMode as NonNullable<
+                                    UserContextHookRecord["waitMode"]
+                                  >
+                                )
+                              }
+                            />
                           </div>
-                          <WorkbenchSelect
-                            value={hook.waitMode ?? "blocking"}
-                            disabled={savingSettings}
-                            ariaLabel="选择 hook 子代理等待模式"
-                            options={userContextHookWaitModeOptions.map(
-                              (waitMode) => ({
-                                value: waitMode,
-                                label:
-                                  formatUserContextHookWaitModeLabel(waitMode)
-                              })
-                            )}
-                            onValueChange={(waitMode) =>
-                              onUserContextHookWaitModeChange(
-                                hook.id,
-                                waitMode as NonNullable<
-                                  UserContextHookRecord["waitMode"]
-                                >
-                              )
-                            }
-                          />
+                          <label className="grid gap-2 sm:grid-cols-[minmax(0,220px)_1fr] sm:items-center">
+                            <span className={tertiaryHeadingClassName}>
+                              Max Turns
+                            </span>
+                            <input
+                              type="number"
+                              min={1}
+                              max={MAX_TURNS_LIMIT}
+                              value={
+                                typeof hook.maxTurns === "number" &&
+                                Number.isFinite(hook.maxTurns)
+                                  ? hook.maxTurns
+                                  : DEFAULT_MAX_TURNS
+                              }
+                              disabled={savingSettings}
+                              onChange={(event) =>
+                                onUserContextHookChange(hook.id, {
+                                  maxTurns: Number.parseInt(
+                                    event.target.value,
+                                    10
+                                  )
+                                })
+                              }
+                              onBlur={onUserContextHookBlur}
+                              className="w-full rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_78%,transparent)] px-4 py-3 text-sm text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
+                            />
+                          </label>
                         </div>
                       ) : null}
 

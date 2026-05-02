@@ -1784,7 +1784,10 @@ export function SessionWorkbench() {
             behavior: hookType.behavior,
             event: hookType.event,
             ...(hookType.behavior === "subagent"
-              ? { waitMode: "blocking" as const }
+              ? {
+                  waitMode: "blocking" as const,
+                  maxTurns: DEFAULT_MAX_TURNS
+                }
               : {}),
             title: "",
             content: "",
@@ -1862,7 +1865,10 @@ export function SessionWorkbench() {
                 ...hook,
                 behavior,
                 ...(behavior === "subagent"
-                  ? { waitMode: hook.waitMode ?? "blocking" }
+                  ? {
+                      waitMode: hook.waitMode ?? "blocking",
+                      maxTurns: hook.maxTurns ?? DEFAULT_MAX_TURNS
+                    }
                   : {}),
                 ...((behavior === "context" || behavior === "subagent") &&
                 hook.event === "run_end"

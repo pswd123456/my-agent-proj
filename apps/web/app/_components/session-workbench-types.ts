@@ -68,7 +68,7 @@ export function clearActiveSidebarPanel(): null {
   return null;
 }
 
-export const DEFAULT_MAX_TURNS = 50;
+export const DEFAULT_MAX_TURNS = 100;
 export const MAX_TURNS_LIMIT = 200;
 export const DEFAULT_CONTEXT_WINDOW = 200_000;
 

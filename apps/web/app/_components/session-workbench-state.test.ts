@@ -454,6 +454,7 @@ describe("settings user context hooks", () => {
         event: "run_started",
         behavior: "subagent",
         waitMode: "blocking",
+        maxTurns: 100,
         title: "Background research",
         content: "先整理背景资料。",
         enabled: true

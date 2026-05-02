@@ -1,6 +1,11 @@
 "use client";
 
-import { useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import {
+  useState,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction
+} from "react";
 
 import type {
   SessionSnapshot,
@@ -10,6 +15,7 @@ import type {
 
 import {
   capabilityPackOptions,
+  DEFAULT_MAX_TURNS,
   MAX_TURNS_LIMIT,
   settingsPages,
   userContextHookBehaviorOptions,
@@ -61,11 +67,7 @@ function ArrowLeftIcon() {
   );
 }
 
-function ChevronDownIcon({
-  expanded = false
-}: {
-  expanded?: boolean;
-}) {
+function ChevronDownIcon({ expanded = false }: { expanded?: boolean }) {
   return (
     <svg
       aria-hidden="true"
@@ -434,16 +436,16 @@ export function SessionWorkbenchSettings({
   const hooksEnabledCount = settingsForm.userContextHooks.filter(
     (hook) => hook.enabled
   ).length;
-  const enabledWorkspaceSkillCount = settingsSkillsState.skills.filter((skill) =>
-    isWorkspaceSkillEnabled(settingsForm, skill.name)
+  const enabledWorkspaceSkillCount = settingsSkillsState.skills.filter(
+    (skill) => isWorkspaceSkillEnabled(settingsForm, skill.name)
   ).length;
   const statusText = loadingSettings
     ? "正在同步设置..."
     : savingSettings
       ? "正在保存设置..."
-        : pendingPermissionToolName
-          ? `最近处理权限：${getPermissionToolLabel(pendingPermissionToolName)}`
-          : settingsStatusText;
+      : pendingPermissionToolName
+        ? `最近处理权限：${getPermissionToolLabel(pendingPermissionToolName)}`
+        : settingsStatusText;
 
   function toggleExpandedId(
     setExpanded: Dispatch<SetStateAction<Set<string>>>,
@@ -984,7 +986,9 @@ export function SessionWorkbenchSettings({
                               </div>
                               <WorkbenchSelect
                                 value={server.transport}
-                                disabled={loadingMcpSettings || savingMcpSettings}
+                                disabled={
+                                  loadingMcpSettings || savingMcpSettings
+                                }
                                 ariaLabel="选择 MCP transport"
                                 options={[
                                   { value: "stdio", label: "stdio" },
@@ -1102,8 +1106,11 @@ export function SessionWorkbenchSettings({
                               工具列表
                             </div>
                             <div className="mt-1 text-xs leading-5 text-[var(--app-text-muted)]">
-                              {server.tools.filter((tool) => tool.enabled).length}/
-                              {server.tools.length} 已启用
+                              {
+                                server.tools.filter((tool) => tool.enabled)
+                                  .length
+                              }
+                              /{server.tools.length} 已启用
                             </div>
                           </div>
                           <ChevronDownIcon
@@ -1427,29 +1434,64 @@ export function SessionWorkbenchSettings({
                   </div>
 
                   {getUserContextHookBehavior(hook) === "subagent" ? (
-                    <label className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
-                      <span className={tertiaryHeadingClassName}>Wait Mode</span>
-                      <WorkbenchSelect
-                        value={hook.waitMode ?? "blocking"}
-                        disabled={savingSettings}
-                        ariaLabel="选择 hook 子代理等待模式"
-                        options={userContextHookWaitModeOptions.map((option) => ({
-                          value: option,
-                          label: formatUserContextHookWaitModeLabel(option)
-                        }))}
-                        onValueChange={(waitMode) =>
-                          onUserContextHookWaitModeChange(
-                            hook.id,
-                            waitMode as NonNullable<UserContextHookRecord["waitMode"]>
-                          )
-                        }
-                      />
-                      <div className={fieldDescriptionClassName}>
-                        {formatUserContextHookWaitModeDescription(
-                          hook.waitMode ?? "blocking"
-                        )}
-                      </div>
-                    </label>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <label className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
+                        <span className={tertiaryHeadingClassName}>
+                          Wait Mode
+                        </span>
+                        <WorkbenchSelect
+                          value={hook.waitMode ?? "blocking"}
+                          disabled={savingSettings}
+                          ariaLabel="选择 hook 子代理等待模式"
+                          options={userContextHookWaitModeOptions.map(
+                            (option) => ({
+                              value: option,
+                              label: formatUserContextHookWaitModeLabel(option)
+                            })
+                          )}
+                          onValueChange={(waitMode) =>
+                            onUserContextHookWaitModeChange(
+                              hook.id,
+                              waitMode as NonNullable<
+                                UserContextHookRecord["waitMode"]
+                              >
+                            )
+                          }
+                        />
+                        <div className={fieldDescriptionClassName}>
+                          {formatUserContextHookWaitModeDescription(
+                            hook.waitMode ?? "blocking"
+                          )}
+                        </div>
+                      </label>
+                      <label className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
+                        <span className={tertiaryHeadingClassName}>
+                          Max Turns
+                        </span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={MAX_TURNS_LIMIT}
+                          value={
+                            typeof hook.maxTurns === "number" &&
+                            Number.isFinite(hook.maxTurns)
+                              ? hook.maxTurns
+                              : DEFAULT_MAX_TURNS
+                          }
+                          disabled={savingSettings}
+                          onChange={(event) =>
+                            onUserContextHookChange(hook.id, {
+                              maxTurns: Number.parseInt(event.target.value, 10)
+                            })
+                          }
+                          onBlur={onUserContextHookBlur}
+                          className="w-full rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_78%,transparent)] px-4 py-3 text-sm text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
+                        />
+                        <div className={fieldDescriptionClassName}>
+                          子代理本次执行预算，上限为 {MAX_TURNS_LIMIT}。
+                        </div>
+                      </label>
+                    </div>
                   ) : null}
 
                   <label className="grid gap-2 text-sm text-[var(--app-text-secondary)]">

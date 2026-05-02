@@ -1234,7 +1234,10 @@ export function normalizeSettingsFormState(
             behavior === "subagent"
               ? {
                   ...normalizedHook,
-                  waitMode: hook.waitMode ?? "blocking"
+                  waitMode: hook.waitMode ?? "blocking",
+                  maxTurns: normalizeMaxTurns(
+                    String(hook.maxTurns ?? DEFAULT_MAX_TURNS)
+                  )
                 }
               : normalizedHook
           ];
