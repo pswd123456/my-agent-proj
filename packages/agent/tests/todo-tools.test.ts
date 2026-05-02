@@ -221,6 +221,57 @@ describe("todo tools", () => {
     }
   });
 
+  test("shared invalid input handling stays consistent across todo and task brief tools", async () => {
+    const sessionManager = await createPostgresTestSessionManager();
+    const session = await sessionManager.createSession({
+      workingDirectory: "/tmp/workspace",
+      userId: "todo-user",
+      planModeEnabled: true
+    });
+    const context = await createSessionContext(sessionManager, session.sessionId);
+    const cases = [
+      {
+        name: "replace_todo_list",
+        execute: () => createReplaceTodoListTool().execute({} as never, context),
+        expectedField: "items"
+      },
+      {
+        name: "update_todo_items",
+        execute: () => createUpdateTodoItemsTool().execute({} as never, context),
+        expectedField: "operations"
+      },
+      {
+        name: "replace_task_brief",
+        execute: () => createReplaceTaskBriefTool().execute({} as never, context),
+        expectedField: "content"
+      },
+      {
+        name: "edit_task_brief",
+        execute: () => createEditTaskBriefTool().execute({} as never, context),
+        expectedField: "startLine"
+      },
+      {
+        name: "search_task_brief",
+        execute: () => createSearchTaskBriefTool().execute({} as never, context),
+        expectedField: "query"
+      }
+    ];
+
+    for (const testCase of cases) {
+      const result = await testCase.execute();
+      expect(result.state).toBe("failed");
+      expect(result.result.code).toBe("INVALID_TOOL_INPUT");
+      expect(result.displayText).toContain(`[${testCase.name}] invalid input`);
+      expect(result.result.validationErrors).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            field: testCase.expectedField
+          })
+        ])
+      );
+    }
+  });
+
   test("replace_task_brief writes the bound markdown file and get_task_brief reads it back", async () => {
     const sessionManager = await createPostgresTestSessionManager();
     const session = await sessionManager.createSession({

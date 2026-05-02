@@ -155,6 +155,32 @@ describe("manage_capability_packs tool", () => {
     );
   });
 
+  test("returns structured validation errors for missing pack_name", async () => {
+    const sessionManager = await createPostgresTestSessionManager();
+    const session = await sessionManager.createSession({
+      workingDirectory: "/tmp/workspace",
+      userId: "pack-user"
+    });
+
+    const result = await createManageCapabilityPacksTool().execute(
+      { action: "enable" } as never,
+      await createSessionContext(sessionManager, session.sessionId)
+    );
+
+    expect(result.state).toBe("failed");
+    expect(result.result.code).toBe("INVALID_TOOL_INPUT");
+    expect(result.displayText).toContain(
+      "[manage_capability_packs] invalid input"
+    );
+    expect(result.result.validationErrors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          field: "pack_name"
+        })
+      ])
+    );
+  });
+
   test("can enable the lsp capability pack", async () => {
     const sessionManager = await createPostgresTestSessionManager();
     const session = await sessionManager.createSession({

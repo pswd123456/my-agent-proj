@@ -8,6 +8,21 @@ import type {
 } from "./runtime-tool.js";
 import type { ToolResultDetails } from "../types.js";
 
+export function mapZodIssues(
+  issues: readonly z.ZodIssue[]
+): ToolValidationIssue[] {
+  return issues.map((issue) => ({
+    field: issue.path.join(".") || "input",
+    issue: issue.message
+  }));
+}
+
+export function formatValidationErrors(
+  issues: readonly ToolValidationIssue[]
+): string {
+  return issues.map((issue) => `- ${issue.field}: ${issue.issue}`).join("\n");
+}
+
 export function validateWithSchema(
   schema: z.ZodType<Record<string, unknown>>,
   input: Record<string, unknown>
@@ -20,14 +35,46 @@ export function validateWithSchema(
     };
   }
 
-  const issues: ToolValidationIssue[] = parsed.error.issues.map((issue) => ({
-    field: issue.path.join(".") || "input",
-    issue: issue.message
-  }));
+  return {
+    ok: false,
+    issues: mapZodIssues(parsed.error.issues)
+  };
+}
+
+export function createInvalidToolInputResult(
+  toolName: string,
+  issues: readonly ToolValidationIssue[],
+  message = "Tool input validation failed."
+): ToolExecutionResult {
+  return failureResult(
+    createToolResult({
+      ok: false,
+      code: "INVALID_TOOL_INPUT",
+      message,
+      validationErrors: [...issues]
+    }),
+    issues.length > 0
+      ? `[${toolName}] invalid input\n${formatValidationErrors(issues)}`
+      : `[${toolName}] invalid input`
+  );
+}
+
+export function parseToolInput<T extends Record<string, unknown>>(
+  toolName: string,
+  schema: z.ZodType<T>,
+  input: Record<string, unknown>
+): { ok: true; data: T } | { ok: false; result: ToolExecutionResult } {
+  const parsed = schema.safeParse(input);
+  if (parsed.success) {
+    return {
+      ok: true,
+      data: parsed.data
+    };
+  }
 
   return {
     ok: false,
-    issues
+    result: createInvalidToolInputResult(toolName, mapZodIssues(parsed.error.issues))
   };
 }
 

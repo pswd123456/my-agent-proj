@@ -5,6 +5,16 @@ import {
   workspaceMcpServerConfigSchema,
   workspaceMcpServerLoadSummarySchema
 } from "../mcp/config-types.js";
+export {
+  findDuplicateWorkspaceMcpServerNames,
+  normalizeWorkspaceMcpDisabledTools,
+  normalizeWorkspaceMcpServerConfig,
+  normalizeWorkspaceMcpServerConfigs,
+  normalizeWorkspaceMcpServerName,
+  type WorkspaceMcpHttpServerConfigInput,
+  type WorkspaceMcpServerConfigInput,
+  type WorkspaceMcpStdioServerConfigInput
+} from "../mcp/config-normalization.js";
 import { workspaceFileChangeSummarySchema } from "../types.js";
 
 const workspaceMcpStringRecordSchema = z.record(z.string(), z.string());

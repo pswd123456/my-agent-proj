@@ -5,6 +5,7 @@ import { formatRoutineLines } from "./routine-format.js";
 import {
   createToolResult,
   failureResult,
+  parseToolInput,
   successResult,
   validateWithSchema
 } from "./tool-result.js";
@@ -34,23 +35,9 @@ export function createListRoutineByWeekTool(): RuntimeTool {
       return validateWithSchema(schema, input);
     },
     async execute(input, context) {
-      const parsed = schema.safeParse(input);
-      if (!parsed.success) {
-        const issues = parsed.error.issues.map((issue) => ({
-          field: issue.path.join(".") || "input",
-          issue: issue.message
-        }));
-        return failureResult(
-          createToolResult({
-            ok: false,
-            code: "INVALID_TOOL_INPUT",
-            message: "Tool input validation failed.",
-            validationErrors: issues
-          }),
-          `[list_routine_by_week] invalid input\n${issues
-            .map((issue) => `- ${issue.field}: ${issue.issue}`)
-            .join("\n")}`
-        );
+      const parsed = parseToolInput("list_routine_by_week", schema, input);
+      if (!parsed.ok) {
+        return parsed.result;
       }
 
       const routines = await context.routineRepository.listByWeek(

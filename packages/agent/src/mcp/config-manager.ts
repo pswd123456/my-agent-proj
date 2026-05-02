@@ -7,6 +7,7 @@ import type {
   WorkspaceMcpConfigLoadResult,
   WorkspaceMcpServerConfig
 } from "./config-types.js";
+import { normalizeWorkspaceMcpServerConfigs } from "./config-normalization.js";
 import {
   getWorkspaceMcpConfigPath,
   loadWorkspaceMcpConfig
@@ -16,9 +17,10 @@ type TomlObject = Record<string, unknown>;
 
 function toTomlConfig(servers: readonly WorkspaceMcpServerConfig[]): string {
   const mcpServers: Record<string, TomlObject> = {};
+  const normalizedServers = normalizeWorkspaceMcpServerConfigs(servers);
 
-  for (const server of servers) {
-    const disabledTools = server.disabledTools ?? [];
+  for (const server of normalizedServers) {
+    const disabledTools = server.disabledTools;
     if (server.transport === "stdio") {
       mcpServers[server.name] = {
         ...(server.enabled === false ? { enabled: false } : {}),

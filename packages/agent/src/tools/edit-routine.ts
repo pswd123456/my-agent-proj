@@ -9,6 +9,7 @@ import { formatConflictLines, formatRoutineLine } from "./routine-format.js";
 import {
   createToolResult,
   failureResult,
+  parseToolInput,
   successResult,
   validateWithSchema
 } from "./tool-result.js";
@@ -187,23 +188,9 @@ export function createEditRoutineTool(): RuntimeTool {
       return validateWithSchema(schema, input);
     },
     async execute(input, context) {
-      const parsed = schema.safeParse(input);
-      if (!parsed.success) {
-        const issues = parsed.error.issues.map((issue) => ({
-          field: issue.path.join(".") || "input",
-          issue: issue.message
-        }));
-        return failureResult(
-          createToolResult({
-            ok: false,
-            code: "INVALID_TOOL_INPUT",
-            message: "Tool input validation failed.",
-            validationErrors: issues
-          }),
-          `[edit_routine] invalid input\n${issues
-            .map((issue) => `- ${issue.field}: ${issue.issue}`)
-            .join("\n")}`
-        );
+      const parsed = parseToolInput("edit_routine", schema, input);
+      if (!parsed.ok) {
+        return parsed.result;
       }
 
       const existing = await context.routineRepository.getById(

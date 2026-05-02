@@ -204,4 +204,36 @@ disabled_tools = ["echo", "status", "echo"]
       await rm(workspaceRoot, { recursive: true, force: true });
     }
   });
+
+  test("normalizes shared MCP server defaults and trimmed fields", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+
+    try {
+      await writeConfig(
+        workspaceRoot,
+        `
+[mcp_servers." local_echo "]
+command = " node "
+disabled_tools = [" echo ", "", "echo"]
+`.trim()
+      );
+
+      const result = await loadWorkspaceMcpConfig(workspaceRoot);
+
+      expect(result.diagnostics).toEqual([]);
+      expect(result.servers).toEqual([
+        {
+          name: "local_echo",
+          transport: "stdio",
+          enabled: true,
+          disabledTools: ["echo"],
+          command: "node",
+          args: [],
+          env: {}
+        }
+      ]);
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
 });

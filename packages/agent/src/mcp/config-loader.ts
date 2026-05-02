@@ -10,6 +10,10 @@ import type {
   WorkspaceMcpServerConfig,
   WorkspaceMcpStdioServerConfig
 } from "./config-types.js";
+import {
+  normalizeWorkspaceMcpDisabledTools,
+  normalizeWorkspaceMcpServerConfig
+} from "./config-normalization.js";
 
 const MCP_CONFIG_DIRECTORY = ".agent";
 const MCP_CONFIG_FILE_NAME = ".config.toml";
@@ -158,7 +162,7 @@ function validateOptionalDisabledTools(
     });
   }
 
-  return [...new Set(disabledTools.map((item) => item.trim()).filter(Boolean))];
+  return normalizeWorkspaceMcpDisabledTools(disabledTools);
 }
 
 function validateStringRecord(value: unknown): Record<string, string> | null {
@@ -271,18 +275,18 @@ function parseStdioServer(
     });
   }
 
-  return {
+  return normalizeWorkspaceMcpServerConfig({
     name: serverName,
     transport: "stdio",
     enabled,
     disabledTools,
-    command: value.command.trim(),
+    command: value.command,
     args,
     env:
       options?.resolveEnvironment === false
         ? env
         : resolveEnvironmentReferences(env)
-  };
+  });
 }
 
 function parseHttpServer(
@@ -350,14 +354,14 @@ function parseHttpServer(
     });
   }
 
-  return {
+  return normalizeWorkspaceMcpServerConfig({
     name: serverName,
     transport: "http",
     enabled,
     disabledTools,
-    url: value.url.trim(),
+    url: value.url,
     headers
-  };
+  });
 }
 
 function parseServerConfig(

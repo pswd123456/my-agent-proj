@@ -6,6 +6,7 @@ import type { RuntimeTool } from "./runtime-tool.js";
 import {
   createToolResult,
   failureResult,
+  parseToolInput,
   successResult,
   validateWithSchema
 } from "./tool-result.js";
@@ -67,23 +68,9 @@ export function createReplaceTodoListTool(): RuntimeTool {
       return validateWithSchema(schema, input);
     },
     async execute(input, context) {
-      const parsed = schema.safeParse(input);
-      if (!parsed.success) {
-        const issues = parsed.error.issues.map((issue) => ({
-          field: issue.path.join(".") || "input",
-          issue: issue.message
-        }));
-        return failureResult(
-          createToolResult({
-            ok: false,
-            code: "INVALID_TOOL_INPUT",
-            message: "Tool input validation failed.",
-            validationErrors: issues
-          }),
-          `[replace_todo_list] invalid input\n${issues
-            .map((issue) => `- ${issue.field}: ${issue.issue}`)
-            .join("\n")}`
-        );
+      const parsed = parseToolInput("replace_todo_list", schema, input);
+      if (!parsed.ok) {
+        return parsed.result;
       }
 
       try {
