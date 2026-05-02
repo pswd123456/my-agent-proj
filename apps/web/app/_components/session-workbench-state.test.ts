@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import type { SessionSnapshot, SessionSummary } from "@ai-app-template/sdk";
+import type {
+  RunStreamEvent,
+  SessionSnapshot,
+  SessionSummary
+} from "@ai-app-template/sdk";
 
 import {
   buildSessionSettingsPatchFromUserSettings,
@@ -710,6 +714,55 @@ describe("applyStreamEventToSession", () => {
     expect(next.sessionState.pendingToolCallIds).toEqual(["call-1"]);
   });
 
+  test("returns to user input after rejected or blocked permission events", () => {
+    const request = {
+      toolCallId: "call-1",
+      toolName: "read_file",
+      toolInput: { path: "../README.md" },
+      family: "workspace-file",
+      permissionProfile: "always-ask-user",
+      summaryText: "读取工作区外文件",
+      createdAt: "2026-04-24T00:00:00.000Z"
+    } satisfies NonNullable<
+      SessionSnapshot["context"]["pendingPermissionRequest"]
+    >;
+    const events: RunStreamEvent[] = [
+      {
+        kind: "permission_rejected",
+        sessionId: "session-1",
+        createdAt: "2026-04-24T00:00:01.000Z",
+        turnCount: 1,
+        toolCallId: "call-1",
+        toolName: "read_file",
+        request
+      },
+      {
+        kind: "permission_blocked",
+        sessionId: "session-1",
+        createdAt: "2026-04-24T00:00:02.000Z",
+        turnCount: 1,
+        toolCallId: "call-1",
+        toolName: "read_file",
+        reason: "Blocked by policy."
+      }
+    ];
+
+    for (const event of events) {
+      const session = createSessionSnapshot();
+      session.context.status = "waiting_for_permission";
+      session.context.pendingPermissionRequest = request;
+      session.sessionState.loopState = "waiting for input";
+      session.sessionState.pendingToolCallIds = ["call-1"];
+
+      const next = applyStreamEventToSession(session, event);
+
+      expect(next.context.status).toBe("waiting_for_user_input");
+      expect(next.context.pendingPermissionRequest).toBeNull();
+      expect(next.sessionState.loopState).toBe("waiting for input");
+      expect(next.sessionState.pendingToolCallIds).toEqual([]);
+    }
+  });
+
   test("hydrates todo state from get_todo_list results before run completion", () => {
     const session = createSessionSnapshot();
     session.context.status = "running";
@@ -792,6 +845,37 @@ describe("applyStreamEventToSession", () => {
       next.context.pendingUserQuestionPayload?.questions[0]?.questionText
     ).toBe("先做 CLI 还是 Web？");
     expect(next.sessionState.loopState).toBe("waiting for input");
+  });
+
+  test("applies turn_end state and pending tool semantics consistently", () => {
+    const waiting = createSessionSnapshot();
+    waiting.context.status = "running";
+    waiting.sessionState.loopState = "waiting for tool result";
+    waiting.sessionState.pendingToolCallIds = ["call-1"];
+
+    const stillWaiting = applyStreamEventToSession(waiting, {
+      kind: "turn_end",
+      sessionId: waiting.sessionId,
+      createdAt: "2026-04-26T00:00:02.000Z",
+      turnCount: 1,
+      loopState: "waiting for tool result"
+    });
+
+    expect(stillWaiting.context.status).toBe("running");
+    expect(stillWaiting.sessionState.loopState).toBe("waiting for tool result");
+    expect(stillWaiting.sessionState.pendingToolCallIds).toEqual(["call-1"]);
+
+    const completed = applyStreamEventToSession(stillWaiting, {
+      kind: "turn_end",
+      sessionId: waiting.sessionId,
+      createdAt: "2026-04-26T00:00:03.000Z",
+      turnCount: 1,
+      loopState: "completed"
+    });
+
+    expect(completed.context.status).toBe("completed");
+    expect(completed.sessionState.loopState).toBe("completed");
+    expect(completed.sessionState.pendingToolCallIds).toEqual([]);
   });
 });
 

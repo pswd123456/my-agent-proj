@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { SessionSnapshot } from "@ai-app-template/sdk";
+import type { RunStreamEvent, SessionSnapshot } from "@ai-app-template/sdk";
 
 import {
   applyStreamEventToSessionState,
@@ -79,10 +79,10 @@ describe("session-state-manager", () => {
     expect(state.session?.sessionState.loopState).toBe("running");
   });
 
-  test("clears pending permission and keeps running after approval event", () => {
-    const base = beginSessionSubmission(
-      createSessionUiState(createSessionSnapshot())
-    );
+  test("clears pending permission and waits for tool result after approval event", () => {
+    const snapshot = createSessionSnapshot();
+    const request = snapshot.context.pendingPermissionRequest!;
+    const base = beginSessionSubmission(createSessionUiState(snapshot));
 
     const next = applyStreamEventToSessionState(base, {
       kind: "permission_approved",
@@ -91,14 +91,56 @@ describe("session-state-manager", () => {
       turnCount: 1,
       toolCallId: "call-1",
       toolName: "read_file",
-      request: base.session!.context.pendingPermissionRequest!
+      request
     });
 
     expect(next.submitting).toBe(false);
     expect(next.session?.context.status).toBe("running");
     expect(next.session?.context.pendingPermissionRequest).toBeNull();
-    expect(next.session?.sessionState.loopState).toBe("running");
+    expect(next.session?.sessionState.loopState).toBe(
+      "waiting for tool result"
+    );
     expect(next.session?.sessionState.pendingToolCallIds).toEqual(["call-1"]);
+  });
+
+  test("clears pending permission and tool calls after denied permission events", () => {
+    const request = createSessionSnapshot().context.pendingPermissionRequest!;
+    const events: RunStreamEvent[] = [
+      {
+        kind: "permission_rejected",
+        sessionId: "session-1",
+        createdAt: "2026-04-24T00:00:01.000Z",
+        turnCount: 1,
+        toolCallId: "call-1",
+        toolName: "read_file",
+        request
+      },
+      {
+        kind: "permission_blocked",
+        sessionId: "session-1",
+        createdAt: "2026-04-24T00:00:02.000Z",
+        turnCount: 1,
+        toolCallId: "call-1",
+        toolName: "read_file",
+        reason: "Blocked by policy."
+      }
+    ];
+
+    for (const event of events) {
+      const session = createSessionSnapshot();
+      session.context.status = "waiting_for_permission";
+      session.sessionState.loopState = "waiting for input";
+      session.sessionState.pendingToolCallIds = ["call-1"];
+      const base = beginSessionSubmission(createSessionUiState(session));
+
+      const next = applyStreamEventToSessionState(base, event);
+
+      expect(next.submitting).toBe(false);
+      expect(next.session?.context.status).toBe("waiting_for_user_input");
+      expect(next.session?.context.pendingPermissionRequest).toBeNull();
+      expect(next.session?.sessionState.loopState).toBe("waiting for input");
+      expect(next.session?.sessionState.pendingToolCallIds).toEqual([]);
+    }
   });
 
   test("restores the previous session snapshot when submit fails before events arrive", () => {
@@ -278,6 +320,28 @@ describe("session-state-manager", () => {
 
     expect(next.submitting).toBe(true);
     expect(next.session).toBe(completedSession);
+  });
+
+  test("applies turn_end session content while preserving completed submission lock", () => {
+    const session = createSessionSnapshot();
+    session.context.pendingPermissionRequest = null;
+    session.context.status = "running";
+    session.sessionState.loopState = "waiting for tool result";
+    session.sessionState.pendingToolCallIds = ["call-1"];
+    const base = beginSessionSubmission(createSessionUiState(session));
+
+    const next = applyStreamEventToSessionState(base, {
+      kind: "turn_end",
+      sessionId: session.sessionId,
+      createdAt: "2026-04-26T00:00:02.000Z",
+      turnCount: 1,
+      loopState: "completed"
+    });
+
+    expect(next.submitting).toBe(true);
+    expect(next.session?.context.status).toBe("completed");
+    expect(next.session?.sessionState.loopState).toBe("completed");
+    expect(next.session?.sessionState.pendingToolCallIds).toEqual([]);
   });
 
   test("restores the previous interrupt flag when interrupt fails", () => {

@@ -1,6 +1,6 @@
 import type { RunStreamEvent, SessionSnapshot } from "@ai-app-template/sdk";
 
-import { applyTodoToolResultToSession } from "./session-todo-state";
+import { applyStreamEventToSession } from "./session-workbench-state";
 
 export interface SessionUiState {
   session: SessionSnapshot | null;
@@ -164,224 +164,56 @@ export function applyStreamEventToSessionState(
     return state;
   }
 
-  const nextBaseState = {
+  const applySessionReducer = () => ({
     ...state,
+    session: applyStreamEventToSession(current, event),
     optimisticSessionSnapshot: null
-  };
+  });
 
   switch (event.kind) {
     case "turn_start":
-      return {
-        ...nextBaseState,
-        session: {
-          ...current,
-          sessionState: {
-            ...current.sessionState,
-            ...event.session.sessionState,
-            loopState: "running",
-            interruptRequested: false
-          },
-          context: {
-            ...current.context,
-            status: "running"
-          }
-        }
-      };
-    case "tool_call": {
-      const nextPending = new Set(current.sessionState.pendingToolCallIds);
-      nextPending.add(event.toolCallId);
-      return {
-        ...nextBaseState,
-        session: {
-          ...current,
-          sessionState: {
-            ...current.sessionState,
-            loopState: "waiting for tool result",
-            pendingToolCallIds: [...nextPending]
-          },
-          context: {
-            ...current.context,
-            status: "running"
-          }
-        }
-      };
-    }
-    case "tool_result": {
-      const nextPending = current.sessionState.pendingToolCallIds.filter(
-        (id) => id !== event.toolCallId
-      );
-      const nextSession = applyTodoToolResultToSession(current, event);
-      return {
-        ...nextBaseState,
-        session: {
-          ...nextSession,
-          sessionState: {
-            ...nextSession.sessionState,
-            loopState:
-              nextPending.length > 0 ? "waiting for tool result" : "running",
-            pendingToolCallIds: nextPending
-          },
-          context: {
-            ...nextSession.context,
-            status: "running"
-          }
-        }
-      };
-    }
+    case "tool_call":
+    case "tool_result":
+    case "interrupt_requested":
+      return applySessionReducer();
     case "permission_request":
       return {
-        ...nextBaseState,
-        submitting: false,
-        session: {
-          ...current,
-          sessionState: {
-            ...current.sessionState,
-            loopState: "waiting for input"
-          },
-          context: {
-            ...current.context,
-            status: "waiting_for_permission",
-            pendingPermissionRequest: event.request
-          }
-        }
+        ...applySessionReducer(),
+        submitting: false
       };
-    case "permission_approved": {
-      const nextPending = new Set(current.sessionState.pendingToolCallIds);
-      nextPending.add(event.toolCallId);
-      return {
-        ...nextBaseState,
-        submitting: false,
-        session: {
-          ...current,
-          sessionState: {
-            ...current.sessionState,
-            loopState: "running",
-            pendingToolCallIds: [...nextPending]
-          },
-          context: {
-            ...current.context,
-            status: "running",
-            pendingPermissionRequest: null
-          }
-        }
-      };
-    }
+    case "permission_approved":
     case "permission_rejected":
     case "permission_blocked":
       return {
-        ...nextBaseState,
-        submitting: false,
-        session: {
-          ...current,
-          sessionState: {
-            ...current.sessionState,
-            loopState: "waiting for input",
-            pendingToolCallIds: []
-          },
-          context: {
-            ...current.context,
-            status: "waiting_for_user_input",
-            pendingPermissionRequest: null
-          }
-        }
+        ...applySessionReducer(),
+        submitting: false
       };
     case "user_question_request":
       return {
-        ...nextBaseState,
-        submitting: false,
-        session: {
-          ...current,
-          sessionState: {
-            ...current.sessionState,
-            loopState: "waiting for input",
-            pendingToolCallIds: []
-          },
-          context: {
-            ...current.context,
-            status: "waiting_for_user_question",
-            pendingUserQuestionPayload: event.question
-          }
-        }
-      };
-    case "interrupt_requested":
-      return {
-        ...nextBaseState,
-        session: {
-          ...current,
-          sessionState: {
-            ...current.sessionState,
-            interruptRequested: true
-          }
-        }
+        ...applySessionReducer(),
+        submitting: false
       };
     case "interrupted":
       return {
-        ...nextBaseState,
+        ...applySessionReducer(),
         submitting: false,
-        interruptingSessionId: null,
-        session: {
-          ...current,
-          sessionState: {
-            ...current.sessionState,
-            loopState: "interrupted",
-            interruptRequested: false,
-            pendingToolCallIds: []
-          },
-          context: {
-            ...current.context,
-            status: "waiting_for_user_input",
-            pendingPermissionRequest: null
-          }
-        }
+        interruptingSessionId: null
       };
     case "turn_end":
       return {
-        ...nextBaseState,
-        submitting: event.loopState === "completed" ? state.submitting : false,
-        session: {
-          ...current,
-          sessionState: {
-            ...current.sessionState,
-            loopState: event.loopState,
-            interruptRequested: false,
-            pendingToolCallIds:
-              event.loopState === "waiting for tool result"
-                ? current.sessionState.pendingToolCallIds
-                : []
-          },
-          context: {
-            ...current.context,
-            status:
-              event.loopState === "completed"
-                ? "completed"
-                : event.loopState === "failed"
-                  ? "failed"
-                  : event.loopState === "interrupted"
-                    ? "waiting_for_user_input"
-                    : event.loopState === "waiting for input"
-                      ? current.context.pendingUserQuestionPayload
-                        ? "waiting_for_user_question"
-                        : "waiting_for_user_input"
-                      : "running",
-            pendingPermissionRequest:
-              event.loopState === "waiting for input"
-                ? current.context.pendingPermissionRequest
-                : null
-          }
-        }
+        ...applySessionReducer(),
+        submitting: event.loopState === "completed" ? state.submitting : false
       };
     case "run_complete":
       return {
-        ...nextBaseState,
-        interruptingSessionId: null,
-        session: event.session
+        ...applySessionReducer(),
+        interruptingSessionId: null
       };
     case "run_error":
       return {
-        ...nextBaseState,
+        ...applySessionReducer(),
         submitting: false,
-        interruptingSessionId: null,
-        session: "session" in event ? (event.session ?? current) : current
+        interruptingSessionId: null
       };
     default:
       return state;

@@ -392,7 +392,8 @@ export function applyStreamEventToSession(
         ...session,
         sessionState: {
           ...session.sessionState,
-          loopState: "waiting for input"
+          loopState: "waiting for input",
+          pendingToolCallIds: []
         },
         context: {
           ...session.context,
