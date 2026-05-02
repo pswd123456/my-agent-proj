@@ -6,7 +6,9 @@ import path from "node:path";
 
 import {
   FileSystemLogManager,
-  createLogger
+  createLogger,
+  workspaceFileSearchResultSchema,
+  workspaceSkillSearchResultSchema
 } from "@ai-app-template/agent";
 import {
   createMemoryRoutineRepository,
@@ -158,10 +160,9 @@ describe("composer search endpoints", () => {
     );
 
     expect(response.status).toBe(200);
-    const payload = (await response.json()) as {
-      items: Array<{ path: string; name: string }>;
-      truncated: boolean;
-    };
+    const payload = workspaceFileSearchResultSchema.parse(
+      await response.json()
+    );
     expect(payload.truncated).toBe(false);
     expect(payload.items.map((item) => item.path)).toEqual([
       "src/app.ts",
@@ -182,10 +183,9 @@ describe("composer search endpoints", () => {
       `/sessions/${session.sessionId}/skills/search?q=&limit=8`
     );
     expect(listResponse.status).toBe(200);
-    const listPayload = (await listResponse.json()) as {
-      items: Array<{ name: string }>;
-      truncated: boolean;
-    };
+    const listPayload = workspaceSkillSearchResultSchema.parse(
+      await listResponse.json()
+    );
     expect(listPayload.truncated).toBe(false);
     expect(listPayload.items.map((item) => item.name)).toEqual([
       "planner",
@@ -196,10 +196,9 @@ describe("composer search endpoints", () => {
       `/sessions/${session.sessionId}/skills/search?q=repo&limit=8`
     );
     expect(filterResponse.status).toBe(200);
-    const filterPayload = (await filterResponse.json()) as {
-      items: Array<{ name: string }>;
-      truncated: boolean;
-    };
+    const filterPayload = workspaceSkillSearchResultSchema.parse(
+      await filterResponse.json()
+    );
     expect(filterPayload.items.map((item) => item.name)).toEqual([
       "repo_reader"
     ]);

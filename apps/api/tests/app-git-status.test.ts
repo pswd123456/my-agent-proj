@@ -7,7 +7,8 @@ import path from "node:path";
 
 import {
   FileSystemLogManager,
-  createLogger
+  createLogger,
+  sessionWorkspaceGitStatusSchema
 } from "@ai-app-template/agent";
 import {
   createMemoryRoutineRepository,
@@ -111,18 +112,9 @@ describe("session git status API", () => {
       );
 
       expect(response.status).toBe(200);
-      const payload = (await response.json()) as {
-        ok: boolean;
-        code: string;
-        branch: string | null;
-        clean: boolean | null;
-        changedPathCount: number;
-        stagedPathCount: number;
-        unstagedPathCount: number;
-        untrackedPathCount: number;
-        addedLineCount: number;
-        removedLineCount: number;
-      };
+      const payload = sessionWorkspaceGitStatusSchema.parse(
+        await response.json()
+      );
 
       expect(payload.ok).toBe(true);
       expect(payload.code).toBe("GIT_STATUS_OK");
@@ -154,11 +146,9 @@ describe("session git status API", () => {
       );
 
       expect(response.status).toBe(200);
-      const payload = (await response.json()) as {
-        ok: boolean;
-        code: string;
-        clean: boolean | null;
-      };
+      const payload = sessionWorkspaceGitStatusSchema.parse(
+        await response.json()
+      );
 
       expect(payload.ok).toBe(false);
       expect(payload.code).toBe("NOT_GIT_REPOSITORY");

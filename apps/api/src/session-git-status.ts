@@ -1,26 +1,11 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import { GitCommandError, runGitCommand } from "@ai-app-template/agent";
-
-export interface SessionWorkspaceGitStatus {
-  workingDirectory: string;
-  ok: boolean;
-  code:
-    | "GIT_STATUS_OK"
-    | "GIT_NOT_AVAILABLE"
-    | "NOT_GIT_REPOSITORY"
-    | "GIT_STATUS_FAILED";
-  message: string;
-  branch: string | null;
-  clean: boolean | null;
-  changedPathCount: number;
-  stagedPathCount: number;
-  unstagedPathCount: number;
-  untrackedPathCount: number;
-  addedLineCount: number;
-  removedLineCount: number;
-}
+import {
+  GitCommandError,
+  runGitCommand,
+  type SessionWorkspaceGitStatus
+} from "@ai-app-template/agent";
 
 interface GitLineTotals {
   addedLineCount: number;

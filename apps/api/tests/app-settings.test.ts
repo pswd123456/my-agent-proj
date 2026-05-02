@@ -11,7 +11,8 @@ import {
   DEFAULT_MINIMAX_MODEL,
   FileSystemLogManager,
   createLogger,
-  listSettingsPermissionToolOptions
+  listSettingsPermissionToolOptions,
+  userSettingsMcpPayloadSchema
 } from "@ai-app-template/agent";
 import {
   createMemoryRoutineRepository,
@@ -396,15 +397,9 @@ describe("createApiApp settings bootstrap", () => {
         }
       );
       expect(updateResponse.status).toBe(200);
-      const payload = (await updateResponse.json()) as {
-        servers: Array<{ name: string; disabledTools: string[] }>;
-        serverStatuses: Array<{
-          name: string;
-          status: string;
-          toolNames: string[];
-          tools?: Array<{ name: string; enabled: boolean }>;
-        }>;
-      };
+      const payload = userSettingsMcpPayloadSchema.parse(
+        await updateResponse.json()
+      );
 
       expect(payload.servers[0]?.disabledTools).toEqual(["echo"]);
       expect(payload.serverStatuses[0]).toMatchObject({

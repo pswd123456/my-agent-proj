@@ -6,7 +6,8 @@ import path from "node:path";
 
 import {
   FileSystemLogManager,
-  createLogger
+  createLogger,
+  sessionFileChangeActionResultSchema
 } from "@ai-app-template/agent";
 import {
   createMemoryRoutineRepository,
@@ -109,9 +110,9 @@ describe("createApiApp workspace file changes", () => {
     );
 
     expect(undoResponse.status).toBe(200);
-    const undoPayload = (await undoResponse.json()) as {
-      files: Array<{ diff: string; path: string }>;
-    };
+    const undoPayload = sessionFileChangeActionResultSchema.parse(
+      await undoResponse.json()
+    );
     expect(undoPayload.files).toEqual([fileChange]);
     expect(await readFile(filePath, "utf8")).toBe("alpha\nbeta\n");
 
@@ -128,9 +129,9 @@ describe("createApiApp workspace file changes", () => {
     );
 
     expect(reapplyResponse.status).toBe(200);
-    const reapplyPayload = (await reapplyResponse.json()) as {
-      files: Array<{ diff: string; path: string }>;
-    };
+    const reapplyPayload = sessionFileChangeActionResultSchema.parse(
+      await reapplyResponse.json()
+    );
     expect(reapplyPayload.files).toEqual([fileChange]);
     expect(await readFile(filePath, "utf8")).toBe("alpha\ngamma\n");
   });

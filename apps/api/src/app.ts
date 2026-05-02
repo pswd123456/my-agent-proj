@@ -9,24 +9,32 @@ import {
   copyTaskBriefForFork,
   createRunErrorEvent,
   createRunTraceEvent,
-  describeTaskBriefBinding,
   discoverWorkspaceSkills,
   invertUnifiedPatch,
   loadWorkspaceMcpTools,
   ModelUnavailableError,
   parseUnifiedPatch,
   readManageableWorkspaceMcpConfig,
-  resolveLegacyTaskBriefPath,
-  resolveTaskBriefPath,
-  resolveTaskBriefPathForSession,
+  resolveTaskBriefPathForFork,
   replaceWorkspaceMcpConfigServers,
+  sessionFileChangeActionRequestSchema,
+  sessionFileChangeActionResultSchema,
+  sessionWorkspaceGitStatusSchema,
   searchWorkspaceFiles,
   searchWorkspaceSkills,
   UnsupportedModelError,
+  updateUserSettingsMcpPayloadSchema,
+  userSettingsMcpPayloadSchema,
   type ModelCatalogEntry,
   type ModelService,
   type RunEventSink,
-  type RunSessionResult
+  type RunSessionResult,
+  type SessionFileChangeActionRequest,
+  type UpdateUserSettingsMcpPayload,
+  type UserSettingsMcpPayload,
+  workspaceFileSearchResultSchema,
+  workspaceSearchQuerySchema,
+  workspaceSkillSearchResultSchema
 } from "@ai-app-template/agent";
 import type {
   AgentRuntime,
@@ -127,7 +135,7 @@ function toWorkspaceSkillSettingRecords(
 }
 
 function hasDuplicateMcpServerNames(
-  servers: z.infer<typeof updateMcpServersBodySchema>["servers"]
+  servers: UpdateUserSettingsMcpPayload["servers"]
 ): boolean {
   const seen = new Set<string>();
   for (const server of servers) {
@@ -142,32 +150,6 @@ function hasDuplicateMcpServerNames(
 
 const chooseDirectoryBodySchema = z.object({
   startDirectory: z.string().optional()
-});
-
-const mcpStringRecordSchema = z.record(z.string(), z.string());
-
-const updateMcpServerSchema = z.discriminatedUnion("transport", [
-  z.object({
-    name: z.string().trim().min(1),
-    transport: z.literal("stdio"),
-    enabled: z.boolean().optional(),
-    disabledTools: z.array(z.string()).optional(),
-    command: z.string().trim().min(1),
-    args: z.array(z.string()).optional(),
-    env: mcpStringRecordSchema.optional()
-  }),
-  z.object({
-    name: z.string().trim().min(1),
-    transport: z.literal("http"),
-    enabled: z.boolean().optional(),
-    disabledTools: z.array(z.string()).optional(),
-    url: z.string().trim().url(),
-    headers: mcpStringRecordSchema.optional()
-  })
-]);
-
-const updateMcpServersBodySchema = z.object({
-  servers: z.array(updateMcpServerSchema)
 });
 
 const searchWorkspaceQuerySchema = z.object({
@@ -199,19 +181,6 @@ function matchesSessionSearch(
     return block.content.toLocaleLowerCase().includes(normalizedQuery);
   });
 }
-
-const workspaceFileChangeSchema = z.object({
-  path: z.string().min(1),
-  action: z.enum(["modify", "create", "delete"]),
-  addedLineCount: z.number().int().min(0),
-  removedLineCount: z.number().int().min(0),
-  diff: z.string().min(1)
-});
-
-const workspaceFileChangeActionBodySchema = z.object({
-  action: z.enum(["undo", "reapply"]),
-  files: z.array(workspaceFileChangeSchema).min(1)
-});
 
 const recoverSessionBodySchema = z.object({
   snapshot: z.unknown()
@@ -269,16 +238,18 @@ function buildSettingsPermissionMetadata(
   });
 }
 
-async function buildUserSettingsMcpPayload(workingDirectory: string) {
+async function buildUserSettingsMcpPayload(
+  workingDirectory: string
+): Promise<UserSettingsMcpPayload> {
   const config = await readManageableWorkspaceMcpConfig(workingDirectory);
   const loadResult = await loadWorkspaceMcpTools(workingDirectory);
 
   try {
-    return {
+    return userSettingsMcpPayloadSchema.parse({
       workingDirectory,
       ...config,
       serverStatuses: loadResult.servers
-    };
+    });
   } finally {
     await loadResult.dispose();
   }
@@ -450,33 +421,12 @@ function resolveForkTaskBriefPath(input: {
   sourceSession: SessionSnapshot;
   targetSessionId: string;
 }): string | null {
-  const sourcePath = input.sourceSession.context.taskBriefPath;
-  const binding = describeTaskBriefBinding({
+  return resolveTaskBriefPathForFork({
     workingDirectory: input.sourceSession.workingDirectory,
-    sessionId: input.sourceSession.sessionId,
-    taskBriefPath: sourcePath
-  });
-
-  if (binding.state === "bound_named" && binding.planFileName) {
-    return resolveTaskBriefPath(
-      input.sourceSession.workingDirectory,
-      input.targetSessionId,
-      binding.planFileName
-    );
-  }
-
-  if (binding.state === "bound_legacy") {
-    return resolveLegacyTaskBriefPath(
-      input.sourceSession.workingDirectory,
-      input.targetSessionId
-    );
-  }
-
-  return resolveTaskBriefPathForSession({
-    workingDirectory: input.sourceSession.workingDirectory,
-    sessionId: input.targetSessionId,
-    planModeEnabled: input.sourceSession.context.planModeEnabled,
-    taskBriefPath: null
+    sourceSessionId: input.sourceSession.sessionId,
+    sourceTaskBriefPath: input.sourceSession.context.taskBriefPath,
+    targetSessionId: input.targetSessionId,
+    planModeEnabled: input.sourceSession.context.planModeEnabled
   });
 }
 
@@ -759,8 +709,8 @@ async function emitPreRunTraceEvent(input: {
 }
 
 function buildWorkspaceFileChangePatch(input: {
-  action: "undo" | "reapply";
-  files: Array<z.infer<typeof workspaceFileChangeSchema>>;
+  action: SessionFileChangeActionRequest["action"];
+  files: SessionFileChangeActionRequest["files"];
 }) {
   const patchFiles = input.files.flatMap((file) => {
     const parsed = parseUnifiedPatch(file.diff);
@@ -919,31 +869,32 @@ export function createApiApp(dependencies: ApiAppDependencies) {
   app.put("/users/:userId/settings/mcp", async (c) => {
     const userId = resolveUserId(dependencies, c.req.param("userId"));
     const settings = await dependencies.settingsRepository.getOrCreate(userId);
-    const body = updateMcpServersBodySchema.parse(await c.req.json());
+    const body = updateUserSettingsMcpPayloadSchema.parse(await c.req.json());
     if (hasDuplicateMcpServerNames(body.servers)) {
       return c.json({ error: "MCP server names must be unique." }, 400);
     }
 
-    const servers = body.servers.map((server) =>
-      server.transport === "stdio"
-        ? {
-            name: server.name.trim(),
-            transport: "stdio" as const,
-            enabled: server.enabled ?? true,
-            disabledTools: server.disabledTools ?? [],
-            command: server.command.trim(),
-            args: server.args ?? [],
-            env: server.env ?? {}
-          }
-        : {
-            name: server.name.trim(),
-            transport: "http" as const,
-            enabled: server.enabled ?? true,
-            disabledTools: server.disabledTools ?? [],
-            url: server.url.trim(),
-            headers: server.headers ?? {}
-          }
-    );
+    const servers: Parameters<typeof replaceWorkspaceMcpConfigServers>[1] =
+      body.servers.map((server) =>
+        server.transport === "stdio"
+          ? {
+              name: server.name.trim(),
+              transport: "stdio" as const,
+              enabled: server.enabled ?? true,
+              disabledTools: server.disabledTools ?? [],
+              command: server.command.trim(),
+              args: server.args ?? [],
+              env: server.env ?? {}
+            }
+          : {
+              name: server.name.trim(),
+              transport: "http" as const,
+              enabled: server.enabled ?? true,
+              disabledTools: server.disabledTools ?? [],
+              url: server.url.trim(),
+              headers: server.headers ?? {}
+            }
+      );
     await replaceWorkspaceMcpConfigServers(settings.workingDirectory, servers);
     return c.json(await buildUserSettingsMcpPayload(settings.workingDirectory));
   });
@@ -1184,13 +1135,15 @@ export function createApiApp(dependencies: ApiAppDependencies) {
       maxResults: query.limit
     });
 
-    return c.json({
-      items: result.matches.map((match) => ({
-        path: match.path,
-        name: match.name
-      })),
-      truncated: result.truncated
-    });
+    return c.json(
+      workspaceFileSearchResultSchema.parse({
+        items: result.matches.map((match) => ({
+          path: match.path,
+          name: match.name
+        })),
+        truncated: result.truncated
+      })
+    );
   });
 
   app.get("/sessions/:sessionId/skills/search", async (c) => {
@@ -1209,14 +1162,16 @@ export function createApiApp(dependencies: ApiAppDependencies) {
       allowEmptyQuery: true
     });
 
-    return c.json({
-      items: result.matches.map((match) => ({
-        name: match.name,
-        description: match.description,
-        relativePath: match.relativePath
-      })),
-      truncated: result.truncated
-    });
+    return c.json(
+      workspaceSkillSearchResultSchema.parse({
+        items: result.matches.map((match) => ({
+          name: match.name,
+          description: match.description,
+          relativePath: match.relativePath
+        })),
+        truncated: result.truncated
+      })
+    );
   });
 
   app.get("/sessions/:sessionId/git-status", async (c) => {
@@ -1226,7 +1181,11 @@ export function createApiApp(dependencies: ApiAppDependencies) {
       return c.json({ error: "Session not found." }, 404);
     }
 
-    return c.json(await getSessionWorkspaceGitStatus(session.workingDirectory));
+    return c.json(
+      sessionWorkspaceGitStatusSchema.parse(
+        await getSessionWorkspaceGitStatus(session.workingDirectory)
+      )
+    );
   });
 
   app.delete("/sessions/history", async (c) => {
@@ -1382,7 +1341,7 @@ export function createApiApp(dependencies: ApiAppDependencies) {
       return c.json({ error: "Session not found." }, 404);
     }
 
-    const body = workspaceFileChangeActionBodySchema.parse(await c.req.json());
+    const body = sessionFileChangeActionRequestSchema.parse(await c.req.json());
     const patch = buildWorkspaceFileChangePatch(body);
     try {
       await applyUnifiedPatch({
@@ -1391,11 +1350,13 @@ export function createApiApp(dependencies: ApiAppDependencies) {
         allowWorkspaceEscape: false
       });
 
-      return c.json({
-        sessionId,
-        action: body.action,
-        files: body.files
-      });
+      return c.json(
+        sessionFileChangeActionResultSchema.parse({
+          sessionId,
+          action: body.action,
+          files: body.files
+        })
+      );
     } catch (error) {
       return c.json(
         {
