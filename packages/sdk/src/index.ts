@@ -18,6 +18,12 @@ export type {
   WorkspaceSkillSearchItem,
   WorkspaceSkillSearchResult
 } from "@ai-app-template/agent";
+export {
+  findDuplicateWorkspaceMcpServerNames,
+  normalizeWorkspaceMcpDisabledTools,
+  normalizeWorkspaceMcpServerConfig,
+  normalizeWorkspaceMcpServerName
+} from "@ai-app-template/agent/contracts/workspace-api";
 export type {
   RoutineRecord,
   SessionSettingsRecord,
