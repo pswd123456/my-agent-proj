@@ -154,7 +154,7 @@ describe("createApiApp settings bootstrap", () => {
     expect(session.model).toBe(DEFAULT_MINIMAX_MODEL);
     expect(session.context.yoloMode).toBe(false);
     expect(session.contextWindow).toBe(200_000);
-    expect(session.maxTurns).toBe(50);
+    expect(session.maxTurns).toBe(100);
     expect(session.context.enabledCapabilityPacks).toEqual([
       "workspace",
       "schedule",
@@ -184,6 +184,16 @@ describe("createApiApp settings bootstrap", () => {
               title: "Profile",
               content: "先看用户偏好。",
               enabled: true
+            },
+            {
+              id: "hook-subagent",
+              event: "run_started",
+              behavior: "subagent",
+              waitMode: "unblocking",
+              maxTurns: 123,
+              title: "Background",
+              content: "先整理背景。",
+              enabled: true
             }
           ],
           debugConversationView: true,
@@ -197,7 +207,7 @@ describe("createApiApp settings bootstrap", () => {
       settings: {
         debugConversationView: boolean;
         userCustomPrompt: string;
-        userContextHooks: Array<{ id: string }>;
+        userContextHooks: Array<{ id: string; maxTurns?: number }>;
       };
       permissionTools: Array<{ name: string }>;
     };
@@ -206,7 +216,8 @@ describe("createApiApp settings bootstrap", () => {
       "先确认用户上下文，再回答。"
     );
     expect(updatePayload.settings.userContextHooks).toEqual([
-      expect.objectContaining({ id: "hook-1" })
+      expect.objectContaining({ id: "hook-1" }),
+      expect.objectContaining({ id: "hook-subagent", maxTurns: 123 })
     ]);
     expect(updatePayload.permissionTools.length).toBeGreaterThan(0);
 

@@ -165,6 +165,7 @@ const updateUserSettingsBodySchema = z
           event: z.enum(USER_CONTEXT_HOOK_EVENT_OPTIONS),
           behavior: z.enum(USER_CONTEXT_HOOK_BEHAVIOR_OPTIONS).optional(),
           waitMode: z.enum(USER_CONTEXT_HOOK_WAIT_MODE_OPTIONS).optional(),
+          maxTurns: z.number().int().min(1).optional(),
           title: z.string(),
           content: z.string().min(1),
           enabled: z.boolean()
@@ -209,6 +210,7 @@ function toUserContextHookRecords(
     event: hook.event,
     ...(hook.behavior ? { behavior: hook.behavior } : {}),
     ...(hook.waitMode ? { waitMode: hook.waitMode } : {}),
+    ...(typeof hook.maxTurns === "number" ? { maxTurns: hook.maxTurns } : {}),
     title: hook.title,
     content: hook.content,
     enabled: hook.enabled

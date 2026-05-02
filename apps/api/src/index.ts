@@ -1,6 +1,7 @@
 import { serve } from "@hono/node-server";
 
 import {
+  DEFAULT_SESSION_MAX_TURNS,
   createAgentRuntime,
   createBackgroundTaskManager,
   createDelegateAgentService,
@@ -40,7 +41,10 @@ import {
 const workspaceRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const stateDirectory = resolveSessionStateDirectory(workspaceRoot);
 const traceManager = createFileTraceManager(stateDirectory);
-const systemLogManager = createFileSystemLogManager(stateDirectory, process.env);
+const systemLogManager = createFileSystemLogManager(
+  stateDirectory,
+  process.env
+);
 const apiLogger = createLogger({ manager: systemLogManager, component: "api" });
 const promptBuilder = createPromptBuilder();
 const modelService = createModelService(process.env);
@@ -60,7 +64,8 @@ await ensureProductSchema(database);
 await ensureApiWorkingDirectory(workspaceRoot);
 const routineRepository = createPostgresRoutineRepository(database);
 const sessionManager = createPostgresSessionManager(database);
-const backgroundTaskRepository = createPostgresBackgroundTaskRepository(database);
+const backgroundTaskRepository =
+  createPostgresBackgroundTaskRepository(database);
 const backgroundTaskManager = createBackgroundTaskManager({
   sessionManager,
   repository: backgroundTaskRepository
@@ -122,7 +127,7 @@ async function createRuntime(session: SessionSnapshot) {
       userContextHooks: settings.userContextHooks,
       workspaceSkillSettings: settings.workspaceSkillSettings,
       userCustomPrompt: settings.userCustomPrompt,
-      maxTurns: 50,
+      maxTurns: DEFAULT_SESSION_MAX_TURNS,
       maxTokens,
       ...(toolChoice ? { toolChoice } : {})
     }),
