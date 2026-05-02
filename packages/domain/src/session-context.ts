@@ -5,6 +5,7 @@ import type {
   BackgroundTaskKind,
   BackgroundTaskResultEnvelope,
   DelegateExpectedParentReply,
+  DelegateRequestEnvelope,
   DelegateRequestKind
 } from "./background-task.js";
 import type {
@@ -55,6 +56,24 @@ export interface PendingConfirmationPayload {
   createdAt: string;
 }
 
+export interface ConfirmationToolProposedItemInput {
+  preview_text: string;
+  tool_name?: string | undefined;
+  tool_input?: Record<string, DomainJsonValue> | undefined;
+}
+
+export interface ConfirmationToolConflictItemInput {
+  routine_id: string;
+  preview_text: string;
+}
+
+export interface ConfirmationToolPayloadInput {
+  summary_text: string;
+  proposed_items: ConfirmationToolProposedItemInput[];
+  context_note?: string | undefined;
+  conflict_items?: ConfirmationToolConflictItemInput[] | undefined;
+}
+
 export interface PendingUserQuestionOption {
   label: string;
   reply: string;
@@ -71,6 +90,25 @@ export interface PendingUserQuestionItem {
 export interface PendingUserQuestionPayload {
   questions: PendingUserQuestionItem[];
   createdAt: string;
+}
+
+export interface UserQuestionToolOptionInput {
+  label: string;
+  reply: string;
+  description?: string | undefined;
+  is_recommended?: boolean | undefined;
+}
+
+export interface UserQuestionToolQuestionInput {
+  question_text: string;
+  options?: UserQuestionToolOptionInput[] | undefined;
+  allow_cancel?: boolean | undefined;
+  context_note?: string | undefined;
+}
+
+export interface UserQuestionToolPayloadInput {
+  questions: UserQuestionToolQuestionInput[];
+  createdAt?: string | undefined;
 }
 
 export const PENDING_USER_QUESTION_CONTEXT_OPTION_LABEL = "补充说明";
@@ -133,6 +171,159 @@ export function appendPendingUserQuestionContextOption(
     ...options,
     createPendingUserQuestionContextOption(normalizedContextNote)
   ];
+}
+
+function createPendingUserQuestionOption(
+  option: UserQuestionToolOptionInput
+): PendingUserQuestionOption {
+  return {
+    label: option.label,
+    reply: option.reply,
+    ...(option.description ? { description: option.description } : {}),
+    ...(option.is_recommended ? { isRecommended: true } : {})
+  };
+}
+
+export function createPendingUserQuestionPayload(
+  input: UserQuestionToolPayloadInput
+): PendingUserQuestionPayload {
+  return {
+    questions: input.questions.map((question) => ({
+      questionText: question.question_text,
+      options: appendPendingUserQuestionContextOption(
+        (question.options ?? []).map(createPendingUserQuestionOption),
+        question.context_note
+      ),
+      allowCancel: question.allow_cancel !== false
+    })),
+    createdAt: input.createdAt ?? new Date().toISOString()
+  };
+}
+
+export function createUserQuestionToolResultData(
+  questions: UserQuestionToolQuestionInput[]
+): Record<string, DomainJsonValue> {
+  return {
+    questions: questions.map((question) => ({
+      question_text: question.question_text,
+      options: (question.options ?? []).map((option) => {
+        const next: Record<string, DomainJsonValue> = {
+          label: option.label,
+          reply: option.reply
+        };
+        if (option.description) {
+          next.description = option.description;
+        }
+        if (option.is_recommended) {
+          next.is_recommended = true;
+        }
+        return next;
+      }),
+      allow_cancel: question.allow_cancel !== false,
+      context_note: question.context_note ?? null
+    }))
+  };
+}
+
+export function createPendingUserQuestionDelegateRequest(
+  payload: PendingUserQuestionPayload
+): DelegateRequestEnvelope {
+  const summary =
+    payload.questions.length === 1
+      ? (payload.questions[0]?.questionText ?? "Need more input.")
+      : `需要补充回答 ${payload.questions.length} 个问题`;
+
+  return {
+    kind: "user_question",
+    summary,
+    data: {
+      questions: payload.questions.map((question) => ({
+        questionText: question.questionText,
+        options: question.options.map((option) => ({
+          label: option.label,
+          reply: option.reply,
+          ...(option.description ? { description: option.description } : {}),
+          ...(option.isRecommended ? { isRecommended: true } : {})
+        })),
+        allowCancel: question.allowCancel !== false
+      }))
+    }
+  };
+}
+
+export function createPendingConfirmationPayload(
+  input: ConfirmationToolPayloadInput,
+  createdAt = new Date().toISOString()
+): PendingConfirmationPayload {
+  return {
+    summaryText: input.summary_text,
+    proposedItems: input.proposed_items.map((item) => ({
+      previewText: item.preview_text,
+      ...(typeof item.tool_name === "string"
+        ? { toolName: item.tool_name }
+        : {}),
+      ...(item.tool_input ? { toolInput: item.tool_input } : {})
+    })),
+    ...(typeof input.context_note === "string"
+      ? { contextNote: input.context_note }
+      : {}),
+    ...(input.conflict_items
+      ? {
+          conflictItems: input.conflict_items.map((item) => ({
+            routineId: item.routine_id,
+            previewText: item.preview_text
+          }))
+        }
+      : {}),
+    createdAt
+  };
+}
+
+export function createConfirmationToolResultData(
+  payload: PendingConfirmationPayload
+): Record<string, DomainJsonValue> {
+  return {
+    summary_text: payload.summaryText,
+    proposed_items: payload.proposedItems.map((item) => {
+      const next: Record<string, DomainJsonValue> = {
+        preview_text: item.previewText
+      };
+      if (item.toolName) {
+        next.tool_name = item.toolName;
+      }
+      if (item.toolInput) {
+        next.tool_input = item.toolInput;
+      }
+      return next;
+    }),
+    conflict_items: (payload.conflictItems ?? []).map((item) => ({
+      routine_id: item.routineId,
+      preview_text: item.previewText
+    })),
+    context_note: payload.contextNote ?? null
+  };
+}
+
+export function createPendingConfirmationDelegateRequest(
+  payload: PendingConfirmationPayload
+): DelegateRequestEnvelope {
+  return {
+    kind: "confirmation_request",
+    summary: payload.summaryText,
+    data: {
+      summaryText: payload.summaryText,
+      proposedItems: payload.proposedItems.map((item) => ({
+        previewText: item.previewText,
+        ...(item.toolName ? { toolName: item.toolName } : {}),
+        ...(item.toolInput ? { toolInput: item.toolInput } : {})
+      })),
+      conflictItems: (payload.conflictItems ?? []).map((item) => ({
+        routineId: item.routineId,
+        previewText: item.previewText
+      })),
+      ...(payload.contextNote ? { contextNote: payload.contextNote } : {})
+    }
+  };
 }
 
 function normalizePendingUserQuestionItem(
