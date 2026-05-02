@@ -30,6 +30,8 @@ export interface SettingsRepository {
 }
 
 type SettingsRow = typeof agentSettings.$inferSelect;
+type SettingsInsert = typeof agentSettings.$inferInsert;
+type SettingsUpdateSet = Partial<Omit<SettingsInsert, "userId" | "createdAt">>;
 
 function toIsoString(value: string): string {
   const normalized = value.includes("T") ? value : value.replace(" ", "T");
@@ -106,7 +108,8 @@ export function mapSettingsRow(
     workspaceSkillSettings: normalizeWorkspaceSkillSettings(
       parseJsonValue(
         row.workspaceSkillSettings ??
-          (row as { workspace_skill_settings?: unknown }).workspace_skill_settings
+          (row as { workspace_skill_settings?: unknown })
+            .workspace_skill_settings
       )
     ),
     userContextHooks: normalizeUserContextHooks(
@@ -194,6 +197,56 @@ function buildPatchedSettings(
   };
 }
 
+function toSettingsInsertValues(
+  settings: SessionSettingsRecord
+): SettingsInsert {
+  return {
+    userId: settings.userId,
+    workingDirectory: settings.workingDirectory,
+    model: settings.model,
+    thinkingEffort: settings.thinkingEffort,
+    yoloMode: settings.yoloMode,
+    contextWindow: settings.contextWindow,
+    maxTurns: settings.maxTurns,
+    shellAllowPatterns: settings.shellAllowPatterns,
+    shellDenyPatterns: settings.shellDenyPatterns,
+    toolAllowList: settings.toolAllowList,
+    toolAskList: settings.toolAskList,
+    toolDenyList: settings.toolDenyList,
+    enabledCapabilityPacks: settings.enabledCapabilityPacks,
+    workspaceSkillSettings: settings.workspaceSkillSettings,
+    userContextHooks: settings.userContextHooks,
+    debugConversationView: settings.debugConversationView,
+    userCustomPrompt: settings.userCustomPrompt,
+    createdAt: settings.createdAt,
+    updatedAt: settings.updatedAt
+  };
+}
+
+function toSettingsUpdateSet(
+  settings: SessionSettingsRecord
+): SettingsUpdateSet {
+  return {
+    workingDirectory: settings.workingDirectory,
+    model: settings.model,
+    thinkingEffort: settings.thinkingEffort,
+    yoloMode: settings.yoloMode,
+    contextWindow: settings.contextWindow,
+    maxTurns: settings.maxTurns,
+    shellAllowPatterns: settings.shellAllowPatterns,
+    shellDenyPatterns: settings.shellDenyPatterns,
+    toolAllowList: settings.toolAllowList,
+    toolAskList: settings.toolAskList,
+    toolDenyList: settings.toolDenyList,
+    enabledCapabilityPacks: settings.enabledCapabilityPacks,
+    workspaceSkillSettings: settings.workspaceSkillSettings,
+    userContextHooks: settings.userContextHooks,
+    debugConversationView: settings.debugConversationView,
+    userCustomPrompt: settings.userCustomPrompt,
+    updatedAt: settings.updatedAt
+  };
+}
+
 export class PostgresSettingsRepository implements SettingsRepository {
   constructor(
     private readonly db: ProductDatabaseClient,
@@ -211,27 +264,7 @@ export class PostgresSettingsRepository implements SettingsRepository {
     });
     const rows = await this.db
       .insert(agentSettings)
-      .values({
-        userId: defaults.userId,
-        workingDirectory: defaults.workingDirectory,
-        model: defaults.model,
-        thinkingEffort: defaults.thinkingEffort,
-        yoloMode: defaults.yoloMode,
-        contextWindow: defaults.contextWindow,
-        maxTurns: defaults.maxTurns,
-        shellAllowPatterns: defaults.shellAllowPatterns,
-        shellDenyPatterns: defaults.shellDenyPatterns,
-        toolAllowList: defaults.toolAllowList,
-        toolAskList: defaults.toolAskList,
-        toolDenyList: defaults.toolDenyList,
-        enabledCapabilityPacks: defaults.enabledCapabilityPacks,
-        workspaceSkillSettings: defaults.workspaceSkillSettings,
-        userContextHooks: defaults.userContextHooks,
-        debugConversationView: defaults.debugConversationView,
-        userCustomPrompt: defaults.userCustomPrompt,
-        createdAt: defaults.createdAt,
-        updatedAt: defaults.updatedAt
-      })
+      .values(toSettingsInsertValues(defaults))
       .onConflictDoUpdate({
         target: agentSettings.userId,
         set: {
@@ -256,48 +289,10 @@ export class PostgresSettingsRepository implements SettingsRepository {
 
     const rows = await this.db
       .insert(agentSettings)
-      .values({
-        userId: next.userId,
-        workingDirectory: next.workingDirectory,
-        model: next.model,
-        thinkingEffort: next.thinkingEffort,
-        yoloMode: next.yoloMode,
-        contextWindow: next.contextWindow,
-        maxTurns: next.maxTurns,
-        shellAllowPatterns: next.shellAllowPatterns,
-        shellDenyPatterns: next.shellDenyPatterns,
-        toolAllowList: next.toolAllowList,
-        toolAskList: next.toolAskList,
-        toolDenyList: next.toolDenyList,
-        enabledCapabilityPacks: next.enabledCapabilityPacks,
-        workspaceSkillSettings: next.workspaceSkillSettings,
-        userContextHooks: next.userContextHooks,
-        debugConversationView: next.debugConversationView,
-        userCustomPrompt: next.userCustomPrompt,
-        createdAt: next.createdAt,
-        updatedAt: next.updatedAt
-      })
+      .values(toSettingsInsertValues(next))
       .onConflictDoUpdate({
         target: agentSettings.userId,
-        set: {
-          workingDirectory: next.workingDirectory,
-          model: next.model,
-          thinkingEffort: next.thinkingEffort,
-          yoloMode: next.yoloMode,
-          contextWindow: next.contextWindow,
-          maxTurns: next.maxTurns,
-          shellAllowPatterns: next.shellAllowPatterns,
-          shellDenyPatterns: next.shellDenyPatterns,
-          toolAllowList: next.toolAllowList,
-          toolAskList: next.toolAskList,
-          toolDenyList: next.toolDenyList,
-          enabledCapabilityPacks: next.enabledCapabilityPacks,
-          workspaceSkillSettings: next.workspaceSkillSettings,
-          userContextHooks: next.userContextHooks,
-          debugConversationView: next.debugConversationView,
-          userCustomPrompt: next.userCustomPrompt,
-          updatedAt: next.updatedAt
-        }
+        set: toSettingsUpdateSet(next)
       })
       .returning();
 
