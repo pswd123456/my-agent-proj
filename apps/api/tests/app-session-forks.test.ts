@@ -269,8 +269,8 @@ async function seedRewriteScenario(input: {
         usage: {
           inputTokens: 11,
           outputTokens: 5,
-          cacheCreationInputTokens: 0,
-          cacheReadInputTokens: 0
+          cacheCreationInputTokens: 2,
+          cacheReadInputTokens: 3
         },
         content: []
       }
@@ -285,8 +285,8 @@ async function seedRewriteScenario(input: {
         usage: {
           inputTokens: 17,
           outputTokens: 7,
-          cacheCreationInputTokens: 0,
-          cacheReadInputTokens: 0
+          cacheCreationInputTokens: 5,
+          cacheReadInputTokens: 7
         },
         content: []
       }
@@ -408,6 +408,7 @@ describe("session fork endpoints", () => {
     expect(response.status).toBe(200);
     const payload = (await response.json()) as {
       session: SessionSnapshot;
+      traceRecords: TraceRecord[];
       rewriteTarget: {
         checkpointId: string;
         userMessageId: string;
@@ -422,7 +423,10 @@ describe("session fork endpoints", () => {
     ]);
     expect(payload.session.sessionState.turnCount).toBe(1);
     expect(payload.session.context.lastUserMessage).toBe("先看 runtime");
-    expect(payload.session.inputTokensCount).toBe(11);
+    expect(payload.session.inputTokensCount).toBe(16);
+    expect(payload.traceRecords.map((record) => record.event.turnCount)).toEqual([
+      1
+    ]);
     expect(payload.forkTargets.map((target) => target.turnCount)).toEqual([1]);
     expect(payload.rewriteTarget).toEqual({
       checkpointId: firstCheckpoint.id,

@@ -691,20 +691,31 @@ describe("createApiApp settings bootstrap", () => {
     expect(createPayload.session.maxTurns).toBe(SESSION_MAX_TURNS_LIMIT);
   });
 
-  test("lists system logs with filters", async () => {
+  test("lists system logs with legacy and expanded filters", async () => {
     const { app, systemLogManager } = await createTestApp();
     await systemLogManager.append({
-      timestamp: new Date().toISOString(),
+      timestamp: "2026-05-02T00:00:00.000Z",
       level: "info",
-      component: "api",
+      component: "worker",
       event: "seeded",
       sessionId: "session-x",
+      runId: "run-x",
       requestId: "req-1",
       details: { ok: true }
     });
+    await systemLogManager.append({
+      timestamp: "2026-05-02T00:00:01.000Z",
+      level: "info",
+      component: "api",
+      event: "ignored",
+      sessionId: "session-x",
+      runId: "run-y",
+      requestId: "req-2",
+      details: { ok: false }
+    });
 
     const response = await app.request(
-      "/system-logs?sessionId=session-x&component=api&limit=10"
+      "/system-logs?sessionId=session-x&component=worker&runId=run-x&requestId=req-1&limit=10"
     );
     expect(response.status).toBe(200);
     const payload = await response.json();
@@ -733,6 +744,36 @@ describe("createApiApp settings bootstrap", () => {
     expect(
       payload.records.some((record) => record.requestId === "req-create")
     ).toBe(true);
+  });
+
+  test("reads a session without logging an interrupt request", async () => {
+    const { app, systemLogManager } = await createTestApp();
+    const session = await createSession(app, {
+      userId: "stage5-session-read-user"
+    });
+
+    const response = await app.request(`/sessions/${session.sessionId}`, {
+      headers: {
+        "x-request-id": "req-read-session"
+      }
+    });
+
+    expect(response.status).toBe(200);
+    const payload = await systemLogManager.query({
+      component: "api",
+      sessionId: session.sessionId,
+      requestId: "req-read-session",
+      limit: 20
+    });
+
+    expect(
+      payload.records.some((record) => record.event === "session_read")
+    ).toBe(true);
+    expect(
+      payload.records.some(
+        (record) => record.event === "session_interrupt_requested"
+      )
+    ).toBe(false);
   });
 
   test("clears all session history in one request", async () => {

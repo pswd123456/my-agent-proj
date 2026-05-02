@@ -168,9 +168,12 @@ const systemLogsQuerySchema = z.object({
       "tool-execution",
       "confirmation",
       "interrupt",
-      "api"
+      "api",
+      "worker"
     ])
     .optional(),
+  runId: z.string().optional(),
+  requestId: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(500).optional(),
   cursor: z.string().optional()
 });
@@ -440,7 +443,7 @@ function resolveLatestRewriteTarget(input: {
   return null;
 }
 
-function countTraceInputTokensBeforeTurn(
+function countTraceContextTokensBeforeTurn(
   events: Awaited<ReturnType<TraceManager["readEvents"]>>,
   turnCount: number
 ): number {
@@ -452,7 +455,15 @@ function countTraceInputTokensBeforeTurn(
       return total;
     }
 
-    return total + Math.max(0, record.event.usage.inputTokens ?? 0);
+    return (
+      total +
+      Math.max(
+        0,
+        (record.event.usage.inputTokens ?? 0) +
+          (record.event.usage.cacheReadInputTokens ?? 0) +
+          (record.event.usage.cacheCreationInputTokens ?? 0)
+      )
+    );
   }, 0);
 }
 
@@ -1000,7 +1011,7 @@ export function createApiApp(dependencies: ApiAppDependencies) {
     await logApiEvent({
       logger: dependencies.apiLogger,
       requestId,
-      event: "session_interrupt_requested",
+      event: "session_read",
       sessionId,
       details: { found: Boolean(session) }
     });
@@ -1161,7 +1172,10 @@ export function createApiApp(dependencies: ApiAppDependencies) {
       checkpoint
     });
     const traceRecords = await dependencies.traceManager.readEvents(sessionId);
-    const nextInputTokensCount = countTraceInputTokensBeforeTurn(
+    const nextTraceRecords = traceRecords.filter(
+      (record) => record.event.turnCount < rewriteTarget.turnCount
+    );
+    const nextInputTokensCount = countTraceContextTokensBeforeTurn(
       traceRecords,
       rewriteTarget.turnCount
     );
@@ -1203,6 +1217,7 @@ export function createApiApp(dependencies: ApiAppDependencies) {
 
     return c.json({
       session: recoveredSession,
+      traceRecords: nextTraceRecords,
       forkTargets: nextCheckpoints.map(toSessionForkTarget),
       rewriteTarget: nextRewriteTarget
     });
@@ -1688,6 +1703,8 @@ export function createApiApp(dependencies: ApiAppDependencies) {
       ...(query.sessionId ? { sessionId: query.sessionId } : {}),
       ...(query.level ? { level: query.level } : {}),
       ...(query.component ? { component: query.component } : {}),
+      ...(query.runId ? { runId: query.runId } : {}),
+      ...(query.requestId ? { requestId: query.requestId } : {}),
       ...(typeof query.limit === "number" ? { limit: query.limit } : {}),
       ...(query.cursor ? { cursor: query.cursor } : {})
     });
@@ -1699,6 +1716,8 @@ export function createApiApp(dependencies: ApiAppDependencies) {
         sessionId: query.sessionId ?? null,
         level: query.level ?? null,
         component: query.component ?? null,
+        runId: query.runId ?? null,
+        recordRequestId: query.requestId ?? null,
         returned: result.records.length
       }
     });
