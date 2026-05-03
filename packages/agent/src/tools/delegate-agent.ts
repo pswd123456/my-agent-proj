@@ -10,18 +10,42 @@ import {
   successResult,
   validateWithSchema
 } from "./tool-result.js";
+import {
+  buildToolDescription,
+  describeObjectProperty
+} from "./tool-description.js";
 
-const delegateToolDescription = [
-  "Create, inspect, continue, or resolve a delegated subagent task with one explicit action.",
-  "Use wait_mode=blocking when the main task cannot continue without the delegate result.",
-  "Use wait_mode=unblocking when other useful work can continue while the delegate runs.",
-  "Examples:",
-  '- {"action":"start","title":"Inspect parser","objective":"Read the parser code path.","parent_task_summary":"Parent needs a scoped summary."}',
-  '- {"action":"start","title":"Inspect tests","objective":"Read tests in parallel.","parent_task_summary":"Parent will continue other work.","wait_mode":"unblocking","initial_check_after_ms":5000}',
-  '- {"action":"get","delegate_id":"delegate_123"}',
-  '- {"action":"reply","delegate_id":"delegate_123","message":"Focus on parser.ts next."}',
-  '- {"action":"permission","delegate_id":"delegate_123","permission_decision":"approve"}'
-].join("\n");
+const delegateToolDescription = buildToolDescription({
+  usageScenarios: [
+    "Start a delegated subagent task for scoped parallel work.",
+    "Poll a delegate, send follow-up guidance, or answer its permission request."
+  ],
+  usageInstructions: [
+    describeObjectProperty({
+      name: "action",
+      type: '"start" | "get" | "reply" | "permission"',
+      required: true,
+      description: "Choose one explicit delegate action."
+    }),
+    "For action=start, provide title, objective, and parent_task_summary. acceptance_criteria, constraints, and message are optional.",
+    "For action=get, provide delegate_id only.",
+    "For action=reply, provide delegate_id and message.",
+    "For action=permission, provide delegate_id and permission_decision.",
+    "Use wait_mode=blocking when the parent cannot continue without the delegate result. Use wait_mode=unblocking when other useful work can continue."
+  ],
+  constraints: [
+    "To create a new delegate, do not include delegate_id.",
+    "initial_check_after_ms only matters for wait_mode=unblocking and is clamped by the runtime.",
+    "Do not mix fields from different actions."
+  ],
+  examples: [
+    '{"action":"start","title":"Inspect parser","objective":"Read the parser code path.","parent_task_summary":"Parent needs a scoped summary."}',
+    '{"action":"start","title":"Inspect tests","objective":"Read tests in parallel.","parent_task_summary":"Parent will continue other work.","wait_mode":"unblocking","initial_check_after_ms":5000}',
+    '{"action":"get","delegate_id":"delegate_123"}',
+    '{"action":"reply","delegate_id":"delegate_123","message":"Focus on parser.ts next."}',
+    '{"action":"permission","delegate_id":"delegate_123","permission_decision":"approve"}'
+  ]
+});
 
 const delegateStartFields = [
   "title",

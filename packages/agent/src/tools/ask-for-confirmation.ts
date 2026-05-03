@@ -14,6 +14,7 @@ import {
   successResult,
   validateWithSchema
 } from "./tool-result.js";
+import { buildToolDescription } from "./tool-description.js";
 
 const createRoutineOverlapSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -82,8 +83,24 @@ const schema = z.object({
 export function createAskForConfirmationTool(): RuntimeTool {
   return {
     name: "ask_for_confirmation",
-    description:
-      "Store and render a confirmation request when there is conflict, overwrite risk, or ambiguity.",
+    description: buildToolDescription({
+      usageScenarios: [
+        "Pause and ask the user to confirm a risky or ambiguous schedule action.",
+        "Present conflicting routine candidates before proceeding."
+      ],
+      usageInstructions: [
+        "Provide summary_text to explain what needs confirmation.",
+        "Provide proposed_items as the actions the user may confirm.",
+        "Optionally include conflict_items to show conflicting routines and context_note for extra explanation."
+      ],
+      constraints: [
+        "This tool is for structured user confirmation, not for silently resolving schedule conflicts.",
+        "Routine creation that still overlaps an existing routine is rejected instead of entering confirmation."
+      ],
+      examples: [
+        '{"summary_text":"The new routine overlaps an existing one.","proposed_items":[{"preview_text":"Create 09:00-10:00 routine","tool_name":"create_routine","tool_input":{"name":"Study","date":"2026-05-03","start_time":"09:00","end_time":"10:00","source":"user_confirmed"}}],"conflict_items":[{"routine_id":"routine_1","preview_text":"Existing routine 09:30-10:30"}]}'
+      ]
+    }),
     family: "schedule",
     isReadOnly: false,
     hasExternalSideEffect: true,

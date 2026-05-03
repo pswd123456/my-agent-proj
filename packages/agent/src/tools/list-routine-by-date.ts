@@ -9,6 +9,10 @@ import {
   successResult,
   validateWithSchema
 } from "./tool-result.js";
+import {
+  buildToolDescription,
+  describeObjectProperty
+} from "./tool-description.js";
 
 const schema = z.object({
   date_range: z.object({
@@ -20,7 +24,31 @@ const schema = z.object({
 export function createListRoutineByDateTool(): RuntimeTool {
   return {
     name: "list_routine_by_date",
-    description: "List routines by a date or date range.",
+    description: buildToolDescription({
+      usageScenarios: [
+        "List routines for a specific date range.",
+        "Inspect planned work across a known period."
+      ],
+      usageInstructions: [
+        describeObjectProperty({
+          name: "date_range.start",
+          type: "string",
+          required: true,
+          description: "Inclusive YYYY-MM-DD start date."
+        }),
+        describeObjectProperty({
+          name: "date_range.end",
+          type: "string",
+          required: true,
+          description: "Inclusive YYYY-MM-DD end date."
+        })
+      ],
+      constraints: [
+        "Dates must use YYYY-MM-DD format.",
+        "This is a read-only listing tool and does not modify schedule state."
+      ],
+      examples: ['{"date_range":{"start":"2026-05-01","end":"2026-05-07"}}']
+    }),
     family: "schedule",
     isReadOnly: true,
     hasExternalSideEffect: false,

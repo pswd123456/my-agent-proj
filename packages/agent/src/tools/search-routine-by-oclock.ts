@@ -9,6 +9,10 @@ import {
   successResult,
   validateWithSchema
 } from "./tool-result.js";
+import {
+  buildToolDescription,
+  describeObjectProperty
+} from "./tool-description.js";
 
 function buildSearchInput(input: {
   date: string;
@@ -72,7 +76,37 @@ const schema = z
 export function createSearchRoutineByOclockTool(): RuntimeTool {
   return {
     name: "search_routine_by_oclock",
-    description: "Search routines around a specific time or time range.",
+    description: buildToolDescription({
+      usageScenarios: [
+        "Find routines around a specific time or time range on a date."
+      ],
+      usageInstructions: [
+        describeObjectProperty({
+          name: "date",
+          type: "string",
+          required: true,
+          description: "YYYY-MM-DD date to search."
+        }),
+        describeObjectProperty({
+          name: "time",
+          type: "string",
+          description: "Specific time such as 09:30."
+        }),
+        describeObjectProperty({
+          name: "time_range",
+          type: "object",
+          description: "Optional {start,end} time range."
+        })
+      ],
+      constraints: [
+        "Provide date plus either time or time_range.",
+        "This is a read-only lookup tool."
+      ],
+      examples: [
+        '{"date":"2026-05-03","time":"09:30"}',
+        '{"date":"2026-05-03","time_range":{"start":"09:00","end":"11:00"}}'
+      ]
+    }),
     family: "schedule",
     isReadOnly: true,
     hasExternalSideEffect: false,

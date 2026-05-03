@@ -138,6 +138,32 @@ afterEach(async () => {
   cleanupPaths.clear();
 });
 
+describe("read_file", () => {
+  test("rejects mixed line window syntaxes with recovery guidance", async () => {
+    const workspace = await createWorkspace();
+
+    const result = await createReadFileTool(workspace).execute(
+      {
+        path: "alpha.txt",
+        startLine: 1,
+        endLine: 3,
+        limit: 10
+      },
+      createContext(workspace)
+    );
+
+    expect(result.state).toBe("failed");
+    expect(result.result.code).toBe("INVALID_TOOL_INPUT");
+    expect(result.result.validationErrors).toContainEqual({
+      field: "lineWindow",
+      issue:
+        "Choose exactly one read window syntax: either {offset, limit} or {startLine, endLine}. Remove limit/offset when using startLine/endLine; remove startLine/endLine when using offset/limit."
+    });
+    expect(result.content).toContain('"field": "lineWindow"');
+    expect(result.content).toContain("Choose exactly one read window syntax");
+  });
+});
+
 describe("find_files", () => {
   test("matches files by root path, glob, suffix, and name pattern", async () => {
     const workspace = await createWorkspace();
@@ -181,6 +207,7 @@ describe("apply_patch", () => {
   test("schema explains exact hunk counts and patch examples", () => {
     const tool = createApplyPatchTool("/tmp/workspace");
     expect(tool.description).toContain("Read before edit");
+    expect(tool.description).toContain("smallest exact hunk");
     expect(tool.description).toContain("hunk counts");
     expect(tool.description).toContain("blank lines");
     expect(tool.description).toContain("oldStart is the 1-based line");
@@ -205,6 +232,7 @@ describe("apply_patch", () => {
       "oldCount = context + deleted lines"
     );
     expect(patchSchema.description).toContain("Example modify");
+    expect(patchSchema.description).toContain("Example remove one line");
     expect(patchSchema.description).toContain(
       "Example delete with leading blank context"
     );

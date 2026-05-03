@@ -10,6 +10,7 @@ import {
   successResult,
   validateWithSchema
 } from "./tool-result.js";
+import { buildToolDescription } from "./tool-description.js";
 
 const operationSchema = z.discriminatedUnion("type", [
   z.object({
@@ -58,8 +59,27 @@ function formatDisplayText(
 export function createUpdateTodoItemsTool(): RuntimeTool {
   return {
     name: "update_todo_items",
-    description:
-      "Update session todo items as work progresses by marking status, editing text, appending, removing, or switching the active item. For id-based operations, use existing todo item ids from the current session todo state, not the visible list numbering.",
+    description: buildToolDescription({
+      usageScenarios: [
+        "Update an existing todo list while work progresses.",
+        "Mark status, edit content, append items, remove items, or switch the active item."
+      ],
+      usageInstructions: [
+        "Step 1: use get_todo_list first when you need the current todo ids.",
+        "Step 2: send operations in the order they should be applied.",
+        "Available operation types: set_status, set_content, append, remove, set_active.",
+        "For id-based operations, use the real todo item id from session todo state, not the visible list numbering."
+      ],
+      constraints: [
+        "Do not use visible numbering like 1 or 2 as the id value.",
+        "set_active accepts an existing item id or null to clear the active item.",
+        "Use replace_todo_list when you need to replace the entire list at once."
+      ],
+      examples: [
+        '{"operations":[{"type":"set_status","id":"todo_1","status":"in_progress"},{"type":"append","content":"Run typecheck"}]}',
+        '{"operations":[{"type":"set_active","id":"todo_2"},{"type":"set_content","id":"todo_2","content":"Rewrite all built-in tool descriptions"}]}'
+      ]
+    }),
     family: "planning",
     isReadOnly: false,
     hasExternalSideEffect: false,

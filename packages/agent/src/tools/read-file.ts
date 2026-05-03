@@ -13,6 +13,10 @@ import {
   failureResult,
   successResult
 } from "./tool-result.js";
+import {
+  buildToolDescription,
+  describeObjectProperty
+} from "./tool-description.js";
 import { estimateTextTokens } from "../runtime/token-budget.js";
 import { findPreviousReadMetadata } from "./read-file-metadata.js";
 
@@ -206,8 +210,60 @@ function isProbablyBinary(sample: Buffer): boolean {
 export function createReadFileTool(workingDirectory: string): RuntimeTool {
   return {
     name: "read_file",
-    description:
-      "Read a text file from the workspace. If you do not yet know the relevant section, use search_text first. For large or uncertain files, you MUST page with offset and limit instead of requesting the whole file at once.",
+    description: buildToolDescription({
+      usageScenarios: [
+        "Read a workspace text file after you already know the target path.",
+        "Inspect only the relevant section of a file before editing, reviewing, or answering a code question.",
+        "Page through large files without loading the whole file into model context."
+      ],
+      usageInstructions: [
+        "Step 1: if the relevant section is unknown, call search_text first to find the file and line numbers.",
+        "Step 2: set path to the workspace-relative file path.",
+        "Step 3: choose exactly one line-window form.",
+        describeObjectProperty({
+          name: "startLine",
+          type: "number",
+          description:
+            "1-based first line to read; use together with endLine when you already know the line range."
+        }),
+        describeObjectProperty({
+          name: "endLine",
+          type: "number",
+          description:
+            "1-based inclusive last line to read; use together with startLine."
+        }),
+        describeObjectProperty({
+          name: "offset",
+          type: "number",
+          description:
+            "0-based line offset for paging; use together with limit when reading adjacent windows."
+        }),
+        describeObjectProperty({
+          name: "limit",
+          type: "number",
+          description:
+            "Number of lines to read starting from offset."
+        }),
+        describeObjectProperty({
+          name: "maxCharacters",
+          type: "number",
+          description:
+            "Optional output cap after the line window is selected."
+        })
+      ],
+      constraints: [
+        "Use search_text first before read_file when the relevant section is not already known.",
+        "Use exactly one window form: either {startLine,endLine} or {offset,limit}. Never combine the two forms.",
+        "For large or uncertain files, read a narrow window instead of the whole file.",
+        "read_file is for text files only; binary files and oversized outputs are rejected.",
+        "If the tool says the file is unchanged, reuse the previous content already in context instead of rereading it."
+      ],
+      examples: [
+        '{"path":"apps/web/app/_components/session-workbench-conversation.tsx","startLine":3025,"endLine":3045}',
+        '{"path":"packages/agent/src/prompt.ts","offset":100,"limit":40}',
+        '{"path":"README.md","startLine":1,"endLine":40,"maxCharacters":4000}'
+      ]
+    }),
     family: "workspace-file",
     isReadOnly: true,
     hasExternalSideEffect: false,
@@ -222,27 +278,28 @@ export function createReadFileTool(workingDirectory: string): RuntimeTool {
         },
         maxCharacters: {
           type: "number",
-          description: "Optional character limit for the returned content."
+          description:
+            "Optional character cap for the returned content. This does not select lines; use it only after choosing a line window."
         },
         offset: {
           type: "number",
           description:
-            "Optional 0-based line offset. For large or uncertain files, MUST be paired with limit instead of full-file reads."
+            "Optional 0-based line offset. Use with limit only; do not include startLine or endLine."
         },
         limit: {
           type: "number",
           description:
-            "Optional line count to read starting from offset. Use this with offset to page through large or uncertain files."
+            "Optional line count to read starting from offset. Use with offset only; do not include startLine or endLine."
         },
         startLine: {
           type: "number",
           description:
-            "Optional 1-based first line to read. Use either startLine/endLine or offset/limit."
+            "Optional 1-based first line to read. Use with endLine; do not include offset or limit."
         },
         endLine: {
           type: "number",
           description:
-            "Optional 1-based last line to read, inclusive. Use either startLine/endLine or offset/limit."
+            "Optional 1-based last line to read, inclusive. Use with startLine; do not include offset or limit."
         }
       },
       required: ["path"],
@@ -305,8 +362,9 @@ export function createReadFileTool(workingDirectory: string): RuntimeTool {
         (input.startLine !== undefined || input.endLine !== undefined)
       ) {
         issues.push({
-          field: "offset",
-          issue: "Use either offset/limit or startLine/endLine, but not both."
+          field: "lineWindow",
+          issue:
+            "Choose exactly one read window syntax: either {offset, limit} or {startLine, endLine}. Remove limit/offset when using startLine/endLine; remove startLine/endLine when using offset/limit."
         });
       }
       if (startLine !== null && endLine !== null && endLine < startLine) {

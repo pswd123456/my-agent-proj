@@ -10,6 +10,10 @@ import {
   type GitCommandError
 } from "./git-shared.js";
 import { createToolResult, failureResult, successResult } from "./tool-result.js";
+import {
+  buildToolDescription,
+  describeObjectProperty
+} from "./tool-description.js";
 
 function parseStatusEntries(lines: string[]): Array<Record<string, JsonValue>> {
   return lines
@@ -69,7 +73,25 @@ function mapGitStatusFailure(
 export function createGitStatusTool(): RuntimeTool {
   return {
     name: "git_status",
-    description: "Inspect the current git working tree status without modifying the repository.",
+    description: buildToolDescription({
+      usageScenarios: [
+        "Inspect the current git working tree status.",
+        "Check whether the repo is clean before or after changes."
+      ],
+      usageInstructions: [
+        describeObjectProperty({
+          name: "paths",
+          type: "array",
+          description:
+            "Optional workspace-relative paths to scope the status query."
+        })
+      ],
+      constraints: [
+        "This is read-only and does not modify git state.",
+        "Fails outside a git repository."
+      ],
+      examples: ["{}", '{"paths":["packages/agent/src"]}']
+    }),
     family: "workspace-file",
     isReadOnly: true,
     hasExternalSideEffect: false,

@@ -13,6 +13,10 @@ import {
   successResult,
   validateWithSchema
 } from "./tool-result.js";
+import {
+  buildToolDescription,
+  describeObjectProperty
+} from "./tool-description.js";
 
 function buildUpdateInput(input: {
   name: string | undefined;
@@ -163,8 +167,28 @@ const schema = z
 export function createEditRoutineTool(): RuntimeTool {
   return {
     name: "edit_routine",
-    description:
-      "Edit an existing routine after validating the updated time range.",
+    description: buildToolDescription({
+      usageScenarios: [
+        "Update an existing active routine."
+      ],
+      usageInstructions: [
+        describeObjectProperty({
+          name: "routine_id",
+          type: "string",
+          required: true,
+          description: "Existing active routine id to update."
+        }),
+        "Provide one or more editable fields such as name, description, date, start_time, end_time, or duration_minutes."
+      ],
+      constraints: [
+        "At least one editable field is required in addition to routine_id.",
+        "The updated time range must still be valid and conflict-free.",
+        "The target routine must exist and be active."
+      ],
+      examples: [
+        '{"routine_id":"routine_123","start_time":"10:00","end_time":"11:00"}'
+      ]
+    }),
     family: "schedule",
     isReadOnly: false,
     hasExternalSideEffect: true,

@@ -38,6 +38,10 @@ import {
   successResult,
   validateWithSchema
 } from "./tool-result.js";
+import {
+  buildToolDescription,
+  describeObjectProperty
+} from "./tool-description.js";
 
 const SUPPORTED_TS_JS_EXTENSIONS = new Set([
   ".ts",
@@ -114,8 +118,36 @@ function createLspHoverTool(
 ): RuntimeTool {
   return {
     name: "lsp_hover",
-    description:
-      "Read TypeScript or JavaScript hover information for a symbol at a file position.",
+    description: buildToolDescription({
+      usageScenarios: [
+        "Read hover information for a symbol in a TS/JS file."
+      ],
+      usageInstructions: [
+        describeObjectProperty({
+          name: "path",
+          type: "string",
+          required: true,
+          description: "Workspace-relative TS/JS file path."
+        }),
+        describeObjectProperty({
+          name: "line",
+          type: "number",
+          required: true,
+          description: "1-based line number."
+        }),
+        describeObjectProperty({
+          name: "character",
+          type: "number",
+          required: true,
+          description: "0-based UTF-16 character offset."
+        })
+      ],
+      constraints: [
+        "Only supported TS/JS file extensions are accepted.",
+        "Positions must point into the current workspace file set."
+      ],
+      examples: ['{"path":"packages/agent/src/prompt.ts","line":110,"character":18}']
+    }),
     family: "lsp",
     isReadOnly: true,
     hasExternalSideEffect: false,
@@ -187,8 +219,19 @@ function createLspGoToDefinitionTool(
 ): RuntimeTool {
   return {
     name: "lsp_go_to_definition",
-    description:
-      "Find TypeScript or JavaScript definition locations for a symbol at a file position.",
+    description: buildToolDescription({
+      usageScenarios: [
+        "Jump from a symbol usage to its definition in TS/JS code."
+      ],
+      usageInstructions: [
+        "Provide path, line, and character for the symbol usage position."
+      ],
+      constraints: [
+        "Only supported TS/JS files are accepted.",
+        "Returned locations may be empty when the server cannot resolve a definition."
+      ],
+      examples: ['{"path":"packages/agent/src/prompt.ts","line":110,"character":18}']
+    }),
     family: "lsp",
     isReadOnly: true,
     hasExternalSideEffect: false,
@@ -259,8 +302,24 @@ function createLspFindReferencesTool(
 ): RuntimeTool {
   return {
     name: "lsp_find_references",
-    description:
-      "Find TypeScript or JavaScript references for a symbol at a file position.",
+    description: buildToolDescription({
+      usageScenarios: [
+        "Find references to a TS/JS symbol across the workspace."
+      ],
+      usageInstructions: [
+        "Provide path, line, and character for the symbol position.",
+        describeObjectProperty({
+          name: "includeDeclaration",
+          type: "boolean",
+          description:
+            "Set true to include the declaration location in the results."
+        })
+      ],
+      constraints: [
+        "Only supported TS/JS files are accepted."
+      ],
+      examples: ['{"path":"packages/agent/src/prompt.ts","line":110,"character":18,"includeDeclaration":true}']
+    }),
     family: "lsp",
     isReadOnly: true,
     hasExternalSideEffect: false,
@@ -336,7 +395,18 @@ function createLspDocumentSymbolsTool(
 ): RuntimeTool {
   return {
     name: "lsp_document_symbols",
-    description: "List TypeScript or JavaScript symbols declared in a file.",
+    description: buildToolDescription({
+      usageScenarios: [
+        "List declared symbols inside one TS/JS file."
+      ],
+      usageInstructions: [
+        "Provide the workspace-relative path to the TS/JS file you want to inspect."
+      ],
+      constraints: [
+        "Only supported TS/JS files are accepted."
+      ],
+      examples: ['{"path":"packages/agent/src/prompt.ts"}']
+    }),
     family: "lsp",
     isReadOnly: true,
     hasExternalSideEffect: false,
@@ -398,8 +468,28 @@ function createLspDocumentSymbolsTool(
 function createLspWorkspaceSymbolsTool(manager: LspServerManager): RuntimeTool {
   return {
     name: "lsp_workspace_symbols",
-    description:
-      "Search TypeScript or JavaScript symbols across the workspace.",
+    description: buildToolDescription({
+      usageScenarios: [
+        "Search TS/JS symbols across the workspace when you know the symbol name but not the file."
+      ],
+      usageInstructions: [
+        describeObjectProperty({
+          name: "query",
+          type: "string",
+          required: true,
+          description: "Symbol query string."
+        }),
+        describeObjectProperty({
+          name: "maxResults",
+          type: "number",
+          description: `Maximum number of symbols to return, capped at ${MAX_SYMBOL_RESULTS}.`
+        })
+      ],
+      constraints: [
+        "Results are limited to a capped maximum count."
+      ],
+      examples: ['{"query":"PromptBuilder","maxResults":20}']
+    }),
     family: "lsp",
     isReadOnly: true,
     hasExternalSideEffect: false,
@@ -459,8 +549,18 @@ function createLspDiagnosticsTool(
 ): RuntimeTool {
   return {
     name: "lsp_diagnostics",
-    description:
-      "Read TypeScript or JavaScript diagnostics for a workspace file.",
+    description: buildToolDescription({
+      usageScenarios: [
+        "Read diagnostics for a TS/JS file."
+      ],
+      usageInstructions: [
+        "Provide the workspace-relative path to the TS/JS file you want checked."
+      ],
+      constraints: [
+        "Only supported TS/JS files are accepted."
+      ],
+      examples: ['{"path":"packages/agent/src/prompt.ts"}']
+    }),
     family: "lsp",
     isReadOnly: true,
     hasExternalSideEffect: false,

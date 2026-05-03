@@ -8,6 +8,10 @@ import {
   successResult,
   validateWithSchema
 } from "./tool-result.js";
+import {
+  buildToolDescription,
+  describeObjectProperty
+} from "./tool-description.js";
 
 const schema = z.object({
   routine_id: z.string().min(1),
@@ -17,7 +21,29 @@ const schema = z.object({
 export function createDeleteRoutineTool(): RuntimeTool {
   return {
     name: "delete_routine",
-    description: "Delete an existing routine after the target is identified clearly.",
+    description: buildToolDescription({
+      usageScenarios: [
+        "Delete an existing active routine after the target is identified."
+      ],
+      usageInstructions: [
+        describeObjectProperty({
+          name: "routine_id",
+          type: "string",
+          required: true,
+          description: "Existing active routine id to delete."
+        }),
+        describeObjectProperty({
+          name: "reason",
+          type: "string",
+          description: "Optional reason for the deletion."
+        })
+      ],
+      constraints: [
+        "The target routine must exist and be active.",
+        "Use a concrete routine_id rather than a fuzzy description."
+      ],
+      examples: ['{"routine_id":"routine_123","reason":"User cancelled this plan"}']
+    }),
     family: "schedule",
     isReadOnly: false,
     hasExternalSideEffect: true,

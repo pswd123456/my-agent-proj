@@ -6,11 +6,29 @@ import {
   toRelativeWorkspacePath
 } from "./workspace.js";
 import { createToolResult, failureResult, successResult } from "./tool-result.js";
+import { buildToolDescription } from "./tool-description.js";
 
 export function createListDirectoryTool(workingDirectory: string): RuntimeTool {
   return {
     name: "list_directory",
-    description: "List files and folders in a workspace directory.",
+    description: buildToolDescription({
+      usageScenarios: [
+        "Inspect the immediate entries inside a known directory.",
+        "Check whether a file or subdirectory exists at a path.",
+        "Get a quick local directory view without walking the whole tree."
+      ],
+      usageInstructions: [
+        "Set path to a workspace-relative directory path.",
+        "Omit path or use . to list the workspace root.",
+        "Read the returned entries array for name and kind."
+      ],
+      constraints: [
+        "Only lists one directory level; it does not recurse.",
+        "Fails if the target is not a directory.",
+        "Use find_files for filtered file discovery across many directories."
+      ],
+      examples: ['{"path":"apps/web/app/_components"}', '{"path":"."}']
+    }),
     family: "workspace-file",
     isReadOnly: true,
     hasExternalSideEffect: false,

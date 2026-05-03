@@ -21,6 +21,10 @@ import {
   failureResult,
   successResult
 } from "./tool-result.js";
+import {
+  buildToolDescription,
+  describeObjectProperty
+} from "./tool-description.js";
 
 function normalizeDiffLines(content: string): string[] {
   if (content.length === 0) {
@@ -71,8 +75,34 @@ function nextCount(lines: string[]): number {
 export function createWriteFileTool(workingDirectory: string): RuntimeTool {
   return {
     name: "write_file",
-    description:
-      "Create a new text file or replace the full content of an existing text file inside the workspace. Existing files MUST be read with read_file in this session before writing. Use apply_patch for line-level edits.",
+    description: buildToolDescription({
+      usageScenarios: [
+        "Create a new text file.",
+        "Replace the full content of an existing text file.",
+        "Write generated or rewritten whole-file content after you have decided the complete target content."
+      ],
+      usageInstructions: [
+        "Step 1: set path to the workspace-relative file path.",
+        describeObjectProperty({
+          name: "content",
+          type: "string",
+          required: true,
+          description: "Full file content to write."
+        }),
+        "Step 2: if the target file already exists, read it with read_file in this session before writing.",
+        "Step 3: use apply_patch instead of write_file for line-level edits."
+      ],
+      constraints: [
+        "Existing files MUST be read with read_file in this session before writing.",
+        "write_file only supports full-file writes; line edits are rejected.",
+        "The parent directory must already exist.",
+        "Directory targets are rejected."
+      ],
+      examples: [
+        '{"path":"notes/todo.md","content":"# Todo\\n- item 1\\n"}',
+        '{"path":"packages/agent/src/generated.ts","content":"export const value = 1;\\n"}'
+      ]
+    }),
     family: "workspace-file",
     isReadOnly: false,
     hasExternalSideEffect: true,

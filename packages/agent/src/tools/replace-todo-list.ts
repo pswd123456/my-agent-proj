@@ -10,6 +10,10 @@ import {
   successResult,
   validateWithSchema
 } from "./tool-result.js";
+import {
+  buildToolDescription,
+  describeObjectProperty
+} from "./tool-description.js";
 
 const schema = z.object({
   items: z
@@ -38,8 +42,35 @@ function formatDisplayText(
 export function createReplaceTodoListTool(): RuntimeTool {
   return {
     name: "replace_todo_list",
-    description:
-      "Create or fully replace the session todo list when a task clearly needs a fresh multi-step plan.",
+    description: buildToolDescription({
+      usageScenarios: [
+        "Create a fresh multi-step todo list for the current session.",
+        "Replace the entire todo list when the old plan is stale."
+      ],
+      usageInstructions: [
+        describeObjectProperty({
+          name: "items",
+          type: "array",
+          required: true,
+          description:
+            "Ordered todo items; each item must include content."
+        }),
+        describeObjectProperty({
+          name: "activeIndex",
+          type: "number",
+          description:
+            "Optional 0-based array index to mark the active item after replacement."
+        })
+      ],
+      constraints: [
+        "This replaces the full todo list state.",
+        "Use update_todo_items when you only need incremental status or content changes.",
+        `The number of items is capped by the session todo limit of ${TODO_ITEM_LIMIT}.`
+      ],
+      examples: [
+        '{"items":[{"content":"Inspect current tool contracts"},{"content":"Rewrite descriptions"},{"content":"Run tests"}],"activeIndex":0}'
+      ]
+    }),
     family: "planning",
     isReadOnly: false,
     hasExternalSideEffect: false,

@@ -7,6 +7,7 @@ import {
   successResult,
   validateWithSchema
 } from "./tool-result.js";
+import { buildToolDescription } from "./tool-description.js";
 
 const schema = z.object({}).strict();
 const MAX_TASK_BRIEF_CHARACTERS = 20_000;
@@ -27,8 +28,22 @@ function formatDisplayText(input: {
 export function createGetTaskBriefTool(): RuntimeTool {
   return {
     name: "get_task_brief",
-    description:
-      "Read the current session task brief markdown file that anchors plan mode work.",
+    description: buildToolDescription({
+      usageScenarios: [
+        "Read the full current session task brief before continuing plan-driven work.",
+        "Check whether the session already has a bound task brief file."
+      ],
+      usageInstructions: [
+        "Call the tool with no arguments.",
+        "Inspect path and exists to see whether a task brief is currently available.",
+        "Use content when you need the current task brief text."
+      ],
+      constraints: [
+        "This reads the whole bound task brief snapshot, not a paged window.",
+        "If the session has no bound brief path or the file does not exist yet, exists is false."
+      ],
+      examples: ["{}"]
+    }),
     family: "planning",
     isReadOnly: true,
     hasExternalSideEffect: false,

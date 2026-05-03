@@ -7,13 +7,36 @@ import {
   toRelativeWorkspacePath
 } from "./workspace.js";
 import { createToolResult, failureResult, successResult } from "./tool-result.js";
+import {
+  buildToolDescription,
+  describeObjectProperty
+} from "./tool-description.js";
 
 export function createCreateDirectoryTool(
   workingDirectory: string
 ): RuntimeTool {
   return {
     name: "create_directory",
-    description: "Create a directory inside the workspace.",
+    description: buildToolDescription({
+      usageScenarios: [
+        "Create a new directory inside the workspace.",
+        "Ensure a target directory exists before writing files into it."
+      ],
+      usageInstructions: [
+        describeObjectProperty({
+          name: "path",
+          type: "string",
+          required: true,
+          description: "Workspace-relative directory path to create."
+        }),
+        "Call the tool once with the target directory path."
+      ],
+      constraints: [
+        "If the target already exists as a directory, the call succeeds without changing it.",
+        "Fails when the target path already exists as a file."
+      ],
+      examples: ['{"path":"artifacts/reports"}', '{"path":"packages/agent/tmp"}']
+    }),
     family: "workspace-file",
     isReadOnly: false,
     hasExternalSideEffect: true,

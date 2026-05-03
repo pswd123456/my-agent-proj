@@ -16,6 +16,10 @@ import {
   successResult,
   validateWithSchema
 } from "./tool-result.js";
+import {
+  buildToolDescription,
+  describeObjectProperty
+} from "./tool-description.js";
 import type { RuntimeTool } from "./runtime-tool.js";
 
 const MAX_SKILL_CHARACTERS = 25_000;
@@ -214,8 +218,37 @@ export function createLoadSkillTool(
 ): RuntimeTool {
   return {
     name: "load_skill",
-    description:
-      "Load a workspace skill file from .agent/skills by skill name or relative path. Use this after search_skill when you need the exact skill instructions.",
+    description: buildToolDescription({
+      usageScenarios: [
+        "Load the exact contents of a workspace skill after discovering it.",
+        "Read only the relevant line window from a large SKILL.md file."
+      ],
+      usageInstructions: [
+        "Provide either skillName or path.",
+        describeObjectProperty({
+          name: "skillName",
+          type: "string",
+          description:
+            "Exact skill name from the runtime skill list or search_skill results."
+        }),
+        describeObjectProperty({
+          name: "path",
+          type: "string",
+          description:
+            "Exact relativePath from search_skill results, for example .agent/skills/repo-reader/SKILL.md."
+        }),
+        "Optionally page the result with either {startLine,endLine} or {offset,limit}."
+      ],
+      constraints: [
+        "Use search_skill first when you do not already know the exact skill to load.",
+        "Provide either skillName or path that resolves to a visible workspace skill.",
+        "Like other paged readers, choose one window syntax rather than mixing both."
+      ],
+      examples: [
+        '{"skillName":"firecrawl"}',
+        '{"path":".agent/skills/repo-reader/SKILL.md","startLine":1,"endLine":80}'
+      ]
+    }),
     family: "workspace-file",
     isReadOnly: true,
     hasExternalSideEffect: false,

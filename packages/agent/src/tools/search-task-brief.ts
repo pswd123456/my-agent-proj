@@ -11,6 +11,10 @@ import {
   successResult,
   validateWithSchema
 } from "./tool-result.js";
+import {
+  buildToolDescription,
+  describeObjectProperty
+} from "./tool-description.js";
 
 const DEFAULT_MAX_RESULTS = 20;
 const MAX_RESULTS_LIMIT = 100;
@@ -48,8 +52,43 @@ function formatDisplayText(input: {
 export function createSearchTaskBriefTool(): RuntimeTool {
   return {
     name: "search_task_brief",
-    description:
-      "Search the current session task brief and return matching line numbers.",
+    description: buildToolDescription({
+      usageScenarios: [
+        "Find keywords or patterns inside the current task brief.",
+        "Locate line numbers before calling read_task_brief or edit_task_brief."
+      ],
+      usageInstructions: [
+        describeObjectProperty({
+          name: "query",
+          type: "string",
+          required: true,
+          description: "Text or regex pattern to search for."
+        }),
+        describeObjectProperty({
+          name: "regex",
+          type: "boolean",
+          description: "Set true only when query is a regular expression."
+        }),
+        describeObjectProperty({
+          name: "caseSensitive",
+          type: "boolean",
+          description: "Control whether query matching is case-sensitive."
+        }),
+        describeObjectProperty({
+          name: "maxResults",
+          type: "number",
+          description: "Limit the number of returned matches."
+        })
+      ],
+      constraints: [
+        "If the session has no bound task brief path, exists is false and matches is empty.",
+        "Regex validation errors are returned immediately when regex=true and the pattern is invalid."
+      ],
+      examples: [
+        '{"query":"migration"}',
+        '{"query":"TODO|FIXME","regex":true,"maxResults":10}'
+      ]
+    }),
     family: "planning",
     isReadOnly: true,
     hasExternalSideEffect: false,

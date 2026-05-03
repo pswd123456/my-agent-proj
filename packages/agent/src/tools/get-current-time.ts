@@ -6,6 +6,7 @@ import {
   successResult,
   validateWithSchema
 } from "./tool-result.js";
+import { buildToolDescription } from "./tool-description.js";
 
 const schema = z.object({}).strict();
 
@@ -43,8 +44,23 @@ function formatDisplayText(input: {
 export function createGetCurrentTimeTool(): RuntimeTool {
   return {
     name: "get_current_time",
-    description:
-      "Read the current local date, current local time, timezone, and ISO timestamp when the task depends on today's date or the current time.",
+    description: buildToolDescription({
+      usageScenarios: [
+        "Read the current local date or time when the task depends on today, now, or the local timezone.",
+        "Resolve relative user requests such as today, tomorrow, or this afternoon using a concrete timestamp."
+      ],
+      usageInstructions: [
+        "Call the tool with no arguments.",
+        "Use current_date for date-only logic.",
+        "Use current_local_datetime or current_iso_datetime when the exact current time matters.",
+        "Use current_timezone when you need to interpret local wall-clock times."
+      ],
+      constraints: [
+        "Do not guess the current date or time from memory when the exact value matters.",
+        "The result is the local time at the moment this tool call runs."
+      ],
+      examples: ["{}"]
+    }),
     family: "planning",
     isReadOnly: true,
     hasExternalSideEffect: false,

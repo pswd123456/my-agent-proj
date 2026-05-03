@@ -8,6 +8,10 @@ import {
   type GitCommandError
 } from "./git-shared.js";
 import { createToolResult, failureResult, successResult } from "./tool-result.js";
+import {
+  buildToolDescription,
+  describeObjectProperty
+} from "./tool-description.js";
 
 const DEFAULT_CONTEXT_LINES = 3;
 const MAX_CONTEXT_LINES = 20;
@@ -48,11 +52,35 @@ function mapGitDiffFailure(
 function createGitDiffTool(input: {
   name: "git_diff" | "git_diff_cached";
   cached: boolean;
-  description: string;
 }): RuntimeTool {
   return {
     name: input.name,
-    description: input.description,
+    description: buildToolDescription({
+      usageScenarios: [
+        input.cached
+          ? "Inspect staged git diff output."
+          : "Inspect unstaged git diff output.",
+        "Review changes for the whole workspace or for selected paths."
+      ],
+      usageInstructions: [
+        "Optionally provide paths to scope the diff.",
+        describeObjectProperty({
+          name: "contextLines",
+          type: "number",
+          description:
+            "Optional unified diff context line count."
+        })
+      ],
+      constraints: [
+        "This is read-only and does not modify git state.",
+        "git_diff shows unstaged changes; git_diff_cached shows staged changes.",
+        "Fails outside a git repository."
+      ],
+      examples: [
+        "{}",
+        '{"paths":["packages/agent/src/tools/read-file.ts"],"contextLines":5}'
+      ]
+    }),
     family: "workspace-file",
     isReadOnly: true,
     hasExternalSideEffect: false,
@@ -163,17 +191,13 @@ function createGitDiffTool(input: {
 export function createGitDiffToolUncached(): RuntimeTool {
   return createGitDiffTool({
     name: "git_diff",
-    cached: false,
-    description:
-      "Show unstaged git diff output for the workspace or selected paths."
+    cached: false
   });
 }
 
 export function createGitDiffCachedTool(): RuntimeTool {
   return createGitDiffTool({
     name: "git_diff_cached",
-    cached: true,
-    description:
-      "Show staged git diff output for the workspace or selected paths."
+    cached: true
   });
 }

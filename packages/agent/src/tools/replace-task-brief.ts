@@ -18,6 +18,10 @@ import {
   validateWithSchema
 } from "./tool-result.js";
 import { writeTextFileAtomic } from "./workspace.js";
+import {
+  buildToolDescription,
+  describeObjectProperty
+} from "./tool-description.js";
 
 const schema = z.object({
   plan_name: z.string().min(1).optional(),
@@ -104,8 +108,36 @@ async function getBoundTaskBriefPath(
 export function createReplaceTaskBriefTool(): RuntimeTool {
   return {
     name: "replace_task_brief",
-    description:
-      "Create or fully replace the current session task brief markdown file used by plan mode. Use this tool for task brief writes only; do not use shell redirection or workspace file mutation tools to write the brief. When the session does not have a task brief path yet, include a short plan_name for the file.",
+    description: buildToolDescription({
+      usageScenarios: [
+        "Create the first task brief for the current session.",
+        "Fully replace the current task brief when a complete rewrite is clearer than a line edit."
+      ],
+      usageInstructions: [
+        describeObjectProperty({
+          name: "content",
+          type: "string",
+          required: true,
+          description: "Complete markdown content to store as the task brief."
+        }),
+        describeObjectProperty({
+          name: "plan_name",
+          type: "string",
+          description:
+            "Short plan name used only when the session does not yet have a bound task brief path."
+        }),
+        "If a bound task brief path already exists, omit plan_name unless you are reusing the same bound name."
+      ],
+      constraints: [
+        "Use this tool only for task brief writes; do not use shell redirection or workspace file mutation tools to write the task brief.",
+        "When the session does not have a bound task brief path yet, plan_name is required for the first write.",
+        "Use edit_task_brief for focused range edits instead of replacing the whole file."
+      ],
+      examples: [
+        '{"plan_name":"plugin_rollout","content":"# Goal\\nImplement the first plugin end to end.\\n"}',
+        '{"content":"# Updated Goal\\nRewritten task brief content.\\n"}'
+      ]
+    }),
     family: "planning",
     isReadOnly: false,
     hasExternalSideEffect: false,

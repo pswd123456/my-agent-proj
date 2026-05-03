@@ -14,6 +14,10 @@ import {
   successResult,
   validateWithSchema
 } from "./tool-result.js";
+import {
+  buildToolDescription,
+  describeObjectProperty
+} from "./tool-description.js";
 
 const capabilityPackNameSchema = z.enum(CAPABILITY_PACK_OPTIONS);
 
@@ -131,8 +135,37 @@ function formatDisplayText(input: {
 export function createManageCapabilityPacksTool(): RuntimeTool {
   return {
     name: "manage_capability_packs",
-    description:
-      "List, enable, or disable the session capability packs. Enable and disable update the current session state and take effect on the next run.",
+    description: buildToolDescription({
+      usageScenarios: [
+        "Inspect which built-in capability packs are available and enabled.",
+        "Enable or disable a capability pack for the current session."
+      ],
+      usageInstructions: [
+        describeObjectProperty({
+          name: "action",
+          type: 'literal "list" | "enable" | "disable"',
+          required: true,
+          description: "Choose whether to inspect or change capability-pack state."
+        }),
+        describeObjectProperty({
+          name: "pack_name",
+          type: "string",
+          description:
+            "Required for enable and disable; choose one supported pack name."
+        }),
+        "Use action=list to inspect state without changing it."
+      ],
+      constraints: [
+        "Enable and disable update the current session context and take effect on the next run.",
+        "action=list does not accept pack_name.",
+        "action=enable and action=disable both require pack_name."
+      ],
+      examples: [
+        '{"action":"list"}',
+        '{"action":"enable","pack_name":"lsp"}',
+        '{"action":"disable","pack_name":"workspace"}'
+      ]
+    }),
     family: "planning",
     isReadOnly: false,
     hasExternalSideEffect: true,

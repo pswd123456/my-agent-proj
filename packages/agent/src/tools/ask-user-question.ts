@@ -13,6 +13,7 @@ import {
   successResult,
   validateWithSchema
 } from "./tool-result.js";
+import { buildToolDescription } from "./tool-description.js";
 
 const optionSchema = z.object({
   label: z.string().min(1),
@@ -137,8 +138,26 @@ function renderQuestionSummary(payload: PendingUserQuestionPayload): string {
 export function createAskUserQuestionTool(): RuntimeTool {
   return {
     name: "ask_user_question",
-    description:
-      "Pause the current run and ask one or more structured clarification questions. Use question_text/options for a single question, or questions for a batch of up to 4 questions. Each question can include up to 5 quick-reply options, one recommended option, and an optional context_note that is surfaced as a selectable note reply.",
+    description: buildToolDescription({
+      usageScenarios: [
+        "Pause the current run and request missing user clarification.",
+        "Ask one structured question or a short batch of structured questions."
+      ],
+      usageInstructions: [
+        "Use question_text plus optional options for a single question.",
+        "Use questions for a batch of up to 4 questions.",
+        "Each question can include up to 5 quick-reply options, one recommended option, allow_cancel, and context_note."
+      ],
+      constraints: [
+        "Use this only when the missing information cannot be resolved safely from current context.",
+        "A batch can contain at most 4 questions.",
+        "Each question can contain at most 5 quick-reply options."
+      ],
+      examples: [
+        '{"question_text":"Which package should I update first?","options":[{"label":"agent","reply":"Update packages/agent first","description":"Best when the behavior change is runtime-level","is_recommended":true},{"label":"web","reply":"Update apps/web first","description":"Best when only UI text changes"}]}',
+        '{"questions":[{"question_text":"Which provider should be the default?","options":[{"label":"DeepSeek","reply":"Use DeepSeek as default"}]},{"question_text":"Should I also update tests?","options":[{"label":"Yes","reply":"Update tests too","is_recommended":true},{"label":"No","reply":"Code changes only"}]}]}'
+      ]
+    }),
     family: "planning",
     isReadOnly: false,
     hasExternalSideEffect: true,

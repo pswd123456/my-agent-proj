@@ -23,6 +23,10 @@ import {
   validateWithSchema
 } from "./tool-result.js";
 import { truncateText } from "./workspace.js";
+import {
+  buildToolDescription,
+  describeObjectProperty
+} from "./tool-description.js";
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const SHELL_OUTPUT_STDOUT_LIMIT = 12_000;
@@ -325,8 +329,36 @@ async function executeInlineShellCommand(input: {
 export function createRunShellCommandTool(): RuntimeTool {
   return {
     name: "run_shell_command",
-    description:
-      "Run a shell command from the session working directory. action=start runs inline by default; use execution_mode=background to start a detached task that can later be inspected or cancelled.",
+    description: buildToolDescription({
+      usageScenarios: [
+        "Run a shell command in the session working directory.",
+        "Start a background shell task and later inspect or cancel it."
+      ],
+      usageInstructions: [
+        describeObjectProperty({
+          name: "action",
+          type: '"start" | "get" | "cancel"',
+          required: true,
+          description: "Choose whether to start a command, inspect a background task, or cancel one."
+        }),
+        "For action=start, provide command. execution_mode defaults to inline.",
+        "Use execution_mode=background to create a detached task.",
+        "Use wait_mode only with action=start and execution_mode=background.",
+        "For action=get and action=cancel, provide task_id only."
+      ],
+      constraints: [
+        "Shell execution is destructive and requires approval.",
+        "action=get only inspects a background task and does not require command.",
+        "action=cancel only accepts task_id.",
+        "Inline commands return one result; background commands return task state and may continue after the current run."
+      ],
+      examples: [
+        '{"action":"start","command":"git status"}',
+        '{"action":"start","command":"bun run dev","execution_mode":"background","wait_mode":"unblocking"}',
+        '{"action":"get","task_id":"task_123"}',
+        '{"action":"cancel","task_id":"task_123"}'
+      ]
+    }),
     family: "workspace-shell",
     isReadOnly: false,
     hasExternalSideEffect: true,

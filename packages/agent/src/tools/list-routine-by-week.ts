@@ -9,6 +9,10 @@ import {
   successResult,
   validateWithSchema
 } from "./tool-result.js";
+import {
+  buildToolDescription,
+  describeObjectProperty
+} from "./tool-description.js";
 
 const schema = z.object({
   week_start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -17,7 +21,24 @@ const schema = z.object({
 export function createListRoutineByWeekTool(): RuntimeTool {
   return {
     name: "list_routine_by_week",
-    description: "List routines from the provided week start date over 7 days.",
+    description: buildToolDescription({
+      usageScenarios: [
+        "List routines for a whole week from a known week start date."
+      ],
+      usageInstructions: [
+        describeObjectProperty({
+          name: "week_start_date",
+          type: "string",
+          required: true,
+          description: "YYYY-MM-DD date representing the start of the week window."
+        })
+      ],
+      constraints: [
+        "Dates must use YYYY-MM-DD format.",
+        "The tool returns a 7-day listing starting from week_start_date."
+      ],
+      examples: ['{"week_start_date":"2026-05-04"}']
+    }),
     family: "schedule",
     isReadOnly: true,
     hasExternalSideEffect: false,

@@ -12,6 +12,10 @@ import {
   normalizeWorkspacePath,
   toRelativeWorkspacePath
 } from "./workspace.js";
+import {
+  buildToolDescription,
+  describeObjectProperty
+} from "./tool-description.js";
 
 type ManagePathAction = "copy" | "move";
 
@@ -26,8 +30,41 @@ function actionLabel(action: ManagePathAction): string {
 export function createManagePathTool(workingDirectory: string): RuntimeTool {
   return {
     name: "manage_path",
-    description:
-      "Copy or move a workspace file or directory. Use action=copy to duplicate a path and action=move to rename or relocate it.",
+    description: buildToolDescription({
+      usageScenarios: [
+        "Copy a file or directory to a new location.",
+        "Move or rename a file or directory."
+      ],
+      usageInstructions: [
+        describeObjectProperty({
+          name: "action",
+          type: '"copy" | "move"',
+          required: true,
+          description: "Choose whether to duplicate or relocate the path."
+        }),
+        describeObjectProperty({
+          name: "source_path",
+          type: "string",
+          required: true,
+          description: "Workspace-relative source path."
+        }),
+        describeObjectProperty({
+          name: "target_path",
+          type: "string",
+          required: true,
+          description: "Workspace-relative destination path."
+        })
+      ],
+      constraints: [
+        "action=move is destructive and requires approval.",
+        "action=copy requires approval only when it would overwrite an existing target.",
+        "The source path must exist and the target parent directory must already exist."
+      ],
+      examples: [
+        '{"action":"copy","source_path":"docs/template","target_path":"docs/template-backup"}',
+        '{"action":"move","source_path":"tmp/result.txt","target_path":"artifacts/result.txt"}'
+      ]
+    }),
     family: "workspace-file",
     isReadOnly: false,
     hasExternalSideEffect: true,

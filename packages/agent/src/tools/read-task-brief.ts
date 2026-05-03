@@ -9,6 +9,10 @@ import {
   successResult,
   validateWithSchema
 } from "./tool-result.js";
+import {
+  buildToolDescription,
+  describeObjectProperty
+} from "./tool-description.js";
 
 const schema = z
   .object({
@@ -126,8 +130,49 @@ function formatDisplayText(input: {
 export function createReadTaskBriefTool(): RuntimeTool {
   return {
     name: "read_task_brief",
-    description:
-      "Read the current session task brief with optional 1-based line windows.",
+    description: buildToolDescription({
+      usageScenarios: [
+        "Read only part of the current session task brief instead of loading the whole file.",
+        "Page through a long task brief while preserving context budget."
+      ],
+      usageInstructions: [
+        "Call the tool only when the session may already have a task brief path.",
+        "Choose exactly one window style.",
+        describeObjectProperty({
+          name: "startLine",
+          type: "number",
+          description:
+            "1-based first line to read; use together with endLine when you know the desired line range."
+        }),
+        describeObjectProperty({
+          name: "endLine",
+          type: "number",
+          description:
+            "1-based inclusive last line to read; use together with startLine."
+        }),
+        describeObjectProperty({
+          name: "offset",
+          type: "number",
+          description:
+            "0-based line offset for paging; use together with limit."
+        }),
+        describeObjectProperty({
+          name: "limit",
+          type: "number",
+          description:
+            "Number of lines to read starting from offset."
+        })
+      ],
+      constraints: [
+        "Choose exactly one window syntax: either {startLine,endLine} or {offset,limit}.",
+        "If the session has no bound task brief path, exists is false and content is null.",
+        "The result is capped by the task brief character limit and may be truncated."
+      ],
+      examples: [
+        '{"startLine":1,"endLine":40}',
+        '{"offset":40,"limit":30}'
+      ]
+    }),
     family: "planning",
     isReadOnly: true,
     hasExternalSideEffect: false,

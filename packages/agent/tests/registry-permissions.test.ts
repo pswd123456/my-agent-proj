@@ -109,6 +109,21 @@ describe("ToolRegistry stage4 metadata contract", () => {
     );
   });
 
+  test("all built-in tool descriptions follow the four-section instruction format", () => {
+    const registry = createDefaultToolRegistry({
+      workingDirectory: "/tmp/workspace",
+      routineRepository: createMemoryRoutineRepository(),
+      enabledCapabilityPacks: ["workspace", "schedule", "lsp"]
+    });
+
+    for (const tool of registry.list()) {
+      expect(tool.description).toContain("1. Usage scenarios / goals");
+      expect(tool.description).toContain("2. Usage instructions");
+      expect(tool.description).toContain("3. Constraints / cautions");
+      expect(tool.description).toContain("4. Few-shot examples (Examples:)");
+    }
+  });
+
   test("derives settings permission tools from the runtime registry surface", () => {
     const options = listSettingsPermissionToolOptions({
       workingDirectory: "/tmp/workspace",

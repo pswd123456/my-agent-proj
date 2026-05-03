@@ -7,11 +7,34 @@ import {
   toRelativeWorkspacePath
 } from "./workspace.js";
 import { createToolResult, failureResult, successResult } from "./tool-result.js";
+import {
+  buildToolDescription,
+  describeObjectProperty
+} from "./tool-description.js";
 
 export function createDeletePathTool(workingDirectory: string): RuntimeTool {
   return {
     name: "delete_path",
-    description: "Delete a file or directory from the workspace after approval.",
+    description: buildToolDescription({
+      usageScenarios: [
+        "Delete a file or directory when the target may be either kind.",
+        "Remove a whole directory tree from the workspace."
+      ],
+      usageInstructions: [
+        describeObjectProperty({
+          name: "path",
+          type: "string",
+          required: true,
+          description: "Workspace-relative file or directory path to delete."
+        })
+      ],
+      constraints: [
+        "Deletion is destructive and requires approval.",
+        "Use delete_file instead when you know the targets are files and want undoable diffs.",
+        "Fails if the target path does not exist."
+      ],
+      examples: ['{"path":"tmp/old-output"}', '{"path":"artifacts/report.json"}']
+    }),
     family: "workspace-file",
     isReadOnly: false,
     hasExternalSideEffect: true,

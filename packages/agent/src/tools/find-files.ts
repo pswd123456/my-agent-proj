@@ -10,6 +10,10 @@ import {
   walkFiles
 } from "./workspace.js";
 import { createToolResult, failureResult, successResult } from "./tool-result.js";
+import {
+  buildToolDescription,
+  describeObjectProperty
+} from "./tool-description.js";
 
 const DEFAULT_MAX_RESULTS = 50;
 const MAX_RESULTS_LIMIT = 500;
@@ -85,8 +89,47 @@ function matchesFilters(input: {
 export function createFindFilesTool(workingDirectory: string): RuntimeTool {
   return {
     name: "find_files",
-    description:
-      "List workspace files by path filters such as root directory, glob, suffix, or file name pattern.",
+    description: buildToolDescription({
+      usageScenarios: [
+        "Discover candidate files by path filters when you do not know the exact file yet.",
+        "Narrow a repo area before reading or editing files.",
+        "List matching files without reading their contents."
+      ],
+      usageInstructions: [
+        "Step 1: optionally set path to a directory or file root inside the workspace.",
+        describeObjectProperty({
+          name: "glob",
+          type: "string",
+          description:
+            "Match workspace-relative paths, for example **/*.ts."
+        }),
+        describeObjectProperty({
+          name: "suffix",
+          type: "string",
+          description: "Filter by file suffix, for example .test.ts."
+        }),
+        describeObjectProperty({
+          name: "namePattern",
+          type: "string",
+          description: "Filter by substring in the file name."
+        }),
+        describeObjectProperty({
+          name: "maxResults",
+          type: "number",
+          description: "Cap the number of returned matches."
+        })
+      ],
+      constraints: [
+        "find_files only matches paths; it does not inspect file contents.",
+        "Use search_text instead when you know the text but not the file.",
+        "Returned paths are workspace-relative and should be fed into read_file or other file tools."
+      ],
+      examples: [
+        '{"path":"packages/agent/src","glob":"**/*.ts","namePattern":"prompt"}',
+        '{"suffix":".test.ts","maxResults":20}',
+        '{"path":"apps/web","glob":"**/*.tsx","namePattern":"conversation"}'
+      ]
+    }),
     family: "workspace-file",
     isReadOnly: true,
     hasExternalSideEffect: false,

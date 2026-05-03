@@ -14,6 +14,10 @@ import {
   successResult
 } from "./tool-result.js";
 import {
+  buildToolDescription,
+  describeObjectProperty
+} from "./tool-description.js";
+import {
   getPathKind,
   normalizeWorkspacePath,
   toRelativeWorkspacePath
@@ -97,8 +101,31 @@ function summarizePaths(paths: string[]): string {
 export function createDeleteFileTool(workingDirectory: string): RuntimeTool {
   return {
     name: "delete_file",
-    description:
-      "Delete one or more files from the workspace after approval. Files MUST be read with read_file in this session before deletion. Returns undoable unified diffs for the deleted files.",
+    description: buildToolDescription({
+      usageScenarios: [
+        "Delete one or more existing files from the workspace.",
+        "Remove files while keeping an undoable diff in the tool result."
+      ],
+      usageInstructions: [
+        describeObjectProperty({
+          name: "paths",
+          type: "array",
+          required: true,
+          description:
+            "One or more workspace-relative file paths to delete."
+        }),
+        "Read each existing target file with read_file in this session before deletion."
+      ],
+      constraints: [
+        "Directories are not supported; use delete_path when the target may be a directory.",
+        "Deletion is destructive and requires approval.",
+        "Existing files must have current session file state from read_file before deletion."
+      ],
+      examples: [
+        '{"paths":["tmp/debug.log"]}',
+        '{"paths":["packages/agent/tmp/a.txt","packages/agent/tmp/b.txt"]}'
+      ]
+    }),
     family: "workspace-file",
     isReadOnly: false,
     hasExternalSideEffect: true,

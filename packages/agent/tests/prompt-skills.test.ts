@@ -612,6 +612,9 @@ describe("PromptBuilder skill context", () => {
         "you MUST use read_file with offset and limit or startLine/endLine"
       );
       expect(promptEnvelope.system).toContain(
+        "never include limit with startLine/endLine"
+      );
+      expect(promptEnvelope.system).toContain(
         "continue with the next adjacent window instead of rereading from the beginning"
       );
       expect(promptEnvelope.system).toContain(
@@ -620,9 +623,11 @@ describe("PromptBuilder skill context", () => {
       expect(promptEnvelope.system).toContain(
         "If read_file reports that a file is unchanged since the last read"
       );
-      expect(readFileTool?.description).toContain("use search_text first");
       expect(readFileTool?.description).toContain(
-        "MUST page with offset and limit"
+        "Use search_text first before read_file"
+      );
+      expect(readFileTool?.description).toContain(
+        "Use exactly one window form"
       );
       expect(JSON.stringify(readFileTool?.input_schema)).toContain('"offset"');
       expect(JSON.stringify(readFileTool?.input_schema)).toContain('"limit"');
@@ -637,6 +642,7 @@ describe("PromptBuilder skill context", () => {
     const promptEnvelope = promptBuilder.build(session, new ToolRegistry());
 
     expect(promptEnvelope.system).toContain("Read before edit");
+    expect(promptEnvelope.system).toContain("smallest exact hunk");
     expect(promptEnvelope.system).toContain(
       "call read_file for that exact path"
     );

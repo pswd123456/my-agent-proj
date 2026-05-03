@@ -13,6 +13,10 @@ import {
   validateWithSchema
 } from "./tool-result.js";
 import { writeTextFileAtomic } from "./workspace.js";
+import {
+  buildToolDescription,
+  describeObjectProperty
+} from "./tool-description.js";
 
 const schema = z
   .object({
@@ -102,8 +106,41 @@ function createLineDiff(input: {
 export function createEditTaskBriefTool(): RuntimeTool {
   return {
     name: "edit_task_brief",
-    description:
-      "Replace an inclusive 1-based line range in the current session task brief. Use replace_task_brief to create the first brief or fully rewrite it.",
+    description: buildToolDescription({
+      usageScenarios: [
+        "Replace a specific inclusive line range in the existing task brief.",
+        "Make a focused edit without rewriting the whole brief."
+      ],
+      usageInstructions: [
+        "Step 1: use get_task_brief, search_task_brief, or read_task_brief to confirm the current content and line numbers.",
+        describeObjectProperty({
+          name: "startLine",
+          type: "number",
+          required: true,
+          description: "1-based first line of the range to replace."
+        }),
+        describeObjectProperty({
+          name: "endLine",
+          type: "number",
+          required: true,
+          description: "1-based inclusive last line of the range to replace."
+        }),
+        describeObjectProperty({
+          name: "content",
+          type: "string",
+          required: true,
+          description: "Replacement text for the selected line range."
+        })
+      ],
+      constraints: [
+        "Use replace_task_brief, not edit_task_brief, to create the first brief or fully rewrite it.",
+        "The selected line range must already exist inside the current task brief.",
+        "endLine must be greater than or equal to startLine."
+      ],
+      examples: [
+        '{"startLine":3,"endLine":5,"content":"Updated scope\\nUpdated risks"}'
+      ]
+    }),
     family: "planning",
     isReadOnly: false,
     hasExternalSideEffect: false,

@@ -10,6 +10,10 @@ import {
   successResult,
   validateWithSchema
 } from "./tool-result.js";
+import {
+  buildToolDescription,
+  describeObjectProperty
+} from "./tool-description.js";
 
 function buildConflictInput(input: {
   date: string;
@@ -54,7 +58,46 @@ const schema = z.object({
 export function createCreateRoutineTool(): RuntimeTool {
   return {
     name: "create_routine",
-    description: "Create a routine when the time range is valid and conflict-free.",
+    description: buildToolDescription({
+      usageScenarios: [
+        "Create a new routine after the user has confirmed the schedule details."
+      ],
+      usageInstructions: [
+        describeObjectProperty({
+          name: "name",
+          type: "string",
+          required: true,
+          description: "Routine title."
+        }),
+        describeObjectProperty({
+          name: "date",
+          type: "string",
+          required: true,
+          description: "YYYY-MM-DD routine date."
+        }),
+        describeObjectProperty({
+          name: "start_time",
+          type: "string",
+          required: true,
+          description: "Start time such as 09:00."
+        }),
+        "Provide either end_time or duration_minutes when needed by the workflow.",
+        describeObjectProperty({
+          name: "source",
+          type: '"user_confirmed" | "agent_suggested_confirmed"',
+          required: true,
+          description: "Marks how the routine request was confirmed."
+        })
+      ],
+      constraints: [
+        "The requested time range must be valid and conflict-free.",
+        "Conflicting routines are rejected instead of being silently created.",
+        "Dates and times must use the expected schedule formats."
+      ],
+      examples: [
+        '{"name":"Study algorithms","date":"2026-05-03","start_time":"09:00","end_time":"10:30","source":"user_confirmed"}'
+      ]
+    }),
     family: "schedule",
     isReadOnly: false,
     hasExternalSideEffect: true,

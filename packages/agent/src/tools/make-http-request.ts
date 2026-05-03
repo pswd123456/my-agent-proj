@@ -3,6 +3,10 @@ import type { JsonValue } from "../types.js";
 import type { RuntimeTool } from "./runtime-tool.js";
 import { createToolResult, failureResult, successResult } from "./tool-result.js";
 import { truncateText } from "./workspace.js";
+import {
+  buildToolDescription,
+  describeObjectProperty
+} from "./tool-description.js";
 
 function isHeadersRecord(
   value: JsonValue | undefined
@@ -26,7 +30,49 @@ function toHeaders(
 export function createMakeHttpRequestTool(): RuntimeTool {
   return {
     name: "make_http_request",
-    description: "Send an external HTTP request after approval.",
+    description: buildToolDescription({
+      usageScenarios: [
+        "Call an external HTTP or HTTPS endpoint after approval.",
+        "Fetch or post data when the task genuinely requires network access."
+      ],
+      usageInstructions: [
+        describeObjectProperty({
+          name: "url",
+          type: "string",
+          required: true,
+          description: "HTTP or HTTPS URL."
+        }),
+        describeObjectProperty({
+          name: "method",
+          type: "string",
+          description: "HTTP method; defaults to GET."
+        }),
+        describeObjectProperty({
+          name: "headers",
+          type: "object",
+          description: "Optional string headers."
+        }),
+        describeObjectProperty({
+          name: "body",
+          type: "string",
+          description: "Optional request body."
+        }),
+        describeObjectProperty({
+          name: "timeoutMs",
+          type: "number",
+          description: "Optional timeout in milliseconds."
+        })
+      ],
+      constraints: [
+        "Every network request requires user approval.",
+        "Only http and https URLs are supported.",
+        "Response bodies are truncated to a safe size."
+      ],
+      examples: [
+        '{"url":"https://example.com"}',
+        '{"url":"https://api.example.com/items","method":"POST","headers":{"Content-Type":"application/json"},"body":"{\\"name\\":\\"demo\\"}","timeoutMs":10000}'
+      ]
+    }),
     family: "workspace-network",
     isReadOnly: false,
     hasExternalSideEffect: true,

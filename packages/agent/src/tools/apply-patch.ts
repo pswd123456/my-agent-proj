@@ -21,19 +21,41 @@ import {
   toRelativeWorkspacePath
 } from "./workspace.js";
 import type { ToolExecutionContext } from "./runtime-tool.js";
+import { buildToolDescription } from "./tool-description.js";
 
-const APPLY_PATCH_DESCRIPTION = [
-  "Apply a standard unified diff patch to one or more workspace files after approval.",
-  "Read before edit: existing files MUST have current session file state from read_file before modification or deletion; search/load tool content does not count.",
-  "Patch hunks must match the current file exactly, including blank lines; oldStart is the 1-based line of the first hunk body line.",
-  "hunk counts must equal context+deleted lines for old and context+added lines for new."
-].join(" ");
+const APPLY_PATCH_DESCRIPTION = buildToolDescription({
+  usageScenarios: [
+    "Make line-level edits to one or more existing workspace files.",
+    "Apply small targeted changes after reading the current file content in this session.",
+    "Create a new file with unified diff syntax when a patch-based write is preferred."
+  ],
+  usageInstructions: [
+    "Step 1: for every existing file you want to modify or delete, read it with read_file in this session first.",
+    "Step 2: provide one complete unified diff string in patch.",
+    "Step 3: use --- a/path and +++ b/path for existing files, or --- /dev/null and +++ b/path for file creation.",
+    "Step 4: each hunk header must use @@ -oldStart,oldCount +newStart,newCount @@.",
+    "Step 5: for simple edits, prefer the smallest exact hunk around the target line instead of rewriting surrounding code."
+  ],
+  constraints: [
+    "Read before edit: search_text, load_skill, or prior conversation do not satisfy the write precondition for existing files.",
+    "Patch hunks must match the current file exactly, including unchanged blank lines.",
+    "oldStart is the 1-based line number of the first hunk body line in the current file.",
+    "hunk counts must equal context+deleted lines for old and context+added lines for new.",
+    "Do not use apply_patch to rename paths."
+  ],
+  examples: [
+    '{"patch":"--- a/file.txt\\n+++ b/file.txt\\n@@ -1,2 +1,3 @@\\n one\\n two\\n+three"}',
+    '{"patch":"--- a/file.txt\\n+++ b/file.txt\\n@@ -2,3 +2,2 @@\\n keep before\\n-remove me\\n keep after"}',
+    '{"patch":"--- /dev/null\\n+++ b/new.txt\\n@@ -0,0 +1,2 @@\\n+one\\n+two"}'
+  ]
+});
 
 const PATCH_INPUT_DESCRIPTION = [
   "Complete unified diff text. Use --- a/path and +++ b/path, then @@ -oldStart,oldCount +newStart,newCount @@. oldStart is the 1-based line number of the first hunk body line in the current file.",
   "Each hunk body line starts with exactly one prefix: space for unchanged context, - for deletion, + for addition. An unchanged blank line is a single leading space followed by nothing.",
   "Counts: oldCount = context + deleted lines; newCount = context + added lines. Include blank context lines in both counts.",
   "Example modify: --- a/file.txt\\n+++ b/file.txt\\n@@ -1,2 +1,3 @@\\n one\\n two\\n+three",
+  "Example remove one line: --- a/file.txt\\n+++ b/file.txt\\n@@ -2,3 +2,2 @@\\n keep before\\n-remove me\\n keep after",
   "Example delete with leading blank context: --- a/file.md\\n+++ b/file.md\\n@@ -15,6 +15,5 @@\\n \\n line A\\n line B\\n-old line\\n \\n heading",
   "Example create: --- /dev/null\\n+++ b/new.txt\\n@@ -0,0 +1,2 @@\\n+one\\n+two"
 ].join(" ");
