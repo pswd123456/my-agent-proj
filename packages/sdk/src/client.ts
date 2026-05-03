@@ -6,12 +6,12 @@ import {
   workspaceSkillSearchResultSchema
 } from "@ai-app-template/agent/contracts/workspace-api";
 import type {
-  RunSessionResult,
+  RunSessionResult as AgentRunSessionResult,
   RunStreamEvent,
   SessionFileChangeActionResult,
   SessionForkTarget,
   SessionRewriteTarget,
-  SessionSnapshot,
+  SessionSnapshot as AgentSessionSnapshot,
   SessionWorkspaceGitStatus,
   TraceRecord,
   UpdateUserSettingsMcpPayload,
@@ -28,11 +28,29 @@ import type {
   UpdateSessionSettingsPayload,
   UpdateUserSettingsPayload
 } from "@ai-app-template/domain";
+import type {
+  CreateCronJobPayload,
+  CronJobPayload,
+  CronJobRecord,
+  ListCronJobsResult,
+  UpdateCronJobPayload
+} from "./cron-jobs.js";
 export type {
   CreateSessionPayload,
   UpdateSessionSettingsPayload,
   UpdateUserSettingsPayload
 } from "@ai-app-template/domain";
+
+export type SessionSnapshot = AgentSessionSnapshot & {
+  cronJobId?: string | null;
+  context: AgentSessionSnapshot["context"] & {
+    cronJobId?: string | null;
+  };
+};
+
+export type RunSessionResult = Omit<AgentRunSessionResult, "session"> & {
+  session: SessionSnapshot;
+};
 
 export interface ApiClientConfig {
   baseUrl: string;
@@ -52,6 +70,7 @@ interface ApiErrorPayload {
 
 export interface SessionSummary {
   sessionId: string;
+  cronJobId?: string | null;
   parentSessionId?: string | null;
   parentRelationKind?: SessionSnapshot["parentRelationKind"];
   parentSessionTaskKind?: SessionSnapshot["parentSessionTaskKind"];
@@ -173,6 +192,22 @@ export interface SessionFileChangeActionInput {
   files: WorkspaceFileChangeSummary[];
 }
 
+function extractCronJobId(
+  session: AgentSessionSnapshot | SessionSnapshot
+): string | null {
+  const directValue = (session as { cronJobId?: unknown }).cronJobId;
+  if (typeof directValue === "string" && directValue.trim().length > 0) {
+    return directValue;
+  }
+
+  const contextValue = (session.context as { cronJobId?: unknown }).cronJobId;
+  if (typeof contextValue === "string" && contextValue.trim().length > 0) {
+    return contextValue;
+  }
+
+  return null;
+}
+
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
 }
@@ -270,6 +305,7 @@ function getFirstUserMessage(session: SessionSnapshot): string | null {
 function toSessionSummary(session: SessionSnapshot): SessionSummary {
   return {
     sessionId: session.sessionId,
+    cronJobId: extractCronJobId(session),
     parentSessionId: session.parentSessionId ?? null,
     parentRelationKind: session.parentRelationKind ?? null,
     parentSessionTaskKind: session.parentSessionTaskKind ?? null,
@@ -874,6 +910,66 @@ export class ApiClient {
     return (await ensureOk(response).then((result) =>
       result.json()
     )) as ResetSessionRoutinesResult;
+  }
+
+  async listCronJobs(userId: string): Promise<CronJobRecord[]> {
+    const response = await this.fetchImpl(
+      appendCacheBust(buildUrl(this.baseUrl, `/users/${userId}/cron-jobs`)),
+      {
+        cache: "no-store"
+      }
+    );
+    const payload = (await ensureOk(response).then((result) =>
+      result.json()
+    )) as ListCronJobsResult;
+    return payload.cronJobs;
+  }
+
+  async createCronJob(
+    userId: string,
+    input: CreateCronJobPayload
+  ): Promise<CronJobRecord> {
+    const response = await this.fetchImpl(
+      buildUrl(this.baseUrl, `/users/${userId}/cron-jobs`),
+      {
+        method: "POST",
+        headers: toJsonHeaders(),
+        body: JSON.stringify(input)
+      }
+    );
+    const payload = (await ensureOk(response).then((result) =>
+      result.json()
+    )) as CronJobPayload;
+    return payload.cronJob;
+  }
+
+  async updateCronJob(
+    userId: string,
+    cronJobId: string,
+    input: UpdateCronJobPayload
+  ): Promise<CronJobRecord> {
+    const response = await this.fetchImpl(
+      buildUrl(this.baseUrl, `/users/${userId}/cron-jobs/${cronJobId}`),
+      {
+        method: "PATCH",
+        headers: toJsonHeaders(),
+        body: JSON.stringify(input)
+      }
+    );
+    const payload = (await ensureOk(response).then((result) =>
+      result.json()
+    )) as CronJobPayload;
+    return payload.cronJob;
+  }
+
+  async deleteCronJob(userId: string, cronJobId: string): Promise<void> {
+    const response = await this.fetchImpl(
+      buildUrl(this.baseUrl, `/users/${userId}/cron-jobs/${cronJobId}`),
+      {
+        method: "DELETE"
+      }
+    );
+    await ensureOk(response);
   }
 }
 
