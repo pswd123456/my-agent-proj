@@ -13,8 +13,7 @@ import {
   type SessionBackgroundNotification,
   type SessionFullCompactionState,
   type SessionTodoState,
-  type ScheduleSessionContext,
-  type ThinkingEffort
+  type ScheduleSessionContext
 } from "@ai-app-template/domain";
 
 import type { ProductDatabaseClient } from "@ai-app-template/db";
@@ -29,7 +28,6 @@ import type {
   CreateSessionInput,
   JsonValue,
   LoopState,
-  SessionParentRelationKind,
   SessionForkCheckpoint,
   SessionSnapshot,
   ToolResultDetails,
@@ -38,6 +36,7 @@ import type {
 import type { SessionManager } from "./contracts.js";
 import { DEFAULT_EXECUTION_LEASE_TIMEOUT_MS } from "./contracts.js";
 import {
+  buildCreateSnapshotOverridesFromSessionInput,
   cloneSnapshot,
   createSnapshot,
   forceStopSnapshot,
@@ -652,97 +651,12 @@ export class PostgresSessionManager implements SessionManager {
   async createSession(
     input: CreateSessionInput = {}
   ): Promise<SessionSnapshot> {
-    const createSnapshotInput: {
-      sessionId: string;
-      cronJobId?: string | null;
-      parentSessionId?: string | null;
-      parentRelationKind?: SessionParentRelationKind | null;
-      forkReplayCheckpointId?: string | null;
-      workingDirectory: string;
-      model: string;
-      thinkingEffort?: ThinkingEffort;
-      userId?: string;
-      yoloMode?: boolean;
-      planModeEnabled?: boolean;
-      contextWindow?: number;
-      maxTurns?: number;
-      shellAllowPatterns?: string[];
-      shellDenyPatterns?: string[];
-      toolAllowList?: string[];
-      toolAskList?: string[];
-      toolDenyList?: string[];
-      enabledCapabilityPacks?: string[];
-    } = {
+    const snapshot = createSnapshot({
       sessionId: randomUUID(),
       workingDirectory: resolveWorkingDirectory(input.workingDirectory),
-      model: input.model ?? DEFAULT_SESSION_MODEL
-    };
-
-    if (
-      typeof input.cronJobId === "string" ||
-      input.cronJobId === null
-    ) {
-      createSnapshotInput.cronJobId = input.cronJobId;
-    }
-    if (
-      typeof input.parentSessionId === "string" ||
-      input.parentSessionId === null
-    ) {
-      createSnapshotInput.parentSessionId = input.parentSessionId;
-    }
-    if (
-      input.parentRelationKind === "fork" ||
-      input.parentRelationKind === "subagent" ||
-      input.parentRelationKind === "hook_subagent" ||
-      input.parentRelationKind === null
-    ) {
-      createSnapshotInput.parentRelationKind = input.parentRelationKind;
-    }
-    if (
-      typeof input.forkReplayCheckpointId === "string" ||
-      input.forkReplayCheckpointId === null
-    ) {
-      createSnapshotInput.forkReplayCheckpointId = input.forkReplayCheckpointId;
-    }
-
-    if (input.thinkingEffort) {
-      createSnapshotInput.thinkingEffort = input.thinkingEffort;
-    }
-    if (typeof input.userId === "string" && input.userId.length > 0) {
-      createSnapshotInput.userId = input.userId;
-    }
-    if (typeof input.yoloMode === "boolean") {
-      createSnapshotInput.yoloMode = input.yoloMode;
-    }
-    if (typeof input.planModeEnabled === "boolean") {
-      createSnapshotInput.planModeEnabled = input.planModeEnabled;
-    }
-    if (typeof input.contextWindow === "number") {
-      createSnapshotInput.contextWindow = input.contextWindow;
-    }
-    if (typeof input.maxTurns === "number") {
-      createSnapshotInput.maxTurns = input.maxTurns;
-    }
-    if (Array.isArray(input.shellAllowPatterns)) {
-      createSnapshotInput.shellAllowPatterns = input.shellAllowPatterns;
-    }
-    if (Array.isArray(input.shellDenyPatterns)) {
-      createSnapshotInput.shellDenyPatterns = input.shellDenyPatterns;
-    }
-    if (Array.isArray(input.toolAllowList)) {
-      createSnapshotInput.toolAllowList = input.toolAllowList;
-    }
-    if (Array.isArray(input.toolAskList)) {
-      createSnapshotInput.toolAskList = input.toolAskList;
-    }
-    if (Array.isArray(input.toolDenyList)) {
-      createSnapshotInput.toolDenyList = input.toolDenyList;
-    }
-    if (Array.isArray(input.enabledCapabilityPacks)) {
-      createSnapshotInput.enabledCapabilityPacks = input.enabledCapabilityPacks;
-    }
-
-    const snapshot = createSnapshot(createSnapshotInput);
+      model: input.model ?? DEFAULT_SESSION_MODEL,
+      ...buildCreateSnapshotOverridesFromSessionInput(input)
+    });
 
     await this.persistSession(snapshot);
     return cloneSnapshot(snapshot);

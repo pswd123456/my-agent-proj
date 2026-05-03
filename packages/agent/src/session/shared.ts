@@ -16,6 +16,7 @@ import {
 
 import type {
   ConversationBlock,
+  CreateSessionInput,
   LoopState,
   SessionForkCheckpoint,
   SessionParentRelationKind,
@@ -26,6 +27,123 @@ import type {
 } from "../types.js";
 import { resolveTaskBriefPathForSession } from "./task-brief.js";
 import { normalizeTodoState } from "./todo-state.js";
+
+type CreateSnapshotInput = {
+  sessionId: string;
+  cronJobId?: string | null;
+  parentSessionId?: string | null;
+  parentRelationKind?: SessionParentRelationKind | null;
+  forkReplayCheckpointId?: string | null;
+  workingDirectory: string;
+  model: string;
+  userId?: string;
+  yoloMode?: boolean;
+  planModeEnabled?: boolean;
+  thinkingEffort?: ThinkingEffort;
+  taskBriefPath?: string | null;
+  firstUserMessage?: string | null;
+  lastUserMessage?: string | null;
+  workspaceEscapeAllowed?: boolean;
+  contextWindow?: number;
+  maxTurns?: number;
+  shellAllowPatterns?: string[];
+  shellDenyPatterns?: string[];
+  toolAllowList?: string[];
+  toolAskList?: string[];
+  toolDenyList?: string[];
+  enabledCapabilityPacks?: string[];
+};
+
+function pickScheduleSessionContextInput(
+  input: Pick<
+    CreateSnapshotInput,
+    | "userId"
+    | "yoloMode"
+    | "planModeEnabled"
+    | "thinkingEffort"
+    | "taskBriefPath"
+    | "firstUserMessage"
+    | "lastUserMessage"
+    | "workspaceEscapeAllowed"
+    | "shellAllowPatterns"
+    | "shellDenyPatterns"
+    | "toolAllowList"
+    | "toolAskList"
+    | "toolDenyList"
+    | "enabledCapabilityPacks"
+  >
+) {
+  return {
+    ...(typeof input.userId === "string" ? { userId: input.userId } : {}),
+    ...(typeof input.yoloMode === "boolean"
+      ? { yoloMode: input.yoloMode }
+      : {}),
+    ...(typeof input.planModeEnabled === "boolean"
+      ? { planModeEnabled: input.planModeEnabled }
+      : {}),
+    ...(input.thinkingEffort ? { thinkingEffort: input.thinkingEffort } : {}),
+    ...(typeof input.taskBriefPath === "string" || input.taskBriefPath === null
+      ? { taskBriefPath: input.taskBriefPath }
+      : {}),
+    ...(typeof input.firstUserMessage === "string" ||
+    input.firstUserMessage === null
+      ? { firstUserMessage: input.firstUserMessage }
+      : {}),
+    ...(typeof input.lastUserMessage === "string" ||
+    input.lastUserMessage === null
+      ? { lastUserMessage: input.lastUserMessage }
+      : {}),
+    ...(typeof input.workspaceEscapeAllowed === "boolean"
+      ? { workspaceEscapeAllowed: input.workspaceEscapeAllowed }
+      : {}),
+    ...(Array.isArray(input.shellAllowPatterns)
+      ? { shellAllowPatterns: input.shellAllowPatterns }
+      : {}),
+    ...(Array.isArray(input.shellDenyPatterns)
+      ? { shellDenyPatterns: input.shellDenyPatterns }
+      : {}),
+    ...(Array.isArray(input.toolAllowList)
+      ? { toolAllowList: input.toolAllowList }
+      : {}),
+    ...(Array.isArray(input.toolAskList)
+      ? { toolAskList: input.toolAskList }
+      : {}),
+    ...(Array.isArray(input.toolDenyList)
+      ? { toolDenyList: input.toolDenyList }
+      : {}),
+    ...(Array.isArray(input.enabledCapabilityPacks)
+      ? { enabledCapabilityPacks: input.enabledCapabilityPacks }
+      : {})
+  };
+}
+
+export function buildCreateSnapshotOverridesFromSessionInput(
+  input: CreateSessionInput
+): Omit<
+  Partial<CreateSnapshotInput>,
+  "sessionId" | "workingDirectory" | "model"
+> {
+  return {
+    ...(typeof input.cronJobId === "string" || input.cronJobId === null
+      ? { cronJobId: input.cronJobId }
+      : {}),
+    ...(typeof input.parentSessionId === "string" ||
+    input.parentSessionId === null
+      ? { parentSessionId: input.parentSessionId }
+      : {}),
+    ...(input.parentRelationKind === "fork" ||
+    input.parentRelationKind === "subagent" ||
+    input.parentRelationKind === "hook_subagent" ||
+    input.parentRelationKind === null
+      ? { parentRelationKind: input.parentRelationKind }
+      : {}),
+    ...(typeof input.forkReplayCheckpointId === "string" ||
+    input.forkReplayCheckpointId === null
+      ? { forkReplayCheckpointId: input.forkReplayCheckpointId }
+      : {}),
+    ...pickScheduleSessionContextInput(input)
+  };
+}
 
 function normalizeBackgroundNotificationKind(
   kind: string | undefined
@@ -84,73 +202,8 @@ export function createSessionState(
   };
 }
 
-export function createSnapshot(input: {
-  sessionId: string;
-  cronJobId?: string | null;
-  parentSessionId?: string | null;
-  parentRelationKind?: SessionParentRelationKind | null;
-  forkReplayCheckpointId?: string | null;
-  workingDirectory: string;
-  model: string;
-  userId?: string;
-  yoloMode?: boolean;
-  planModeEnabled?: boolean;
-  thinkingEffort?: ThinkingEffort;
-  taskBriefPath?: string | null;
-  firstUserMessage?: string | null;
-  lastUserMessage?: string | null;
-  workspaceEscapeAllowed?: boolean;
-  contextWindow?: number;
-  maxTurns?: number;
-  shellAllowPatterns?: string[];
-  shellDenyPatterns?: string[];
-  toolAllowList?: string[];
-  toolAskList?: string[];
-  toolDenyList?: string[];
-  enabledCapabilityPacks?: string[];
-}): SessionSnapshot {
-  const contextInput = {
-    ...(typeof input.userId === "string" ? { userId: input.userId } : {}),
-    ...(typeof input.yoloMode === "boolean"
-      ? { yoloMode: input.yoloMode }
-      : {}),
-    ...(typeof input.planModeEnabled === "boolean"
-      ? { planModeEnabled: input.planModeEnabled }
-      : {}),
-    ...(input.thinkingEffort ? { thinkingEffort: input.thinkingEffort } : {}),
-    ...(typeof input.taskBriefPath === "string" || input.taskBriefPath === null
-      ? { taskBriefPath: input.taskBriefPath }
-      : {}),
-    ...(typeof input.firstUserMessage === "string" ||
-    input.firstUserMessage === null
-      ? { firstUserMessage: input.firstUserMessage }
-      : {}),
-    ...(typeof input.lastUserMessage === "string" ||
-    input.lastUserMessage === null
-      ? { lastUserMessage: input.lastUserMessage }
-      : {}),
-    ...(typeof input.workspaceEscapeAllowed === "boolean"
-      ? { workspaceEscapeAllowed: input.workspaceEscapeAllowed }
-      : {}),
-    ...(Array.isArray(input.shellAllowPatterns)
-      ? { shellAllowPatterns: input.shellAllowPatterns }
-      : {}),
-    ...(Array.isArray(input.shellDenyPatterns)
-      ? { shellDenyPatterns: input.shellDenyPatterns }
-      : {}),
-    ...(Array.isArray(input.toolAllowList)
-      ? { toolAllowList: input.toolAllowList }
-      : {}),
-    ...(Array.isArray(input.toolAskList)
-      ? { toolAskList: input.toolAskList }
-      : {}),
-    ...(Array.isArray(input.toolDenyList)
-      ? { toolDenyList: input.toolDenyList }
-      : {}),
-    ...(Array.isArray(input.enabledCapabilityPacks)
-      ? { enabledCapabilityPacks: input.enabledCapabilityPacks }
-      : {})
-  };
+export function createSnapshot(input: CreateSnapshotInput): SessionSnapshot {
+  const contextInput = pickScheduleSessionContextInput(input);
   return {
     sessionId: input.sessionId,
     cronJobId: input.cronJobId ?? null,
@@ -196,8 +249,7 @@ export function cloneSnapshot(snapshot: SessionSnapshot): SessionSnapshot {
   const permissionRules = cloned.context ?? createScheduleSessionContext();
   return {
     ...cloned,
-    cronJobId:
-      typeof cloned.cronJobId === "string" ? cloned.cronJobId : null,
+    cronJobId: typeof cloned.cronJobId === "string" ? cloned.cronJobId : null,
     parentSessionId: cloned.parentSessionId ?? null,
     parentRelationKind: isSessionParentRelationKind(cloned.parentRelationKind)
       ? cloned.parentRelationKind
