@@ -12,6 +12,7 @@ import {
   createRunTraceEvent,
   discoverWorkspaceSkills,
   getCheckpointTriggerUserBlock,
+  isForkCheckpointForFinalResponse,
   findDuplicateWorkspaceMcpServerNames,
   invertUnifiedPatch,
   loadWorkspaceMcpTools,
@@ -393,6 +394,12 @@ function toSessionForkTarget(
     responseGroupId: checkpoint.responseGroupId ?? null,
     canFork: true
   };
+}
+
+function listForkableCheckpoints(
+  checkpoints: SessionForkCheckpoint[]
+): SessionForkCheckpoint[] {
+  return checkpoints.filter(isForkCheckpointForFinalResponse);
 }
 
 function buildMessageHookContentSet(
@@ -1153,6 +1160,7 @@ export function createApiApp(dependencies: ApiAppDependencies) {
 
     const checkpoints =
       await dependencies.sessionManager.listForkCheckpoints(sessionId);
+    const forkableCheckpoints = listForkableCheckpoints(checkpoints);
     const settings = await dependencies.settingsRepository.getOrCreate(
       session.context.userId
     );
@@ -1163,7 +1171,7 @@ export function createApiApp(dependencies: ApiAppDependencies) {
     });
     return c.json({
       sessionId,
-      forkTargets: checkpoints.map(toSessionForkTarget),
+      forkTargets: forkableCheckpoints.map(toSessionForkTarget),
       rewriteTarget
     });
   });
@@ -1200,6 +1208,16 @@ export function createApiApp(dependencies: ApiAppDependencies) {
             "Fork checkpoint not found for this message. Historical reconstruction is not available for this target yet."
         },
         404
+      );
+    }
+
+    if (!isForkCheckpointForFinalResponse(checkpoint)) {
+      return c.json(
+        {
+          error:
+            "Only final assistant responses can be forked. Intermediate progress messages are not valid fork targets."
+        },
+        409
       );
     }
 
@@ -1317,6 +1335,7 @@ export function createApiApp(dependencies: ApiAppDependencies) {
 
     const nextCheckpoints =
       await dependencies.sessionManager.listForkCheckpoints(sessionId);
+    const nextForkableCheckpoints = listForkableCheckpoints(nextCheckpoints);
     const nextRewriteTarget = resolveLatestRewriteTarget({
       session: recoveredSession,
       checkpoints: nextCheckpoints,
@@ -1338,7 +1357,7 @@ export function createApiApp(dependencies: ApiAppDependencies) {
     return c.json({
       session: recoveredSession,
       traceRecords: nextTraceRecords,
-      forkTargets: nextCheckpoints.map(toSessionForkTarget),
+      forkTargets: nextForkableCheckpoints.map(toSessionForkTarget),
       rewriteTarget: nextRewriteTarget
     });
   });
