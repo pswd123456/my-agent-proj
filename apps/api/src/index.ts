@@ -49,6 +49,7 @@ const runtimeFactory = createRuntimeHandleFactory({
 export const app = createApiApp({
   sessionManager: runtimeEnvironment.sessionManager,
   routineRepository: runtimeEnvironment.routineRepository,
+  cronJobRepository: runtimeEnvironment.cronJobRepository,
   settingsRepository: runtimeEnvironment.settingsRepository,
   backgroundTaskRepository: runtimeEnvironment.backgroundTaskRepository,
   traceManager: runtimeEnvironment.traceManager,

@@ -76,6 +76,13 @@ import type {
   SettingsRepository
 } from "@ai-app-template/db";
 
+import type { CronJobRepository } from "./cron-jobs.js";
+import {
+  createCronJobBodySchema,
+  cronJobResponseSchema,
+  listCronJobsResponseSchema,
+  updateCronJobBodySchema
+} from "./cron-jobs.js";
 import {
   collectSessionTreeSessionIds,
   enrichSessionSnapshotsWithParentRelation
@@ -181,6 +188,7 @@ const systemLogsQuerySchema = z.object({
 export interface ApiAppDependencies {
   sessionManager: SessionManager;
   routineRepository: RoutineRepository;
+  cronJobRepository?: CronJobRepository;
   settingsRepository: SettingsRepository;
   backgroundTaskRepository?: BackgroundTaskRepository;
   traceManager: TraceManager;
@@ -893,6 +901,118 @@ export function createApiApp(dependencies: ApiAppDependencies) {
       resolveUserId(dependencies, c.req.param("userId"))
     );
     return c.json({ settings, permissionTools: settingsPermissionTools });
+  });
+
+  app.get("/users/:userId/cron-jobs", async (c) => {
+    if (!dependencies.cronJobRepository) {
+      return c.json({ error: "Cron jobs are not configured." }, 503);
+    }
+
+    const userId = resolveUserId(dependencies, c.req.param("userId"));
+    const cronJobs = await dependencies.cronJobRepository.listByUserId(userId);
+    return c.json(listCronJobsResponseSchema.parse({ cronJobs }));
+  });
+
+  app.post("/users/:userId/cron-jobs", async (c) => {
+    if (!dependencies.cronJobRepository) {
+      return c.json({ error: "Cron jobs are not configured." }, 503);
+    }
+
+    const requestId = getRequestId(c);
+    const userId = resolveUserId(dependencies, c.req.param("userId"));
+    const body = createCronJobBodySchema.parse(await c.req.json());
+    const requestedModel =
+      typeof body.model === "string"
+        ? resolveRequestedModel(dependencies, body.model).model
+        : undefined;
+    const cronJob = await dependencies.cronJobRepository.create({
+      userId,
+      ...body,
+      workingDirectory: dependencies.buildWorkingDirectory(body.workingDirectory),
+      ...(requestedModel ? { model: requestedModel } : {})
+    });
+
+    await logApiEvent({
+      logger: dependencies.apiLogger,
+      requestId,
+      event: "cron_job_created",
+      details: { userId, cronJobId: cronJob.id }
+    });
+
+    return c.json(cronJobResponseSchema.parse({ cronJob }), 201);
+  });
+
+  app.patch("/users/:userId/cron-jobs/:cronJobId", async (c) => {
+    if (!dependencies.cronJobRepository) {
+      return c.json({ error: "Cron jobs are not configured." }, 503);
+    }
+
+    const requestId = getRequestId(c);
+    const userId = resolveUserId(dependencies, c.req.param("userId"));
+    const cronJobId = c.req.param("cronJobId");
+    const body = updateCronJobBodySchema.parse(await c.req.json());
+    const requestedModel =
+      body.model === null
+        ? null
+        : typeof body.model === "string"
+          ? resolveRequestedModel(dependencies, body.model).model
+          : undefined;
+    const cronJob = await dependencies.cronJobRepository.update(
+      userId,
+      cronJobId,
+      {
+        ...body,
+        ...(typeof body.workingDirectory === "string"
+          ? {
+              workingDirectory: dependencies.buildWorkingDirectory(
+                body.workingDirectory
+              )
+            }
+          : {}),
+        ...(typeof requestedModel === "string" || requestedModel === null
+          ? { model: requestedModel }
+          : {})
+      }
+    );
+
+    if (!cronJob) {
+      return c.json({ error: "Cron job not found." }, 404);
+    }
+
+    await logApiEvent({
+      logger: dependencies.apiLogger,
+      requestId,
+      event: "cron_job_updated",
+      details: { userId, cronJobId }
+    });
+
+    return c.json(cronJobResponseSchema.parse({ cronJob }));
+  });
+
+  app.delete("/users/:userId/cron-jobs/:cronJobId", async (c) => {
+    if (!dependencies.cronJobRepository) {
+      return c.json({ error: "Cron jobs are not configured." }, 503);
+    }
+
+    const requestId = getRequestId(c);
+    const userId = resolveUserId(dependencies, c.req.param("userId"));
+    const cronJobId = c.req.param("cronJobId");
+    const removed = await dependencies.cronJobRepository.remove(
+      userId,
+      cronJobId
+    );
+    if (!removed) {
+      return c.json({ error: "Cron job not found." }, 404);
+    }
+
+    await logApiEvent({
+      logger: dependencies.apiLogger,
+      requestId,
+      event: "cron_job_deleted",
+      details: { userId, cronJobId }
+    });
+
+    return c.body(null, 204);
   });
 
   app.post("/directory-picker", async (c) => {
