@@ -15,6 +15,10 @@ import {
   failureResult,
   successResult
 } from "./tool-result.js";
+import {
+  buildToolDescription,
+  describeObjectProperty
+} from "./tool-description.js";
 
 const DEFAULT_MAX_RESULTS = 20;
 const MAX_RESULTS_LIMIT = 200;
@@ -548,8 +552,45 @@ async function attachContextLines(input: {
 export function createSearchTextTool(workingDirectory: string): RuntimeTool {
   return {
     name: "search_text",
-    description:
-      "Search for a text fragment within workspace files, a subdirectory, or a single file. Use this first to locate relevant content before a narrow read_file call.",
+    description: buildToolDescription({
+      usageScenarios: [
+        "Find where a string, keyword, or regex appears in workspace files.",
+        "Locate the right file and line numbers before calling read_file.",
+        "Get file-level hits or counts without opening file contents."
+      ],
+      usageInstructions: [
+        "Step 1: set query to the text or regex you want to find.",
+        "Step 2: optionally narrow the search with path or fileGlob.",
+        "Step 3: set regex=true only when query is a regular expression.",
+        "Step 4: choose outputMode=content for line matches, files_only for file summaries, or count for totals only.",
+        describeObjectProperty({
+          name: "contextLines",
+          type: "number",
+          description: "Include surrounding lines when you need local context."
+        }),
+        describeObjectProperty({
+          name: "offset",
+          type: "number",
+          description: "Skip initial matches when paging through many results."
+        }),
+        describeObjectProperty({
+          name: "maxResults",
+          type: "number",
+          description: "Limit the number of matches returned."
+        })
+      ],
+      constraints: [
+        "Use this before read_file when the relevant section is not already known.",
+        "In literal mode, | means OR between terms; escape \\| for a literal pipe character.",
+        "outputMode=count returns totals only and does not include match content.",
+        "Very broad searches may be truncated or capped by result limits."
+      ],
+      examples: [
+        '{"query":"发送请求后，这里会显示当前会话的对话和执行记录","outputMode":"files_only"}',
+        '{"query":"delegate_agent","path":"packages/agent/src","fileGlob":"**/*.ts","outputMode":"content","contextLines":2}',
+        '{"query":"TODO|FIXME","path":"packages","outputMode":"count"}'
+      ]
+    }),
     family: "workspace-file",
     isReadOnly: true,
     hasExternalSideEffect: false,
