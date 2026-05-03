@@ -248,7 +248,7 @@ describe("MCP settings state", () => {
   test("round-trips server and child tool enabled state", () => {
     const form = toSettingsMcpFormState({
       workingDirectory: "/tmp/workspace",
-      configPath: "/tmp/workspace/.agent/.config.toml",
+      configPath: "/tmp/workspace/.agents/.config.toml",
       foundConfig: true,
       diagnostics: [],
       servers: [
@@ -307,7 +307,7 @@ describe("MCP settings state", () => {
     expect(
       buildMcpServersFromForm({
         workingDirectory: "/tmp/workspace",
-        configPath: "/tmp/workspace/.agent/.config.toml",
+        configPath: "/tmp/workspace/.agents/.config.toml",
         foundConfig: true,
         diagnostics: [],
         servers: [
@@ -345,7 +345,7 @@ describe("MCP settings state", () => {
     expect(() =>
       buildMcpServersFromForm({
         workingDirectory: "/tmp/workspace",
-        configPath: "/tmp/workspace/.agent/.config.toml",
+        configPath: "/tmp/workspace/.agents/.config.toml",
         foundConfig: true,
         diagnostics: [],
         servers: [

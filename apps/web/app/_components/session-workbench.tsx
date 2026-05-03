@@ -262,6 +262,8 @@ export function SessionWorkbench() {
   const sessionListMutationInFlightRef = useRef(false);
   const appliedSessionSearchQueryRef = useRef("");
   const sessionLocalStateMapRef = useRef(createSessionLocalStateMap());
+  // Prevent duplicate undo/reapply submissions before React state settles.
+  const runFileChangeActionInFlightRef = useRef<Set<string>>(new Set());
 
   const [sessionRegistry, setSessionRegistry] = useState(() =>
     createSessionRegistryState()
@@ -1554,7 +1556,12 @@ export function SessionWorkbench() {
     action: "undo" | "reapply"
   ) {
     const targetView = runFileChanges.find((view) => view.key === viewKey);
-    if (!currentSession || !targetView || targetView.pendingAction) {
+    if (
+      !currentSession ||
+      !targetView ||
+      targetView.pendingAction ||
+      runFileChangeActionInFlightRef.current.has(viewKey)
+    ) {
       return;
     }
 
@@ -1587,6 +1594,7 @@ export function SessionWorkbench() {
           : view
       )
     );
+    runFileChangeActionInFlightRef.current.add(viewKey);
 
     try {
       await apiClient.applySessionFileChangeAction({
@@ -1628,9 +1636,11 @@ export function SessionWorkbench() {
                 errorText:
                   error instanceof Error ? error.message : String(error)
               }
-            : view
+          : view
         )
       );
+    } finally {
+      runFileChangeActionInFlightRef.current.delete(viewKey);
     }
   }
 

@@ -163,7 +163,7 @@ describe("session-conversation-view", () => {
             createdAt: "2026-04-27T00:00:03.000Z",
             details: {
               kind: "task_brief",
-              path: "/tmp/workspace/.agent/plans/session-1/ship_task_brief.md",
+              path: "/tmp/workspace/.agents/plans/session-1/ship_task_brief.md",
               content: "# Task Brief\n\n## Goal\nShip it",
               operation: "replace"
             }
@@ -183,7 +183,7 @@ describe("session-conversation-view", () => {
     if (items[1]?.type === "compact-tool") {
       expect(items[1].title).toBe("已更新 task brief");
       expect(items[1].taskBriefPreview).toEqual({
-        path: "/tmp/workspace/.agent/plans/session-1/ship_task_brief.md",
+        path: "/tmp/workspace/.agents/plans/session-1/ship_task_brief.md",
         content: "# Task Brief\n\n## Goal\nShip it",
         operation: "replace"
       });

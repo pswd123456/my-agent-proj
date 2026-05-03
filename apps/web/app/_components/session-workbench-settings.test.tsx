@@ -94,7 +94,7 @@ function createSettingsSkillsState(): SettingsSkillsState {
 function createSettingsMcpFormState(): SettingsMcpFormState {
   return {
     workingDirectory: "/tmp/workspace",
-    configPath: "/tmp/workspace/.agent/.config.toml",
+    configPath: "/tmp/workspace/.agents/.config.toml",
     foundConfig: true,
     diagnostics: [],
     servers: []
@@ -348,7 +348,7 @@ describe("session-workbench settings mode", () => {
           {
             name: "repo_reader",
             description: "Read repository structure before implementation.",
-            relativePath: ".agent/skills/repo-reader/SKILL.md",
+            relativePath: ".agents/skills/repo-reader/SKILL.md",
             enabled: false
           }
         ],
@@ -367,7 +367,7 @@ describe("session-workbench settings mode", () => {
 
     expect(markup).toContain("Skill 列表");
     expect(markup).toContain("repo_reader");
-    expect(markup).toContain(".agent/skills/repo-reader/SKILL.md");
+    expect(markup).toContain(".agents/skills/repo-reader/SKILL.md");
     expect(markup).toContain("0/1 enabled");
   });
 });
