@@ -99,6 +99,72 @@ describe("session relation responses", () => {
     expect(getPayload.session.parentSessionId).toBe(parent.sessionId);
   });
 
+  test("returns persisted child session relations without task enrichment", async () => {
+    const sessionManager = await createPostgresTestSessionManager();
+    const backgroundTaskRepository = createMemoryBackgroundTaskRepository();
+    const routineRepository = createMemoryRoutineRepository();
+    const settingsRepository = createMemorySettingsRepository();
+    const logDir = await mkdtemp(path.join(os.tmpdir(), "api-session-rel-"));
+    const systemLogManager = new FileSystemLogManager(logDir, {
+      maxBytes: 4096,
+      maxFiles: 2
+    });
+    const apiLogger = createLogger({
+      manager: systemLogManager,
+      component: "api"
+    });
+
+    const app = createApiApp({
+      sessionManager,
+      routineRepository,
+      settingsRepository,
+      backgroundTaskRepository,
+      traceManager: {
+        async appendEvent() {},
+        async readEvents() {
+          return [];
+        },
+        async deleteEvents() {},
+        async truncateEventsAfterTurn() {}
+      },
+      systemLogManager,
+      apiLogger,
+      buildWorkingDirectory(input) {
+        return input ?? process.cwd();
+      }
+    });
+
+    const parent = await sessionManager.createSession({
+      workingDirectory: "/tmp/parent",
+      userId: "user-a"
+    });
+    const child = await sessionManager.createSession({
+      workingDirectory: "/tmp/child",
+      userId: "user-a",
+      parentSessionId: parent.sessionId,
+      parentRelationKind: "subagent"
+    });
+
+    const listResponse = await app.request("/sessions");
+    expect(listResponse.status).toBe(200);
+    const listPayload = (await listResponse.json()) as {
+      sessions: SessionSnapshot[];
+    };
+    const childFromList = listPayload.sessions.find(
+      (session) => session.sessionId === child.sessionId
+    );
+    expect(childFromList?.parentSessionId).toBe(parent.sessionId);
+    expect(childFromList?.parentRelationKind).toBe("subagent");
+
+    const getResponse = await app.request(`/sessions/${child.sessionId}`);
+    expect(getResponse.status).toBe(200);
+    const getPayload = (await getResponse.json()) as {
+      session: SessionSnapshot;
+    };
+    expect(getPayload.session.parentSessionId).toBe(parent.sessionId);
+    expect(getPayload.session.parentRelationKind).toBe("subagent");
+  });
+
   test("deletes a parent session together with its child sessions", async () => {
     const sessionManager = await createPostgresTestSessionManager();
     const backgroundTaskRepository = createMemoryBackgroundTaskRepository();
@@ -174,5 +240,60 @@ describe("session relation responses", () => {
       sessions: SessionSnapshot[];
     };
     expect(listPayload.sessions).toHaveLength(0);
+  });
+
+  test("deletes persisted child sessions when removing a parent subtree", async () => {
+    const sessionManager = await createPostgresTestSessionManager();
+    const backgroundTaskRepository = createMemoryBackgroundTaskRepository();
+    const routineRepository = createMemoryRoutineRepository();
+    const settingsRepository = createMemorySettingsRepository();
+    const logDir = await mkdtemp(path.join(os.tmpdir(), "api-session-rel-"));
+    const systemLogManager = new FileSystemLogManager(logDir, {
+      maxBytes: 4096,
+      maxFiles: 2
+    });
+    const apiLogger = createLogger({
+      manager: systemLogManager,
+      component: "api"
+    });
+
+    const app = createApiApp({
+      sessionManager,
+      routineRepository,
+      settingsRepository,
+      backgroundTaskRepository,
+      traceManager: {
+        async appendEvent() {},
+        async readEvents() {
+          return [];
+        },
+        async deleteEvents() {},
+        async truncateEventsAfterTurn() {}
+      },
+      systemLogManager,
+      apiLogger,
+      buildWorkingDirectory(input) {
+        return input ?? process.cwd();
+      }
+    });
+
+    const parent = await sessionManager.createSession({
+      workingDirectory: "/tmp/parent",
+      userId: "user-a"
+    });
+    const child = await sessionManager.createSession({
+      workingDirectory: "/tmp/child",
+      userId: "user-a",
+      parentSessionId: parent.sessionId,
+      parentRelationKind: "hook_subagent"
+    });
+
+    const deleteResponse = await app.request(`/sessions/${parent.sessionId}`, {
+      method: "DELETE"
+    });
+
+    expect(deleteResponse.status).toBe(204);
+    expect(await sessionManager.getSession(parent.sessionId)).toBeNull();
+    expect(await sessionManager.getSession(child.sessionId)).toBeNull();
   });
 });
