@@ -124,19 +124,30 @@ describe("user context hooks", () => {
     ]);
   });
 
-  test("rejects unsupported run_end subagent hooks", () => {
+  test("normalizes run_end subagent hooks to unblocking mode", () => {
     expect(
       normalizeUserContextHooks([
         {
-          id: "hook-invalid",
+          id: "hook-run-end",
           event: "run_end",
           behavior: "subagent",
-          waitMode: "unblocking",
-          title: "Invalid",
-          content: "这条不应该保留。",
+          waitMode: "blocking",
+          title: "Wrap up research",
+          content: "在当前 run 结束后继续整理收尾信息。",
           enabled: true
         }
       ])
-    ).toEqual([]);
+    ).toEqual([
+      {
+        id: "hook-run-end",
+        event: "run_end",
+        behavior: "subagent",
+        waitMode: "unblocking",
+        maxTurns: 100,
+        title: "Wrap up research",
+        content: "在当前 run 结束后继续整理收尾信息。",
+        enabled: true
+      }
+    ]);
   });
 });

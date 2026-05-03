@@ -61,7 +61,8 @@ export const USER_CONTEXT_HOOK_TYPES = [
   { behavior: "message", event: "run_started" },
   { behavior: "message", event: "run_end" },
   { behavior: "subagent", event: "session_started" },
-  { behavior: "subagent", event: "run_started" }
+  { behavior: "subagent", event: "run_started" },
+  { behavior: "subagent", event: "run_end" }
 ] as const satisfies ReadonlyArray<{
   behavior: UserContextHookBehavior;
   event: UserContextHookEvent;
@@ -141,11 +142,7 @@ export function isUserContextHookEventSupportedForBehavior(
   event: UserContextHookEvent,
   behavior: UserContextHookBehavior
 ): boolean {
-  if (behavior === "message") {
-    return true;
-  }
-
-  return event !== "run_end";
+  return behavior !== "context" || event !== "run_end";
 }
 
 export function getUserContextHookTypeKey(
@@ -211,7 +208,8 @@ export function normalizeUserContextHooks(
       ...(explicitBehavior ? { behavior } : {}),
       ...(behavior === "subagent"
         ? {
-            waitMode: waitMode ?? "blocking",
+            waitMode:
+              event === "run_end" ? "unblocking" : (waitMode ?? "blocking"),
             maxTurns: normalizeUserContextHookMaxTurns(item.maxTurns)
           }
         : {}),

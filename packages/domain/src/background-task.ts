@@ -123,7 +123,7 @@ export interface ShellCommandTaskState {
 export interface HookSubagentBackgroundTaskResultEnvelope {
   type: "hook_subagent";
   hookId: string;
-  hookEvent: Extract<UserContextHookEvent, "session_started" | "run_started">;
+  hookEvent: UserContextHookEvent;
   waitMode: UserContextHookWaitMode;
   title: string;
   configHash: string;
@@ -133,7 +133,7 @@ export interface HookSubagentBackgroundTaskResultEnvelope {
 export interface HookSubagentTaskState {
   kind: "hook_subagent";
   hookId: string;
-  hookEvent: Extract<UserContextHookEvent, "session_started" | "run_started">;
+  hookEvent: UserContextHookEvent;
   waitMode: UserContextHookWaitMode;
   title: string;
   configHash: string;
