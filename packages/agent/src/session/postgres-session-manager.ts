@@ -408,6 +408,7 @@ function toSessionSnapshot(
 ): SessionSnapshot {
   return {
     sessionId: row.id,
+    cronJobId: row.cronJobId,
     parentSessionId: row.parentSessionId,
     parentRelationKind:
       row.parentRelationKind === "fork" ||
@@ -434,6 +435,59 @@ function toSessionSnapshot(
     inputTokensCount: row.inputTokensCount,
     promptCacheKey: row.promptCacheKey,
     updatedAt: toIsoString(row.updatedAt)
+  };
+}
+
+export function buildSessionPersistenceValues(
+  snapshot: SessionSnapshot
+): typeof agentSessions.$inferInsert {
+  return {
+    id: snapshot.sessionId,
+    userId: snapshot.context.userId,
+    status: snapshot.context.status,
+    currentDateContext: snapshot.context.currentDateContext,
+    yoloMode: snapshot.context.yoloMode,
+    planModeEnabled: snapshot.context.planModeEnabled,
+    thinkingEffort: snapshot.context.thinkingEffort,
+    taskBriefPath: snapshot.context.taskBriefPath,
+    workspaceEscapeAllowed: snapshot.context.workspaceEscapeAllowed,
+    contextWindow: snapshot.contextWindow,
+    maxTurns: snapshot.maxTurns,
+    shellAllowPatterns: snapshot.context.shellAllowPatterns,
+    shellDenyPatterns: snapshot.context.shellDenyPatterns,
+    toolAllowList: snapshot.context.toolAllowList,
+    toolAskList: snapshot.context.toolAskList,
+    toolDenyList: snapshot.context.toolDenyList,
+    enabledCapabilityPacks: snapshot.context.enabledCapabilityPacks,
+    activeBackgroundTaskCount: snapshot.context.activeBackgroundTaskCount,
+    pendingPermissionRequest: snapshot.context.pendingPermissionRequest,
+    pendingConfirmationPayload: snapshot.context.pendingConfirmationPayload,
+    pendingUserQuestionPayload: snapshot.context.pendingUserQuestionPayload,
+    pendingBackgroundNotifications:
+      snapshot.context.pendingBackgroundNotifications,
+    hookContextEntries: snapshot.context.hookContextEntries,
+    todoState: snapshot.context.todoState ?? null,
+    fullCompactionState: snapshot.context.fullCompactionState ?? null,
+    pendingConflictSummary: snapshot.context.pendingConflictSummary,
+    firstUserMessage: snapshot.context.firstUserMessage,
+    lastUserMessage: snapshot.context.lastUserMessage,
+    cronJobId: snapshot.cronJobId ?? null,
+    parentSessionId: snapshot.parentSessionId ?? null,
+    parentRelationKind: snapshot.parentRelationKind ?? null,
+    forkReplayCheckpointId: snapshot.forkReplayCheckpointId ?? null,
+    workingDirectory: snapshot.workingDirectory,
+    model: snapshot.model,
+    loopState: snapshot.sessionState.loopState,
+    turnCount: snapshot.sessionState.turnCount,
+    lastError: snapshot.sessionState.lastError,
+    pendingToolCallIds: snapshot.sessionState.pendingToolCallIds,
+    interruptRequested: snapshot.sessionState.interruptRequested,
+    historyCompactionsSinceFullCompaction:
+      snapshot.sessionState.historyCompactionsSinceFullCompaction,
+    inputTokensCount: snapshot.inputTokensCount,
+    promptCacheKey: snapshot.promptCacheKey,
+    createdAt: snapshot.updatedAt,
+    updatedAt: snapshot.updatedAt
   };
 }
 
@@ -600,6 +654,7 @@ export class PostgresSessionManager implements SessionManager {
   ): Promise<SessionSnapshot> {
     const createSnapshotInput: {
       sessionId: string;
+      cronJobId?: string | null;
       parentSessionId?: string | null;
       parentRelationKind?: SessionParentRelationKind | null;
       forkReplayCheckpointId?: string | null;
@@ -623,6 +678,12 @@ export class PostgresSessionManager implements SessionManager {
       model: input.model ?? DEFAULT_SESSION_MODEL
     };
 
+    if (
+      typeof input.cronJobId === "string" ||
+      input.cronJobId === null
+    ) {
+      createSnapshotInput.cronJobId = input.cronJobId;
+    }
     if (
       typeof input.parentSessionId === "string" ||
       input.parentSessionId === null
@@ -1178,103 +1239,56 @@ export class PostgresSessionManager implements SessionManager {
   }
 
   private async persistSession(snapshot: SessionSnapshot): Promise<void> {
+    const values = buildSessionPersistenceValues(snapshot);
     await this.db
       .insert(agentSessions)
-      .values({
-        id: snapshot.sessionId,
-        userId: snapshot.context.userId,
-        status: snapshot.context.status,
-        currentDateContext: snapshot.context.currentDateContext,
-        yoloMode: snapshot.context.yoloMode,
-        planModeEnabled: snapshot.context.planModeEnabled,
-        thinkingEffort: snapshot.context.thinkingEffort,
-        taskBriefPath: snapshot.context.taskBriefPath,
-        workspaceEscapeAllowed: snapshot.context.workspaceEscapeAllowed,
-        contextWindow: snapshot.contextWindow,
-        maxTurns: snapshot.maxTurns,
-        shellAllowPatterns: snapshot.context.shellAllowPatterns,
-        shellDenyPatterns: snapshot.context.shellDenyPatterns,
-        toolAllowList: snapshot.context.toolAllowList,
-        toolAskList: snapshot.context.toolAskList,
-        toolDenyList: snapshot.context.toolDenyList,
-        enabledCapabilityPacks: snapshot.context.enabledCapabilityPacks,
-        activeBackgroundTaskCount: snapshot.context.activeBackgroundTaskCount,
-        pendingPermissionRequest: snapshot.context.pendingPermissionRequest,
-        pendingConfirmationPayload: snapshot.context.pendingConfirmationPayload,
-        pendingUserQuestionPayload: snapshot.context.pendingUserQuestionPayload,
-        pendingBackgroundNotifications:
-          snapshot.context.pendingBackgroundNotifications,
-        hookContextEntries: snapshot.context.hookContextEntries,
-        todoState: snapshot.context.todoState ?? null,
-        fullCompactionState: snapshot.context.fullCompactionState ?? null,
-        pendingConflictSummary: snapshot.context.pendingConflictSummary,
-        firstUserMessage: snapshot.context.firstUserMessage,
-        lastUserMessage: snapshot.context.lastUserMessage,
-        parentSessionId: snapshot.parentSessionId ?? null,
-        parentRelationKind: snapshot.parentRelationKind ?? null,
-        forkReplayCheckpointId: snapshot.forkReplayCheckpointId ?? null,
-        workingDirectory: snapshot.workingDirectory,
-        model: snapshot.model,
-        loopState: snapshot.sessionState.loopState,
-        turnCount: snapshot.sessionState.turnCount,
-        lastError: snapshot.sessionState.lastError,
-        pendingToolCallIds: snapshot.sessionState.pendingToolCallIds,
-        interruptRequested: snapshot.sessionState.interruptRequested,
-        historyCompactionsSinceFullCompaction:
-          snapshot.sessionState.historyCompactionsSinceFullCompaction,
-        inputTokensCount: snapshot.inputTokensCount,
-        promptCacheKey: snapshot.promptCacheKey,
-        createdAt: snapshot.updatedAt,
-        updatedAt: snapshot.updatedAt
-      })
+      .values(values)
       .onConflictDoUpdate({
         target: agentSessions.id,
         set: {
-          userId: snapshot.context.userId,
-          status: snapshot.context.status,
-          currentDateContext: snapshot.context.currentDateContext,
-          yoloMode: snapshot.context.yoloMode,
-          planModeEnabled: snapshot.context.planModeEnabled,
-          thinkingEffort: snapshot.context.thinkingEffort,
-          taskBriefPath: snapshot.context.taskBriefPath,
-          workspaceEscapeAllowed: snapshot.context.workspaceEscapeAllowed,
-          contextWindow: snapshot.contextWindow,
-          maxTurns: snapshot.maxTurns,
-          shellAllowPatterns: snapshot.context.shellAllowPatterns,
-          shellDenyPatterns: snapshot.context.shellDenyPatterns,
-          toolAllowList: snapshot.context.toolAllowList,
-          toolAskList: snapshot.context.toolAskList,
-          toolDenyList: snapshot.context.toolDenyList,
-          enabledCapabilityPacks: snapshot.context.enabledCapabilityPacks,
-          activeBackgroundTaskCount: snapshot.context.activeBackgroundTaskCount,
-          pendingPermissionRequest: snapshot.context.pendingPermissionRequest,
-          pendingConfirmationPayload:
-            snapshot.context.pendingConfirmationPayload,
-          pendingUserQuestionPayload:
-            snapshot.context.pendingUserQuestionPayload,
-          pendingBackgroundNotifications:
-            snapshot.context.pendingBackgroundNotifications,
-          hookContextEntries: snapshot.context.hookContextEntries,
-          todoState: snapshot.context.todoState ?? null,
-          fullCompactionState: snapshot.context.fullCompactionState ?? null,
-          pendingConflictSummary: snapshot.context.pendingConflictSummary,
-          firstUserMessage: snapshot.context.firstUserMessage,
-          lastUserMessage: snapshot.context.lastUserMessage,
-          parentSessionId: snapshot.parentSessionId ?? null,
-          parentRelationKind: snapshot.parentRelationKind ?? null,
-          forkReplayCheckpointId: snapshot.forkReplayCheckpointId ?? null,
-          workingDirectory: snapshot.workingDirectory,
-          model: snapshot.model,
-          loopState: snapshot.sessionState.loopState,
-          turnCount: snapshot.sessionState.turnCount,
-          lastError: snapshot.sessionState.lastError,
-          pendingToolCallIds: snapshot.sessionState.pendingToolCallIds,
-          interruptRequested: snapshot.sessionState.interruptRequested,
+          userId: values.userId,
+          status: values.status,
+          currentDateContext: values.currentDateContext,
+          yoloMode: values.yoloMode,
+          planModeEnabled: values.planModeEnabled,
+          thinkingEffort: values.thinkingEffort,
+          taskBriefPath: values.taskBriefPath,
+          workspaceEscapeAllowed: values.workspaceEscapeAllowed,
+          contextWindow: values.contextWindow,
+          maxTurns: values.maxTurns,
+          shellAllowPatterns: values.shellAllowPatterns,
+          shellDenyPatterns: values.shellDenyPatterns,
+          toolAllowList: values.toolAllowList,
+          toolAskList: values.toolAskList,
+          toolDenyList: values.toolDenyList,
+          enabledCapabilityPacks: values.enabledCapabilityPacks,
+          activeBackgroundTaskCount: values.activeBackgroundTaskCount,
+          pendingPermissionRequest: values.pendingPermissionRequest,
+          pendingConfirmationPayload: values.pendingConfirmationPayload,
+          pendingUserQuestionPayload: values.pendingUserQuestionPayload,
+          pendingBackgroundNotifications: values.pendingBackgroundNotifications,
+          hookContextEntries: values.hookContextEntries,
+          todoState: values.todoState,
+          fullCompactionState: values.fullCompactionState,
+          pendingConflictSummary: values.pendingConflictSummary,
+          firstUserMessage: values.firstUserMessage,
+          lastUserMessage: values.lastUserMessage,
+          cronJobId: values.cronJobId,
+          parentSessionId: values.parentSessionId,
+          parentRelationKind: values.parentRelationKind,
+          forkReplayCheckpointId: values.forkReplayCheckpointId,
+          workingDirectory: values.workingDirectory,
+          model: values.model,
+          loopState: values.loopState,
+          turnCount: values.turnCount,
+          lastError: values.lastError,
+          pendingToolCallIds: values.pendingToolCallIds,
+          interruptRequested: values.interruptRequested,
           historyCompactionsSinceFullCompaction:
-            snapshot.sessionState.historyCompactionsSinceFullCompaction,
-          inputTokensCount: snapshot.inputTokensCount,
-          promptCacheKey: snapshot.promptCacheKey,
-          updatedAt: snapshot.updatedAt
+            values.historyCompactionsSinceFullCompaction,
+          inputTokensCount: values.inputTokensCount,
+          promptCacheKey: values.promptCacheKey,
+          updatedAt: values.updatedAt
         }
       });
   }

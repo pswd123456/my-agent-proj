@@ -86,6 +86,7 @@ export function createSessionState(
 
 export function createSnapshot(input: {
   sessionId: string;
+  cronJobId?: string | null;
   parentSessionId?: string | null;
   parentRelationKind?: SessionParentRelationKind | null;
   forkReplayCheckpointId?: string | null;
@@ -152,6 +153,7 @@ export function createSnapshot(input: {
   };
   return {
     sessionId: input.sessionId,
+    cronJobId: input.cronJobId ?? null,
     parentSessionId: input.parentSessionId ?? null,
     parentRelationKind: input.parentRelationKind ?? null,
     forkReplayCheckpointId: input.forkReplayCheckpointId ?? null,
@@ -194,6 +196,8 @@ export function cloneSnapshot(snapshot: SessionSnapshot): SessionSnapshot {
   const permissionRules = cloned.context ?? createScheduleSessionContext();
   return {
     ...cloned,
+    cronJobId:
+      typeof cloned.cronJobId === "string" ? cloned.cronJobId : null,
     parentSessionId: cloned.parentSessionId ?? null,
     parentRelationKind: isSessionParentRelationKind(cloned.parentRelationKind)
       ? cloned.parentRelationKind
@@ -522,6 +526,9 @@ export function isSessionSnapshot(value: unknown): value is SessionSnapshot {
 
   return (
     typeof value.sessionId === "string" &&
+    (typeof value.cronJobId === "string" ||
+      value.cronJobId === null ||
+      typeof value.cronJobId === "undefined") &&
     (typeof value.parentSessionId === "string" ||
       value.parentSessionId === null ||
       typeof value.parentSessionId === "undefined") &&

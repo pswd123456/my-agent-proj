@@ -1,11 +1,13 @@
 import type {
   BackgroundTaskRepository,
+  CronJobRepository,
   RoutineRepository,
   SettingsRepository
 } from "@ai-app-template/db";
 import {
   createPostgresBackgroundTaskRepository,
   createPostgresDatabase,
+  createPostgresCronJobRepository,
   createPostgresRoutineRepository,
   createPostgresSettingsRepository,
   ensureProductSchema,
@@ -19,6 +21,10 @@ import {
   createBackgroundTaskManager,
   type BackgroundTaskManager
 } from "../background-tasks/index.js";
+import {
+  createCronJobDispatcher,
+  type CronJobDispatcher
+} from "../cron/dispatcher.js";
 import { createLspServerManager } from "../lsp/index.js";
 import {
   resolveMaxTokens,
@@ -61,6 +67,8 @@ export interface PostgresRuntimeEnvironment {
   toolChoice: AnthropicToolChoice | undefined;
   routineRepository: RoutineRepository;
   sessionManager: SessionManager;
+  cronJobRepository: CronJobRepository;
+  cronJobDispatcher: CronJobDispatcher;
   backgroundTaskRepository: BackgroundTaskRepository;
   backgroundTaskManager: BackgroundTaskManager;
   settingsRepository: SettingsRepository;
@@ -169,6 +177,7 @@ export async function createPostgresRuntimeEnvironment(
 
   const routineRepository = createPostgresRoutineRepository(database);
   const sessionManager = createPostgresSessionManager(database);
+  const cronJobRepository = createPostgresCronJobRepository(database);
   const backgroundTaskRepository =
     createPostgresBackgroundTaskRepository(database);
   const backgroundTaskManager = createBackgroundTaskManager({
@@ -181,6 +190,10 @@ export async function createPostgresRuntimeEnvironment(
   }).map((tool) => tool.name);
   const settingsRepository = createPostgresSettingsRepository(database, {
     settingsPermissionToolOptions
+  });
+  const cronJobDispatcher = createCronJobDispatcher({
+    db: database,
+    modelService
   });
 
   return {
@@ -199,6 +212,8 @@ export async function createPostgresRuntimeEnvironment(
     toolChoice: resolveToolChoice(env),
     routineRepository,
     sessionManager,
+    cronJobRepository,
+    cronJobDispatcher,
     backgroundTaskRepository,
     backgroundTaskManager,
     settingsRepository

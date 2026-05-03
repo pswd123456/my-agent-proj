@@ -133,6 +133,7 @@ export interface SessionState {
 
 export interface SessionSnapshot {
   sessionId: string;
+  cronJobId?: string | null;
   parentSessionId?: string | null;
   parentRelationKind?: SessionParentRelationKind | null;
   parentSessionTaskKind?: BackgroundTaskKind | null;
@@ -150,6 +151,7 @@ export interface SessionSnapshot {
 }
 
 export interface CreateSessionInput {
+  cronJobId?: string | null;
   parentSessionId?: string | null;
   parentRelationKind?: SessionParentRelationKind | null;
   forkReplayCheckpointId?: string | null;
