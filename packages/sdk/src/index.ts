@@ -1,10 +1,8 @@
 export type {
-  RunSessionResult,
   RunStreamEvent,
   SessionFileChangeActionResult,
   SessionForkTarget,
   SessionRewriteTarget,
-  SessionSnapshot,
   SessionWorkspaceGitStatus,
   TraceRecord,
   UpdateUserSettingsMcpPayload,
@@ -47,11 +45,30 @@ export {
   USER_CONTEXT_HOOK_TYPES,
   getUserContextHookTypeKey
 } from "@ai-app-template/domain";
+export type {
+  CreateCronJobPayload,
+  CronJobPayload,
+  CronJobRecord,
+  CronIntervalUnit,
+  CronJobStatus,
+  CronScheduleMode,
+  CronWeekday,
+  ListCronJobsResult,
+  UpdateCronJobPayload
+} from "./cron-jobs.js";
+export {
+  CRON_INTERVAL_UNIT_OPTIONS,
+  CRON_JOB_STATUS_OPTIONS,
+  CRON_SCHEDULE_MODE_OPTIONS,
+  CRON_WEEKDAY_OPTIONS
+} from "./cron-jobs.js";
 
 export type {
   ApiClientConfig,
   ChooseDirectoryInput,
   ChooseDirectoryResult,
+  RunSessionResult,
+  SessionSnapshot,
   CreateSessionForkPayload,
   CreateSessionPayload,
   InterruptSessionResult,
