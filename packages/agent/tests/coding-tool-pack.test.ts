@@ -139,6 +139,20 @@ afterEach(async () => {
 });
 
 describe("read_file", () => {
+  test("description tells the model to use only startLine/endLine after search_text line hits", () => {
+    const tool = createReadFileTool("/tmp/workspace");
+
+    expect(tool.description).toContain(
+      "if search_text already returned a match line"
+    );
+    expect(tool.description).toContain(
+      "prefer {startLine,endLine} for that file and do not also pass offset/limit"
+    );
+    expect(tool.description).toContain(
+      "do not copy search_text result fields like offset into read_file"
+    );
+  });
+
   test("rejects mixed line window syntaxes with recovery guidance", async () => {
     const workspace = await createWorkspace();
 
@@ -211,6 +225,24 @@ describe("apply_patch", () => {
     expect(tool.description).toContain("hunk counts");
     expect(tool.description).toContain("blank lines");
     expect(tool.description).toContain("oldStart is the 1-based line");
+    expect(tool.description).toContain(
+      "Header counts must include every unchanged context line shown in the hunk body"
+    );
+    expect(tool.description).toContain(
+      "Do not rewrite nearby identifiers"
+    );
+    expect(tool.description).toContain(
+      "do not change conditions, branches, wrappers"
+    );
+    expect(tool.description).toContain(
+      "Do not invert control flow"
+    );
+    expect(tool.description).toContain(
+      "the deleted content line must appear with a - prefix"
+    );
+    expect(tool.description).toContain(
+      "do not normalize or simplify surrounding code, markup, configuration, or prose structure"
+    );
 
     const patchSchema = tool.inputSchema.properties?.patch;
     if (
@@ -230,6 +262,24 @@ describe("apply_patch", () => {
     );
     expect(patchSchema.description).toContain(
       "oldCount = context + deleted lines"
+    );
+    expect(patchSchema.description).toContain(
+      "If the hunk body contains 4 context lines plus 1 deleted line and 1 added line, the header counts are old=5 and new=5."
+    );
+    expect(patchSchema.description).toContain(
+      "delete only the target content and keep adjacent identifiers"
+    );
+    expect(patchSchema.description).toContain(
+      "keep the surrounding container, branch, key, delimiter, and wrapper lines exactly as they are"
+    );
+    expect(patchSchema.description).toContain(
+      "Do not invert control flow, collapse wrappers, rename keys"
+    );
+    expect(patchSchema.description).toContain(
+      "Keep unchanged surrounding lines as space-prefixed context lines"
+    );
+    expect(patchSchema.description).toContain(
+      "Concrete local content removal example"
     );
     expect(patchSchema.description).toContain("Example modify");
     expect(patchSchema.description).toContain("Example remove one line");
@@ -429,6 +479,12 @@ describe("apply_patch", () => {
     expect(result.content).toContain(
       "Fix the @@ header counts or remove extra hunk body lines."
     );
+    expect(result.content).toContain(
+      "Keep unchanged surrounding lines as space-prefixed context lines"
+    );
+    expect(result.content).toContain(
+      "Do not switch to write_file for this localized edit."
+    );
   });
 
   test("explains context mismatch with oldStart guidance", async () => {
@@ -466,6 +522,12 @@ describe("apply_patch", () => {
       "oldStart must point at the first hunk body line"
     );
     expect(result.content).toContain("including unchanged blank lines");
+    expect(result.content).toContain(
+      "Keep unchanged surrounding lines as space-prefixed context lines"
+    );
+    expect(result.content).toContain(
+      "Do not switch to write_file for this localized edit."
+    );
   });
 
   test("fails when a patched file changed after the previous session read", async () => {
@@ -637,6 +699,157 @@ describe("apply_patch", () => {
     await expect(
       readFile(path.join(workspace, "created.txt"), "utf8")
     ).resolves.toBe("one\ntwo\n");
+  });
+
+  test("canonicalizes a malformed localized text deletion patch", async () => {
+    const workspace = await createWorkspace();
+    const targetPath = path.join(workspace, "component.tsx");
+    await writeFile(
+      targetPath,
+      [
+        "export function Demo() {",
+        "  return (",
+        "    <div>",
+        "      {true ? null : (",
+        "        <div",
+        "          className={getSoftBlockClass(",
+        '            "py-6 text-sm text-[var(--app-text-muted)]"',
+        "          )}",
+        "        >",
+        "          发送请求后，这里会显示当前会话的对话和执行记录。",
+        "        </div>",
+        "      )}",
+        "    </div>",
+        "  );",
+        "}"
+      ].join("\n")
+    );
+    const sessionMessages = await createReadMessages({
+      workspace,
+      toolCallId: "read-component",
+      path: "component.tsx"
+    });
+
+    const result = await createApplyPatchTool(workspace).execute(
+      {
+        patch: [
+          "--- a/component.tsx",
+          "+++ b/component.tsx",
+          "@@ -7,7 +7,6 @@",
+          "          className={getSoftBlockClass(",
+          '            "py-6 text-sm text-[var(--app-text-muted)]"',
+          "          )}",
+          "-        >",
+          "-          发送请求后，这里会显示当前会话的对话和执行记录。",
+          "-        </div>",
+          "+        />"
+        ].join("\n")
+      },
+      createContext(workspace, { sessionMessages })
+    );
+
+    expect(result.state).toBe("success");
+    expect(result.details).toEqual({
+      kind: "workspace_file_changes",
+      files: [
+        {
+          path: "component.tsx",
+          action: "modify",
+          addedLineCount: 0,
+          removedLineCount: 1,
+          diff: [
+            "--- a/component.tsx",
+            "+++ b/component.tsx",
+            "@@ -9,3 +9,2 @@",
+            "         >",
+            "-          发送请求后，这里会显示当前会话的对话和执行记录。",
+            "         </div>"
+          ].join("\n")
+        }
+      ]
+    });
+    await expect(readFile(targetPath, "utf8")).resolves.toBe(
+      [
+        "export function Demo() {",
+        "  return (",
+        "    <div>",
+        "      {true ? null : (",
+        "        <div",
+        "          className={getSoftBlockClass(",
+        '            "py-6 text-sm text-[var(--app-text-muted)]"',
+        "          )}",
+        "        >",
+        "        </div>",
+        "      )}",
+        "    </div>",
+        "  );",
+        "}"
+      ].join("\n")
+    );
+  });
+
+  test("rejects a tsx patch that would remove structural closing lines", async () => {
+    const workspace = await createWorkspace();
+    const targetPath = path.join(workspace, "component.tsx");
+    await writeFile(
+      targetPath,
+      [
+        "export function Demo() {",
+        "  return (",
+        "    <div>",
+        "      {true ? null : (",
+        "        <div>",
+        "          hello",
+        "        </div>",
+        "      )}",
+        "    </div>",
+        "  );",
+        "}"
+      ].join("\n")
+    );
+    const sessionMessages = await createReadMessages({
+      workspace,
+      toolCallId: "read-component",
+      path: "component.tsx"
+    });
+
+    const result = await createApplyPatchTool(workspace).execute(
+      {
+        patch: [
+          "--- a/component.tsx",
+          "+++ b/component.tsx",
+          "@@ -5,3 +5,2 @@",
+          "         <div>",
+          "           hello",
+          "-        </div>"
+        ].join("\n")
+      },
+      createContext(workspace, { sessionMessages })
+    );
+
+    expect(result.state).toBe("failed");
+    expect(result.result.code).toBe("PATCH_APPLY_FAILED");
+    expect(result.content).toContain(
+      "Patch would leave component.tsx syntactically invalid."
+    );
+    expect(result.content).toContain(
+      "Keep unchanged structural lines, braces, parentheses"
+    );
+    await expect(readFile(targetPath, "utf8")).resolves.toBe(
+      [
+        "export function Demo() {",
+        "  return (",
+        "    <div>",
+        "      {true ? null : (",
+        "        <div>",
+        "          hello",
+        "        </div>",
+        "      )}",
+        "    </div>",
+        "  );",
+        "}"
+      ].join("\n")
+    );
   });
 });
 

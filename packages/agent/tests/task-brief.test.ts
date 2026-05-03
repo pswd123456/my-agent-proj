@@ -43,7 +43,7 @@ describe("task brief path helpers", () => {
       isBoundTaskBriefPath({
         workingDirectory: "/tmp/workspace",
         sessionId: "session-1",
-        taskBriefPath: "/tmp/workspace/.agent/plans/session-1.md"
+        taskBriefPath: "/tmp/workspace/.agents/plans/session-1.md"
       })
     ).toBe(false);
   });
@@ -85,11 +85,11 @@ describe("task brief path helpers", () => {
       describeTaskBriefBinding({
         workingDirectory: "/tmp/workspace",
         sessionId: "session-1",
-        taskBriefPath: "/tmp/workspace/.agent/plans/session-1.md"
+        taskBriefPath: "/tmp/workspace/.agents/plans/session-1.md"
       })
     ).toEqual({
       state: "invalid",
-      path: "/tmp/workspace/.agent/plans/session-1.md",
+      path: "/tmp/workspace/.agents/plans/session-1.md",
       planFileName: null
     });
   });

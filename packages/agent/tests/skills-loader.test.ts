@@ -13,7 +13,7 @@ async function createWorkspaceRoot(): Promise<string> {
 }
 
 describe("discoverWorkspaceSkills", () => {
-  test("returns an empty result when .agent/skills is missing", async () => {
+  test("returns an empty result when .agents/skills is missing", async () => {
     const workspaceRoot = await createWorkspaceRoot();
 
     try {
@@ -29,7 +29,7 @@ describe("discoverWorkspaceSkills", () => {
     const workspaceRoot = await createWorkspaceRoot();
     const skillDirectory = path.join(
       workspaceRoot,
-      ".agent/skills/repo-reader"
+      ".agents/skills/repo-reader"
     );
 
     try {
@@ -54,7 +54,7 @@ describe("discoverWorkspaceSkills", () => {
         {
           name: "repo_reader",
           description: "Read repository structure before implementation.",
-          relativePath: ".agent/skills/repo-reader/SKILL.md"
+          relativePath: ".agents/skills/repo-reader/SKILL.md"
         }
       ]);
       expect(result.diagnostics).toEqual([]);
@@ -67,11 +67,11 @@ describe("discoverWorkspaceSkills", () => {
     const workspaceRoot = await createWorkspaceRoot();
     const validSkillDirectory = path.join(
       workspaceRoot,
-      ".agent/skills/test-helper"
+      ".agents/skills/test-helper"
     );
     const invalidSkillDirectory = path.join(
       workspaceRoot,
-      ".agent/skills/bad-skill"
+      ".agents/skills/bad-skill"
     );
 
     try {
@@ -99,12 +99,12 @@ describe("discoverWorkspaceSkills", () => {
         {
           name: "test_helper",
           description: "Suggest minimal validation steps.",
-          relativePath: ".agent/skills/test-helper/skill.md"
+          relativePath: ".agents/skills/test-helper/skill.md"
         }
       ]);
       expect(result.diagnostics).toEqual([
         {
-          relativePath: ".agent/skills/bad-skill/SKILL.md",
+          relativePath: ".agents/skills/bad-skill/SKILL.md",
           reason: "missing_frontmatter",
           message: "Skill file is missing valid frontmatter."
         }
@@ -116,8 +116,8 @@ describe("discoverWorkspaceSkills", () => {
 
   test("deduplicates skills by name after sorting and records duplicates", async () => {
     const workspaceRoot = await createWorkspaceRoot();
-    const skillDirectoryA = path.join(workspaceRoot, ".agent/skills/a-skill");
-    const skillDirectoryB = path.join(workspaceRoot, ".agent/skills/b-skill");
+    const skillDirectoryA = path.join(workspaceRoot, ".agents/skills/a-skill");
+    const skillDirectoryB = path.join(workspaceRoot, ".agents/skills/b-skill");
 
     try {
       await mkdir(skillDirectoryA, { recursive: true });
@@ -146,12 +146,12 @@ describe("discoverWorkspaceSkills", () => {
         {
           name: "repo_reader",
           description: "Read repository structure before implementation.",
-          relativePath: ".agent/skills/a-skill/SKILL.md"
+          relativePath: ".agents/skills/a-skill/SKILL.md"
         }
       ]);
       expect(result.diagnostics).toEqual([
         {
-          relativePath: ".agent/skills/b-skill/SKILL.md",
+          relativePath: ".agents/skills/b-skill/SKILL.md",
           reason: "duplicate_name",
           message: "Duplicate skill name ignored: repo_reader"
         }
@@ -163,8 +163,8 @@ describe("discoverWorkspaceSkills", () => {
 
   test("filters discovered skills through workspace skill settings", async () => {
     const workspaceRoot = await createWorkspaceRoot();
-    const repoReaderDir = path.join(workspaceRoot, ".agent/skills/repo-reader");
-    const plannerDir = path.join(workspaceRoot, ".agent/skills/planner");
+    const repoReaderDir = path.join(workspaceRoot, ".agents/skills/repo-reader");
+    const plannerDir = path.join(workspaceRoot, ".agents/skills/planner");
 
     try {
       await mkdir(repoReaderDir, { recursive: true });
@@ -202,7 +202,7 @@ describe("discoverWorkspaceSkills", () => {
         {
           name: "schedule_planner",
           description: "Plan schedules and summarize conflicts.",
-          relativePath: ".agent/skills/planner/SKILL.md"
+          relativePath: ".agents/skills/planner/SKILL.md"
         }
       ]);
     } finally {

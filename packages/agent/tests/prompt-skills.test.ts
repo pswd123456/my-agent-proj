@@ -139,7 +139,7 @@ describe("PromptBuilder skill context", () => {
         {
           name: "repo_reader",
           description: "Read repository structure before implementation.",
-          relativePath: ".agent/skills/repo-reader/SKILL.md"
+          relativePath: ".agents/skills/repo-reader/SKILL.md"
         }
       ]
     );
@@ -161,7 +161,7 @@ describe("PromptBuilder skill context", () => {
     );
     expect(
       JSON.stringify(promptEnvelope.runtimeContextMessages[0])
-    ).not.toContain(".agent/skills/repo-reader/SKILL.md");
+    ).not.toContain(".agents/skills/repo-reader/SKILL.md");
   });
 
   test("injects root AGENTS.md instructions into runtime context when provided", () => {
@@ -407,7 +407,7 @@ describe("PromptBuilder skill context", () => {
         {
           name: "repo_reader",
           description: "Read repository structure before implementation.",
-          relativePath: ".agent/skills/repo-reader/SKILL.md"
+          relativePath: ".agents/skills/repo-reader/SKILL.md"
         }
       ]
     );
@@ -442,7 +442,7 @@ describe("PromptBuilder skill context", () => {
     try {
       const taskBriefPath = path.join(
         workspaceRoot,
-        ".agent",
+        ".agents",
         "plans",
         "session-1",
         "jump_joy_web_game.md"
@@ -506,7 +506,7 @@ describe("PromptBuilder skill context", () => {
       session.context.planModeEnabled = true;
       session.context.taskBriefPath = path.join(
         workspaceRoot,
-        ".agent",
+        ".agents",
         "plans",
         "session-1",
         "plan.md"
@@ -606,6 +606,9 @@ describe("PromptBuilder skill context", () => {
         "When both search_text and read_file are available, you MUST use search_text first before read_file"
       );
       expect(promptEnvelope.system).toContain(
+        "build read_file from that match using startLine/endLine only"
+      );
+      expect(promptEnvelope.system).toContain(
         "Do not begin context gathering with broad read_file"
       );
       expect(promptEnvelope.system).toContain(
@@ -622,6 +625,9 @@ describe("PromptBuilder skill context", () => {
       );
       expect(promptEnvelope.system).toContain(
         "If read_file reports that a file is unchanged since the last read"
+      );
+      expect(promptEnvelope.system).toContain(
+        "do not switch to run_shell_command just to inspect the same source lines"
       );
       expect(readFileTool?.description).toContain(
         "Use search_text first before read_file"
@@ -644,7 +650,40 @@ describe("PromptBuilder skill context", () => {
     expect(promptEnvelope.system).toContain("Read before edit");
     expect(promptEnvelope.system).toContain("smallest exact hunk");
     expect(promptEnvelope.system).toContain(
+      "Do not escalate a small edit into write_file"
+    );
+    expect(promptEnvelope.system).toContain(
+      "preferred sequence is: search_text -> read_file with startLine/endLine around the hit -> apply_patch"
+    );
+    expect(promptEnvelope.system).toContain(
       "call read_file for that exact path"
+    );
+    expect(promptEnvelope.system).toContain(
+      "delete only that text line or literal"
+    );
+    expect(promptEnvelope.system).toContain(
+      "Do not change adjacent className strings"
+    );
+    expect(promptEnvelope.system).toContain(
+      "keep the surrounding render structure byte-for-byte stable"
+    );
+    expect(promptEnvelope.system).toContain(
+      "Do not rewrite boolean literals, ternary branches"
+    );
+    expect(promptEnvelope.system).toContain(
+      "keep surrounding lines like {true ? null : ( and )} unchanged"
+    );
+    expect(promptEnvelope.system).toContain(
+      "the removed text line itself should be the - line"
+    );
+    expect(promptEnvelope.system).toContain(
+      "Concrete JSX example"
+    );
+    expect(promptEnvelope.system).toContain(
+      "do not switch to write_file"
+    );
+    expect(promptEnvelope.system).toContain(
+      "Do not pivot to shell inspection first"
     );
     expect(promptEnvelope.system).toContain(
       "Content from search_skill, load_skill, search_text, git_diff"

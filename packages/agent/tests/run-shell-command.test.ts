@@ -51,6 +51,17 @@ async function createContext(): Promise<ToolExecutionContext> {
 }
 
 describe("run_shell_command", () => {
+  test("description prefers structured workspace inspection tools over shell text utilities", () => {
+    const tool = createRunShellCommandTool();
+
+    expect(tool.description).toContain(
+      "Prefer structured workspace tools such as search_text, read_file, git_diff, and git_status"
+    );
+    expect(tool.description).toContain(
+      "Do not use shell text utilities like cat, sed, grep, awk, or perl"
+    );
+  });
+
   test("runs shell commands inline by default", async () => {
     const context = await createContext();
     const result = await createRunShellCommandTool().execute(

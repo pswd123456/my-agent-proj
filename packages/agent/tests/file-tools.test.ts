@@ -541,6 +541,33 @@ describe("read_file", () => {
 });
 
 describe("write_file", () => {
+  test("description tells the model not to replace a whole file for one-line removals", () => {
+    const tool = createWriteFileTool("/tmp/workspace");
+
+    expect(tool.description).toContain(
+      "do not switch to write_file for a one-line text removal task"
+    );
+    expect(tool.description).toContain(
+      "Do not use write_file for a one-line sentence or string removal"
+    );
+    expect(tool.description).toContain(
+      "Do not use write_file to simplify, normalize, or rewrite unchanged surrounding structure"
+    );
+  });
+});
+
+describe("write_file", () => {
+  test("description keeps localized edits on apply_patch", () => {
+    const tool = createWriteFileTool("/tmp/workspace");
+
+    expect(tool.description).toContain(
+      "if you only need to remove or change one sentence"
+    );
+    expect(tool.description).toContain(
+      "Do not use write_file for localized edits to an existing file"
+    );
+  });
+
   test("rejects line edit fields", async () => {
     const workspace = await createWorkspace();
 
@@ -634,6 +661,47 @@ describe("write_file", () => {
     await expect(readFile(targetPath, "utf8")).resolves.toBe(
       "new content\nwith two lines\n"
     );
+  });
+
+  test("fails when write_file is used for a localized edit on an existing file", async () => {
+    const workspace = await createWorkspace();
+    const targetPath = path.join(workspace, "component.tsx");
+    await writeFile(
+      targetPath,
+      [
+        "export function Demo() {",
+        "  return (",
+        "    <div>",
+        "      hello",
+        "    </div>",
+        "  );",
+        "}"
+      ].join("\n")
+    );
+    const sessionMessages = await createReadMessages({
+      workspace,
+      toolInput: { path: "component.tsx" }
+    });
+
+    const result = await createWriteFileTool(workspace).execute(
+      {
+        path: "component.tsx",
+        content: [
+          "export function Demo() {",
+          "  return (",
+          "    <div>",
+          "    </div>",
+          "  );",
+          "}"
+        ].join("\n")
+      },
+      createContext(workspace, { sessionMessages })
+    );
+
+    expect(result.state).toBe("failed");
+    expect(result.result.code).toBe("WRITE_FILE_LOCALIZED_EDIT");
+    expect(result.displayText).toContain("localized existing-file edit detected");
+    expect(result.displayText).toContain("use apply_patch instead");
   });
 
   test("allows consecutive overwrites after the current session writes the file", async () => {
@@ -827,6 +895,133 @@ describe("write_file", () => {
 });
 
 describe("delete_file", () => {
+  test("applyUnifiedPatch canonicalizes a malformed localized text deletion", async () => {
+    const workspace = await createWorkspace();
+    const targetPath = path.join(workspace, "component.tsx");
+    const originalContent = [
+      "export function Demo() {",
+      "  return (",
+      "    <div>",
+      "      {true ? null : (",
+      "        <div",
+      "          className={getSoftBlockClass(",
+      '            "py-6 text-sm text-[var(--app-text-muted)]"',
+      "          )}",
+      "        >",
+      "          发送请求后，这里会显示当前会话的对话和执行记录。",
+      "        </div>",
+      "      )}",
+      "    </div>",
+      "  );",
+      "}"
+    ].join("\n");
+    await writeFile(targetPath, originalContent);
+
+    const parsed = parseUnifiedPatch(
+      [
+        "--- a/component.tsx",
+        "+++ b/component.tsx",
+        "@@ -7,7 +7,6 @@",
+        "          className={getSoftBlockClass(",
+        '            "py-6 text-sm text-[var(--app-text-muted)]"',
+        "          )}",
+        "-        >",
+        "-          发送请求后，这里会显示当前会话的对话和执行记录。",
+        "-        </div>",
+        "+        />"
+      ].join("\n")
+    );
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) {
+      return;
+    }
+
+    await expect(
+      applyUnifiedPatch({
+        workingDirectory: workspace,
+        patch: parsed.value,
+        allowWorkspaceEscape: false
+      })
+    ).resolves.toMatchObject([
+      {
+        path: "component.tsx",
+        action: "modify",
+        hunkCount: 1,
+        addedLineCount: 0,
+        removedLineCount: 1,
+        diff: [
+          "--- a/component.tsx",
+          "+++ b/component.tsx",
+          "@@ -9,3 +9,2 @@",
+          "         >",
+          "-          发送请求后，这里会显示当前会话的对话和执行记录。",
+          "         </div>"
+        ].join("\n")
+      }
+    ]);
+    await expect(readFile(targetPath, "utf8")).resolves.toBe(
+      [
+        "export function Demo() {",
+        "  return (",
+        "    <div>",
+        "      {true ? null : (",
+        "        <div",
+        "          className={getSoftBlockClass(",
+        '            "py-6 text-sm text-[var(--app-text-muted)]"',
+        "          )}",
+        "        >",
+        "        </div>",
+        "      )}",
+        "    </div>",
+        "  );",
+        "}"
+      ].join("\n")
+    );
+  });
+
+  test("applyUnifiedPatch rejects tsx patches that would break syntax before writing", async () => {
+    const workspace = await createWorkspace();
+    const targetPath = path.join(workspace, "component.tsx");
+    const originalContent = [
+      "export function Demo() {",
+      "  return (",
+      "    <div>",
+      "      {true ? null : (",
+      "        <div>",
+      "          hello",
+      "        </div>",
+      "      )}",
+      "    </div>",
+      "  );",
+      "}"
+    ].join("\n");
+    await writeFile(targetPath, originalContent);
+
+    const parsed = parseUnifiedPatch(
+      [
+        "--- a/component.tsx",
+        "+++ b/component.tsx",
+        "@@ -5,3 +5,2 @@",
+        "         <div>",
+        "           hello",
+        "-        </div>"
+      ].join("\n")
+    );
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) {
+      return;
+    }
+
+    await expect(
+      applyUnifiedPatch({
+        workingDirectory: workspace,
+        patch: parsed.value,
+        allowWorkspaceEscape: false
+      })
+    ).rejects.toThrow("Patch would leave component.tsx syntactically invalid.");
+    await expect(readFile(targetPath, "utf8")).resolves.toBe(originalContent);
+  });
+
   test("deletes multiple files and returns undoable diffs", async () => {
     const workspace = await createWorkspace();
     await mkdir(path.join(workspace, "nested"), { recursive: true });

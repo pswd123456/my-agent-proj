@@ -8,6 +8,7 @@ import {
   createSnapshot,
   createRewriteRewindSnapshot,
   getCheckpointTriggerUserBlock,
+  isForkCheckpointForFinalResponse,
   resolveTaskBriefPathForFork
 } from "../src/session/index.js";
 import type { SessionForkCheckpoint } from "../src/types.js";
@@ -22,7 +23,7 @@ describe("session fork helpers", () => {
       workingDirectory: "/tmp/workspace",
       model: "MiniMax-M2.7",
       planModeEnabled: true,
-      taskBriefPath: "/tmp/workspace/.agent/plans/source-session/plan.md"
+      taskBriefPath: "/tmp/workspace/.agents/plans/source-session/plan.md"
     });
     snapshot.messages = [
       {
@@ -141,7 +142,7 @@ describe("session fork helpers", () => {
     const forkSnapshot = cloneForkSessionSnapshot({
       checkpoint,
       sessionId: "fork-session",
-      taskBriefPath: "/tmp/workspace/.agent/plans/fork-session/plan.md"
+      taskBriefPath: "/tmp/workspace/.agents/plans/fork-session/plan.md"
     });
 
     expect(forkSnapshot.sessionId).toBe("fork-session");
@@ -149,7 +150,7 @@ describe("session fork helpers", () => {
     expect(forkSnapshot.parentRelationKind).toBe("fork");
     expect(forkSnapshot.forkReplayCheckpointId).toBe("checkpoint-1");
     expect(forkSnapshot.context.taskBriefPath).toBe(
-      "/tmp/workspace/.agent/plans/fork-session/plan.md"
+      "/tmp/workspace/.agents/plans/fork-session/plan.md"
     );
     expect(forkSnapshot.context.activeBackgroundTaskCount).toBe(0);
     expect(forkSnapshot.context.pendingBackgroundNotifications).toEqual([]);
@@ -174,11 +175,11 @@ describe("session fork helpers", () => {
       resolveTaskBriefPathForFork({
         workingDirectory: "/tmp/workspace",
         sourceSessionId: "source-session",
-        sourceTaskBriefPath: "/tmp/workspace/.agent/plans/source-session/plan.md",
+        sourceTaskBriefPath: "/tmp/workspace/.agents/plans/source-session/plan.md",
         targetSessionId: "fork-session",
         planModeEnabled: true
       })
-    ).toBe("/tmp/workspace/.agent/plans/fork-session/plan.md");
+    ).toBe("/tmp/workspace/.agents/plans/fork-session/plan.md");
   });
 
   test("resolves the checkpoint trigger block even when a hook message trails the turn", () => {
@@ -253,6 +254,56 @@ describe("session fork helpers", () => {
       content: "第二轮问题",
       source: "user"
     });
+  });
+
+  test("treats only the turn-final assistant message as a forkable checkpoint", () => {
+    const checkpoint = createCheckpoint();
+
+    expect(isForkCheckpointForFinalResponse(checkpoint)).toBe(false);
+
+    const finalSnapshot = createSnapshot({
+      sessionId: "final-fork-source",
+      workingDirectory: "/tmp/workspace",
+      model: "MiniMax-M2.7",
+      firstUserMessage: "原始问题",
+      lastUserMessage: "原始问题"
+    });
+    finalSnapshot.messages = [
+      {
+        id: "user-1",
+        kind: "user",
+        content: "原始问题",
+        source: "user",
+        createdAt: "2026-05-01T00:00:00.000Z"
+      },
+      {
+        id: "assistant-final-1",
+        kind: "assistant",
+        content: "最终答复",
+        createdAt: "2026-05-01T00:00:01.000Z"
+      }
+    ];
+
+    const finalCheckpoint: SessionForkCheckpoint = {
+      id: "checkpoint-final",
+      sessionId: finalSnapshot.sessionId,
+      assistantMessageId: "assistant-final-1",
+      turnCount: 1,
+      baseMessageCount: 1,
+      responseGroupId: null,
+      snapshot: finalSnapshot,
+      promptSeed: {
+        system: "system",
+        requestMessages: [],
+        runtimeContextMessages: [],
+        tools: [],
+        toolChoice: null
+      },
+      createdAt: "2026-05-01T00:00:02.000Z",
+      updatedAt: "2026-05-01T00:00:02.000Z"
+    };
+
+    expect(isForkCheckpointForFinalResponse(finalCheckpoint)).toBe(true);
   });
 
   test("falls back to the nearest preceding user block when legacy baseMessageCount points into tool results", () => {

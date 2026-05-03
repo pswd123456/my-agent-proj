@@ -311,7 +311,7 @@ describe("todo tools", () => {
       kind: "task_brief",
       path: path.join(
         "/tmp/workspace",
-        ".agent",
+        ".agents",
         "plans",
         session.sessionId,
         "jump_joy_web_game.md"
@@ -325,7 +325,7 @@ describe("todo tools", () => {
     expect(taskBriefPath).toBe(
       path.join(
         "/tmp/workspace",
-        ".agent",
+        ".agents",
         "plans",
         session.sessionId,
         "jump_joy_web_game.md"
@@ -425,7 +425,7 @@ describe("todo tools", () => {
       kind: "task_brief",
       path: path.join(
         "/tmp/workspace",
-        ".agent",
+        ".agents",
         "plans",
         session.sessionId,
         "jump_joy_web_game.md"

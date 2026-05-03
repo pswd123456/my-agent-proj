@@ -13,7 +13,7 @@ async function writeConfig(
   workspaceRoot: string,
   content: string
 ): Promise<void> {
-  const agentDirectory = path.join(workspaceRoot, ".agent");
+  const agentDirectory = path.join(workspaceRoot, ".agents");
   await mkdir(agentDirectory, { recursive: true });
   await writeFile(path.join(agentDirectory, ".config.toml"), content, "utf8");
 }

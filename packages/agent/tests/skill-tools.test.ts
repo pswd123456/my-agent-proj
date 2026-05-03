@@ -51,12 +51,12 @@ describe("skill tools", () => {
     try {
       const repoReaderDir = path.join(
         workspace,
-        ".agent",
+        ".agents",
         "skills",
         "repo-reader"
       );
-      const plannerDir = path.join(workspace, ".agent", "skills", "planner");
-      const invalidDir = path.join(workspace, ".agent", "skills", "broken");
+      const plannerDir = path.join(workspace, ".agents", "skills", "planner");
+      const invalidDir = path.join(workspace, ".agents", "skills", "broken");
       await mkdir(repoReaderDir, { recursive: true });
       await mkdir(plannerDir, { recursive: true });
       await mkdir(invalidDir, { recursive: true });
@@ -106,12 +106,12 @@ describe("skill tools", () => {
         matches: [
           {
             name: "repo_reader",
-            relativePath: ".agent/skills/repo-reader/SKILL.md"
+            relativePath: ".agents/skills/repo-reader/SKILL.md"
           }
         ],
         diagnostics: [
           {
-            relativePath: ".agent/skills/broken/SKILL.md",
+            relativePath: ".agents/skills/broken/SKILL.md",
             reason: "missing_frontmatter"
           }
         ]
@@ -125,7 +125,7 @@ describe("skill tools", () => {
     const workspace = await createWorkspace();
 
     try {
-      const skillDir = path.join(workspace, ".agent", "skills", "repo-reader");
+      const skillDir = path.join(workspace, ".agents", "skills", "repo-reader");
       await mkdir(skillDir, { recursive: true });
       await writeFile(
         path.join(skillDir, "SKILL.md"),
@@ -156,7 +156,7 @@ describe("skill tools", () => {
       expect(result.result.data).toMatchObject({
         skill: {
           name: "repo_reader",
-          relativePath: ".agent/skills/repo-reader/SKILL.md"
+          relativePath: ".agents/skills/repo-reader/SKILL.md"
         },
         content: "# Repo Reader\n",
         startLine: 6,
@@ -173,7 +173,7 @@ describe("skill tools", () => {
     const workspace = await createWorkspace();
 
     try {
-      const skillDir = path.join(workspace, ".agent", "skills", "repo-reader");
+      const skillDir = path.join(workspace, ".agents", "skills", "repo-reader");
       await mkdir(skillDir, { recursive: true });
       await writeFile(
         path.join(skillDir, "SKILL.md"),
@@ -202,7 +202,7 @@ describe("skill tools", () => {
           availableSkills: [
             {
               name: "repo_reader",
-              relativePath: ".agent/skills/repo-reader/SKILL.md"
+              relativePath: ".agents/skills/repo-reader/SKILL.md"
             }
           ]
         }
@@ -216,8 +216,8 @@ describe("skill tools", () => {
     const workspace = await createWorkspace();
 
     try {
-      const visibleDir = path.join(workspace, ".agent", "skills", "planner");
-      const hiddenDir = path.join(workspace, ".agent", "skills", "repo-reader");
+      const visibleDir = path.join(workspace, ".agents", "skills", "planner");
+      const hiddenDir = path.join(workspace, ".agents", "skills", "repo-reader");
       await mkdir(visibleDir, { recursive: true });
       await mkdir(hiddenDir, { recursive: true });
       await writeFile(
@@ -280,7 +280,7 @@ describe("skill tools", () => {
           availableSkills: [
             {
               name: "schedule_planner",
-              relativePath: ".agent/skills/planner/SKILL.md"
+              relativePath: ".agents/skills/planner/SKILL.md"
             }
           ]
         }
