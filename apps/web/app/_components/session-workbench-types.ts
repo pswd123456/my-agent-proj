@@ -1,5 +1,14 @@
 import {
   CAPABILITY_PACK_OPTIONS,
+  type CronIntervalUnit,
+  type CronJobRecord,
+  type CronJobStatus,
+  type CronScheduleMode,
+  type CronWeekday,
+  type CreateCronJobPayload,
+  type ModelCatalogEntry,
+  type SessionSummary,
+  type UpdateCronJobPayload,
   type UserSettingsSkillsPayload,
   USER_CONTEXT_HOOK_BEHAVIOR_OPTIONS,
   USER_CONTEXT_HOOK_CONTEXT_EVENT_OPTIONS,
@@ -21,6 +30,8 @@ export const inspectorTabs = [
 
 export const sidebarPanels = [
   { id: "settings", label: "Settings", title: "默认设置" },
+  { id: "cron", label: "Cron", title: "定时任务" },
+  { id: "cron-create", label: "New Cron", title: "新建定时任务" },
   { id: "calendar", label: "Calendar", title: "日历" },
   { id: "inspector", label: "Inspector", title: "调试详情" }
 ] as const;
@@ -73,8 +84,17 @@ export const MAX_TURNS_LIMIT = 200;
 export const DEFAULT_CONTEXT_WINDOW = 200_000;
 
 export type InspectorTabId = (typeof inspectorTabs)[number]["id"];
-export type SidebarPanelId = "settings" | "calendar" | "inspector";
+export type SidebarPanelId =
+  | "settings"
+  | "cron"
+  | "cron-create"
+  | "calendar"
+  | "inspector";
 export type SettingsPageId = (typeof settingsPages)[number]["id"];
+
+export interface WorkbenchSessionSummary extends SessionSummary {
+  cronJobId?: string | null;
+}
 
 export interface TurnUsageSummary {
   inputTokens: number;
@@ -129,6 +149,204 @@ export interface SettingsSkillsState {
   workingDirectory: string;
   skills: UserSettingsSkillsPayload["skills"];
   diagnostics: UserSettingsSkillsPayload["diagnostics"];
+}
+
+export type CronMaxRunsMode = "infinite" | "finite";
+
+export interface CronJobFormState {
+  name: string;
+  prompt: string;
+  workingDirectory: string;
+  model: string;
+  thinkingEffort: string;
+  status: CronJobStatus;
+  maxRunsMode: CronMaxRunsMode;
+  maxRuns: string;
+  scheduleMode: CronScheduleMode;
+  intervalUnit: CronIntervalUnit;
+  intervalValue: string;
+  weekday: CronWeekday;
+  timeOfDay: string;
+  startsAt: string;
+}
+
+export const cronScheduleModeOptions = [
+  { value: "interval", label: "间隔" },
+  { value: "weekly", label: "每周" }
+] as const;
+
+export const cronIntervalUnitOptions = [
+  { value: "minute", label: "分钟" },
+  { value: "hour", label: "小时" },
+  { value: "day", label: "天" }
+] as const;
+
+export const cronWeekdayOptions = [
+  { value: "monday", label: "周一" },
+  { value: "tuesday", label: "周二" },
+  { value: "wednesday", label: "周三" },
+  { value: "thursday", label: "周四" },
+  { value: "friday", label: "周五" },
+  { value: "saturday", label: "周六" },
+  { value: "sunday", label: "周日" }
+] as const;
+
+export const cronStatusOptions = [
+  { value: "active", label: "启用" },
+  { value: "paused", label: "暂停" },
+  { value: "completed", label: "已完成" }
+] as const;
+
+function formatLocalDateTimeValue(value: Date): string {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  const hours = String(value.getHours()).padStart(2, "0");
+  const minutes = String(value.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+export function formatDateTimeLocalInput(value: string | null | undefined): string {
+  if (!value) {
+    return "";
+  }
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) {
+    return "";
+  }
+  return formatLocalDateTimeValue(parsed);
+}
+
+export function createDefaultCronJobFormState(input: {
+  workingDirectory?: string | null;
+  startsAt?: string;
+} = {}): CronJobFormState {
+  const now = new Date();
+  now.setSeconds(0, 0);
+  return {
+    name: "",
+    prompt: "",
+    workingDirectory: input.workingDirectory?.trim() ?? "",
+    model: "",
+    thinkingEffort: "",
+    status: "active",
+    maxRunsMode: "infinite",
+    maxRuns: "",
+    scheduleMode: "interval",
+    intervalUnit: "day",
+    intervalValue: "1",
+    weekday: "monday",
+    timeOfDay: "09:00",
+    startsAt: input.startsAt ?? formatLocalDateTimeValue(now)
+  };
+}
+
+export function toCronJobFormState(cronJob: CronJobRecord): CronJobFormState {
+  return {
+    name: cronJob.name,
+    prompt: cronJob.prompt,
+    workingDirectory: cronJob.workingDirectory,
+    model: cronJob.modelOverride ?? "",
+    thinkingEffort: cronJob.thinkingEffortOverride ?? "",
+    status: cronJob.status,
+    maxRunsMode: cronJob.maxRuns === null ? "infinite" : "finite",
+    maxRuns: cronJob.maxRuns === null ? "" : String(cronJob.maxRuns),
+    scheduleMode: cronJob.scheduleMode,
+    intervalUnit: cronJob.intervalUnit ?? "day",
+    intervalValue:
+      cronJob.intervalValue === null ? "1" : String(cronJob.intervalValue),
+    weekday: cronJob.weekday ?? "monday",
+    timeOfDay: cronJob.timeOfDay ?? "09:00",
+    startsAt: formatDateTimeLocalInput(cronJob.startsAt)
+  };
+}
+
+function resolveFiniteRunCount(
+  mode: CronMaxRunsMode,
+  value: string
+): number | null {
+  if (mode === "infinite") {
+    return null;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+}
+
+export function buildCreateCronJobPayload(
+  form: CronJobFormState
+): CreateCronJobPayload {
+  const base = {
+    name: form.name.trim(),
+    prompt: form.prompt.trim(),
+    workingDirectory: form.workingDirectory.trim(),
+    startsAt: form.startsAt,
+    maxRuns: resolveFiniteRunCount(form.maxRunsMode, form.maxRuns),
+    ...(form.model.trim() ? { model: form.model.trim() } : {}),
+    ...(form.thinkingEffort
+      ? { thinkingEffort: form.thinkingEffort as "high" | "max" }
+      : {}),
+    ...(form.status ? { status: form.status } : {})
+  };
+
+  if (form.scheduleMode === "weekly") {
+    return {
+      ...base,
+      scheduleMode: "weekly",
+      weekday: form.weekday,
+      timeOfDay: form.timeOfDay
+    };
+  }
+
+  return {
+    ...base,
+    scheduleMode: "interval",
+    intervalUnit: form.intervalUnit,
+    intervalValue: Number.parseInt(form.intervalValue, 10) || 1
+  };
+}
+
+export function buildUpdateCronJobPayload(
+  form: CronJobFormState
+): UpdateCronJobPayload {
+  const base = {
+    name: form.name.trim(),
+    prompt: form.prompt.trim(),
+    workingDirectory: form.workingDirectory.trim(),
+    startsAt: form.startsAt,
+    maxRuns: resolveFiniteRunCount(form.maxRunsMode, form.maxRuns),
+    model: form.model.trim() ? form.model.trim() : null,
+    thinkingEffort: form.thinkingEffort
+      ? (form.thinkingEffort as "high" | "max")
+      : null,
+    status: form.status
+  };
+
+  if (form.scheduleMode === "weekly") {
+    return {
+      ...base,
+      scheduleMode: "weekly",
+      weekday: form.weekday,
+      timeOfDay: form.timeOfDay
+    };
+  }
+
+  return {
+    ...base,
+    scheduleMode: "interval",
+    intervalUnit: form.intervalUnit,
+    intervalValue: Number.parseInt(form.intervalValue, 10) || 1
+  };
+}
+
+export function resolveModelThinkingEffortOptions(input: {
+  modelCatalog: ModelCatalogEntry[];
+  modelId: string;
+}): string[] {
+  return (
+    input.modelCatalog.find((item) => item.id === input.modelId)
+      ?.thinkingEfforts ?? []
+  );
 }
 
 export const capabilityPackOptions = CAPABILITY_PACK_OPTIONS;

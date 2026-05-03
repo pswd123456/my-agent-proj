@@ -1,9 +1,16 @@
 "use client";
 
 import * as Select from "@radix-ui/react-select";
-import type { SessionSnapshot, SessionSummary } from "@ai-app-template/sdk";
+import type {
+  CronJobRecord,
+  CreateCronJobPayload,
+  ModelCatalogEntry,
+  SessionSnapshot,
+  UpdateCronJobPayload
+} from "@ai-app-template/sdk";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { SessionWorkbenchCronForm } from "./session-workbench-cron-form";
 import {
   DEFAULT_VISIBLE_SESSION_ROW_COUNT,
   getAutoCollapsedSessionIds,
@@ -15,20 +22,38 @@ import {
   type SessionDisplayState
 } from "./session-workbench-state";
 import {
+  createDefaultCronJobFormState,
   sidebarPanels,
+  type CronJobFormState,
   type SidebarPanelId,
-  type TurnUsageSummary
+  type TurnUsageSummary,
+  type WorkbenchSessionSummary
 } from "./session-workbench-types";
+
+export type CreateSessionDialogPageId = "home" | "session" | "cron";
 
 interface CreateSessionDialogProps {
   open: boolean;
+  initialPage?: CreateSessionDialogPageId;
   creatingSession: boolean;
+  creatingCronJob?: boolean;
+  choosingCronWorkingDirectory?: boolean;
+  cronStatusText?: string | null;
+  cronErrorText?: string | null;
+  cronFormState?: CronJobFormState;
+  currentCronJob?: CronJobRecord | null;
+  modelCatalog?: ModelCatalogEntry[];
+  defaultCronModelId?: string;
   onClose: () => void;
   onCreate: () => void;
+  onCreateCronJob?: () => void;
+  onCronFormChange?: (patch: Partial<CronJobFormState>) => void;
+  onSaveCronJob?: (payload: CreateCronJobPayload | UpdateCronJobPayload) => void;
+  onChooseCronWorkingDirectory?: () => void;
 }
 
 interface SessionWorkbenchSidebarProps {
-  sessions: SessionSummary[];
+  sessions: WorkbenchSessionSummary[];
   selectedSessionId: string | null;
   debugConversationView: boolean;
   searchValue: string;
@@ -39,6 +64,7 @@ interface SessionWorkbenchSidebarProps {
   loading: boolean;
   creatingSession: boolean;
   onCreateSession: () => void;
+  onCreateCronJob: () => void;
   onSearchValueChange: (value: string) => void;
   onSelectSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string) => void;
@@ -586,12 +612,150 @@ export function WorkbenchSelect({
 
 export function CreateSessionDialog({
   open,
+  initialPage = "home",
   creatingSession,
+  creatingCronJob = false,
+  choosingCronWorkingDirectory = false,
+  cronStatusText = null,
+  cronErrorText = null,
+  cronFormState,
+  currentCronJob = null,
+  modelCatalog = [],
+  defaultCronModelId = "",
   onClose,
-  onCreate
+  onCreate,
+  onCreateCronJob,
+  onCronFormChange,
+  onSaveCronJob,
+  onChooseCronWorkingDirectory
 }: CreateSessionDialogProps) {
+  const [page, setPage] = useState<CreateSessionDialogPageId>(initialPage);
+
+  useEffect(() => {
+    if (open) {
+      setPage(initialPage);
+      return;
+    }
+
+    setPage("home");
+  }, [initialPage, open]);
+
   if (!open) {
     return null;
+  }
+
+  const effectiveCronFormState =
+    cronFormState ??
+    createDefaultCronJobFormState({
+      workingDirectory: ""
+    });
+  const canRenderCronPage =
+    Boolean(onCronFormChange) &&
+    Boolean(onSaveCronJob) &&
+    Boolean(onChooseCronWorkingDirectory);
+
+  function renderHomePage() {
+    return (
+      <div className="mt-6 grid gap-3">
+        <button
+          type="button"
+          onClick={() => setPage("session")}
+          className="grid gap-1 rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_72%,transparent)] px-4 py-4 text-left transition hover:border-[var(--app-border-strong)] hover:bg-[color:color-mix(in_srgb,var(--app-bg-elevated)_86%,transparent)]"
+        >
+          <span className="text-sm font-medium text-[var(--app-text-primary)]">
+            创建会话
+          </span>
+          <span className="text-xs leading-5 text-[var(--app-text-muted)]">
+            立即创建一个新的空白会话，继承当前默认设置。
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            onCreateCronJob?.();
+            setPage("cron");
+          }}
+          disabled={!canRenderCronPage}
+          className="grid gap-1 rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_72%,transparent)] px-4 py-4 text-left transition hover:border-[var(--app-border-strong)] hover:bg-[color:color-mix(in_srgb,var(--app-bg-elevated)_86%,transparent)] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <span className="text-sm font-medium text-[var(--app-text-primary)]">
+            新建定时任务
+          </span>
+          <span className="text-xs leading-5 text-[var(--app-text-muted)]">
+            保存一个按计划自动创建新会话的任务定义。
+          </span>
+        </button>
+      </div>
+    );
+  }
+
+  function renderSessionPage() {
+    return (
+      <>
+        <div className="mt-6 rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_72%,transparent)] px-4 py-4">
+          <p className="text-sm leading-6 text-[var(--app-text-secondary)]">
+            会话会继承当前 user settings 的默认 cwd、YOLO、context window 和
+            max turns。
+          </p>
+        </div>
+
+        <div className="mt-6 flex justify-end gap-3">
+          <button
+            type="button"
+            onClick={() => setPage("home")}
+            className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-4 py-2 text-sm text-[var(--app-text-secondary)] transition hover:border-[var(--app-border-strong)] hover:text-[var(--app-text-primary)]"
+          >
+            返回
+          </button>
+          <button
+            type="button"
+            onClick={onCreate}
+            disabled={creatingSession}
+            className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-accent)] bg-[var(--app-bg-elevated)] px-4 py-2 text-sm font-medium text-[var(--app-text-primary)] transition hover:border-[var(--app-status-success)] hover:text-[var(--app-status-success)] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {creatingSession ? "创建中..." : "创建会话"}
+          </button>
+        </div>
+      </>
+    );
+  }
+
+  function renderCronPage() {
+    return (
+      <div className="mt-6 grid gap-4">
+        <div className="rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_72%,transparent)] px-4 py-4">
+          <div className="text-sm text-[var(--app-text-primary)]">
+            {currentCronJob ? "编辑定时任务" : "新建定时任务"}
+          </div>
+          <div className="mt-1 text-xs leading-5 text-[var(--app-text-muted)]">
+            任务触发后会自动创建新会话，并继续出现在左侧会话列表里。
+          </div>
+        </div>
+        <SessionWorkbenchCronForm
+          currentCronJob={currentCronJob}
+          formState={effectiveCronFormState}
+          modelCatalog={modelCatalog}
+          defaultModelId={defaultCronModelId}
+          saving={creatingCronJob}
+          choosingWorkingDirectory={choosingCronWorkingDirectory}
+          statusText={cronStatusText}
+          errorText={cronErrorText}
+          onFormChange={(patch) => onCronFormChange?.(patch)}
+          onSubmit={(payload) => onSaveCronJob?.(payload)}
+          onChooseWorkingDirectory={() => onChooseCronWorkingDirectory?.()}
+          onJumpToSession={() => {}}
+        />
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => setPage("home")}
+            className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-4 py-2 text-sm text-[var(--app-text-secondary)] transition hover:border-[var(--app-border-strong)] hover:text-[var(--app-text-primary)]"
+          >
+            返回
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -602,18 +766,27 @@ export function CreateSessionDialog({
         onClick={onClose}
         className="absolute inset-0 bg-black/55"
       />
-      <div className="relative z-10 w-full max-w-lg rounded-[var(--app-radius-xl)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_96%,transparent)] px-5 py-5 shadow-none">
+      <div className="relative z-10 w-full max-w-2xl rounded-[var(--app-radius-xl)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_96%,transparent)] px-5 py-5 shadow-none">
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
               Create Session
             </div>
             <div className="mt-2 text-lg font-semibold text-[var(--app-text-primary)]">
-              新建会话
+              {page === "home"
+                ? "创建新内容"
+                : page === "session"
+                  ? "新建会话"
+                  : currentCronJob
+                    ? "编辑定时任务"
+                    : "新建定时任务"}
             </div>
             <p className="mt-2 text-sm leading-6 text-[var(--app-text-secondary)]">
-              会话会继承当前 user settings 的默认 cwd、YOLO、context window 和
-              max turns。
+              {page === "home"
+                ? "选择要在这个窗口里创建的内容。"
+                : page === "session"
+                  ? "新会话会直接进入主工作区。"
+                  : "保存后会按计划自动发起新会话。"}
             </p>
           </div>
           <button
@@ -625,23 +798,11 @@ export function CreateSessionDialog({
           </button>
         </div>
 
-        <div className="mt-6 flex justify-end gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-subtle)] px-4 py-2 text-sm text-[var(--app-text-secondary)] transition hover:border-[var(--app-border-strong)] hover:text-[var(--app-text-primary)]"
-          >
-            取消
-          </button>
-          <button
-            type="button"
-            onClick={onCreate}
-            disabled={creatingSession}
-            className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-accent)] bg-[var(--app-bg-elevated)] px-4 py-2 text-sm font-medium text-[var(--app-text-primary)] transition hover:border-[var(--app-status-success)] hover:text-[var(--app-status-success)] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {creatingSession ? "创建中..." : "创建会话"}
-          </button>
-        </div>
+        {page === "home"
+          ? renderHomePage()
+          : page === "session"
+            ? renderSessionPage()
+            : renderCronPage()}
       </div>
     </div>
   );
@@ -659,6 +820,7 @@ export function SessionWorkbenchSidebar({
   loading,
   creatingSession,
   onCreateSession,
+  onCreateCronJob,
   onSearchValueChange,
   onSelectSession,
   onDeleteSession,
@@ -747,6 +909,8 @@ export function SessionWorkbenchSidebar({
     switch (panelId) {
       case "settings":
         return "SET";
+      case "cron":
+        return "CRON";
       case "calendar":
         return "CAL";
       case "inspector":
@@ -850,6 +1014,16 @@ export function SessionWorkbenchSidebar({
           >
             {collapsed ? "+" : "创建新会话"}
           </button>
+          <button
+            type="button"
+            onClick={onCreateCronJob}
+            disabled={loading}
+            title="新建定时任务"
+            aria-label="新建定时任务"
+            className={`inline-flex items-center justify-center rounded-[var(--app-radius-pill)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] bg-transparent font-medium text-[var(--app-text-secondary)] transition hover:border-[var(--app-border-strong)] hover:text-[var(--app-text-primary)] disabled:cursor-not-allowed disabled:opacity-50 ${collapsed ? "mt-2 h-10 w-full text-[0.72rem] uppercase tracking-[0.14em]" : "mt-2 w-full px-4 py-2 text-sm"}`}
+          >
+            {collapsed ? "Cron" : "新建定时任务"}
+          </button>
           {collapsed ? null : (
             <label className="mt-3 block">
               <span className="sr-only">搜索会话</span>
@@ -905,6 +1079,9 @@ export function SessionWorkbenchSidebar({
                   : childCount > 0
                     ? `主会话 · ${childCount} 个子分支`
                     : null;
+              const hasCronBadge =
+                typeof session.cronJobId === "string" &&
+                session.cronJobId.trim().length > 0;
               const relationToneClass =
                 depth > 0
                   ? session.parentRelationKind === "fork"
@@ -920,7 +1097,7 @@ export function SessionWorkbenchSidebar({
                   <button
                     key={session.sessionId}
                     type="button"
-                    title={`${relationLabel} · ${session.sessionId.slice(0, 8)} · ${displayState.label}`}
+                    title={`${hasCronBadge ? "定时任务 · " : ""}${relationLabel ? `${relationLabel} · ` : ""}${session.sessionId.slice(0, 8)} · ${displayState.label}`}
                     aria-label={`切换到会话 ${session.sessionId.slice(0, 8)}`}
                     onClick={() => onSelectSession(session.sessionId)}
                     className={`grid h-14 w-full place-items-center rounded-[var(--app-radius-lg)] border text-center transition ${
@@ -982,6 +1159,11 @@ export function SessionWorkbenchSidebar({
                         >
                           {displayState.label}
                         </span>
+                        {hasCronBadge ? (
+                          <span className="inline-flex items-center rounded-[var(--app-radius-pill)] border border-[color:color-mix(in_srgb,var(--app-border-accent)_48%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-elevated)_80%,transparent)] px-2 py-0.5 text-[0.68rem] uppercase tracking-[0.12em] text-[var(--app-status-success)]">
+                            定时任务
+                          </span>
+                        ) : null}
                         {relationLabel ? (
                           <span
                             className={`text-[0.72rem] ${relationToneClass}`}
@@ -1085,13 +1267,10 @@ export function SessionWorkbenchSidebar({
         <div
           className={`border-t border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] ${collapsed ? "px-3 py-3" : "px-4 py-4"}`}
         >
-          {collapsed ? null : (
-            <div className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
-              侧边面板
-            </div>
-          )}
           <div className={`grid gap-2 ${collapsed ? "" : "mt-3"}`}>
-            {sidebarPanels.map(renderPanelButton)}
+            {sidebarPanels
+              .filter((panel) => panel.id !== "cron-create")
+              .map(renderPanelButton)}
           </div>
         </div>
       </div>

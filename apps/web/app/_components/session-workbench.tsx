@@ -6,6 +6,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 import {
   createApiClient,
+  type CronJobRecord,
+  type CreateCronJobPayload,
   type ModelCatalogEntry,
   type RoutineRecord,
   type RunStreamEvent,
@@ -17,6 +19,7 @@ import {
   type SessionSettingsRecord,
   type TraceRecord,
   type UserContextHookRecord,
+  type UpdateCronJobPayload,
   type WorkspaceFileSearchResult,
   type WorkspaceSkillSearchResult,
   type WorkspaceFileChangeSummary
@@ -95,6 +98,9 @@ import {
 import {
   DEFAULT_MAX_TURNS,
   clearActiveSidebarPanel,
+  createDefaultCronJobFormState,
+  toCronJobFormState,
+  type CronJobFormState,
   type InspectorTabId,
   type SettingsFormState,
   type SettingsMcpFormState,
@@ -110,6 +116,7 @@ const apiClient = createApiClient({
 const SESSION_RAIL_COLLAPSED_STORAGE_KEY = "workbench-session-rail-collapsed";
 const ACTIVE_SESSION_REFRESH_INTERVAL_MS = 3_000;
 const SESSION_LIST_REFRESH_INTERVAL_MS = 5_000;
+const CRON_JOB_LIST_REFRESH_INTERVAL_MS = 5_000;
 const SESSION_SEARCH_DEBOUNCE_MS = 180;
 
 export function shouldBootstrapFromRequestedSession(input: {
@@ -128,6 +135,12 @@ export function shouldLoadExtendedSettingsForPanel(
   activeSidebarPanel: SidebarPanelId | null
 ): boolean {
   return activeSidebarPanel === "settings";
+}
+
+export function shouldLoadCronJobsForPanel(
+  activeSidebarPanel: SidebarPanelId | null
+): boolean {
+  return activeSidebarPanel === "cron";
 }
 
 async function fetchSessionListSnapshots(
@@ -485,6 +498,18 @@ export function SessionWorkbench() {
   const [loadingMcpSettings, setLoadingMcpSettings] = useState(false);
   const [loadingSkillsSettings, setLoadingSkillsSettings] = useState(false);
   const [savingMcpSettings, setSavingMcpSettings] = useState(false);
+  const [cronJobs, setCronJobs] = useState<CronJobRecord[]>([]);
+  const [currentCronJobId, setCurrentCronJobId] = useState<string | null>(null);
+  const [cronFormState, setCronFormState] = useState<CronJobFormState>(() =>
+    createDefaultCronJobFormState()
+  );
+  const [loadingCronJobs, setLoadingCronJobs] = useState(false);
+  const [savingCronJob, setSavingCronJob] = useState(false);
+  const [deletingCronJobId, setDeletingCronJobId] = useState<string | null>(
+    null
+  );
+  const [cronStatusText, setCronStatusText] = useState<string | null>(null);
+  const [cronErrorText, setCronErrorText] = useState<string | null>(null);
   const [mcpSettingsErrorText, setMcpSettingsErrorText] = useState<
     string | null
   >(null);
@@ -498,11 +523,26 @@ export function SessionWorkbench() {
     string | null
   >(null);
   const { sessions, selectedSessionId } = sessionRegistry;
+  const currentCronJobIdRef = useRef<string | null>(null);
   const [maxTurns, setMaxTurns] = useState(String(DEFAULT_MAX_TURNS));
   const [errorText, setErrorText] = useState<string | null>(null);
   const currentSession = sessionUiState.session;
   const submitting = sessionUiState.submitting;
   const interruptingSessionId = sessionUiState.interruptingSessionId;
+  const currentCronJob = useMemo(
+    () => cronJobs.find((cronJob) => cronJob.id === currentCronJobId) ?? null,
+    [cronJobs, currentCronJobId]
+  );
+  const defaultCronWorkingDirectory =
+    userSettings?.workingDirectory ??
+    settingsForm.workingDirectory ??
+    currentSession?.workingDirectory ??
+    "";
+  const defaultCronModelId =
+    userSettings?.model ??
+    currentSession?.model ??
+    modelCatalog[0]?.id ??
+    "MiniMax-M2.7";
   const forkTargetsByAssistantMessageId = useMemo(
     () =>
       new Map(
@@ -558,6 +598,10 @@ export function SessionWorkbench() {
   useEffect(() => {
     selectedSessionIdRef.current = selectedSessionId;
   }, [selectedSessionId]);
+
+  useEffect(() => {
+    currentCronJobIdRef.current = currentCronJobId;
+  }, [currentCronJobId]);
 
   useEffect(() => {
     if (!currentSession || currentSession.sessionId === selectedSessionId) {
@@ -681,6 +725,30 @@ export function SessionWorkbench() {
   function getCreateSessionPayload(): { userId?: string } {
     const userId = preferredUserIdRef.current?.trim();
     return userId ? { userId } : {};
+  }
+
+  function getCronJobsUserId(): string | null {
+    return (
+      currentSession?.context.userId ??
+      userSettings?.userId ??
+      preferredUserIdRef.current ??
+      null
+    );
+  }
+
+  function resetCronEditor(cronJob: CronJobRecord | null = null) {
+    if (cronJob) {
+      setCurrentCronJobId(cronJob.id);
+      setCronFormState(toCronJobFormState(cronJob));
+      return;
+    }
+
+    setCurrentCronJobId(null);
+    setCronFormState(
+      createDefaultCronJobFormState({
+        workingDirectory: defaultCronWorkingDirectory
+      })
+    );
   }
 
   function focusConversationView() {
@@ -933,6 +1001,81 @@ export function SessionWorkbench() {
     userSettings?.userId
   ]);
 
+  useEffect(() => {
+    if (
+      !shouldLoadCronJobsForPanel(activeSidebarPanel) ||
+      currentCronJobIdRef.current !== null ||
+      cronFormState.workingDirectory.trim().length > 0
+    ) {
+      return;
+    }
+
+    resetCronEditor(null);
+  }, [
+    activeSidebarPanel,
+    cronFormState.workingDirectory,
+    defaultCronWorkingDirectory
+  ]);
+
+  useEffect(() => {
+    if (!shouldLoadCronJobsForPanel(activeSidebarPanel)) {
+      return;
+    }
+
+    const userId = getCronJobsUserId();
+    if (!userId) {
+      return;
+    }
+    const targetUserId = userId;
+
+    let cancelled = false;
+
+    async function loadCronJobs(showLoading: boolean) {
+      if (showLoading) {
+        setLoadingCronJobs(true);
+      }
+
+      try {
+        const jobs = await apiClient.listCronJobs(targetUserId);
+        if (cancelled) {
+          return;
+        }
+
+        setCronJobs(jobs);
+        const selectedCronJobId = currentCronJobIdRef.current;
+        if (
+          selectedCronJobId &&
+          !jobs.some((cronJob) => cronJob.id === selectedCronJobId)
+        ) {
+          resetCronEditor(null);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setCronErrorText(error instanceof Error ? error.message : String(error));
+        }
+      } finally {
+        if (!cancelled && showLoading) {
+          setLoadingCronJobs(false);
+        }
+      }
+    }
+
+    setCronErrorText(null);
+    void loadCronJobs(true);
+    const intervalId = window.setInterval(() => {
+      void loadCronJobs(false);
+    }, CRON_JOB_LIST_REFRESH_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [
+    activeSidebarPanel,
+    currentSession?.context.userId,
+    userSettings?.userId
+  ]);
+
   async function refreshSelectedSession(
     sessionId: string,
     options: RefreshSelectedSessionOptions = {}
@@ -1108,7 +1251,7 @@ export function SessionWorkbench() {
     };
   }, [appliedSessionSearchQuery, loading]);
 
-  async function handleCreateSession() {
+  async function createSessionNow() {
     if (creatingSession) {
       return;
     }
@@ -1141,6 +1284,10 @@ export function SessionWorkbench() {
       endSessionListMutation();
       setCreatingSession(false);
     }
+  }
+
+  async function handleCreateSession() {
+    await createSessionNow();
   }
 
   function handleSelectSession(sessionId: string) {
@@ -2115,6 +2262,172 @@ export function SessionWorkbench() {
     });
   }
 
+  function handleCreateCronJob() {
+    setCronStatusText(null);
+    setCronErrorText(null);
+    resetCronEditor(null);
+    setActiveSidebarPanel("cron-create");
+  }
+
+  function handleSelectCronJob(cronJob: CronJobRecord) {
+    setCronStatusText(null);
+    setCronErrorText(null);
+    resetCronEditor(cronJob);
+    setActiveSidebarPanel("cron-create");
+  }
+
+  function handleCronFormChange(patch: Partial<CronJobFormState>) {
+    setCronFormState((current) => ({
+      ...current,
+      ...patch
+    }));
+  }
+
+  async function refreshCronJobsAfterMutation(
+    userId: string,
+    selectedCronJobId: string | null
+  ) {
+    const jobs = await apiClient.listCronJobs(userId);
+    setCronJobs(jobs);
+    if (!selectedCronJobId) {
+      return;
+    }
+    const nextSelected = jobs.find((cronJob) => cronJob.id === selectedCronJobId);
+    if (nextSelected) {
+      resetCronEditor(nextSelected);
+      return;
+    }
+    resetCronEditor(null);
+  }
+
+  async function handleSaveCronJob(
+    payload: CreateCronJobPayload | UpdateCronJobPayload
+  ) {
+    const userId = getCronJobsUserId();
+    if (!userId || savingCronJob) {
+      return;
+    }
+
+    setSavingCronJob(true);
+    setCronErrorText(null);
+    setCronStatusText(null);
+
+    try {
+      const savedCronJob = currentCronJob
+        ? await apiClient.updateCronJob(userId, currentCronJob.id, payload)
+        : await apiClient.createCronJob(
+            userId,
+            payload as CreateCronJobPayload
+          );
+      await refreshCronJobsAfterMutation(userId, savedCronJob.id);
+      setCronStatusText(
+        currentCronJob ? "已保存定时任务。" : "已创建定时任务。"
+      );
+      setActiveSidebarPanel("cron");
+    } catch (error) {
+      setCronErrorText(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSavingCronJob(false);
+    }
+  }
+
+  async function handleToggleCronJobStatus(cronJob: CronJobRecord) {
+    const userId = getCronJobsUserId();
+    if (!userId || savingCronJob) {
+      return;
+    }
+
+    setSavingCronJob(true);
+    setCronErrorText(null);
+    setCronStatusText(null);
+
+    const nextStatus =
+      cronJob.status === "active"
+        ? "paused"
+        : cronJob.status === "completed"
+          ? "active"
+          : "active";
+
+    try {
+      await apiClient.updateCronJob(userId, cronJob.id, {
+        status: nextStatus
+      });
+      await refreshCronJobsAfterMutation(userId, cronJob.id);
+      setCronStatusText(
+        nextStatus === "active" ? "已启用定时任务。" : "已暂停定时任务。"
+      );
+    } catch (error) {
+      setCronErrorText(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSavingCronJob(false);
+    }
+  }
+
+  async function handleDeleteCronJob(cronJobId: string) {
+    const userId = getCronJobsUserId();
+    if (!userId || deletingCronJobId) {
+      return;
+    }
+
+    const confirmed = window.confirm("删除后不会再触发这个定时任务，确认继续吗？");
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingCronJobId(cronJobId);
+    setCronErrorText(null);
+    setCronStatusText(null);
+
+    try {
+      await apiClient.deleteCronJob(userId, cronJobId);
+      const nextSelectedCronJobId =
+        currentCronJobIdRef.current === cronJobId
+          ? null
+          : currentCronJobIdRef.current;
+      await refreshCronJobsAfterMutation(userId, nextSelectedCronJobId);
+      setCronStatusText("已删除定时任务。");
+    } catch (error) {
+      setCronErrorText(error instanceof Error ? error.message : String(error));
+    } finally {
+      setDeletingCronJobId(null);
+    }
+  }
+
+  function handleJumpToCronRun(sessionId: string) {
+    focusConversationView();
+    setSelectedSessionIdState(sessionId);
+    replaceSessionRoute(sessionId);
+  }
+
+  async function handleChooseCronWorkingDirectory() {
+    if (choosingWorkingDirectory || savingCronJob) {
+      return;
+    }
+
+    setChoosingWorkingDirectory(true);
+    setCronErrorText(null);
+
+    try {
+      const startDirectory =
+        cronFormState.workingDirectory || defaultCronWorkingDirectory;
+      const selection = await apiClient.chooseDirectory(
+        startDirectory ? { startDirectory } : {}
+      );
+      if (selection.canceled || !selection.path) {
+        return;
+      }
+
+      setCronFormState((current) => ({
+        ...current,
+        workingDirectory: selection.path ?? current.workingDirectory
+      }));
+    } catch (error) {
+      setCronErrorText(error instanceof Error ? error.message : String(error));
+    } finally {
+      setChoosingWorkingDirectory(false);
+    }
+  }
+
   async function handleSettingsYoloModeChange(checked: boolean) {
     const nextForm = patchSettingsForm(settingsForm, {
       yoloMode: checked
@@ -2396,6 +2709,10 @@ export function SessionWorkbench() {
     setIsSessionRailCollapsed(true);
     void handleCreateSession();
   };
+  const handleOverlayCreateCronJob = () => {
+    setIsSessionRailCollapsed(true);
+    handleCreateCronJob();
+  };
   const sidebarToggleLabel = isSessionRailCollapsed
     ? "展开会话侧边栏"
     : "收起会话侧边栏";
@@ -2462,7 +2779,8 @@ export function SessionWorkbench() {
             deletingSessionId={deletingSessionId}
             loading={loading}
             creatingSession={creatingSession}
-            onCreateSession={handleCreateSession}
+            onCreateSession={() => void handleCreateSession()}
+            onCreateCronJob={handleCreateCronJob}
             onSearchValueChange={setSessionSearchQuery}
             onSelectSession={handleSelectSession}
             onDeleteSession={(sessionId) => void handleDeleteSession(sessionId)}
@@ -2491,6 +2809,7 @@ export function SessionWorkbench() {
                 loading={loading}
                 creatingSession={creatingSession}
                 onCreateSession={handleOverlayCreateSession}
+                onCreateCronJob={handleOverlayCreateCronJob}
                 onSearchValueChange={setSessionSearchQuery}
                 onSelectSession={handleOverlaySelectSession}
                 onDeleteSession={(sessionId) =>
@@ -2588,12 +2907,35 @@ export function SessionWorkbench() {
             <SessionWorkbenchDrawer
               activeSidebarPanel={activeSidebarPanel}
               currentSession={currentSession}
+              cronJobs={cronJobs}
+              currentCronJob={currentCronJob}
+              cronFormState={cronFormState}
+              cronLoading={loadingCronJobs}
+              cronSaving={savingCronJob}
+              cronDeletingJobId={deletingCronJobId}
+              cronStatusText={cronStatusText}
+              cronErrorText={cronErrorText}
+              choosingWorkingDirectory={choosingWorkingDirectory}
+              modelCatalog={modelCatalog}
+              defaultModelId={defaultCronModelId}
               submitting={submitting}
               resettingRoutines={resettingRoutines}
               weekDates={weekDates}
               groupedRoutines={groupedRoutines}
               inspectorProjection={inspectorProjection}
               activeTab={activeTab}
+              onCreateCronJob={handleCreateCronJob}
+              onSelectCronJob={handleSelectCronJob}
+              onCronFormChange={handleCronFormChange}
+              onSaveCronJob={handleSaveCronJob}
+              onToggleCronJobStatus={handleToggleCronJobStatus}
+              onDeleteCronJob={(cronJobId) =>
+                void handleDeleteCronJob(cronJobId)
+              }
+              onJumpToCronRun={handleJumpToCronRun}
+              onChooseWorkingDirectory={() =>
+                void handleChooseCronWorkingDirectory()
+              }
               onResetAllRoutines={() => void handleResetAllRoutines()}
               onSelectTab={setActiveTab}
               headerActions={headerActions}

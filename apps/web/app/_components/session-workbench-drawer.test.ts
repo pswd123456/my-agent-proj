@@ -1,10 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import type { RoutineRecord, SessionSnapshot } from "@ai-app-template/sdk";
+import type {
+  CronJobRecord,
+  RoutineRecord,
+  SessionSnapshot
+} from "@ai-app-template/sdk";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import type { InspectorProjection } from "./session-message-manager";
 import { SessionWorkbenchDrawer } from "./session-workbench-drawer";
+import { createDefaultCronJobFormState } from "./session-workbench-types";
 
 function createSessionSnapshot(): SessionSnapshot {
   return {
@@ -72,12 +77,33 @@ function renderDrawer(
     createElement(SessionWorkbenchDrawer, {
       activeSidebarPanel: "calendar",
       currentSession: createSessionSnapshot(),
+      cronJobs: [],
+      currentCronJob: null,
+      cronFormState: createDefaultCronJobFormState({
+        workingDirectory: "/tmp/workspace"
+      }),
+      cronLoading: false,
+      cronSaving: false,
+      cronDeletingJobId: null,
+      cronStatusText: null,
+      cronErrorText: null,
+      choosingWorkingDirectory: false,
+      modelCatalog: [],
+      defaultModelId: "MiniMax-M2.7",
       submitting: false,
       resettingRoutines: false,
       weekDates: [],
       groupedRoutines: new Map(),
       inspectorProjection: createInspectorProjection(),
       activeTab: "prompt",
+      onCreateCronJob: () => {},
+      onSelectCronJob: () => {},
+      onCronFormChange: () => {},
+      onSaveCronJob: () => {},
+      onToggleCronJobStatus: () => {},
+      onDeleteCronJob: () => {},
+      onJumpToCronRun: () => {},
+      onChooseWorkingDirectory: () => {},
       onResetAllRoutines: () => {},
       onSelectTab: () => {},
       ...props
@@ -146,5 +172,54 @@ describe("session-workbench drawer", () => {
 
     expect(markup).toContain("调试详情");
     expect(markup).toContain("1 events");
+  });
+
+  test("renders cron jobs in the drawer", () => {
+    const cronJob: CronJobRecord = {
+      id: "cron-1",
+      userId: "user-1",
+      name: "夜间回顾",
+      prompt: "回顾今日进展",
+      workingDirectory: "/tmp/workspace",
+      scheduleMode: "weekly",
+      intervalUnit: null,
+      intervalValue: null,
+      weekday: "friday",
+      timeOfDay: "22:15",
+      startsAt: "2026-05-01T14:15:00.000Z",
+      nextRunAt: "2026-05-08T14:15:00.000Z",
+      maxRuns: null,
+      runCount: 2,
+      remainingRuns: null,
+      status: "active",
+      modelOverride: null,
+      thinkingEffortOverride: null,
+      lastRunAt: "2026-05-02T14:15:00.000Z",
+      latestRunSessionId: "session-99",
+      latestRunStatus: "completed",
+      lastError: null,
+      createdAt: "2026-05-01T00:00:00.000Z",
+      updatedAt: "2026-05-02T00:00:00.000Z"
+    };
+
+    const markup = renderDrawer({
+      activeSidebarPanel: "cron",
+      cronJobs: [cronJob]
+    });
+
+    expect(markup).toContain("定时任务");
+    expect(markup).toContain("夜间回顾");
+    expect(markup).toContain("最近一次运行");
+    expect(markup).toContain("新建任务");
+  });
+
+  test("renders the standalone cron-create page", () => {
+    const markup = renderDrawer({
+      activeSidebarPanel: "cron-create"
+    });
+
+    expect(markup).toContain("新建定时任务");
+    expect(markup).toContain("保存后会按计划自动创建新会话");
+    expect(markup).toContain("创建任务");
   });
 });

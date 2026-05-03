@@ -73,6 +73,7 @@ describe("session sidebar prompt preview", () => {
       loading: false,
       creatingSession: false,
       onCreateSession: () => {},
+      onCreateCronJob: () => {},
       onSearchValueChange: () => {},
       onSelectSession: () => {},
       onDeleteSession: () => {},
@@ -150,6 +151,43 @@ describe("session sidebar prompt preview", () => {
     expect(markup.indexOf("创建新会话")).toBeLessThan(
       markup.indexOf('type="search"')
     );
+  });
+
+  test("renders the new-cron entry directly below create session", () => {
+    const markup = renderToStaticMarkup(
+      createElement(
+        SessionWorkbenchSidebar,
+        createSidebarProps([
+          createSessionSummary("请帮我检查 runtime 的循环退出条件")
+        ])
+      )
+    );
+
+    expect(markup).toContain("新建定时任务");
+    expect(markup.indexOf("创建新会话")).toBeLessThan(
+      markup.indexOf("新建定时任务")
+    );
+  });
+
+  test("keeps the top new-cron button but removes the lower panel entry", () => {
+    const markup = renderToStaticMarkup(
+      createElement(
+        SessionWorkbenchSidebar,
+        createSidebarProps([
+          createSessionSummary("请帮我检查 runtime 的循环退出条件")
+        ])
+      )
+    );
+
+    expect(markup).not.toContain("侧边面板");
+    expect(markup).toContain('aria-label="新建定时任务"');
+    expect(markup).not.toContain(
+      "<span>新建定时任务</span><span class=\"font-mono text-[0.72rem] uppercase tracking-[0.14em] text-[var(--app-text-muted)]\">view</span>"
+    );
+    expect(markup).toContain("默认设置");
+    expect(markup).toContain("定时任务");
+    expect(markup).toContain("日历");
+    expect(markup).toContain("调试详情");
   });
 
   test("distinguishes fork children from subagent children in sidebar labels", () => {

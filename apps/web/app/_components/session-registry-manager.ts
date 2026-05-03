@@ -1,9 +1,8 @@
 import {
-  toSessionSummary,
   type SessionSnapshot,
-  type SessionSummary
+  type SessionSummary,
+  toSessionSummary
 } from "@ai-app-template/sdk";
-
 import {
   findReusableNewSessionSummary,
   applyStreamEventToSession,
@@ -11,9 +10,10 @@ import {
   sortSessionSummaries
 } from "./session-workbench-state";
 import type { RunStreamEvent } from "@ai-app-template/sdk";
+import type { WorkbenchSessionSummary } from "./session-workbench-types";
 
 export type SessionRegistryState = {
-  sessions: SessionSummary[];
+  sessions: WorkbenchSessionSummary[];
   selectedSessionId: string | null;
   currentSession: SessionSnapshot | null;
 };
@@ -167,7 +167,7 @@ export function replaceSessions(
 
 export function deriveRenderedSessions(
   state: SessionRegistryState
-): SessionSummary[] {
+): WorkbenchSessionSummary[] {
   if (!state.currentSession) {
     return state.sessions;
   }
@@ -186,9 +186,13 @@ export function reuseOrCreateSessionSummary(
 }
 
 function upsertSessionSummary(
-  sessions: SessionSummary[],
+  sessions: WorkbenchSessionSummary[],
   session: SessionSnapshot
-): SessionSummary[] {
-  const next = mergeSessionSummary(sessions, session, toSessionSummary);
+): WorkbenchSessionSummary[] {
+  const next = mergeSessionSummary(
+    sessions,
+    session,
+    toSessionSummary
+  );
   return [...next];
 }

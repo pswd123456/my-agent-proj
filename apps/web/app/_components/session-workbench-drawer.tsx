@@ -3,44 +3,110 @@
 import type { ReactNode } from "react";
 
 import { WorkbenchPanel } from "@ai-app-template/ui-patterns";
-import type { RoutineRecord, SessionSnapshot } from "@ai-app-template/sdk";
+import type {
+  CronJobRecord,
+  CreateCronJobPayload,
+  ModelCatalogEntry,
+  RoutineRecord,
+  SessionSnapshot,
+  UpdateCronJobPayload
+} from "@ai-app-template/sdk";
 
 import { formatDayLabel, getSoftBlockClass } from "./session-workbench-shared";
 import type { InspectorProjection } from "./session-message-manager";
+import { SessionWorkbenchCronForm } from "./session-workbench-cron-form";
+import { SessionWorkbenchCronPanel } from "./session-workbench-cron-panel";
 import { SessionWorkbenchInspector } from "./session-workbench-inspector";
-import type { InspectorTabId, SidebarPanelId } from "./session-workbench-types";
+import type {
+  CronJobFormState,
+  InspectorTabId,
+  SidebarPanelId
+} from "./session-workbench-types";
 
 interface SessionWorkbenchDrawerProps {
   activeSidebarPanel: SidebarPanelId | null;
   currentSession: SessionSnapshot | null;
+  cronJobs: CronJobRecord[];
+  currentCronJob: CronJobRecord | null;
+  cronFormState: CronJobFormState;
+  cronLoading: boolean;
+  cronSaving: boolean;
+  cronDeletingJobId: string | null;
+  cronStatusText: string | null;
+  cronErrorText: string | null;
+  choosingWorkingDirectory: boolean;
+  modelCatalog: ModelCatalogEntry[];
+  defaultModelId: string;
   submitting: boolean;
   resettingRoutines: boolean;
   weekDates: string[];
   groupedRoutines: Map<string, RoutineRecord[]>;
   inspectorProjection: InspectorProjection;
   activeTab: InspectorTabId;
+  onCreateCronJob: () => void;
+  onSelectCronJob: (cronJob: CronJobRecord) => void;
+  onCronFormChange: (patch: Partial<CronJobFormState>) => void;
+  onSaveCronJob: (payload: CreateCronJobPayload | UpdateCronJobPayload) => void;
+  onToggleCronJobStatus: (cronJob: CronJobRecord) => void;
+  onDeleteCronJob: (cronJobId: string) => void;
+  onJumpToCronRun: (sessionId: string) => void;
+  onChooseWorkingDirectory: () => void;
   onResetAllRoutines: () => void;
   onSelectTab: (tabId: InspectorTabId) => void;
   headerActions?: ReactNode;
 }
 
 function getDrawerEyebrow(panel: SidebarPanelId): string {
-  return panel === "calendar" ? "Calendar" : "Inspector";
+  if (panel === "calendar") {
+    return "Calendar";
+  }
+  if (panel === "cron" || panel === "cron-create") {
+    return "Cron";
+  }
+  return "Inspector";
 }
 
 function getDrawerTitle(panel: SidebarPanelId): string {
-  return panel === "calendar" ? "日程视图" : "调试详情";
+  if (panel === "calendar") {
+    return "日程视图";
+  }
+  if (panel === "cron") {
+    return "定时任务";
+  }
+  if (panel === "cron-create") {
+    return "新建定时任务";
+  }
+  return "调试详情";
 }
 
 export function SessionWorkbenchDrawer({
   activeSidebarPanel,
   currentSession,
+  cronJobs,
+  currentCronJob,
+  cronFormState,
+  cronLoading,
+  cronSaving,
+  cronDeletingJobId,
+  cronStatusText,
+  cronErrorText,
+  choosingWorkingDirectory,
+  modelCatalog,
+  defaultModelId,
   submitting,
   resettingRoutines,
   weekDates,
   groupedRoutines,
   inspectorProjection,
   activeTab,
+  onCreateCronJob,
+  onSelectCronJob,
+  onCronFormChange,
+  onSaveCronJob,
+  onToggleCronJobStatus,
+  onDeleteCronJob,
+  onJumpToCronRun,
+  onChooseWorkingDirectory,
   onResetAllRoutines,
   onSelectTab,
   headerActions
@@ -57,6 +123,10 @@ export function SessionWorkbenchDrawer({
         meta={
           activeSidebarPanel === "calendar"
             ? (currentSession?.context.currentDateContext ?? "--")
+            : activeSidebarPanel === "cron"
+              ? `${cronJobs.length} jobs`
+              : activeSidebarPanel === "cron-create"
+                ? "form"
             : `${inspectorProjection.inspectorEvents.length} events`
         }
         headerActions={headerActions}
@@ -123,6 +193,39 @@ export function SessionWorkbenchDrawer({
                   </div>
                 ))
               )}
+            </div>
+          ) : activeSidebarPanel === "cron" ? (
+            <SessionWorkbenchCronPanel
+              cronJobs={cronJobs}
+              loading={cronLoading}
+              deletingCronJobId={cronDeletingJobId}
+              statusText={cronStatusText}
+              errorText={cronErrorText}
+              onCreateNew={onCreateCronJob}
+              onSelectCronJob={onSelectCronJob}
+              onToggleStatus={onToggleCronJobStatus}
+              onDeleteCronJob={onDeleteCronJob}
+              onJumpToSession={onJumpToCronRun}
+            />
+          ) : activeSidebarPanel === "cron-create" ? (
+            <div className="grid gap-3">
+              <div className="text-xs leading-5 text-[var(--app-text-muted)]">
+                保存后会按计划自动创建新会话，运行记录仍会出现在左侧会话列表里。
+              </div>
+              <SessionWorkbenchCronForm
+                currentCronJob={currentCronJob}
+                formState={cronFormState}
+                modelCatalog={modelCatalog}
+                defaultModelId={defaultModelId}
+                saving={cronSaving}
+                choosingWorkingDirectory={choosingWorkingDirectory}
+                statusText={cronStatusText}
+                errorText={cronErrorText}
+                onFormChange={onCronFormChange}
+                onSubmit={onSaveCronJob}
+                onChooseWorkingDirectory={onChooseWorkingDirectory}
+                onJumpToSession={onJumpToCronRun}
+              />
             </div>
           ) : (
             <SessionWorkbenchInspector

@@ -28,7 +28,8 @@ import {
   type SettingsMcpServerFormState,
   type SettingsFormState,
   type SettingsSkillsState,
-  type TurnUsageSummary
+  type TurnUsageSummary,
+  type WorkbenchSessionSummary
 } from "./session-workbench-types";
 import { applyTodoToolResultToSession } from "./session-todo-state";
 
@@ -106,23 +107,23 @@ export function buildWeekRange(anchorDate: string): {
 
 export function sortSessionSummaries(
   snapshots: SessionSnapshot[],
-  toSummary: (session: SessionSnapshot) => SessionSummary
-): SessionSummary[] {
+  toSummary: (session: SessionSnapshot) => WorkbenchSessionSummary
+): WorkbenchSessionSummary[] {
   return sortSessionSummariesByFreshness(snapshots.map(toSummary));
 }
 
 export function mergeSessionSummary(
-  sessions: SessionSummary[],
+  sessions: WorkbenchSessionSummary[],
   session: SessionSnapshot,
-  toSummary: (session: SessionSnapshot) => SessionSummary
-): SessionSummary[] {
+  toSummary: (session: SessionSnapshot) => WorkbenchSessionSummary
+): WorkbenchSessionSummary[] {
   const next = sessions.filter((item) => item.sessionId !== session.sessionId);
   next.unshift(toSummary(session));
   return sortSessionSummariesByFreshness(next);
 }
 
 export interface SessionSidebarRow {
-  session: SessionSummary;
+  session: WorkbenchSessionSummary;
   depth: number;
   childCount: number;
 }
@@ -130,15 +131,15 @@ export interface SessionSidebarRow {
 export const DEFAULT_VISIBLE_SESSION_ROW_COUNT = 20;
 
 function sortSessionSummariesByFreshness(
-  sessions: SessionSummary[]
-): SessionSummary[] {
+  sessions: WorkbenchSessionSummary[]
+): WorkbenchSessionSummary[] {
   return [...sessions].sort((left, right) =>
     right.updatedAt.localeCompare(left.updatedAt)
   );
 }
 
 export function buildSessionSidebarRows(
-  sessions: SessionSummary[],
+  sessions: WorkbenchSessionSummary[],
   options: {
     debugConversationView?: boolean;
   } = {}
@@ -151,7 +152,7 @@ export function buildSessionSidebarRows(
   const sessionsById = new Map(
     visibleSessions.map((session) => [session.sessionId, session] as const)
   );
-  const childrenByParentId = new Map<string, SessionSummary[]>();
+  const childrenByParentId = new Map<string, WorkbenchSessionSummary[]>();
 
   for (const session of visibleSessions) {
     const parentSessionId = session.parentSessionId?.trim() ?? null;
@@ -496,8 +497,8 @@ export function isReusableNewSessionSummary(session: SessionSummary): boolean {
 }
 
 export function findReusableNewSessionSummary(
-  sessions: SessionSummary[]
-): SessionSummary | null {
+  sessions: WorkbenchSessionSummary[]
+): WorkbenchSessionSummary | null {
   return sessions.find(isReusableNewSessionSummary) ?? null;
 }
 
