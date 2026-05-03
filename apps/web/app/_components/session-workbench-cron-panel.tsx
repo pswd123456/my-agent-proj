@@ -93,10 +93,18 @@ export function SessionWorkbenchCronPanel({
       ) : (
         <div className="grid gap-3">
           {cronJobs.map((cronJob) => (
-            <button
+            <div
               key={cronJob.id}
-              type="button"
+              role="button"
+              tabIndex={0}
               onClick={() => onSelectCronJob(cronJob)}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" && event.key !== " ") {
+                  return;
+                }
+                event.preventDefault();
+                onSelectCronJob(cronJob);
+              }}
               className="grid gap-3 rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_68%,transparent)] px-4 py-4 text-left transition hover:border-[var(--app-border-strong)]"
             >
               <div className="flex items-start justify-between gap-3">
@@ -169,7 +177,7 @@ export function SessionWorkbenchCronPanel({
                   {deletingCronJobId === cronJob.id ? "删除中..." : "删除"}
                 </button>
               </div>
-            </button>
+            </div>
           ))}
         </div>
       )}

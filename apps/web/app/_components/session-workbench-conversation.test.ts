@@ -469,6 +469,21 @@ describe("message copy buttons", () => {
     expect(markup).toContain(">复制<");
   });
 
+  test("renders user message actions below the bubble", () => {
+    const markup = renderToStaticMarkup(
+      renderUserMessageBlock({
+        id: "user-msg-1",
+        kind: "user",
+        content: "请把这个需求拆成两步。",
+        createdAt: "2026-05-02T08:00:00.000Z"
+      })
+    );
+
+    expect(markup).toContain(
+      '请把这个需求拆成两步。</div></div><div class="flex flex-wrap items-center justify-end gap-2">'
+    );
+  });
+
   test("renders a copy button for assistant messages", () => {
     const markup = renderToStaticMarkup(
       renderAssistantMessageBlock({

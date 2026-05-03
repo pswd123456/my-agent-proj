@@ -213,6 +213,43 @@ describe("session-workbench drawer", () => {
     expect(markup).toContain("新建任务");
   });
 
+  test("renders cron job cards without nested button markup", () => {
+    const cronJob: CronJobRecord = {
+      id: "cron-1",
+      userId: "user-1",
+      name: "夜间回顾",
+      prompt: "回顾今日进展",
+      workingDirectory: "/tmp/workspace",
+      scheduleMode: "weekly",
+      intervalUnit: null,
+      intervalValue: null,
+      weekday: "friday",
+      timeOfDay: "22:15",
+      startsAt: "2026-05-01T14:15:00.000Z",
+      nextRunAt: "2026-05-08T14:15:00.000Z",
+      maxRuns: null,
+      runCount: 2,
+      remainingRuns: null,
+      status: "active",
+      modelOverride: null,
+      thinkingEffortOverride: null,
+      lastRunAt: "2026-05-02T14:15:00.000Z",
+      latestRunSessionId: "session-99",
+      latestRunStatus: "completed",
+      lastError: null,
+      createdAt: "2026-05-01T00:00:00.000Z",
+      updatedAt: "2026-05-02T00:00:00.000Z"
+    };
+
+    const markup = renderDrawer({
+      activeSidebarPanel: "cron",
+      cronJobs: [cronJob]
+    });
+
+    expect(markup).toContain('role="button"');
+    expect(markup).not.toContain("<button><button");
+  });
+
   test("renders the standalone cron-create page", () => {
     const markup = renderDrawer({
       activeSidebarPanel: "cron-create"

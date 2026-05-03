@@ -421,22 +421,33 @@ export function renderUserMessageBlock(
   rewriteAction?: UserRewriteAction
 ) {
   const isEditing = rewriteAction?.active ?? false;
+  const hasMessageActions = isEditing
+    ? Boolean(rewriteAction)
+    : Boolean(rewriteAction) || block.content.trim().length > 0;
   return (
     <div key={block.id} className="flex flex-col items-end gap-1">
       <MessageRoleLabel role="user" timestamp={block.createdAt} />
       <div className={`${getBubbleClass("user")} flex max-w-[88%] flex-col gap-3`}>
         {isEditing ? (
+          <textarea
+            value={rewriteAction?.draft ?? ""}
+            onChange={(event) =>
+              rewriteAction?.onDraftChange(event.currentTarget.value)
+            }
+            rows={4}
+            disabled={rewriteAction?.pending}
+            className="w-full resize-none rounded-[var(--app-radius-md)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-canvas)_10%,var(--app-bg-surface)_90%)] px-3 py-2 text-sm leading-7 text-[var(--app-text-primary)] outline-none transition focus:border-[var(--app-border-accent)] disabled:cursor-not-allowed disabled:opacity-70"
+          />
+        ) : (
           <>
-            <textarea
-              value={rewriteAction?.draft ?? ""}
-              onChange={(event) =>
-                rewriteAction?.onDraftChange(event.currentTarget.value)
-              }
-              rows={4}
-              disabled={rewriteAction?.pending}
-              className="w-full resize-none rounded-[var(--app-radius-md)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-canvas)_10%,var(--app-bg-surface)_90%)] px-3 py-2 text-sm leading-7 text-[var(--app-text-primary)] outline-none transition focus:border-[var(--app-border-accent)] disabled:cursor-not-allowed disabled:opacity-70"
-            />
-            <div className="flex items-center justify-end gap-2">
+            <div>{block.content}</div>
+          </>
+        )}
+      </div>
+      {hasMessageActions ? (
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {isEditing ? (
+            <>
               <button
                 type="button"
                 disabled={rewriteAction?.pending}
@@ -456,24 +467,20 @@ export function renderUserMessageBlock(
               >
                 {rewriteAction?.pending ? "回退中..." : "改写并重试"}
               </button>
-            </div>
-          </>
-        ) : (
-          <>
-            <div>{block.content}</div>
-            {rewriteAction || block.content.trim().length > 0 ? (
-              <div className="flex flex-wrap justify-end gap-2">
-                {block.content.trim().length > 0 ? (
-                  <CopyTextButton
-                    text={block.content}
-                    label="复制"
-                    copiedLabel="已复制"
-                    failedLabel="复制失败"
-                    title="复制用户消息"
-                    ariaLabel="复制用户消息"
-                  />
-                ) : null}
-                {rewriteAction ? (
+            </>
+          ) : (
+            <>
+              {block.content.trim().length > 0 ? (
+                <CopyTextButton
+                  text={block.content}
+                  label="复制"
+                  copiedLabel="已复制"
+                  failedLabel="复制失败"
+                  title="复制用户消息"
+                  ariaLabel="复制用户消息"
+                />
+              ) : null}
+              {rewriteAction ? (
                 <button
                   type="button"
                   disabled={rewriteAction.pending}
@@ -482,12 +489,11 @@ export function renderUserMessageBlock(
                 >
                   改写
                 </button>
-                ) : null}
-              </div>
-            ) : null}
-          </>
-        )}
-      </div>
+              ) : null}
+            </>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }
