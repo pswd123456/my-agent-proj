@@ -21,8 +21,7 @@ import {
   type UserContextHookRecord,
   type UpdateCronJobPayload,
   type WorkspaceFileSearchResult,
-  type WorkspaceSkillSearchResult,
-  type WorkspaceFileChangeSummary
+  type WorkspaceSkillSearchResult
 } from "@ai-app-template/sdk";
 
 import {
@@ -50,9 +49,8 @@ import {
   toSettingsSkillsState
 } from "./session-workbench-state";
 import {
-  applyStreamEventToSessionRegistry,
   bootstrapSessions,
-  clearCurrentSession,
+  applyStreamEventToSessionRegistry,
   createSessionRegistryState,
   deriveRenderedSessions,
   hydrateSelectedSession,
@@ -61,28 +59,35 @@ import {
   upsertSession
 } from "./session-registry-manager";
 import {
-  appendMessageManagerEvent,
-  beginMessageManagerRun,
   buildMessageManagerProjection,
-  completeMessageManagerAutoCollapse,
-  createMessageManagerState,
-  finishMessageManagerRun,
-  markMessageManagerAnimationComplete,
-  registerMessageManagerCollapsedFlows,
-  resetMessageManagerState,
-  resetMessageManagerViewState,
-  toggleMessageManagerExpanded
+  createMessageManagerState
 } from "./session-message-manager";
 import {
-  applyStreamEventToSessionState,
-  clearSessionUiState,
-  beginSessionInterrupt,
-  beginSessionSubmission,
-  createSessionUiState,
-  finishSessionSubmission,
-  rollbackSessionUiState,
-  setSessionSnapshot
-} from "./session-state-manager";
+  applyStreamEventToSessionLocalState,
+  beginSessionLocalInterrupt,
+  beginSessionLocalSubmission,
+  clearSessionLocalState,
+  completeAutoCollapseForSession,
+  createSessionLocalStateMap,
+  finishSessionLocalSubmission,
+  getSessionLocalStateBucket,
+  markAssistantAnimationCompleteForSession,
+  registerCollapsedFlowsForSession,
+  removeSessionLocalState,
+  resetMessageManagerViewStateForSession,
+  rollbackSessionLocalSubmission,
+  setMessageManagerStateForSession,
+  setRunFileChangesForSession,
+  toggleExpandedItemForSession,
+  upsertSessionLocalState
+} from "./session-local-state-manager";
+import {
+  buildRunFileChangesStatesFromSession,
+  getRunFileChangesAggregateState,
+  getSelectedWorkspaceFileChanges,
+  mergeRunFileChangesStates,
+  type RunFileChangesState
+} from "./session-run-file-changes";
 import { isTodoToolName } from "./session-todo-state";
 import {
   SessionWorkbenchConversationPanel,
@@ -90,7 +95,6 @@ import {
   SessionWorkbenchSidebar
 } from "./session-workbench-ui";
 import { SessionWorkbenchSettings } from "./session-workbench-settings";
-import type { RunFileChangesView } from "./session-workbench-conversation";
 import {
   SESSION_RAIL_COLLAPSE_MEDIA_QUERY,
   resolveSessionRailCollapsedState
@@ -118,6 +122,15 @@ const ACTIVE_SESSION_REFRESH_INTERVAL_MS = 3_000;
 const SESSION_LIST_REFRESH_INTERVAL_MS = 5_000;
 const CRON_JOB_LIST_REFRESH_INTERVAL_MS = 5_000;
 const SESSION_SEARCH_DEBOUNCE_MS = 180;
+
+export {
+  buildRunFileChangesState,
+  buildRunFileChangesStatesFromSession,
+  collectWorkspaceFileChangesFromRun,
+  getRunFileChangesAggregateState,
+  getSelectedWorkspaceFileChanges,
+  mergeRunFileChangesStates
+} from "./session-run-file-changes";
 
 export function shouldBootstrapFromRequestedSession(input: {
   hasHydratedSessions: boolean;
@@ -193,8 +206,6 @@ function resolvePendingPreUserHooks(input: {
   };
 }
 
-export type RunFileChangesState = RunFileChangesView;
-
 export function shouldApplySessionListResponse(input: {
   requestVersion: number;
   currentVersion: number;
@@ -216,146 +227,6 @@ export function shouldApplySelectedSessionResponse(input: {
   );
 }
 
-export function getRunFileChangesAggregateState(
-  fileStates: Array<"applied" | "undone">
-): RunFileChangesState["state"] {
-  if (fileStates.length === 0) {
-    return "applied";
-  }
-
-  const firstState = fileStates[0] ?? "applied";
-  return fileStates.every((state) => state === firstState)
-    ? firstState
-    : "mixed";
-}
-
-export function getSelectedWorkspaceFileChanges(
-  view: RunFileChangesState
-): WorkspaceFileChangeSummary[] {
-  return view.selectedFileIndexes.flatMap((index) => {
-    const file = view.files[index];
-    return file ? [file] : [];
-  });
-}
-
-function buildRunFileChangesStateFromFiles(input: {
-  key: string;
-  createdAt: string;
-  files: WorkspaceFileChangeSummary[];
-}): RunFileChangesState {
-  return {
-    key: input.key,
-    createdAt: input.createdAt,
-    files: input.files,
-    fileStates: input.files.map(() => "applied" as const),
-    state: "applied",
-    selectedFileIndexes: input.files.map((_, index) => index),
-    pendingAction: null,
-    errorText: null
-  };
-}
-
-export function buildRunFileChangesStatesFromSession(
-  session: SessionSnapshot | null
-): RunFileChangesState[] {
-  if (!session) {
-    return [];
-  }
-
-  const views: RunFileChangesState[] = [];
-  let runIndex = 0;
-  let runKey = `run-file-changes:${session.sessionId}:prelude`;
-  let runCreatedAt = "";
-  let files: WorkspaceFileChangeSummary[] = [];
-
-  function flushRun() {
-    if (files.length === 0) {
-      return;
-    }
-
-    views.push(
-      buildRunFileChangesStateFromFiles({
-        key: runKey,
-        createdAt: runCreatedAt,
-        files
-      })
-    );
-    files = [];
-    runCreatedAt = "";
-  }
-
-  for (const block of session.messages) {
-    if (block.kind === "user") {
-      flushRun();
-      runIndex += 1;
-      runKey = `run-file-changes:${session.sessionId}:${block.id}`;
-      runCreatedAt = block.createdAt;
-      continue;
-    }
-
-    if (
-      block.kind !== "tool result" ||
-      block.isError ||
-      block.details?.kind !== "workspace_file_changes" ||
-      block.details.files.length === 0
-    ) {
-      continue;
-    }
-
-    files = [...files, ...block.details.files];
-    runCreatedAt =
-      runCreatedAt && runCreatedAt > block.createdAt
-        ? runCreatedAt
-        : block.createdAt;
-
-    if (runKey.endsWith(":prelude")) {
-      runKey = `run-file-changes:${session.sessionId}:prelude-${runIndex}`;
-    }
-  }
-
-  flushRun();
-  return views;
-}
-
-export function mergeRunFileChangesStates(
-  current: RunFileChangesState[],
-  next: RunFileChangesState[]
-): RunFileChangesState[] {
-  const currentByKey = new Map(current.map((view) => [view.key, view]));
-
-  return next.map((view) => {
-    const existing = currentByKey.get(view.key);
-    if (!existing) {
-      return view;
-    }
-
-    const filesStillMatch =
-      existing.files.length === view.files.length &&
-      existing.files.every(
-        (file, index) => file.path === view.files[index]?.path
-      );
-    if (!filesStillMatch) {
-      return view;
-    }
-
-    const fileStates = view.files.map(
-      (_, index) => existing.fileStates[index] ?? "applied"
-    );
-    const selectedFileIndexes = existing.selectedFileIndexes.filter(
-      (index) => index >= 0 && index < view.files.length
-    );
-
-    return {
-      ...view,
-      fileStates,
-      state: getRunFileChangesAggregateState(fileStates),
-      selectedFileIndexes,
-      pendingAction: existing.pendingAction,
-      errorText: existing.errorText
-    };
-  });
-}
-
 function extractShellApprovalPattern(reply: string): string | null {
   const prefix = "本会话允许 shell:";
   if (!reply.startsWith(prefix)) {
@@ -371,46 +242,6 @@ function appendShellAllowPattern(
   nextPattern: string
 ): string {
   return appendPatternLine(currentPatterns, nextPattern);
-}
-
-export function collectWorkspaceFileChangesFromRun(
-  event: Extract<RunStreamEvent, { kind: "run_complete" | "run_error" }>
-): WorkspaceFileChangeSummary[] {
-  if (!("toolOutputs" in event)) {
-    return [];
-  }
-
-  return event.toolOutputs.flatMap((output) => {
-    if (
-      output.isError ||
-      output.details?.kind !== "workspace_file_changes" ||
-      output.details.files.length === 0
-    ) {
-      return [];
-    }
-
-    return output.details.files;
-  });
-}
-
-export function buildRunFileChangesState(
-  event: Extract<RunStreamEvent, { kind: "run_complete" | "run_error" }>
-): RunFileChangesState | null {
-  const files = collectWorkspaceFileChangesFromRun(event);
-  if (files.length === 0) {
-    return null;
-  }
-
-  return {
-    key: `run-file-changes:${event.createdAt}`,
-    createdAt: event.createdAt,
-    files,
-    fileStates: files.map(() => "applied" as const),
-    state: "applied",
-    selectedFileIndexes: files.map((_, index) => index),
-    pendingAction: null,
-    errorText: null
-  };
 }
 
 type RefreshSelectedSessionOptions = {
@@ -429,24 +260,19 @@ export function SessionWorkbench() {
   const sessionListRefreshVersionRef = useRef(0);
   const sessionListMutationInFlightRef = useRef(false);
   const appliedSessionSearchQueryRef = useRef("");
+  const sessionLocalStateMapRef = useRef(createSessionLocalStateMap());
 
   const [sessionRegistry, setSessionRegistry] = useState(() =>
     createSessionRegistryState()
   );
-  const [sessionUiState, setSessionUiState] = useState(() =>
-    createSessionUiState(null)
+  const [sessionLocalStateMap, setSessionLocalStateMap] = useState(() =>
+    createSessionLocalStateMap()
   );
   const [traceRecords, setTraceRecords] = useState<TraceRecord[]>([]);
   const [forkTargets, setForkTargets] = useState<SessionForkTarget[]>([]);
   const [rewriteTarget, setRewriteTarget] =
     useState<SessionRewriteTarget | null>(null);
   const [routines, setRoutines] = useState<RoutineRecord[]>([]);
-  const [messageManagerState, setMessageManagerState] = useState(() =>
-    createMessageManagerState()
-  );
-  const [runFileChanges, setRunFileChanges] = useState<RunFileChangesState[]>(
-    []
-  );
   const [message, setMessage] = useState("");
   const [sessionSearchQuery, setSessionSearchQuery] = useState("");
   const [appliedSessionSearchQuery, setAppliedSessionSearchQuery] =
@@ -526,9 +352,18 @@ export function SessionWorkbench() {
   const currentCronJobIdRef = useRef<string | null>(null);
   const [maxTurns, setMaxTurns] = useState(String(DEFAULT_MAX_TURNS));
   const [errorText, setErrorText] = useState<string | null>(null);
-  const currentSession = sessionUiState.session;
-  const submitting = sessionUiState.submitting;
-  const interruptingSessionId = sessionUiState.interruptingSessionId;
+  const emptyMessageManagerState = useMemo(() => createMessageManagerState(), []);
+  const selectedSessionLocalState = getSessionLocalStateBucket(
+    sessionLocalStateMap,
+    selectedSessionId
+  );
+  const currentSession = selectedSessionLocalState?.uiState.session ?? null;
+  const submitting = selectedSessionLocalState?.uiState.submitting ?? false;
+  const interruptingSessionId =
+    selectedSessionLocalState?.uiState.interruptingSessionId ?? null;
+  const messageManagerState =
+    selectedSessionLocalState?.messageManagerState ?? emptyMessageManagerState;
+  const runFileChanges = selectedSessionLocalState?.runFileChanges ?? [];
   const currentCronJob = useMemo(
     () => cronJobs.find((cronJob) => cronJob.id === currentCronJobId) ?? null,
     [cronJobs, currentCronJobId]
@@ -565,9 +400,19 @@ export function SessionWorkbench() {
     });
   }
 
+  function getLocalSessionSnapshot(sessionId: string | null): SessionSnapshot | null {
+    if (!sessionId) {
+      return null;
+    }
+
+    return sessionLocalStateMapRef.current[sessionId]?.uiState.session ?? null;
+  }
+
   function setSelectedSessionIdState(sessionId: string | null) {
     selectedSessionIdRef.current = sessionId;
-    setSessionRegistry((current) => selectSession(current, sessionId));
+    setSessionRegistry((current) =>
+      hydrateSelectedSession(selectSession(current, sessionId), getLocalSessionSnapshot(sessionId))
+    );
   }
 
   function resetSelectedSessionResources() {
@@ -575,23 +420,54 @@ export function SessionWorkbench() {
     setRewriteTarget(null);
     setTraceRecords([]);
     setRoutines([]);
-    setRunFileChanges([]);
     setEditingRewriteMessageId(null);
     setRewriteDraft("");
     setRecoveringRewriteTarget(false);
-    setMessageManagerState(resetMessageManagerState());
   }
 
   function hydrateCurrentSession(session: SessionSnapshot | null) {
-    setSessionUiState((current) =>
-      session
-        ? setSessionSnapshot(current, session)
-        : clearSessionUiState(current)
+    const selectedSessionId = selectedSessionIdRef.current;
+    if (!selectedSessionId) {
+      return;
+    }
+
+    if (session) {
+      setSessionLocalStateMap((current) => upsertSessionLocalState(current, session));
+      setSessionRegistry((current) => hydrateSelectedSession(current, session));
+      return;
+    }
+
+    setSessionLocalStateMap((current) =>
+      clearSessionLocalState(current, selectedSessionId)
     );
     setSessionRegistry((current) =>
-      session
-        ? hydrateSelectedSession(current, session)
-        : clearCurrentSession(current)
+      hydrateSelectedSession(current, null)
+    );
+  }
+
+  function updateSelectedRunFileChanges(
+    updater: (current: RunFileChangesState[]) => RunFileChangesState[]
+  ) {
+    const selectedSessionId = selectedSessionIdRef.current;
+    if (!selectedSessionId) {
+      return;
+    }
+
+    setSessionLocalStateMap((current) =>
+      setRunFileChangesForSession(current, selectedSessionId, updater)
+    );
+  }
+
+  function updateSelectedMessageManagerState(
+    updater: Parameters<typeof setMessageManagerStateForSession>[2]
+  ) {
+    const selectedSessionId = selectedSessionIdRef.current;
+    if (!selectedSessionId) {
+      return;
+    }
+
+    setSessionLocalStateMap((current) =>
+      setMessageManagerStateForSession(current, selectedSessionId, updater)
     );
   }
 
@@ -600,17 +476,12 @@ export function SessionWorkbench() {
   }, [selectedSessionId]);
 
   useEffect(() => {
-    currentCronJobIdRef.current = currentCronJobId;
-  }, [currentCronJobId]);
+    sessionLocalStateMapRef.current = sessionLocalStateMap;
+  }, [sessionLocalStateMap]);
 
   useEffect(() => {
-    if (!currentSession || currentSession.sessionId === selectedSessionId) {
-      return;
-    }
-
-    hydrateCurrentSession(null);
-    resetSelectedSessionResources();
-  }, [currentSession, selectedSessionId]);
+    currentCronJobIdRef.current = currentCronJobId;
+  }, [currentCronJobId]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -876,7 +747,7 @@ export function SessionWorkbench() {
 
         hydrateCurrentSession(session);
         setMaxTurns(String(session.maxTurns));
-        setRunFileChanges((current) =>
+        updateSelectedRunFileChanges((current) =>
           mergeRunFileChangesStates(
             current,
             buildRunFileChangesStatesFromSession(session)
@@ -1131,14 +1002,14 @@ export function SessionWorkbench() {
         setSettingsForm(toSettingsFormState(settingsPayload.settings));
       }
       setMaxTurns(String(session.maxTurns));
-      setRunFileChanges((current) =>
+      updateSelectedRunFileChanges((current) =>
         mergeRunFileChangesStates(
           current,
           buildRunFileChangesStatesFromSession(session)
         )
       );
       if (shouldResetMessageManagerState) {
-        setMessageManagerState(resetMessageManagerState());
+        updateSelectedMessageManagerState(() => createMessageManagerState());
       }
     } finally {
       if (showLoadingSettings) {
@@ -1276,7 +1147,6 @@ export function SessionWorkbench() {
       hydrateCurrentSession(session);
       focusConversationView();
       resetSelectedSessionResources();
-      setRunFileChanges(buildRunFileChangesStatesFromSession(session));
       replaceSessionRoute(session.sessionId);
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : String(error));
@@ -1312,7 +1182,6 @@ export function SessionWorkbench() {
       setSelectedSessionIdState(forkSession.sessionId);
       hydrateCurrentSession(forkSession);
       resetSelectedSessionResources();
-      setRunFileChanges(buildRunFileChangesStatesFromSession(forkSession));
       focusConversationView();
       replaceSessionRoute(forkSession.sessionId);
     } catch (error) {
@@ -1340,6 +1209,9 @@ export function SessionWorkbench() {
         setSelectedSessionIdState(null);
       }
       await apiClient.deleteSession(sessionId);
+      setSessionLocalStateMap((current) =>
+        removeSessionLocalState(current, sessionId)
+      );
       const searchQuery = appliedSessionSearchQueryRef.current;
       const useUnfilteredFallback =
         selectedSessionId === sessionId && searchQuery.length > 0;
@@ -1358,9 +1230,8 @@ export function SessionWorkbench() {
       }
 
       const nextSessionId = refreshedSessions[0]?.sessionId ?? null;
-      setSelectedSessionIdState(nextSessionId);
-      hydrateCurrentSession(null);
       resetSelectedSessionResources();
+      setSelectedSessionIdState(nextSessionId);
 
       if (nextSessionId) {
         replaceSessionRoute(nextSessionId);
@@ -1403,6 +1274,7 @@ export function SessionWorkbench() {
       clearSessionSearch();
       await apiClient.clearSessionHistory();
       setSessionRegistry(createSessionRegistryState());
+      setSessionLocalStateMap(createSessionLocalStateMap());
       hydrateCurrentSession(null);
       resetSelectedSessionResources();
       focusConversationView();
@@ -1411,7 +1283,6 @@ export function SessionWorkbench() {
       );
       setSelectedSessionIdState(newSession.sessionId);
       hydrateCurrentSession(newSession);
-      setRunFileChanges(buildRunFileChangesStatesFromSession(newSession));
       replaceSessionRoute(newSession.sessionId);
     } catch (error) {
       const nextErrorText =
@@ -1455,10 +1326,14 @@ export function SessionWorkbench() {
     }
   ) {
     const activeSession = options?.sessionOverride ?? currentSession;
+    const activeSessionSubmitting = activeSession
+      ? (sessionLocalStateMapRef.current[activeSession.sessionId]?.uiState
+          .submitting ?? false)
+      : false;
     if (
       !activeSession ||
       !nextMessage.trim() ||
-      submitting ||
+      activeSessionSubmitting ||
       recoveringRewriteTarget
     ) {
       return;
@@ -1466,25 +1341,32 @@ export function SessionWorkbench() {
 
     const sessionId = activeSession.sessionId;
     const nextMaxTurns = normalizeMaxTurns(maxTurns);
+    const pendingPreUserHooks =
+      options?.permissionReply === true
+        ? null
+        : resolvePendingPreUserHooks({
+            hooks: settingsForm.userContextHooks,
+            session: activeSession
+          });
 
     setMaxTurns(String(nextMaxTurns));
-    if (!(options?.permissionReply ?? false)) {
-      const pendingPreUserHooks = resolvePendingPreUserHooks({
-        hooks: settingsForm.userContextHooks,
-        session: activeSession
-      });
-      setMessageManagerState((current) =>
-        beginMessageManagerRun(current, {
-          message: {
-            createdAt: new Date().toISOString(),
-            text: nextMessage
-          },
-          pendingPreUserHooks
-        })
-      );
-    }
+    const pendingUserMessage = {
+      createdAt: new Date().toISOString(),
+      text: nextMessage
+    };
+    setSessionLocalStateMap((current) =>
+      beginSessionLocalSubmission({
+        map: current,
+        session: {
+          ...activeSession,
+          maxTurns: nextMaxTurns
+        },
+        pendingUserMessage,
+        pendingPreUserHooks,
+        permissionReply: options?.permissionReply
+      })
+    );
     setMessage("");
-    setSessionUiState((current) => beginSessionSubmission(current));
     setActiveTab("prompt");
     setErrorText(null);
     setEditingRewriteMessageId(null);
@@ -1504,45 +1386,32 @@ export function SessionWorkbench() {
         async onEvent(runEvent: RunStreamEvent) {
           const isActiveSession = isActiveStreamSession();
           const applyStreamEvent = () => {
-            if (isActiveSession) {
-              setMessageManagerState((current) =>
-                appendMessageManagerEvent(current, runEvent)
-              );
-              setSessionUiState((current) =>
-                applyStreamEventToSessionState(current, runEvent)
-              );
+            let streamedSessionSnapshot: SessionSnapshot | null = null;
+            setSessionLocalStateMap((current) => {
+              const next = applyStreamEventToSessionLocalState(current, runEvent);
+              streamedSessionSnapshot =
+                next[runEvent.sessionId]?.uiState.session ?? null;
+              return next;
+            });
+            const terminalSession =
+              (runEvent.kind === "run_complete" ||
+                runEvent.kind === "run_error") &&
+              "session" in runEvent
+                ? runEvent.session
+                : null;
+            const sessionForRegistry = terminalSession ?? streamedSessionSnapshot;
+            if (sessionForRegistry) {
+              setSessionRegistry((current) => upsertSession(current, sessionForRegistry));
+            } else if (isActiveSession) {
               setSessionRegistry((current) =>
                 applyStreamEventToSessionRegistry(current, runEvent)
               );
             }
-
-            if (
-              (runEvent.kind === "run_complete" ||
-                runEvent.kind === "run_error") &&
-              "session" in runEvent
-            ) {
-              const nextSession = runEvent.session;
-              if (nextSession) {
-                if (!isActiveSession) {
-                  setSessionRegistry((current) =>
-                    upsertSession(current, nextSession)
-                  );
-                }
-                if (isActiveSession) {
-                  setRunFileChanges((current) =>
-                    mergeRunFileChangesStates(
-                      current,
-                      buildRunFileChangesStatesFromSession(nextSession)
-                    )
-                  );
-                }
-              }
-            }
           };
 
           if (
-            runEvent.kind === "assistant_text" ||
-            runEvent.kind === "thinking"
+            isActiveSession &&
+            (runEvent.kind === "assistant_text" || runEvent.kind === "thinking")
           ) {
             flushSync(applyStreamEvent);
             return;
@@ -1556,15 +1425,14 @@ export function SessionWorkbench() {
         await refreshSelectedSession(sessionId);
       }
     } catch (error) {
-      setSessionUiState((current) =>
-        rollbackSessionUiState(current, sessionId)
+      setSessionLocalStateMap((current) =>
+        rollbackSessionLocalSubmission(current, sessionId)
       );
       setErrorText(error instanceof Error ? error.message : String(error));
     } finally {
-      setSessionUiState((current) =>
-        finishSessionSubmission(current, sessionId)
+      setSessionLocalStateMap((current) =>
+        finishSessionLocalSubmission(current, sessionId)
       );
-      setMessageManagerState((current) => finishMessageManagerRun(current));
     }
   }
 
@@ -1599,8 +1467,13 @@ export function SessionWorkbench() {
       setForkTargets(recovered.forkTargets);
       setRewriteTarget(recovered.rewriteTarget);
       setTraceRecords(recovered.traceRecords);
-      setRunFileChanges(buildRunFileChangesStatesFromSession(recovered.session));
-      setMessageManagerState(resetMessageManagerState());
+      updateSelectedRunFileChanges((current) =>
+        mergeRunFileChangesStates(
+          current,
+          buildRunFileChangesStatesFromSession(recovered.session)
+        )
+      );
+      updateSelectedMessageManagerState(() => createMessageManagerState());
       setEditingRewriteMessageId(null);
       setRewriteDraft("");
       await submitSessionMessage(nextMessage, {
@@ -1648,7 +1521,9 @@ export function SessionWorkbench() {
     setErrorText(null);
 
     if (forceStopRequested) {
-      setSessionUiState((current) => beginSessionInterrupt(current, sessionId));
+      setSessionLocalStateMap((current) =>
+        beginSessionLocalInterrupt(current, sessionId)
+      );
     }
 
     try {
@@ -1657,12 +1532,14 @@ export function SessionWorkbench() {
         : await apiClient.interruptSessionExecution(sessionId);
       hydrateCurrentSession(result.session);
       if (result.session.sessionState.loopState === "interrupted") {
-        setMessageManagerState((current) => finishMessageManagerRun(current));
+        setSessionLocalStateMap((current) =>
+          finishSessionLocalSubmission(current, sessionId)
+        );
       }
     } catch (error) {
       if (forceStopRequested) {
-        setSessionUiState((current) =>
-          rollbackSessionUiState(current, sessionId)
+        setSessionLocalStateMap((current) =>
+          rollbackSessionLocalSubmission(current, sessionId)
         );
       }
       setErrorText(error instanceof Error ? error.message : String(error));
@@ -1683,7 +1560,7 @@ export function SessionWorkbench() {
     );
     const selectedFiles = getSelectedWorkspaceFileChanges(targetView);
     if (selectedFiles.length === 0) {
-      setRunFileChanges((current) =>
+      updateSelectedRunFileChanges((current) =>
         current.map((view) =>
           view.key === viewKey
             ? {
@@ -1696,7 +1573,7 @@ export function SessionWorkbench() {
       return;
     }
 
-    setRunFileChanges((current) =>
+    updateSelectedRunFileChanges((current) =>
       current.map((view) =>
         view.key === viewKey
           ? {
@@ -1714,7 +1591,7 @@ export function SessionWorkbench() {
         action,
         files: selectedFiles
       });
-      setRunFileChanges((current) =>
+      updateSelectedRunFileChanges((current) =>
         current.map((view) =>
           view.key === viewKey
             ? (() => {
@@ -1739,7 +1616,7 @@ export function SessionWorkbench() {
         )
       );
     } catch (error) {
-      setRunFileChanges((current) =>
+      updateSelectedRunFileChanges((current) =>
         current.map((view) =>
           view.key === viewKey
             ? {
@@ -1758,7 +1635,7 @@ export function SessionWorkbench() {
     viewKey: string,
     selectedFileIndexes: number[]
   ) {
-    setRunFileChanges((current) =>
+    updateSelectedRunFileChanges((current) =>
       current.map((view) =>
         view.key === viewKey
           ? {
@@ -2743,13 +2620,25 @@ export function SessionWorkbench() {
   );
 
   function handleAssistantAnimationComplete(itemKey: string) {
-    setMessageManagerState((current) =>
-      markMessageManagerAnimationComplete(current, itemKey)
+    const selectedSessionId = selectedSessionIdRef.current;
+    if (!selectedSessionId) {
+      return;
+    }
+
+    setSessionLocalStateMap((current) =>
+      markAssistantAnimationCompleteForSession(current, selectedSessionId, itemKey)
     );
   }
 
   useEffect(() => {
-    setMessageManagerState((current) => resetMessageManagerViewState(current));
+    const selectedSessionId = selectedSessionIdRef.current;
+    if (!selectedSessionId) {
+      return;
+    }
+
+    setSessionLocalStateMap((current) =>
+      resetMessageManagerViewStateForSession(current, selectedSessionId)
+    );
   }, [currentSession?.sessionId, settingsForm.debugConversationView]);
 
   useEffect(() => {
@@ -2757,9 +2646,15 @@ export function SessionWorkbench() {
       return;
     }
 
-    setMessageManagerState((current) =>
-      registerMessageManagerCollapsedFlows(
+    const selectedSessionId = selectedSessionIdRef.current;
+    if (!selectedSessionId) {
+      return;
+    }
+
+    setSessionLocalStateMap((current) =>
+      registerCollapsedFlowsForSession(
         current,
+        selectedSessionId,
         conversationProjection.newlyCollapsedFlowKeys
       )
     );
@@ -3023,13 +2918,17 @@ export function SessionWorkbench() {
               onSubmitRewrite={() => void handleSubmitRewrite()}
               onAssistantAnimationComplete={handleAssistantAnimationComplete}
               onToggleExpandedItem={(key) =>
-                setMessageManagerState((current) =>
-                  toggleMessageManagerExpanded(current, key)
+                setSessionLocalStateMap((current) =>
+                  selectedSessionId
+                    ? toggleExpandedItemForSession(current, selectedSessionId, key)
+                    : current
                 )
               }
               onAutoCollapseComplete={(key) =>
-                setMessageManagerState((current) =>
-                  completeMessageManagerAutoCollapse(current, key)
+                setSessionLocalStateMap((current) =>
+                  selectedSessionId
+                    ? completeAutoCollapseForSession(current, selectedSessionId, key)
+                    : current
                 )
               }
               headerLeading={sidebarToggleButton}
