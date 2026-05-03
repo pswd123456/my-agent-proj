@@ -91,7 +91,7 @@ async function createRuntimeTestApp(options?: {
         preRunTraceEvent: {
           kind: "mcp_loaded",
           turnCount: 1,
-          configPath: path.join(session.workingDirectory, ".agent/.config.toml"),
+          configPath: path.join(session.workingDirectory, ".agents/.config.toml"),
           foundConfig: true,
           diagnostics: [],
           servers: []
@@ -238,7 +238,7 @@ describe("createApiApp MCP runtime assembly", () => {
               turnCount: 1,
               configPath: path.join(
                 session.workingDirectory,
-                ".agent/.config.toml"
+                ".agents/.config.toml"
               ),
               foundConfig: true,
               diagnostics: [],
@@ -311,7 +311,7 @@ describe("createApiApp MCP runtime assembly", () => {
             turnCount: 1,
             configPath: path.join(
               session.workingDirectory,
-              ".agent/.config.toml"
+              ".agents/.config.toml"
             ),
             foundConfig: true,
             diagnostics: [],

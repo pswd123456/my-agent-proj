@@ -140,6 +140,88 @@ async function seedCheckpoint(
   return { sourceSession, checkpoint };
 }
 
+async function seedIntermediateCheckpoint(
+  sessionManager: PostgresTestSessionManager
+): Promise<{
+  sourceSession: SessionSnapshot;
+  checkpoint: SessionForkCheckpoint;
+}> {
+  let sourceSession = createSnapshot({
+    sessionId: sessionManager.testId("source-intermediate-session"),
+    workingDirectory: "/tmp/workspace",
+    model: "MiniMax-M2.7",
+    userId: "fork-user"
+  });
+  sourceSession.messages = [
+    {
+      id: sessionManager.testId("user-1"),
+      kind: "user",
+      content: "帮我查一下 runtime",
+      createdAt: "2026-05-01T00:00:00.000Z"
+    },
+    {
+      id: sessionManager.testId("assistant-progress-1"),
+      kind: "assistant",
+      content: "我先看 runtime。",
+      createdAt: "2026-05-01T00:00:01.000Z",
+      responseGroupId: "group-1"
+    },
+    {
+      id: sessionManager.testId("tool-call-1"),
+      kind: "tool call",
+      toolCallId: sessionManager.testId("tool-call-1"),
+      toolName: "read_file",
+      input: { path: "packages/agent/src/runtime/run-loop.ts" },
+      state: "success",
+      createdAt: "2026-05-01T00:00:02.000Z",
+      responseGroupId: "group-1"
+    },
+    {
+      id: sessionManager.testId("tool-result-1"),
+      kind: "tool result",
+      toolCallId: sessionManager.testId("tool-call-1"),
+      toolName: "read_file",
+      output: "file body",
+      isError: false,
+      state: "success",
+      createdAt: "2026-05-01T00:00:03.000Z",
+      responseGroupId: "group-1"
+    }
+  ];
+  sourceSession.sessionState.turnCount = 1;
+  sourceSession.context.firstUserMessage = "帮我查一下 runtime";
+  sourceSession.context.lastUserMessage = "帮我查一下 runtime";
+  sourceSession.context.status = "running";
+  sourceSession = await sessionManager.recover(sourceSession);
+
+  const checkpoint: SessionForkCheckpoint = {
+    id: sessionManager.testId("checkpoint-intermediate-1"),
+    sessionId: sourceSession.sessionId,
+    assistantMessageId: sessionManager.testId("assistant-progress-1"),
+    turnCount: 1,
+    baseMessageCount: 1,
+    responseGroupId: "group-1",
+    snapshot: sourceSession,
+    promptSeed: {
+      system: "system",
+      requestMessages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "帮我查一下 runtime" }]
+        }
+      ],
+      runtimeContextMessages: [],
+      tools: [],
+      toolChoice: { type: "auto" }
+    },
+    createdAt: "2026-05-01T00:00:04.000Z",
+    updatedAt: "2026-05-01T00:00:04.000Z"
+  };
+  await sessionManager.saveForkCheckpoint(checkpoint);
+
+  return { sourceSession, checkpoint };
+}
+
 async function seedRewriteScenario(input: {
   sessionManager: PostgresTestSessionManager;
   settingsRepository: MemorySettingsRepository;
@@ -376,6 +458,41 @@ describe("session fork endpoints", () => {
       checkpointId: latestCheckpoint.id,
       userMessageId: session.messages[2]?.id,
       turnCount: 2
+    });
+  });
+
+  test("does not expose intermediate assistant checkpoints as fork targets", async () => {
+    const { app, sessionManager } = await createForkTestApp();
+    const { sourceSession, checkpoint } =
+      await seedIntermediateCheckpoint(sessionManager);
+
+    const targetsResponse = await app.request(
+      `/sessions/${sourceSession.sessionId}/fork-targets`
+    );
+    expect(targetsResponse.status).toBe(200);
+
+    const targetsPayload = (await targetsResponse.json()) as {
+      forkTargets: Array<{
+        checkpointId?: string | null;
+        assistantMessageId: string;
+      }>;
+    };
+    expect(targetsPayload.forkTargets).toEqual([]);
+
+    const createForkResponse = await app.request(
+      `/sessions/${sourceSession.sessionId}/forks`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          assistantMessageId: checkpoint.assistantMessageId
+        })
+      }
+    );
+    expect(createForkResponse.status).toBe(409);
+    expect(await createForkResponse.json()).toEqual({
+      error:
+        "Only final assistant responses can be forked. Intermediate progress messages are not valid fork targets."
     });
   });
 

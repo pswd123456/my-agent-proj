@@ -21,10 +21,10 @@ async function createWorkspace(): Promise<string> {
   const workspace = await mkdtemp(path.join(os.tmpdir(), "composer-search-"));
   await mkdir(path.join(workspace, "src"), { recursive: true });
   await mkdir(path.join(workspace, "docs"), { recursive: true });
-  await mkdir(path.join(workspace, ".agent", "skills", "repo-reader"), {
+  await mkdir(path.join(workspace, ".agents", "skills", "repo-reader"), {
     recursive: true
   });
-  await mkdir(path.join(workspace, ".agent", "skills", "planner"), {
+  await mkdir(path.join(workspace, ".agents", "skills", "planner"), {
     recursive: true
   });
   await writeFile(
@@ -43,7 +43,7 @@ async function createWorkspace(): Promise<string> {
     "utf8"
   );
   await writeFile(
-    path.join(workspace, ".agent", "skills", "repo-reader", "SKILL.md"),
+    path.join(workspace, ".agents", "skills", "repo-reader", "SKILL.md"),
     [
       "---",
       "name: repo_reader",
@@ -53,7 +53,7 @@ async function createWorkspace(): Promise<string> {
     "utf8"
   );
   await writeFile(
-    path.join(workspace, ".agent", "skills", "planner", "SKILL.md"),
+    path.join(workspace, ".agents", "skills", "planner", "SKILL.md"),
     [
       "---",
       "name: planner",
