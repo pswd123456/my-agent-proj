@@ -11,6 +11,8 @@
 
 它不是通用队列系统，也不是 cron 平台。当前只覆盖 agent 需要的 detached subagent、pre-run hook subagent、后台 shell 命令、主会话唤醒，以及少量后台任务状态流转。
 
+补充一点：仓库已经有可运行的 cron job 主链路，但它仍然复用同一套 background task 基座，而不是单独再造一套队列系统。
+
 ## 关键模块
 
 ```text
@@ -48,14 +50,18 @@ packages/db/src/schema.ts
 - `session_wakeup`
 - `shell_command`
 
-其中当前 API / worker 主链路真正会创建和处理的是 `subagent`、`hook_subagent`、`session_wakeup` 和 `shell_command`；`cron_job` 目前只保留在领域模型与仓储测试里，还没有接入可运行主链路。
+其中 `subagent`、`hook_subagent`、`session_wakeup` 和 `shell_command` 主要由交互式 session 触发；`cron_job` 则由 worker 侧的 cron dispatcher 创建 session 与后台任务后进入同一套执行链路。
 
 当前真正落地的执行后端有两类：
 
 - `agent_session`：用独立 child session 跑 detached subagent / session wakeup
 - `shell_command`：用 detached worker 子进程跑后台 shell 命令
 
-`cron_job` 目前既没有对外 HTTP 接口，也没有 worker 执行装配。
+`cron_job` 当前已经有对外 HTTP 接口和 worker 执行装配：
+
+- API 通过 `/users/:userId/cron-jobs` 暴露增删改查
+- worker 在每轮 drain 前先调用 `cronJobDispatcher.dispatchNextDueCronJob()`，把到期任务转成 `agent_sessions` + `background_tasks(kind=cron_job)`
+- `cron_job` 任务本身复用 `agent_session` 执行器，不另外引入第三种执行后端
 
 ## 运行链路
 
@@ -106,6 +112,7 @@ sequenceDiagram
 - `delegate_agent` 支持 `wait_mode=blocking|unblocking`；默认 `blocking`
 - `run_shell_command start` 默认 inline 执行；只有显式传 `execution_mode=background` 时，才会创建 detached `shell_command` task，此时才支持 `wait_mode=blocking|unblocking`
 - 后台 shell task 不会创建独立 child session；它只复用 task 记录、worker 执行和后台通知链路
+- `cron_job` 没有父会话；worker 会先创建专属 session，再把任务排入后台执行
 - `blocking` 下，主会话在工具返回统一的 `BACKGROUND_TASK_ACCEPTED` 且任务仍活跃时，会立即以 `background_task_running` 结束当前 run，不在同一次 run 内继续同步等待
 - `unblocking` 下，主会话会先继续处理同轮其他工具调用或后续模型回合；当没有其他可推进工作时，再主动结束当前 run，并安排 `background_task_poll` 类型的 `session_wakeup`
 - `hook_subagent waitMode=blocking` 也复用同一条 `background_task_poll` 路径，但 wakeup payload 会保留原始用户消息，并带 `skipSubagentHooks: true`，避免恢复时再次触发同一批 pre-run hook
@@ -120,6 +127,7 @@ sequenceDiagram
 - worker 装配：`apps/worker/src/index.ts`
 - task manager：`packages/agent/src/background-tasks/manager.ts`
 - task runner：`packages/agent/src/background-tasks/runner.ts`
+- cron dispatcher：`packages/agent/src/cron/dispatcher.ts`
 - delegation service：`packages/agent/src/delegation/service.ts`
 - task 领域：`packages/domain/src/background-task.ts`
 - task 持久化：`packages/db/src/schema.ts`

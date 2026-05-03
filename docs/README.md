@@ -33,6 +33,7 @@
 - 刚复制模板时，先看 `docs/template/`
 - 做技术栈、工程结构、架构边界相关工作时，从 `docs/architecture/` 开始
 - 做 API 契约、runtime 装配点或 Web 调用边界相关工作时，优先看 `docs/architecture/api-and-sdk-boundary.md` 和 `docs/architecture/firecrawl-web.md`
+- 做 cron job 管理接口、调度触发或它与后台任务的关系时，优先看 `docs/architecture/api-and-sdk-boundary.md`、`docs/architecture/background-tasks-and-delegation.md` 和 `docs/architecture/persistence-and-session-state.md`
 - 做 tool 调度、权限等待、工具结果持久化或并发执行边界时，优先看 `docs/architecture/tool-orchestration.md`
 - 做 session/settings/background task 的状态归属、数据表和持久化边界时，优先看 `docs/architecture/persistence-and-session-state.md`
 - 做 session fork、历史改写重试、checkpoint replay 或 fork session 关系定位时，优先看 `docs/architecture/session-fork-and-rewrite.md`
@@ -57,6 +58,7 @@
 - API 路由、请求体和返回结构以 `apps/api/src/app.ts` 为准
 - session 默认值、capability pack 默认装配和 `maxTurns`/`contextWindow` 上限以 `packages/domain/src/session-settings.ts` 为准
 - runtime 实际装配方式以 `apps/api/src/index.ts` 和 `apps/worker/src/index.ts` 为准
+- cron job 调度定义与触发链路以 `apps/api/src/app.ts`、`packages/agent/src/cron/dispatcher.ts` 和 `apps/worker/src/index.ts` 为准
 - 模型目录、默认模型选择和 `thinkingEffort` 支持矩阵以 `packages/agent/src/models/service.ts` 为准
 - tool 调度、权限检查和结果持久化以 `packages/agent/src/runtime/run-loop.ts` 与 `packages/agent/src/runtime/tool-execution.ts` 为准
 - tool surface 与 capability pack 装配以 `packages/agent/src/tools/registry.ts` 为准

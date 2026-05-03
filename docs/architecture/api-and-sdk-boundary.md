@@ -19,7 +19,7 @@
 `apps/api` 不是业务规则层，而是当前运行主入口与 HTTP 壳层。它主要做四件事：
 
 1. 组装 runtime、session manager、settings repository、trace manager、system log manager
-2. 暴露 session / settings / trace / routines / workspace helper 接口
+2. 暴露 session / settings / trace / routines / cron jobs / workspace helper 接口
 3. 负责 request/response schema 校验与错误映射
 4. 在每次 runtime 创建前注入工作区输入、MCP 工具和 model service
 
@@ -61,12 +61,24 @@
 ### 2. 用户级默认设置
 
 - `GET /users/:userId/settings`
+- `GET /users/:userId/cron-jobs`
+- `POST /users/:userId/cron-jobs`
+- `PATCH /users/:userId/cron-jobs/:cronJobId`
+- `DELETE /users/:userId/cron-jobs/:cronJobId`
 - `GET /users/:userId/settings/mcp`
 - `PUT /users/:userId/settings/mcp`
 - `GET /users/:userId/settings/skills`
 - `PATCH /users/:userId/settings`
 
-这组接口以 `agent_settings` 为核心，同时暴露基于用户默认工作目录读取或写入的 workspace 配置视图。`agent_settings` 保存跨 session 复用的默认值，例如：
+这组接口以 `agent_settings`、`cron_jobs` 和用户默认工作目录为核心，同时暴露基于用户默认工作目录读取或写入的 workspace 配置视图。
+
+其中 cron job 接口负责：
+
+- 列出当前用户的定时任务
+- 创建、更新、删除定时任务定义
+- 为每次调度产出的 session / background task 提供上游配置来源
+
+`agent_settings` 保存跨 session 复用的默认值，例如：
 
 - `workingDirectory`
 - `model`
@@ -129,7 +141,7 @@
 - `GET /sessions/:sessionId/routines`
 - `POST /sessions/:sessionId/routines/reset`
 
-这组接口把 trace、system log、日程能力结果作为 workbench 的 inspectable data surface 暴露出来。
+这组接口把 trace、system log、日程能力结果作为 workbench 的 inspectable data surface 暴露出来；cron job 自身的增删改查则属于上一组用户级接口。
 
 ## 装配边界
 
@@ -138,6 +150,7 @@
 - 创建 Postgres database 与 repositories
 - 调 `ensureProductSchema()` 确保 schema/migrations 落地
 - 创建 `createPostgresSessionManager()`
+- 创建 `createPostgresCronJobRepository()` 与 `createCronJobDispatcher()`
 - 创建 `createBackgroundTaskManager()` 与 `createDelegateAgentService()`
 - 创建 `createModelService(process.env)`
 - 每次创建 runtime 时：

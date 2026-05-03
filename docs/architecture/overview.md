@@ -56,6 +56,7 @@
 - `GET /models`
 - `GET/POST /sessions`
 - `GET /sessions/search`
+- `GET/POST/PATCH/DELETE /users/:userId/cron-jobs`
 - `DELETE /sessions/history`
 - `GET/PATCH/DELETE /sessions/:sessionId`
 - `GET /sessions/:sessionId/fork-targets`
@@ -89,9 +90,9 @@
 - 任务主记录保存在 `background_tasks`
 - 每次执行尝试保存在 `background_task_runs`
 - 当前支持 `agent_session` 与 `shell_command` 两类执行后端
-- 领域模型里还保留 `cron_job` 这个 task kind，但当前 API / worker 主链路真正会创建和处理的是 `subagent`、`hook_subagent`、`shell_command` 与 `session_wakeup`
-- `apps/worker` 负责轮询和执行这些任务，`packages/agent/src/background-tasks/` 负责通用 orchestration，`packages/agent/src/delegation/` 负责主 agent 发起与回复 delegated subagent
-- 当前没有公开 background task API，也没有 cron tool surface；`subagent` 是内部任务类型，不是对外 HTTP 接口
+- 当前后台任务 kind 包括 `cron_job`、`subagent`、`hook_subagent`、`shell_command` 与 `session_wakeup`
+- `apps/worker` 负责先 dispatch 到期 cron job，再轮询和执行 queued background task；`packages/agent/src/background-tasks/` 负责通用 orchestration，`packages/agent/src/delegation/` 负责主 agent 发起与回复 delegated subagent，`packages/agent/src/cron/dispatcher.ts` 负责把 cron 定义转成 session 与 task
+- 当前没有公开“通用 background task API”；`subagent` 仍是内部任务类型，但 cron job 已通过 `/users/:userId/cron-jobs` 暴露管理接口
 
 ## 当前事实源
 
@@ -102,6 +103,7 @@
 - tool surface：`packages/agent/src/tools/registry.ts`
 - tool 编排：`packages/agent/src/runtime/run-loop.ts`、`packages/agent/src/runtime/tool-execution.ts`
 - background task：`packages/agent/src/background-tasks/`
+- cron dispatch：`packages/agent/src/cron/dispatcher.ts`
 - delegation：`packages/agent/src/delegation/`
 - API 路由：`apps/api/src/app.ts`
 - Web SDK：`packages/sdk/src/client.ts`
