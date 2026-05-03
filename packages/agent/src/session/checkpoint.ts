@@ -61,6 +61,41 @@ export function getCheckpointTriggerUserBlock(input: {
   return block?.kind === "user" ? block : null;
 }
 
+export function isForkCheckpointForFinalResponse(
+  checkpoint: SessionForkCheckpoint
+): boolean {
+  const triggerBlock = getCheckpointTriggerUserBlock({
+    session: checkpoint.snapshot,
+    checkpoint
+  });
+  if (!triggerBlock || triggerBlock.source === "hook_message") {
+    return false;
+  }
+
+  const assistantIndex = checkpoint.snapshot.messages.findIndex(
+    (block) =>
+      block.kind === "assistant" && block.id === checkpoint.assistantMessageId
+  );
+  if (assistantIndex < 0) {
+    return false;
+  }
+
+  for (
+    let index = assistantIndex + 1;
+    index < checkpoint.snapshot.messages.length;
+    index += 1
+  ) {
+    const block = checkpoint.snapshot.messages[index];
+    if (block?.kind === "user") {
+      break;
+    }
+
+    return false;
+  }
+
+  return true;
+}
+
 export function buildForkReplayRequestMessages(input: {
   session: SessionSnapshot;
   checkpoint: SessionForkCheckpoint;
