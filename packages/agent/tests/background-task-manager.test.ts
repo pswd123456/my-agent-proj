@@ -60,10 +60,70 @@ describe("background task manager", () => {
     expect(child?.context.userId).toBe(sessionManager.testUserId("cli-user"));
     expect(child?.context.yoloMode).toBe(false);
     expect(child?.context.toolAllowList).toEqual([]);
+    expect(child?.parentSessionId).toBe(parent.sessionId);
+    expect(child?.parentRelationKind).toBe("subagent");
 
     const refreshedParent = await sessionManager.getSession(parent.sessionId);
     expect(refreshedParent?.messages).toHaveLength(0);
     expect(refreshedParent?.workingDirectory).toBe("/tmp/parent");
+  });
+
+  test("normalizes parent relation on an existing child session", async () => {
+    const sessionManager = await createPostgresTestSessionManager();
+    const repository = createMemoryBackgroundTaskRepository();
+    const manager = createBackgroundTaskManager({
+      sessionManager,
+      repository
+    });
+
+    const parent = await sessionManager.createSession({
+      workingDirectory: "/tmp/parent",
+      userId: "user-a"
+    });
+    const child = await sessionManager.createSession({
+      workingDirectory: "/tmp/child",
+      userId: "user-a"
+    });
+
+    const task = await manager.enqueueTask({
+      kind: "subagent",
+      parentSessionId: parent.sessionId,
+      childSessionId: child.sessionId,
+      message: "Inspect the implementation.",
+      workingDirectory: child.workingDirectory,
+      model: child.model
+    });
+
+    expect(task.childSessionId).toBe(child.sessionId);
+    const normalizedChild = await sessionManager.getSession(child.sessionId);
+    expect(normalizedChild?.parentSessionId).toBe(parent.sessionId);
+    expect(normalizedChild?.parentRelationKind).toBe("subagent");
+  });
+
+  test("persists hook_subagent child session relations", async () => {
+    const sessionManager = await createPostgresTestSessionManager();
+    const repository = createMemoryBackgroundTaskRepository();
+    const manager = createBackgroundTaskManager({
+      sessionManager,
+      repository
+    });
+
+    const parent = await sessionManager.createSession({
+      workingDirectory: "/tmp/parent",
+      userId: "user-a"
+    });
+
+    const task = await manager.enqueueTask({
+      kind: "hook_subagent",
+      parentSessionId: parent.sessionId,
+      message: "Collect user context.",
+      workingDirectory: "/tmp/hook-child",
+      model: "MiniMax-M2.7"
+    });
+
+    const child = await sessionManager.getSession(task.childSessionId!);
+    expect(child?.parentSessionId).toBe(parent.sessionId);
+    expect(child?.parentRelationKind).toBe("hook_subagent");
   });
 
   test("surfaces invalid task transitions through the manager", async () => {
@@ -114,6 +174,34 @@ describe("background task manager", () => {
     });
 
     expect(task.childSessionId).toBeNull();
+  });
+
+  test("does not create a fake parent-child relation for session wakeups", async () => {
+    const sessionManager = await createPostgresTestSessionManager();
+    const repository = createMemoryBackgroundTaskRepository();
+    const manager = createBackgroundTaskManager({
+      sessionManager,
+      repository
+    });
+
+    const parent = await sessionManager.createSession({
+      workingDirectory: "/tmp/parent",
+      userId: "user-a"
+    });
+
+    const task = await manager.enqueueTask({
+      kind: "session_wakeup",
+      parentSessionId: parent.sessionId,
+      childSessionId: parent.sessionId,
+      message: "",
+      workingDirectory: parent.workingDirectory,
+      model: parent.model
+    });
+
+    expect(task.childSessionId).toBe(parent.sessionId);
+    const refreshedParent = await sessionManager.getSession(parent.sessionId);
+    expect(refreshedParent?.parentSessionId ?? null).toBeNull();
+    expect(refreshedParent?.parentRelationKind ?? null).toBeNull();
   });
 });
 

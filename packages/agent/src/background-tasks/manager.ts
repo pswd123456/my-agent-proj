@@ -24,6 +24,25 @@ export interface BackgroundTaskManagerOptions {
   repository: BackgroundTaskRepository;
 }
 
+function resolveParentRelationKind(input: {
+  kind: EnqueueBackgroundTaskInput["kind"];
+  parentSessionId?: string | null;
+}): "subagent" | "hook_subagent" | null {
+  if (!input.parentSessionId) {
+    return null;
+  }
+
+  if (input.kind === "subagent") {
+    return "subagent";
+  }
+
+  if (input.kind === "hook_subagent") {
+    return "hook_subagent";
+  }
+
+  return null;
+}
+
 export class DefaultBackgroundTaskManager implements BackgroundTaskManager {
   constructor(private readonly options: BackgroundTaskManagerOptions) {}
 
@@ -36,12 +55,22 @@ export class DefaultBackgroundTaskManager implements BackgroundTaskManager {
       input.enabledCapabilityPacks ?? input.sessionSeed?.enabledCapabilityPacks
     );
     const existingChildSessionId = input.childSessionId?.trim() || null;
+    const parentRelationKind = resolveParentRelationKind({
+      kind: input.kind,
+      parentSessionId: input.parentSessionId ?? null
+    });
     const shouldCreateChildSession = executor === "agent_session";
-    const childSession = shouldCreateChildSession
+    let childSession = shouldCreateChildSession
       ? existingChildSessionId
         ? await this.options.sessionManager.getSession(existingChildSessionId)
         : await this.options.sessionManager.createSession({
             ...(input.sessionSeed ?? {}),
+            ...(parentRelationKind
+              ? {
+                  parentSessionId: input.parentSessionId ?? null,
+                  parentRelationKind
+                }
+              : {}),
             workingDirectory: input.workingDirectory,
             model: input.model,
             maxTurns,
@@ -55,6 +84,19 @@ export class DefaultBackgroundTaskManager implements BackgroundTaskManager {
       throw new Error(
         `Child session not found for background task: ${existingChildSessionId}`
       );
+    }
+
+    if (
+      childSession &&
+      parentRelationKind &&
+      (childSession.parentSessionId !== input.parentSessionId ||
+        childSession.parentRelationKind !== parentRelationKind)
+    ) {
+      childSession = await this.options.sessionManager.saveSession({
+        ...childSession,
+        parentSessionId: input.parentSessionId ?? null,
+        parentRelationKind
+      });
     }
 
     const sharedPayload = {
