@@ -44,7 +44,7 @@ export function resolveTaskBriefDirectory(
 ): string {
   return path.join(
     path.resolve(workingDirectory),
-    ".agent",
+    ".agents",
     "plans",
     sessionId
   );

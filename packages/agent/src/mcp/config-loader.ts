@@ -15,7 +15,7 @@ import {
   normalizeWorkspaceMcpServerConfig
 } from "./config-normalization.js";
 
-const MCP_CONFIG_DIRECTORY = ".agent";
+const MCP_CONFIG_DIRECTORY = ".agents";
 const MCP_CONFIG_FILE_NAME = ".config.toml";
 
 export interface WorkspaceMcpConfigLoadOptions {

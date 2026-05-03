@@ -12,7 +12,7 @@ import type {
   SkillDiscoveryResult
 } from "./types.js";
 
-const SKILLS_DIRECTORY = path.join(".agent", "skills");
+const SKILLS_DIRECTORY = path.join(".agents", "skills");
 const SKILL_FILE_NAMES = ["SKILL.md", "skill.md"] as const;
 
 function toRelativePath(workingDirectory: string, targetPath: string): string {
