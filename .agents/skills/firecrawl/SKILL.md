@@ -5,7 +5,7 @@ description: Use this skill when a task needs public web search, webpage scrapin
 
 # Firecrawl
 
-Use Firecrawl for public web work in this workspace. The built-in `web_search` and `web_fetch` tools are intentionally not available; Firecrawl is mounted through workspace MCP when `.agent/.config.toml` loads successfully.
+Use Firecrawl for public web work in this workspace. The built-in `web_search` and `web_fetch` tools are intentionally not available; Firecrawl is mounted through workspace MCP when `.agents/.config.toml` loads successfully.
 
 ## First checks
 

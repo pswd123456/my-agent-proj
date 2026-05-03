@@ -30,7 +30,7 @@ Classify every changed file into one of these buckets, using the file path prefi
 | `packages/domain` | `packages/domain/` | `feat(domain):` |
 | `packages/sdk` | `packages/sdk/` | `feat(sdk):` |
 | `docs` | `docs/` | `docs:` |
-| `skills` | `.agent/skills/` | `chore(skills):` |
+| `skills` | `.agents/skills/` | `chore(skills):` |
 | `root` | root-level files (no prefix, or `scripts/`, `data/`, etc.) | `chore:` |
 
 A file that matches none of the above goes into a catch-all `other` group.
