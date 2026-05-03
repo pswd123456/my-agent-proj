@@ -43,6 +43,7 @@ import {
   getNextAvailableUserContextHookType,
   resolveSelectedModelId,
   resolveSelectedThinkingEffort,
+  shouldPersistUserContextHookMutation,
   splitPatternLines,
   toSettingsMcpFormState,
   toSettingsFormState,
@@ -1363,7 +1364,9 @@ export function SessionWorkbench() {
         },
         pendingUserMessage,
         pendingPreUserHooks,
-        permissionReply: options?.permissionReply
+        ...(typeof options?.permissionReply === "boolean"
+          ? { permissionReply: options.permissionReply }
+          : {})
       })
     );
     setMessage("");
@@ -1856,6 +1859,24 @@ export function SessionWorkbench() {
     });
   }
 
+  async function maybeSaveUserContextHookForm(
+    currentForm: SettingsFormState,
+    nextForm: SettingsFormState,
+    hookId: string
+  ) {
+    setSettingsForm(nextForm);
+    if (
+      !shouldPersistUserContextHookMutation({
+        currentForm,
+        nextForm,
+        hookId
+      })
+    ) {
+      return;
+    }
+    await handleSaveUserSettings(nextForm);
+  }
+
   function handleAddUserContextHook() {
     if (savingSettings) {
       return;
@@ -1918,8 +1939,7 @@ export function SessionWorkbench() {
         enabled ? hookId : undefined
       )
     );
-    setSettingsForm(nextForm);
-    await handleSaveUserSettings(nextForm);
+    await maybeSaveUserContextHookForm(settingsForm, nextForm, hookId);
   }
 
   async function handleUserContextHookEventChange(
@@ -1932,12 +1952,22 @@ export function SessionWorkbench() {
 
     const nextForm = updateUserContextHookList((hooks) =>
       enforceSingleEnabledUserContextHookType(
-        hooks.map((hook) => (hook.id === hookId ? { ...hook, event } : hook)),
+        hooks.map((hook) =>
+          hook.id === hookId
+            ? {
+                ...hook,
+                event,
+                ...(inferUserContextHookBehavior(hook) === "subagent" &&
+                event === "run_end"
+                  ? { waitMode: "unblocking" as const }
+                  : {})
+              }
+            : hook
+        ),
         hookId
       )
     );
-    setSettingsForm(nextForm);
-    await handleSaveUserSettings(nextForm);
+    await maybeSaveUserContextHookForm(settingsForm, nextForm, hookId);
   }
 
   async function handleUserContextHookBehaviorChange(
@@ -1959,12 +1989,14 @@ export function SessionWorkbench() {
                 behavior,
                 ...(behavior === "subagent"
                   ? {
-                      waitMode: hook.waitMode ?? "blocking",
+                      waitMode:
+                        hook.event === "run_end"
+                          ? ("unblocking" as const)
+                          : (hook.waitMode ?? "blocking"),
                       maxTurns: hook.maxTurns ?? DEFAULT_MAX_TURNS
                     }
                   : {}),
-                ...((behavior === "context" || behavior === "subagent") &&
-                hook.event === "run_end"
+                ...(behavior === "context" && hook.event === "run_end"
                   ? { event: "run_started" as const }
                   : {})
               }
@@ -1973,8 +2005,7 @@ export function SessionWorkbench() {
         hookId
       )
     );
-    setSettingsForm(nextForm);
-    await handleSaveUserSettings(nextForm);
+    await maybeSaveUserContextHookForm(settingsForm, nextForm, hookId);
   }
 
   async function handleUserContextHookWaitModeChange(
@@ -1990,8 +2021,7 @@ export function SessionWorkbench() {
     const nextForm = updateUserContextHookList((hooks) =>
       hooks.map((hook) => (hook.id === hookId ? { ...hook, waitMode } : hook))
     );
-    setSettingsForm(nextForm);
-    await handleSaveUserSettings(nextForm);
+    await maybeSaveUserContextHookForm(settingsForm, nextForm, hookId);
   }
 
   async function handleDeleteUserContextHook(hookId: string) {
@@ -2002,8 +2032,7 @@ export function SessionWorkbench() {
     const nextForm = updateUserContextHookList((hooks) =>
       hooks.filter((hook) => hook.id !== hookId)
     );
-    setSettingsForm(nextForm);
-    await handleSaveUserSettings(nextForm);
+    await maybeSaveUserContextHookForm(settingsForm, nextForm, hookId);
   }
 
   async function handleMoveUserContextHook(
@@ -2034,8 +2063,7 @@ export function SessionWorkbench() {
       nextHooks.splice(targetIndex, 0, moved);
       return nextHooks;
     });
-    setSettingsForm(nextForm);
-    await handleSaveUserSettings(nextForm);
+    await maybeSaveUserContextHookForm(settingsForm, nextForm, hookId);
   }
 
   async function handleChooseWorkingDirectory() {
@@ -2778,7 +2806,13 @@ export function SessionWorkbench() {
               onMcpSettingsBlur={() => void handleSaveMcpSettings()}
               onAddUserContextHook={handleAddUserContextHook}
               onUserContextHookChange={handleUserContextHookChange}
-              onUserContextHookBlur={() => void handleSaveUserSettings()}
+              onUserContextHookBlur={(hookId) =>
+                void maybeSaveUserContextHookForm(
+                  settingsForm,
+                  settingsForm,
+                  hookId
+                )
+              }
               onUserContextHookEnabledChange={(hookId, enabled) =>
                 void handleUserContextHookEnabledChange(hookId, enabled)
               }

@@ -157,9 +157,17 @@ function getUserContextHookBehavior(
   return hook.behavior ?? (hook.event === "run_end" ? "message" : "context");
 }
 
+function getEffectiveSubagentHookWaitMode(
+  hook: UserContextHookRecord
+): NonNullable<UserContextHookRecord["waitMode"]> {
+  return getUserContextHookBehavior(hook) === "subagent" &&
+    hook.event === "run_end"
+    ? "unblocking"
+    : (hook.waitMode ?? "blocking");
+}
+
 function getUserContextHookEventOptions(hook: UserContextHookRecord) {
-  return getUserContextHookBehavior(hook) === "context" ||
-    getUserContextHookBehavior(hook) === "subagent"
+  return getUserContextHookBehavior(hook) === "context"
     ? userContextHookContextEventOptions
     : userContextHookEventOptions;
 }
@@ -184,7 +192,9 @@ function formatUserContextHookBehaviorDescription(
     return "在 prompt runtime context 中注入。";
   }
   if (getUserContextHookBehavior(hook) === "subagent") {
-    return "预先启动一个子代理，把 final response 注入主会话 context。";
+    return hook.event === "run_end"
+      ? "在当前 run 结束后启动一个子代理，把 final response 注入后续 run 的主会话 context。"
+      : "预先启动一个子代理，把 final response 注入主会话 context。";
   }
 
   return "作为一条用户消息按时机执行。";
@@ -197,23 +207,30 @@ function formatUserContextHookWaitModeLabel(
 }
 
 function formatUserContextHookWaitModeDescription(
-  waitMode: NonNullable<UserContextHookRecord["waitMode"]>
+  hook: UserContextHookRecord
 ): string {
-  return waitMode === "unblocking"
+  if (getUserContextHookBehavior(hook) === "subagent" && hook.event === "run_end") {
+    return "run 结束后后台继续执行，结果会在后续 run 自动注入。";
+  }
+
+  return getEffectiveSubagentHookWaitMode(hook) === "unblocking"
     ? "当前 run 先继续，结果在后续 run 自动注入。"
     : "先等 hook 子代理完成，再继续本次 run。";
 }
 
 function formatUserContextHookEventDescription(
-  event: UserContextHookRecord["event"]
+  hook: UserContextHookRecord
 ): string {
+  const event = hook.event;
   if (event === "session_started") {
     return "只在会话第一次 run 时触发。";
   }
   if (event === "run_started") {
     return "每次 run 开始时触发。";
   }
-  return "用户消息完成后触发。";
+  return getUserContextHookBehavior(hook) === "subagent"
+    ? "当前 run 完成后触发。"
+    : "用户消息完成后触发。";
 }
 
 function getVisiblePermissionTools(
@@ -351,7 +368,7 @@ interface SessionWorkbenchSettingsProps {
     hookId: string,
     patch: Partial<UserContextHookRecord>
   ) => void;
-  onUserContextHookBlur: () => void;
+  onUserContextHookBlur: (hookId: string) => void;
   onUserContextHookEnabledChange: (hookId: string, enabled: boolean) => void;
   onUserContextHookEventChange: (
     hookId: string,
@@ -1345,7 +1362,7 @@ export function SessionWorkbenchSettings({
                             title: event.target.value
                           })
                         }
-                        onBlur={onUserContextHookBlur}
+                        onBlur={() => onUserContextHookBlur(hook.id)}
                         placeholder="hook title"
                         className="w-full min-w-0 border-none bg-transparent px-0 py-0 text-sm text-[var(--app-text-primary)] outline-none placeholder:text-[var(--app-text-muted)]"
                       />
@@ -1360,7 +1377,7 @@ export function SessionWorkbenchSettings({
                             <span>·</span>
                             <span>
                               {formatUserContextHookWaitModeLabel(
-                                hook.waitMode ?? "blocking"
+                                getEffectiveSubagentHookWaitMode(hook)
                               )}
                             </span>
                           </>
@@ -1429,7 +1446,7 @@ export function SessionWorkbenchSettings({
                         }
                       />
                       <div className={fieldDescriptionClassName}>
-                        {formatUserContextHookEventDescription(hook.event)}
+                        {formatUserContextHookEventDescription(hook)}
                       </div>
                     </label>
                   </div>
@@ -1441,15 +1458,16 @@ export function SessionWorkbenchSettings({
                           Wait Mode
                         </span>
                         <WorkbenchSelect
-                          value={hook.waitMode ?? "blocking"}
+                          value={getEffectiveSubagentHookWaitMode(hook)}
                           disabled={savingSettings}
                           ariaLabel="选择 hook 子代理等待模式"
-                          options={userContextHookWaitModeOptions.map(
-                            (option) => ({
-                              value: option,
-                              label: formatUserContextHookWaitModeLabel(option)
-                            })
-                          )}
+                          options={(hook.event === "run_end"
+                            ? ["unblocking" as const]
+                            : userContextHookWaitModeOptions
+                          ).map((option) => ({
+                            value: option,
+                            label: formatUserContextHookWaitModeLabel(option)
+                          }))}
                           onValueChange={(waitMode) =>
                             onUserContextHookWaitModeChange(
                               hook.id,
@@ -1460,9 +1478,7 @@ export function SessionWorkbenchSettings({
                           }
                         />
                         <div className={fieldDescriptionClassName}>
-                          {formatUserContextHookWaitModeDescription(
-                            hook.waitMode ?? "blocking"
-                          )}
+                          {formatUserContextHookWaitModeDescription(hook)}
                         </div>
                       </label>
                       <label className="grid gap-2 text-sm text-[var(--app-text-secondary)]">
@@ -1485,7 +1501,7 @@ export function SessionWorkbenchSettings({
                               maxTurns: Number.parseInt(event.target.value, 10)
                             })
                           }
-                          onBlur={onUserContextHookBlur}
+                          onBlur={() => onUserContextHookBlur(hook.id)}
                           className="w-full rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_78%,transparent)] px-4 py-3 text-sm text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
                         />
                         <div className={fieldDescriptionClassName}>
@@ -1504,7 +1520,7 @@ export function SessionWorkbenchSettings({
                           content: event.target.value
                         })
                       }
-                      onBlur={onUserContextHookBlur}
+                      onBlur={() => onUserContextHookBlur(hook.id)}
                       rows={5}
                       className="w-full rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_78%,transparent)] px-4 py-3 text-sm text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
                     />

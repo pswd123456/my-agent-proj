@@ -21,6 +21,7 @@ import {
   getSessionDisplayState,
   mergeSessionSummary,
   normalizeSettingsFormState,
+  shouldPersistUserContextHookMutation,
   removePatternLine,
   resolveSelectedModelId,
   toSettingsMcpFormState,
@@ -545,6 +546,149 @@ describe("settings user context hooks", () => {
         enabled: true
       }
     ]);
+  });
+
+  test("normalizes run_end subagent hooks to unblocking wait mode", () => {
+    const settingsForm = toSettingsFormState({
+      userId: "user-1",
+      workingDirectory: "agent-workspace",
+      model: "MiniMax-M2.7",
+      thinkingEffort: "high",
+      yoloMode: false,
+      contextWindow: 200_000,
+      maxTurns: 50,
+      shellAllowPatterns: [],
+      shellDenyPatterns: [],
+      toolAllowList: [],
+      toolAskList: [],
+      toolDenyList: [],
+      enabledCapabilityPacks: [],
+      workspaceSkillSettings: [],
+      userContextHooks: [
+        {
+          id: "hook-subagent-run-end",
+          event: "run_end",
+          behavior: "subagent",
+          waitMode: "blocking",
+          title: "Wrap up",
+          content: "在结束后整理收尾信息。",
+          enabled: true
+        }
+      ],
+      debugConversationView: false,
+      userCustomPrompt: "",
+      createdAt: "2026-05-01T00:00:00.000Z",
+      updatedAt: "2026-05-01T00:00:00.000Z"
+    });
+
+    expect(normalizeSettingsFormState(settingsForm).userContextHooks).toEqual([
+      {
+        id: "hook-subagent-run-end",
+        event: "run_end",
+        behavior: "subagent",
+        waitMode: "unblocking",
+        maxTurns: 100,
+        title: "Wrap up",
+        content: "在结束后整理收尾信息。",
+        enabled: true
+      }
+    ]);
+  });
+
+  test("defers hook persistence while draft content is blank", () => {
+    const currentForm = toSettingsFormState({
+      userId: "user-1",
+      workingDirectory: "agent-workspace",
+      model: "MiniMax-M2.7",
+      thinkingEffort: "high",
+      yoloMode: false,
+      contextWindow: 200_000,
+      maxTurns: 50,
+      shellAllowPatterns: [],
+      shellDenyPatterns: [],
+      toolAllowList: [],
+      toolAskList: [],
+      toolDenyList: [],
+      enabledCapabilityPacks: [],
+      workspaceSkillSettings: [],
+      userContextHooks: [
+        {
+          id: "hook-draft",
+          event: "run_started",
+          behavior: "context",
+          title: "Draft",
+          content: "",
+          enabled: true
+        }
+      ],
+      debugConversationView: false,
+      userCustomPrompt: "",
+      createdAt: "2026-05-03T00:00:00.000Z",
+      updatedAt: "2026-05-03T00:00:00.000Z"
+    });
+
+    const nextForm = {
+      ...currentForm,
+      userContextHooks: currentForm.userContextHooks.map((hook) =>
+        hook.id === "hook-draft" ? { ...hook, behavior: "subagent" } : hook
+      )
+    };
+
+    expect(
+      shouldPersistUserContextHookMutation({
+        currentForm,
+        nextForm,
+        hookId: "hook-draft"
+      })
+    ).toBe(false);
+  });
+
+  test("persists hook mutations once content is present", () => {
+    const currentForm = toSettingsFormState({
+      userId: "user-1",
+      workingDirectory: "agent-workspace",
+      model: "MiniMax-M2.7",
+      thinkingEffort: "high",
+      yoloMode: false,
+      contextWindow: 200_000,
+      maxTurns: 50,
+      shellAllowPatterns: [],
+      shellDenyPatterns: [],
+      toolAllowList: [],
+      toolAskList: [],
+      toolDenyList: [],
+      enabledCapabilityPacks: [],
+      workspaceSkillSettings: [],
+      userContextHooks: [
+        {
+          id: "hook-ready",
+          event: "run_started",
+          behavior: "context",
+          title: "Ready",
+          content: "先整理背景。",
+          enabled: true
+        }
+      ],
+      debugConversationView: false,
+      userCustomPrompt: "",
+      createdAt: "2026-05-03T00:00:00.000Z",
+      updatedAt: "2026-05-03T00:00:00.000Z"
+    });
+
+    const nextForm = {
+      ...currentForm,
+      userContextHooks: currentForm.userContextHooks.map((hook) =>
+        hook.id === "hook-ready" ? { ...hook, behavior: "subagent" } : hook
+      )
+    };
+
+    expect(
+      shouldPersistUserContextHookMutation({
+        currentForm,
+        nextForm,
+        hookId: "hook-ready"
+      })
+    ).toBe(true);
   });
 });
 

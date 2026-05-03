@@ -245,6 +245,31 @@ describe("session-workbench settings mode", () => {
     expect(markup).toContain("Unblocking");
   });
 
+  test("renders run_end subagent hooks as unblocking follow-up work", () => {
+    const settingsForm = createSettingsFormState();
+    settingsForm.userContextHooks = [
+      {
+        id: "hook-subagent-run-end",
+        event: "run_end",
+        behavior: "subagent",
+        waitMode: "blocking",
+        title: "Wrap up research",
+        content: "收尾后再整理背景资料。",
+        enabled: true
+      }
+    ];
+
+    const markup = renderSettings({
+      activeSettingsPage: "hooks",
+      settingsForm
+    });
+
+    expect(markup).toContain("Subagent");
+    expect(markup).toContain("Run End");
+    expect(markup).toContain("Unblocking");
+    expect(markup).toContain("后续 run 自动注入");
+  });
+
   test("renders discovered skills on the skills page", () => {
     const markup = renderSettings({
       activeSettingsPage: "skills",

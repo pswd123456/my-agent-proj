@@ -1257,8 +1257,7 @@ export function normalizeSettingsFormState(
             ...hook,
             behavior,
             event:
-              (behavior === "context" || behavior === "subagent") &&
-              hook.event === "run_end"
+              behavior === "context" && hook.event === "run_end"
                 ? "run_started"
                 : hook.event,
             id: hook.id.trim(),
@@ -1269,7 +1268,10 @@ export function normalizeSettingsFormState(
             behavior === "subagent"
               ? {
                   ...normalizedHook,
-                  waitMode: hook.waitMode ?? "blocking",
+                  waitMode:
+                    hook.event === "run_end"
+                      ? "unblocking"
+                      : (hook.waitMode ?? "blocking"),
                   maxTurns: normalizeMaxTurns(
                     String(hook.maxTurns ?? DEFAULT_MAX_TURNS)
                   )
@@ -1282,6 +1284,30 @@ export function normalizeSettingsFormState(
     debugConversationView: form.debugConversationView,
     userCustomPrompt: form.userCustomPrompt.trim()
   };
+}
+
+export function isUserContextHookReadyToPersist(
+  hook: Pick<UserContextHookRecord, "id" | "content">
+): boolean {
+  return hook.id.trim().length > 0 && hook.content.trim().length > 0;
+}
+
+export function shouldPersistUserContextHookMutation(input: {
+  currentForm: SettingsFormState;
+  nextForm: SettingsFormState;
+  hookId: string;
+}): boolean {
+  const nextHook = input.nextForm.userContextHooks.find(
+    (hook) => hook.id === input.hookId
+  );
+  if (nextHook) {
+    return isUserContextHookReadyToPersist(nextHook);
+  }
+
+  const currentHook = input.currentForm.userContextHooks.find(
+    (hook) => hook.id === input.hookId
+  );
+  return currentHook ? isUserContextHookReadyToPersist(currentHook) : true;
 }
 
 export function normalizePatternText(value: string): string {
