@@ -7,10 +7,10 @@
 
 ## 当前运行主链路
 
-- `apps/api` 是当前运行主入口，负责 session 生命周期、设置读取、runtime 装配、SSE 输出、trace 查询与恢复接口
+- `apps/api` 是当前运行主入口，负责 session 生命周期、设置读取、SSE 输出、trace 查询与恢复接口，并通过共享 runtime assembly 装配执行依赖
 - `apps/web` 是当前唯一产品层前端，主要承载 workbench、会话可视化、trace 与调试观察
 - `apps/worker` 是后台执行入口，负责轮询 `background_tasks`、认领 detached task，并用独立 child session 或 detached shell process 驱动长任务
-- `packages/agent` 提供 runtime loop、prompt、provider 适配、统一模型服务、permission checker、session manager、tool registry、skills、MCP、background tasks orchestration、delegation、trace 与 system log
+- `packages/agent` 提供 runtime loop、prompt、provider 适配、统一模型服务、permission checker、session manager、runtime assembly、tool registry、skills、MCP、background tasks orchestration、delegation、trace 与 system log
 - `packages/db` 提供 PostgreSQL 访问、schema 初始化、settings repository、routine repository 与 background task repository
 - `packages/domain` 提供 session settings、session context、权限规则、background task 载荷与 routine 领域模型
 - `packages/sdk` 提供给 Web 使用的 API client、摘要转换与跨层类型
@@ -96,8 +96,9 @@
 
 ## 当前事实源
 
-- API 装配：`apps/api/src/index.ts`
-- worker 装配：`apps/worker/src/index.ts`
+- runtime 装配：`packages/agent/src/runtime/assembly.ts`
+- API 进程入口：`apps/api/src/index.ts`
+- worker 进程入口：`apps/worker/src/index.ts`
 - 模型目录与默认模型：`packages/agent/src/models/service.ts`
 - session 默认值：`packages/domain/src/session-settings.ts`
 - tool surface：`packages/agent/src/tools/registry.ts`

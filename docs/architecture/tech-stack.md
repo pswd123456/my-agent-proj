@@ -37,10 +37,11 @@
 ### Agent Runtime
 
 - runtime 门面在 `packages/agent/src/runtime.ts`，核心执行循环在 `packages/agent/src/runtime/run-loop.ts`
+- API / worker 共用的运行时装配收口在 `packages/agent/src/runtime/assembly.ts`
 - prompt 拼装在 `packages/agent/src/prompt.ts`
 - provider 适配在 `packages/agent/src/model.ts`
 - 统一模型服务在 `packages/agent/src/models/`
-- session 抽象和 PostgreSQL / file / memory 实现在 `packages/agent/src/session/`
+- session 抽象和当前唯一落地的 PostgreSQL 实现在 `packages/agent/src/session/`
 - 后台任务和 delegated subagent 实现在 `packages/agent/src/background-tasks/` 与 `packages/agent/src/delegation/`
 - MCP 工作区挂载实现在 `packages/agent/src/mcp/`
 - runtime 已落地 permission checker、interrupt、history compact 和 system log 边界
@@ -69,6 +70,8 @@
   - `agent_settings`
   - `background_tasks`
   - `background_task_runs`
+
+当前 API 与 worker 进程都会在启动时调用 `ensureProductSchema()`，因此 schema 初始化属于运行时装配链路，而不是独立的部署服务。
 
 ## 已安装但不属于当前主链路的项
 

@@ -18,18 +18,19 @@
 
 `apps/api` 不是业务规则层，而是当前运行主入口与 HTTP 壳层。它主要做四件事：
 
-1. 组装 runtime、session manager、settings repository、trace manager、system log manager
+1. 连接 API 进程级依赖，并把共享 runtime assembly 产出的 session/settings/trace/log 能力暴露给 HTTP 层
 2. 暴露 session / settings / trace / routines / cron jobs / workspace helper 接口
 3. 负责 request/response schema 校验与错误映射
 4. 在每次 runtime 创建前注入工作区输入、MCP 工具和 model service
 
 关键文件：
 
-- `apps/api/src/index.ts`：装配层
+- `apps/api/src/index.ts`：API 进程入口
 - `apps/api/src/app.ts`：路由与请求体验证
 - `apps/api/src/working-directory.ts`：默认工作目录解析
 - `apps/api/src/directory-picker.ts`：系统目录选择器桥接
 - `apps/api/src/session-relations.ts`：子会话父子关系补全
+- `packages/agent/src/runtime/assembly.ts`：API / worker 共用的 runtime 装配
 
 ### `packages/sdk`
 
@@ -145,13 +146,21 @@
 
 ## 装配边界
 
-`apps/api/src/index.ts` 是当前最关键的装配点：
+`apps/api/src/index.ts` 负责 API 进程级 wiring，真正复用的 runtime 装配收口在 `packages/agent/src/runtime/assembly.ts`。
+
+`apps/api/src/index.ts` 主要负责：
+
+- 解析 workspace root、默认工作目录和进程环境变量
+- 选择 API 自己的目录选择器、logger 与 delegate service
+- 把 `buildWorkingDirectory()`、`pickDirectory()`、`runtimeFactory()` 等进程级依赖传给 `createApiApp()`
+
+共享 runtime assembly 负责：
 
 - 创建 Postgres database 与 repositories
 - 调 `ensureProductSchema()` 确保 schema/migrations 落地
 - 创建 `createPostgresSessionManager()`
 - 创建 `createPostgresCronJobRepository()` 与 `createCronJobDispatcher()`
-- 创建 `createBackgroundTaskManager()` 与 `createDelegateAgentService()`
+- 创建 `createBackgroundTaskManager()`
 - 创建 `createModelService(process.env)`
 - 每次创建 runtime 时：
   - 读取 user settings
@@ -160,7 +169,7 @@
   - 加载 workspace MCP tools
   - 组装 trace / prompt / permission / background task 依赖
 
-也就是说，`apps/api` 决定“这一轮 session 是怎么跑起来的”，但不承载 runtime loop 本身。
+也就是说，`apps/api` 决定“这个 HTTP 进程怎样接入 runtime”，而 runtime 真正的通用装配与执行循环都不写在 `app.ts` 里。
 
 ## SDK 为什么单独存在
 
@@ -216,7 +225,8 @@ fork / rewrite 的更细模块边界见 [Session Fork 与 Rewrite](./session-for
 ## 推荐事实源
 
 - 路由与 schema：`apps/api/src/app.ts`
-- runtime 装配：`apps/api/src/index.ts`
+- runtime 装配：`packages/agent/src/runtime/assembly.ts`
+- API 进程入口：`apps/api/src/index.ts`
 - working directory 解析：`apps/api/src/working-directory.ts`
 - session 父子关系补全：`apps/api/src/session-relations.ts`
 - SDK transport：`packages/sdk/src/client.ts`

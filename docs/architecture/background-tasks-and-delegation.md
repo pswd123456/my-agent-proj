@@ -37,7 +37,7 @@ packages/db/src/schema.ts
 `hook_subagent` 和普通 `subagent` 共用同一套 worker / notification / wakeup 基座，但语义不同：
 
 - 普通 `subagent` 面向主 agent 的显式 delegate，可以回传 `needs_main_agent`
-- `hook_subagent` 是一次性的 pre-run final-response 生产者，只允许成功产出 final response 或直接失败
+- `hook_subagent` 是一次性的 hook final-response 生产者，只允许成功产出 final response 或直接失败；其中 `session_started` / `run_started` 在主模型请求前调度，`run_end` 在当前 run 结束后调度
 - 前端默认把 hook child session 当成内部调试对象隐藏，只有打开 `debugConversationView` 才显示
 
 ## 当前任务模型
@@ -115,8 +115,9 @@ sequenceDiagram
 - `cron_job` 没有父会话；worker 会先创建专属 session，再把任务排入后台执行
 - `blocking` 下，主会话在工具返回统一的 `BACKGROUND_TASK_ACCEPTED` 且任务仍活跃时，会立即以 `background_task_running` 结束当前 run，不在同一次 run 内继续同步等待
 - `unblocking` 下，主会话会先继续处理同轮其他工具调用或后续模型回合；当没有其他可推进工作时，再主动结束当前 run，并安排 `background_task_poll` 类型的 `session_wakeup`
-- `hook_subagent waitMode=blocking` 也复用同一条 `background_task_poll` 路径，但 wakeup payload 会保留原始用户消息，并带 `skipSubagentHooks: true`，避免恢复时再次触发同一批 pre-run hook
+- `hook_subagent waitMode=blocking` 也复用同一条 `background_task_poll` 路径，但 wakeup payload 会保留原始用户消息，并带 `skipSubagentHooks: true`，避免恢复时再次触发同一批 pre-run hook；当前只适用于 `session_started` / `run_started`
 - `hook_subagent waitMode=unblocking` 不会给当前 run 补一个即时恢复；它只在下一次主会话真实发给模型的 run 前注入物化后的 hook context
+- `run_end` hook_subagent 固定按 `unblocking` 执行：主会话先完成当前 run，再把 hook 排入后台任务，不额外创建同轮恢复
 - `background_task_poll` 的首次检查时间来自 `initial_check_after_ms`，之后指数退避，单次间隔最多 120 秒；轮询本身不消耗主模型 turn
 - `session_wakeup` 会复用主会话自己的 `sessionId` 作为 child session，避免为同一个主会话反复创建新唤醒任务
 - `subagent`、`shell_command` 和 `session_wakeup` 都带 `deadlineAt` / `attemptCount` / `maxAttempts`

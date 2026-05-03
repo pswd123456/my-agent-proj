@@ -102,9 +102,9 @@
 
 当前已落地的主要是：
 
-- `ConversationWorkbench`
-- `WorkbenchPanel`
-- `PageFrame`
+- `WorkbenchPanel`：当前已被 workbench drawer 直接复用
+- `PageFrame`：当前用于 `/tokens` 这类文档型页面
+- `ConversationWorkbench`：已作为共享骨架导出，但当前主 workbench 页面仍以 `apps/web/app/_components/session-workbench*.tsx` 的 repo 内编排为主
 
 它负责稳定页面框架，但不负责 session 业务。
 

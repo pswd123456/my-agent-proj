@@ -50,6 +50,7 @@
 - 做 UI、一致性、tokens、组件策略、页面模板相关工作时，从 `docs/design-system/` 开始
 - 若某项约定已经沉淀为专题文档，后续应优先更新专题文档，而不是把补充内容继续加回入口页
 - `docs/plan/` 主要保留阶段规划、实现规格和历史演进，不是判断当前运行现状的首选入口
+- `docs/investigation/` 保留调研与方案比较，`docs/todo/` 保留待办和后续专项；它们都不是判断当前实现事实的第一入口
 
 当前仓库的应用入口包括 `apps/api`、`apps/web` 和 `apps/worker`；如果未来新增应用，继续放在 `apps/` 下并补充对应文档。
 
@@ -57,7 +58,7 @@
 
 - API 路由、请求体和返回结构以 `apps/api/src/app.ts` 为准
 - session 默认值、capability pack 默认装配和 `maxTurns`/`contextWindow` 上限以 `packages/domain/src/session-settings.ts` 为准
-- runtime 实际装配方式以 `apps/api/src/index.ts` 和 `apps/worker/src/index.ts` 为准
+- runtime 实际装配方式以 `packages/agent/src/runtime/assembly.ts` 为准，`apps/api/src/index.ts` 与 `apps/worker/src/index.ts` 负责把它接到各自进程入口
 - cron job 调度定义与触发链路以 `apps/api/src/app.ts`、`packages/agent/src/cron/dispatcher.ts` 和 `apps/worker/src/index.ts` 为准
 - 模型目录、默认模型选择和 `thinkingEffort` 支持矩阵以 `packages/agent/src/models/service.ts` 为准
 - tool 调度、权限检查和结果持久化以 `packages/agent/src/runtime/run-loop.ts` 与 `packages/agent/src/runtime/tool-execution.ts` 为准

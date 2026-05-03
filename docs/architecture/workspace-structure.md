@@ -19,8 +19,10 @@
   docs/
     architecture/
     design-system/
+    investigation/
     plan/
     template/
+    todo/
   scripts/
   data/
   artifacts/
@@ -52,8 +54,10 @@
 
 - `architecture/` 放架构边界、技术栈、目录分层和架构图
 - `design-system/` 放 UI 一致性、模式和 token 约定
+- `investigation/` 放调研、方案比较和带时效性的外部能力评估
 - `plan/` 放阶段性设计与执行文档
 - `template/` 放模板初始化和裁剪规则
+- `todo/` 放当前待办、专项验收口径和后续工作拆分
 
 ### `scripts/`
 

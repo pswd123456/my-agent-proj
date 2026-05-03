@@ -95,20 +95,21 @@ prefix message 带 `cache_control: { type: "ephemeral" }`，并参与当前 `cac
 4. user context hooks
    - 来自 user settings 里的 `userContextHooks`
    - `behavior: "context"` 的 hook 由 runtime 在每次 run 开始时解析，只进入 `runtimeContextMessages`
-   - context 注入当前只支持 `session_started`、`run_started` 两个时机；`run_end` 只支持 message hook
+   - context 注入当前只支持 `session_started`、`run_started` 两个时机；`run_end` 不支持 context hook，但支持 message / subagent
    - `session_started` 只在当前 session 的第一次 run 注入；同一轮内的显示顺序固定为 `session_started -> run_started`
    - hook 文本不进入 `system`、`prefixMessages` 或 `cacheKey`
 
 `behavior: "message"` 的 hook 不进入 prompt runtime context，而是作为真实用户消息排入 runtime：`session_started` 与 `run_started` 会在用户消息发送给模型前先执行，`run_end` 会在用户消息完成后执行。`session_started` message hook 也只在当前 session 的第一次 run 触发。
 
-`behavior: "subagent"` 的 hook 也不进入 stable prefix。它在首个主模型请求前先进入一个 pre-prompt 调度阶段，只支持 `session_started` 和 `run_started`：
+`behavior: "subagent"` 的 hook 也不进入 stable prefix。`session_started` / `run_started` 会在首个主模型请求前进入 pre-prompt 调度阶段；`run_end` 则会在当前 run 完成后异步调度：
 
 - hook child session 只收到 hook 自己的 `content` 作为任务正文，不带当前用户消息，也不带最近会话摘要
 - 主会话只消费 hook child 的 `final response`；如果 child 进入 `needs_main_agent`、权限请求、澄清请求或没有 final response，都视为 hook 失败
 - `waitMode: "blocking"` 时，父 run 会先挂起，等 hook 完成后通过现有 `background_task_poll -> session_wakeup` 链路，用原始用户消息恢复同一轮请求
 - `waitMode: "unblocking"` 时，父 run 先继续；hook 完成后会先落到 `pendingBackgroundNotifications`，再在下一次真正发给模型的 run 前物化为 `session.context.hookContextEntries`
+- `run_end` subagent hook 固定按 `unblocking` 执行：主会话先完成当前回答，再把 hook 作为后台任务排队，结果留给后续 run 注入
 - prompt 注入只读取“当前仍启用且配置哈希匹配”的 `hookContextEntries`，避免用户禁用或改配后继续吃旧结果
-- 注入顺序固定为：持久的 `session_started` 结果在前，累积的 `run_started` 结果按生成时间追加在后
+- 注入顺序固定为：持久的 `session_started` 结果在前，累积的 `run_started` / `run_end` 结果按生成时间追加在后
 
 5. workspace skills
    - 从 `session.workingDirectory/.agent/skills/` 发现的 skill metadata
@@ -118,7 +119,7 @@ prefix message 带 `cache_control: { type: "ephemeral" }`，并参与当前 `cac
 6. full compaction continuation summary
    - 只在 `session.context.fullCompactionState` 存在时注入
    - 内容来自最近一次 full compaction 生成的 continuation summary
-   - full compaction 会把当时累积的 `run_started` subagent hook 结果并入 continuation summary，再把 live `hookContextEntries` 裁到只剩 `session_started`
+   - full compaction 会把当时累积的非 `session_started` subagent hook 结果并入 continuation summary，再把 live `hookContextEntries` 裁到只剩 `session_started`
    - 不进入 `prefixMessages` 或 `cacheKey`
 
 7. runtime context
