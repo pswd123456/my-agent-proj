@@ -66,6 +66,136 @@ type SplitContentResult = {
   hasFinalNewline: boolean;
 };
 
+type SyntaxValidationResult =
+  | {
+      ok: true;
+    }
+  | {
+      ok: false;
+      message: string;
+    };
+
+function isStructuralPatchLineText(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return true;
+  }
+
+  return (
+    trimmed === ">" ||
+    trimmed === "/>" ||
+    /^[{}()[\];,.:?]+$/.test(trimmed) ||
+    /^<\/?[A-Za-z][^>]*>$/.test(trimmed)
+  );
+}
+
+function isRecoverableVisibleTextDeletionLine(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed.length < 12 || isStructuralPatchLineText(text)) {
+    return false;
+  }
+
+  if (
+    /^(?:import|export|const|let|var|function|return|if|else|for|while|switch|case|class|type|interface)\b/.test(
+      trimmed
+    )
+  ) {
+    return false;
+  }
+
+  if (/[=;{}()[\]]/.test(trimmed)) {
+    return false;
+  }
+
+  return (
+    /[\p{Letter}\p{Number}]/u.test(trimmed) &&
+    (/[\p{Script=Han}]/u.test(trimmed) || /[\s.,!?;:，。！？、]/u.test(trimmed))
+  );
+}
+
+function canonicalizeLocalizedTextDeletionPatch(input: {
+  filePatch: UnifiedFilePatch;
+  originalLines: string[];
+}): UnifiedFilePatch | null {
+  if (
+    input.filePatch.action !== "modify" ||
+    input.filePatch.hunks.length !== 1
+  ) {
+    return null;
+  }
+
+  const changedLines = input.filePatch.hunks[0]?.lines.filter(
+    (line) => line.kind !== "context"
+  );
+  if (!changedLines || changedLines.length === 0) {
+    return null;
+  }
+
+  const visibleDeletionLines = changedLines.filter(
+    (line) =>
+      line.kind === "delete" && isRecoverableVisibleTextDeletionLine(line.text)
+  );
+  if (visibleDeletionLines.length !== 1) {
+    return null;
+  }
+
+  const visibleDeletionLine = visibleDeletionLines[0];
+  if (!visibleDeletionLine) {
+    return null;
+  }
+  if (
+    changedLines.some(
+      (line) =>
+        line !== visibleDeletionLine && !isStructuralPatchLineText(line.text)
+    )
+  ) {
+    return null;
+  }
+
+  const matchingLineIndexes = input.originalLines.reduce<number[]>(
+    (matches, line, index) =>
+      line === visibleDeletionLine.text ? [...matches, index] : matches,
+    []
+  );
+  if (matchingLineIndexes.length !== 1) {
+    return null;
+  }
+
+  const targetIndex = matchingLineIndexes[0] ?? 0;
+  const hunkLines: UnifiedPatchLine[] = [];
+  if (targetIndex > 0) {
+    hunkLines.push({
+      kind: "context",
+      text: input.originalLines[targetIndex - 1] ?? ""
+    });
+  }
+  hunkLines.push(visibleDeletionLine);
+  if (targetIndex + 1 < input.originalLines.length) {
+    hunkLines.push({
+      kind: "context",
+      text: input.originalLines[targetIndex + 1] ?? ""
+    });
+  }
+
+  const oldStart = targetIndex > 0 ? targetIndex : 1;
+  const contextLineCount = hunkLines.filter(
+    (line) => line.kind === "context"
+  ).length;
+
+  return {
+    ...input.filePatch,
+    hunks: [
+      {
+        oldStart,
+        oldCount: hunkLines.length,
+        newStart: oldStart,
+        newCount: contextLineCount,
+        lines: hunkLines
+      }
+    ]
+  };
+}
+
 function normalizePatchBody(patchText: string): string[] {
   const normalized = patchText.replace(/\r\n/g, "\n");
   const lines = normalized.split("\n");
@@ -161,6 +291,104 @@ function renderFileContent(input: {
 
   const joined = input.lines.join(input.newline);
   return input.hasFinalNewline ? `${joined}${input.newline}` : joined;
+}
+
+function shouldGuardPatchedSyntax(targetPath: string): boolean {
+  const extension = path.extname(targetPath).toLowerCase();
+  return [
+    ".js",
+    ".jsx",
+    ".ts",
+    ".tsx",
+    ".mjs",
+    ".cjs",
+    ".mts",
+    ".cts",
+    ".json"
+  ].includes(extension);
+}
+
+function formatJsonSyntaxErrorMessage(targetPath: string, error: unknown): string {
+  const detail = error instanceof Error ? error.message : String(error);
+  return `Patch would leave ${targetPath} syntactically invalid. ${detail}`;
+}
+
+async function validatePatchedSyntax(input: {
+  targetPath: string;
+  originalContent: string;
+  nextContent: string;
+}): Promise<SyntaxValidationResult> {
+  if (!shouldGuardPatchedSyntax(input.targetPath)) {
+    return { ok: true };
+  }
+
+  const extension = path.extname(input.targetPath).toLowerCase();
+
+  if (extension === ".json") {
+    try {
+      JSON.parse(input.originalContent);
+    } catch {
+      return { ok: true };
+    }
+
+    try {
+      JSON.parse(input.nextContent);
+      return { ok: true };
+    } catch (error) {
+      return {
+        ok: false,
+        message: formatJsonSyntaxErrorMessage(input.targetPath, error)
+      };
+    }
+  }
+
+  const ts = await import("typescript");
+  const compilerOptions = {
+    allowJs: true,
+    checkJs: false,
+    jsx: ts.JsxEmit.Preserve,
+    module: ts.ModuleKind.ESNext,
+    target: ts.ScriptTarget.Latest
+  };
+  const originalDiagnostics =
+    ts.transpileModule(input.originalContent, {
+      compilerOptions,
+      fileName: input.targetPath,
+      reportDiagnostics: true
+    }).diagnostics ?? [];
+  if (originalDiagnostics.length > 0) {
+    return { ok: true };
+  }
+
+  const nextDiagnostics =
+    ts.transpileModule(input.nextContent, {
+      compilerOptions,
+      fileName: input.targetPath,
+      reportDiagnostics: true
+    }).diagnostics ?? [];
+  const firstDiagnostic = nextDiagnostics[0];
+  if (!firstDiagnostic) {
+    return { ok: true };
+  }
+
+  const position = firstDiagnostic.file?.getLineAndCharacterOfPosition(
+    firstDiagnostic.start ?? 0
+  );
+  const diagnosticMessage = ts.flattenDiagnosticMessageText(
+    firstDiagnostic.messageText,
+    " "
+  );
+
+  return {
+    ok: false,
+    message: [
+      `Patch would leave ${input.targetPath} syntactically invalid.`,
+      position
+        ? `First parse error at line ${position.line + 1}, column ${position.character + 1}: ${diagnosticMessage}.`
+        : `First parse error: ${diagnosticMessage}.`,
+      "Keep unchanged structural lines, braces, parentheses, delimiters, and control-flow boundaries as context lines, then retry the smallest patch that only changes the requested content."
+    ].join(" ")
+  };
 }
 
 function createPatchPositionHint(): string {
@@ -560,11 +788,32 @@ export async function applyUnifiedPatch(input: {
         ? ""
         : await fs.readFile(absoluteTargetPath, "utf8");
     const splitContent = splitFileContent(originalContent);
+    const effectiveFilePatch =
+      canonicalizeLocalizedTextDeletionPatch({
+        filePatch,
+        originalLines: splitContent.lines
+      }) ?? filePatch;
     const applied = applyFilePatchToLines({
-      filePatch,
+      filePatch: effectiveFilePatch,
       originalLines: splitContent.lines,
       originalHasFinalNewline: splitContent.hasFinalNewline
     });
+    const nextContent = renderFileContent({
+      lines: applied.nextLines,
+      newline: splitContent.newline,
+      hasFinalNewline: applied.hasFinalNewline
+    });
+
+    if (filePatch.action !== "delete") {
+      const syntaxValidation = await validatePatchedSyntax({
+        targetPath: filePatch.targetPath,
+        originalContent,
+        nextContent
+      });
+      if (!syntaxValidation.ok) {
+        throw new Error(syntaxValidation.message);
+      }
+    }
 
     if (filePatch.action === "delete") {
       await fs.rm(absoluteTargetPath, { force: false });
@@ -575,20 +824,16 @@ export async function applyUnifiedPatch(input: {
           : null;
       await writeTextFileAtomic(
         absoluteTargetPath,
-        renderFileContent({
-          lines: applied.nextLines,
-          newline: splitContent.newline,
-          hasFinalNewline: applied.hasFinalNewline
-        }),
+        nextContent,
         existingStat ? { mode: existingStat.mode } : {}
       );
     }
 
     summaries.push({
-      ...summarizeFilePatch(filePatch),
+      ...summarizeFilePatch(effectiveFilePatch),
       path: toRelativeWorkspacePath(input.workingDirectory, absoluteTargetPath),
       fileState:
-        filePatch.action === "delete"
+        effectiveFilePatch.action === "delete"
           ? { exists: false }
           : {
               exists: true,

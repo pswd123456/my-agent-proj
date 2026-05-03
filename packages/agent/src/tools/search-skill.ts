@@ -128,7 +128,7 @@ export function createSearchSkillTool(
       additionalProperties: false
     },
     getSandboxTargets() {
-      return [".agent/skills"];
+      return [".agents/skills"];
     },
     validate(input) {
       const issues: Array<{ field: string; issue: string }> = [];

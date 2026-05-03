@@ -235,7 +235,7 @@ export function createLoadSkillTool(
           name: "path",
           type: "string",
           description:
-            "Exact relativePath from search_skill results, for example .agent/skills/repo-reader/SKILL.md."
+            "Exact relativePath from search_skill results, for example .agents/skills/repo-reader/SKILL.md."
         }),
         "Optionally page the result with either {startLine,endLine} or {offset,limit}."
       ],
@@ -246,7 +246,7 @@ export function createLoadSkillTool(
       ],
       examples: [
         '{"skillName":"firecrawl"}',
-        '{"path":".agent/skills/repo-reader/SKILL.md","startLine":1,"endLine":80}'
+        '{"path":".agents/skills/repo-reader/SKILL.md","startLine":1,"endLine":80}'
       ]
     }),
     family: "workspace-file",
@@ -265,7 +265,7 @@ export function createLoadSkillTool(
         path: {
           type: "string",
           description:
-            "Optional exact relativePath from search_skill results, for example '.agent/skills/repo-reader/SKILL.md'."
+            "Optional exact relativePath from search_skill results, for example '.agents/skills/repo-reader/SKILL.md'."
         },
         offset: { type: "number" },
         limit: { type: "number" },
@@ -278,7 +278,7 @@ export function createLoadSkillTool(
       return [
         typeof input.path === "string" && input.path.trim().length > 0
           ? input.path.trim()
-          : ".agent/skills"
+          : ".agents/skills"
       ];
     },
     validate(input) {

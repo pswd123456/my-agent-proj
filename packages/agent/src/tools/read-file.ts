@@ -220,6 +220,8 @@ export function createReadFileTool(workingDirectory: string): RuntimeTool {
         "Step 1: if the relevant section is unknown, call search_text first to find the file and line numbers.",
         "Step 2: set path to the workspace-relative file path.",
         "Step 3: choose exactly one line-window form.",
+        "Step 4: if search_text already returned a match line, usually call read_file with only startLine/endLine around that line.",
+        "Step 5: do not copy search_text result fields like offset into read_file when you are already using startLine/endLine.",
         describeObjectProperty({
           name: "startLine",
           type: "number",
@@ -236,13 +238,13 @@ export function createReadFileTool(workingDirectory: string): RuntimeTool {
           name: "offset",
           type: "number",
           description:
-            "0-based line offset for paging; use together with limit when reading adjacent windows."
+            "0-based line offset for paging adjacent windows; use together with limit only, and do not include startLine or endLine."
         }),
         describeObjectProperty({
           name: "limit",
           type: "number",
           description:
-            "Number of lines to read starting from offset."
+            "Number of lines to read starting from offset; do not include startLine or endLine."
         }),
         describeObjectProperty({
           name: "maxCharacters",
@@ -254,6 +256,8 @@ export function createReadFileTool(workingDirectory: string): RuntimeTool {
       constraints: [
         "Use search_text first before read_file when the relevant section is not already known.",
         "Use exactly one window form: either {startLine,endLine} or {offset,limit}. Never combine the two forms.",
+        "After search_text returns match line numbers, prefer {startLine,endLine} for that file and do not also pass offset/limit.",
+        "search_text result metadata is not a read_file window. A match result may include its own offset field; do not pass that offset when you already have startLine/endLine.",
         "For large or uncertain files, read a narrow window instead of the whole file.",
         "read_file is for text files only; binary files and oversized outputs are rejected.",
         "If the tool says the file is unchanged, reuse the previous content already in context instead of rereading it."

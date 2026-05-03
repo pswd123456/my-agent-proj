@@ -72,6 +72,57 @@ function nextCount(lines: string[]): number {
   return lines.length;
 }
 
+function detectLocalizedExistingFileEdit(input: {
+  originalContent: string;
+  nextContent: string;
+}): {
+  isLocalized: boolean;
+  oldChangedLineCount: number;
+  newChangedLineCount: number;
+} {
+  const originalLines = normalizeDiffLines(input.originalContent);
+  const nextLines = normalizeDiffLines(input.nextContent);
+
+  let prefixCount = 0;
+  while (
+    prefixCount < originalLines.length &&
+    prefixCount < nextLines.length &&
+    originalLines[prefixCount] === nextLines[prefixCount]
+  ) {
+    prefixCount += 1;
+  }
+
+  let suffixCount = 0;
+  while (
+    suffixCount < originalLines.length - prefixCount &&
+    suffixCount < nextLines.length - prefixCount &&
+    originalLines[originalLines.length - 1 - suffixCount] ===
+      nextLines[nextLines.length - 1 - suffixCount]
+  ) {
+    suffixCount += 1;
+  }
+
+  const oldChangedLineCount = Math.max(
+    0,
+    originalLines.length - prefixCount - suffixCount
+  );
+  const newChangedLineCount = Math.max(
+    0,
+    nextLines.length - prefixCount - suffixCount
+  );
+  const changedLineBudget = Math.max(oldChangedLineCount, newChangedLineCount);
+  const preservedEdgeLines = prefixCount + suffixCount;
+
+  return {
+    isLocalized:
+      changedLineBudget > 0 &&
+      changedLineBudget <= 8 &&
+      preservedEdgeLines > 0,
+    oldChangedLineCount,
+    newChangedLineCount
+  };
+}
+
 export function createWriteFileTool(workingDirectory: string): RuntimeTool {
   return {
     name: "write_file",
@@ -90,11 +141,16 @@ export function createWriteFileTool(workingDirectory: string): RuntimeTool {
           description: "Full file content to write."
         }),
         "Step 2: if the target file already exists, read it with read_file in this session before writing.",
-        "Step 3: use apply_patch instead of write_file for line-level edits."
+        "Step 3: use apply_patch instead of write_file for line-level edits.",
+        "Step 4: if you only need to remove or change one sentence, one string literal, or a few nearby lines in an existing file, stay on apply_patch.",
+        "Step 5: even if you can describe the whole next file content, do not switch to write_file for a one-line text removal task."
       ],
       constraints: [
         "Existing files MUST be read with read_file in this session before writing.",
         "write_file only supports full-file writes; line edits are rejected.",
+        "Do not use write_file for localized edits to an existing file just because apply_patch needs a smaller or more exact hunk.",
+        "Do not use write_file for a one-line sentence or string removal in an existing file after apply_patch fails; reread and retry a smaller patch instead.",
+        "Do not use write_file to simplify, normalize, or rewrite unchanged surrounding structure during a local content removal.",
         "The parent directory must already exist.",
         "Directory targets are rejected."
       ],
@@ -238,6 +294,28 @@ export function createWriteFileTool(workingDirectory: string): RuntimeTool {
         const originalContent = existed
           ? await fs.readFile(absolutePath, "utf8")
           : null;
+        if (existed && originalContent !== null && originalContent !== content) {
+          const localizedEdit = detectLocalizedExistingFileEdit({
+            originalContent,
+            nextContent: content
+          });
+          if (localizedEdit.isLocalized) {
+            return failureResult(
+              createToolResult({
+                ok: false,
+                code: "WRITE_FILE_LOCALIZED_EDIT",
+                message:
+                  "This existing-file write only changes a small local range. Use apply_patch so unchanged surrounding structure and behavior stay exact."
+              }),
+              [
+                "[write_file] failed",
+                "- localized existing-file edit detected; use apply_patch instead",
+                `- changed old lines: ${localizedEdit.oldChangedLineCount}, changed new lines: ${localizedEdit.newChangedLineCount}`,
+                "- recovery: reread the narrow range, keep unchanged surrounding lines exact, and change only the target content"
+              ].join("\n")
+            );
+          }
+        }
         const readPrecondition = existed
           ? await requireFreshSessionRead({
               workingDirectory,

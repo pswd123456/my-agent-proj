@@ -586,7 +586,7 @@ export function createSearchTextTool(workingDirectory: string): RuntimeTool {
         "Very broad searches may be truncated or capped by result limits."
       ],
       examples: [
-        '{"query":"发送请求后，这里会显示当前会话的对话和执行记录","outputMode":"files_only"}',
+        '{"query":"sessionMessages","path":"apps/web","fileGlob":"**/*.tsx","outputMode":"files_only"}',
         '{"query":"delegate_agent","path":"packages/agent/src","fileGlob":"**/*.ts","outputMode":"content","contextLines":2}',
         '{"query":"TODO|FIXME","path":"packages","outputMode":"count"}'
       ]

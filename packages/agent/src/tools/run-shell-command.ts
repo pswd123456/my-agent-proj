@@ -348,6 +348,8 @@ export function createRunShellCommandTool(): RuntimeTool {
       ],
       constraints: [
         "Shell execution is destructive and requires approval.",
+        "Prefer structured workspace tools such as search_text, read_file, git_diff, and git_status for repository inspection before using shell.",
+        "Do not use shell text utilities like cat, sed, grep, awk, or perl just to inspect file contents that read_file or search_text can already provide.",
         "action=get only inspects a background task and does not require command.",
         "action=cancel only accepts task_id.",
         "Inline commands return one result; background commands return task state and may continue after the current run."
