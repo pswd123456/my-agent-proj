@@ -19,9 +19,12 @@ import type {
   UserContextHookRecord
 } from "@ai-app-template/domain";
 import {
+  DEFAULT_CONTEXT_WINDOW,
   DEFAULT_SESSION_MODEL,
   DEFAULT_SESSION_MAX_TURNS,
+  DEFAULT_SESSION_WORKING_DIRECTORY,
   DEFAULT_THINKING_EFFORT,
+  DEFAULT_TOOL_ASK_LIST,
   type ThinkingEffort
 } from "@ai-app-template/domain";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
@@ -39,25 +42,7 @@ import {
 
 import type { ProductDatabaseClient } from "./client.js";
 
-const defaultToolAskListJson = JSON.stringify([
-  "read_file",
-  "list_directory",
-  "search_text",
-  "create_directory",
-  "write_file",
-  "manage_path",
-  "delete_file",
-  "delete_path",
-  "run_shell_command",
-  "make_http_request",
-  "create_routine",
-  "edit_routine",
-  "delete_routine",
-  "search_routine_by_oclock",
-  "list_routine_by_week",
-  "list_routine_by_date",
-  "ask_for_confirmation"
-]);
+const defaultToolAskListJson = JSON.stringify(DEFAULT_TOOL_ASK_LIST);
 
 function toSqlJsonbLiteral(value: string): string {
   return `'${value.replace(/'/g, "''")}'::jsonb`;
@@ -68,6 +53,44 @@ const defaultCapabilityPacksJsonLiteral = toSqlJsonbLiteral(
   JSON.stringify(["workspace", "schedule", "lsp"])
 );
 const defaultJsonbArray = sql.raw("'[]'::jsonb");
+
+function createSharedRuntimeSettingColumns() {
+  return {
+    thinkingEffort: text("thinking_effort")
+      .$type<ThinkingEffort>()
+      .notNull()
+      .default(DEFAULT_THINKING_EFFORT),
+    yoloMode: boolean("yolo_mode").notNull().default(false),
+    contextWindow: integer("context_window")
+      .notNull()
+      .default(DEFAULT_CONTEXT_WINDOW),
+    maxTurns: integer("max_turns").notNull().default(DEFAULT_SESSION_MAX_TURNS),
+    shellAllowPatterns: jsonb("shell_allow_patterns")
+      .$type<string[]>()
+      .notNull()
+      .default(defaultJsonbArray),
+    shellDenyPatterns: jsonb("shell_deny_patterns")
+      .$type<string[]>()
+      .notNull()
+      .default(defaultJsonbArray),
+    toolAllowList: jsonb("tool_allow_list")
+      .$type<string[]>()
+      .notNull()
+      .default(defaultJsonbArray),
+    toolAskList: jsonb("tool_ask_list")
+      .$type<string[]>()
+      .notNull()
+      .default(sql.raw(defaultToolAskListJsonLiteral)),
+    toolDenyList: jsonb("tool_deny_list")
+      .$type<string[]>()
+      .notNull()
+      .default(defaultJsonbArray),
+    enabledCapabilityPacks: jsonb("enabled_capability_packs")
+      .$type<string[]>()
+      .notNull()
+      .default(sql.raw(defaultCapabilityPacksJsonLiteral))
+  };
+}
 
 export const routines = pgTable(
   "routines",
@@ -112,42 +135,12 @@ export const agentSessions = pgTable(
     userId: text("user_id").notNull(),
     status: text("status").notNull(),
     currentDateContext: text("current_date_context").notNull(),
-    yoloMode: boolean("yolo_mode").notNull().default(false),
     planModeEnabled: boolean("plan_mode_enabled").notNull().default(false),
-    thinkingEffort: text("thinking_effort")
-      .$type<ThinkingEffort>()
-      .notNull()
-      .default(DEFAULT_THINKING_EFFORT),
     taskBriefPath: text("task_brief_path"),
     workspaceEscapeAllowed: boolean("workspace_escape_allowed")
       .notNull()
       .default(false),
-    contextWindow: integer("context_window").notNull().default(200000),
-    maxTurns: integer("max_turns").notNull().default(DEFAULT_SESSION_MAX_TURNS),
-    shellAllowPatterns: jsonb("shell_allow_patterns")
-      .$type<string[]>()
-      .notNull()
-      .default(defaultJsonbArray),
-    shellDenyPatterns: jsonb("shell_deny_patterns")
-      .$type<string[]>()
-      .notNull()
-      .default(defaultJsonbArray),
-    toolAllowList: jsonb("tool_allow_list")
-      .$type<string[]>()
-      .notNull()
-      .default(defaultJsonbArray),
-    toolAskList: jsonb("tool_ask_list")
-      .$type<string[]>()
-      .notNull()
-      .default(sql.raw(defaultToolAskListJsonLiteral)),
-    toolDenyList: jsonb("tool_deny_list")
-      .$type<string[]>()
-      .notNull()
-      .default(defaultJsonbArray),
-    enabledCapabilityPacks: jsonb("enabled_capability_packs")
-      .$type<string[]>()
-      .notNull()
-      .default(sql.raw(defaultCapabilityPacksJsonLiteral)),
+    ...createSharedRuntimeSettingColumns(),
     activeBackgroundTaskCount: integer("active_background_task_count")
       .notNull()
       .default(0),
@@ -248,7 +241,9 @@ export const cronJobs = pgTable(
     runCount: integer("run_count").notNull().default(0),
     status: text("status").$type<CronJobStatus>().notNull(),
     modelOverride: text("model_override"),
-    thinkingEffortOverride: text("thinking_effort_override").$type<ThinkingEffort>(),
+    thinkingEffortOverride: text(
+      "thinking_effort_override"
+    ).$type<ThinkingEffort>(),
     lastRunAt: timestamp("last_run_at", {
       mode: "string",
       withTimezone: true
@@ -283,39 +278,9 @@ export const agentSettings = pgTable("agent_settings", {
   userId: text("user_id").primaryKey(),
   workingDirectory: text("working_directory")
     .notNull()
-    .default("agent-workspace"),
+    .default(DEFAULT_SESSION_WORKING_DIRECTORY),
   model: text("model").notNull().default(DEFAULT_SESSION_MODEL),
-  thinkingEffort: text("thinking_effort")
-    .$type<ThinkingEffort>()
-    .notNull()
-    .default(DEFAULT_THINKING_EFFORT),
-  yoloMode: boolean("yolo_mode").notNull().default(false),
-  contextWindow: integer("context_window").notNull().default(200000),
-  maxTurns: integer("max_turns").notNull().default(DEFAULT_SESSION_MAX_TURNS),
-  shellAllowPatterns: jsonb("shell_allow_patterns")
-    .$type<string[]>()
-    .notNull()
-    .default(defaultJsonbArray),
-  shellDenyPatterns: jsonb("shell_deny_patterns")
-    .$type<string[]>()
-    .notNull()
-    .default(defaultJsonbArray),
-  toolAllowList: jsonb("tool_allow_list")
-    .$type<string[]>()
-    .notNull()
-    .default(defaultJsonbArray),
-  toolAskList: jsonb("tool_ask_list")
-    .$type<string[]>()
-    .notNull()
-    .default(sql.raw(defaultToolAskListJsonLiteral)),
-  toolDenyList: jsonb("tool_deny_list")
-    .$type<string[]>()
-    .notNull()
-    .default(defaultJsonbArray),
-  enabledCapabilityPacks: jsonb("enabled_capability_packs")
-    .$type<string[]>()
-    .notNull()
-    .default(sql.raw(defaultCapabilityPacksJsonLiteral)),
+  ...createSharedRuntimeSettingColumns(),
   workspaceSkillSettings: jsonb("workspace_skill_settings")
     .$type<Array<{ skillName: string; enabled: boolean }>>()
     .notNull()

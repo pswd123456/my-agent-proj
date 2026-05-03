@@ -33,6 +33,13 @@ type SettingsRow = typeof agentSettings.$inferSelect;
 type SettingsInsert = typeof agentSettings.$inferInsert;
 type SettingsUpdateSet = Partial<Omit<SettingsInsert, "userId" | "createdAt">>;
 
+type PersistedSettingsFields = Omit<
+  SettingsInsert,
+  "userId" | "createdAt" | "updatedAt"
+> & {
+  updatedAt: SettingsInsert["updatedAt"];
+};
+
 function toIsoString(value: string): string {
   const normalized = value.includes("T") ? value : value.replace(" ", "T");
   const tzMatch = normalized.match(/([+-]\d{2})(\d{2})?$/);
@@ -197,11 +204,10 @@ function buildPatchedSettings(
   };
 }
 
-function toSettingsInsertValues(
+function toPersistedSettingsFields(
   settings: SessionSettingsRecord
-): SettingsInsert {
+): PersistedSettingsFields {
   return {
-    userId: settings.userId,
     workingDirectory: settings.workingDirectory,
     model: settings.model,
     thinkingEffort: settings.thinkingEffort,
@@ -218,8 +224,17 @@ function toSettingsInsertValues(
     userContextHooks: settings.userContextHooks,
     debugConversationView: settings.debugConversationView,
     userCustomPrompt: settings.userCustomPrompt,
-    createdAt: settings.createdAt,
     updatedAt: settings.updatedAt
+  };
+}
+
+function toSettingsInsertValues(
+  settings: SessionSettingsRecord
+): SettingsInsert {
+  return {
+    userId: settings.userId,
+    ...toPersistedSettingsFields(settings),
+    createdAt: settings.createdAt
   };
 }
 
@@ -227,23 +242,7 @@ function toSettingsUpdateSet(
   settings: SessionSettingsRecord
 ): SettingsUpdateSet {
   return {
-    workingDirectory: settings.workingDirectory,
-    model: settings.model,
-    thinkingEffort: settings.thinkingEffort,
-    yoloMode: settings.yoloMode,
-    contextWindow: settings.contextWindow,
-    maxTurns: settings.maxTurns,
-    shellAllowPatterns: settings.shellAllowPatterns,
-    shellDenyPatterns: settings.shellDenyPatterns,
-    toolAllowList: settings.toolAllowList,
-    toolAskList: settings.toolAskList,
-    toolDenyList: settings.toolDenyList,
-    enabledCapabilityPacks: settings.enabledCapabilityPacks,
-    workspaceSkillSettings: settings.workspaceSkillSettings,
-    userContextHooks: settings.userContextHooks,
-    debugConversationView: settings.debugConversationView,
-    userCustomPrompt: settings.userCustomPrompt,
-    updatedAt: settings.updatedAt
+    ...toPersistedSettingsFields(settings)
   };
 }
 
