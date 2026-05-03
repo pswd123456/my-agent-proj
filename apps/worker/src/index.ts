@@ -115,7 +115,37 @@ async function reconcileStaleTasks(): Promise<void> {
   }
 }
 
+async function drainDueCronJobs(): Promise<void> {
+  const excludedCronJobIds = new Set<string>();
+
+  while (true) {
+    const result =
+      await runtimeEnvironment.cronJobDispatcher.dispatchNextDueCronJob({
+        excludeCronJobIds: [...excludedCronJobIds]
+      });
+    if (!result) {
+      return;
+    }
+
+    if (result.outcome === "failed") {
+      excludedCronJobIds.add(result.cronJobId);
+      await workerLogger.error("cron_job_dispatch_failed", {
+        cronJobId: result.cronJobId,
+        error: result.error
+      });
+      continue;
+    }
+
+    await workerLogger.info("cron_job_dispatched", {
+      cronJobId: result.cronJobId,
+      sessionId: result.sessionId,
+      taskId: result.taskId
+    });
+  }
+}
+
 async function drainQueuedTasks(): Promise<void> {
+  await drainDueCronJobs();
   await reconcileStaleTasks();
 
   while (true) {
