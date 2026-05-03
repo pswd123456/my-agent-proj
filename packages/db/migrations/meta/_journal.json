@@ -183,6 +183,13 @@
       "when": 1778400000000,
       "tag": "0025_nervous_nomad",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1778486400000,
+      "tag": "0026_remarkable_mother_askani",
+      "breakpoints": true
     }
   ]
 }

@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   backgroundTaskRuns,
   backgroundTasks,
+  cronJobs,
   isTimestampWithoutTimeZoneColumn,
   productSchema
 } from "../src/schema.js";
@@ -29,5 +30,6 @@ describe("isTimestampWithoutTimeZoneColumn", () => {
   test("exposes background task tables in the product schema", () => {
     expect(productSchema.backgroundTasks).toBe(backgroundTasks);
     expect(productSchema.backgroundTaskRuns).toBe(backgroundTaskRuns);
+    expect(productSchema.cronJobs).toBe(cronJobs);
   });
 });

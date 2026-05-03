@@ -3,6 +3,10 @@ import { fileURLToPath } from "node:url";
 import type {
   BackgroundTaskPayload,
   BackgroundTaskState,
+  CronIntervalUnit,
+  CronJobStatus,
+  CronScheduleMode,
+  CronWeekday,
   PendingConfirmationPayload,
   BackgroundTaskStatus,
   BackgroundTaskKind,
@@ -171,6 +175,7 @@ export const agentSessions = pgTable(
     pendingConflictSummary: text("pending_conflict_summary"),
     firstUserMessage: text("first_user_message"),
     lastUserMessage: text("last_user_message"),
+    cronJobId: text("cron_job_id"),
     parentSessionId: text("parent_session_id"),
     parentRelationKind: text("parent_relation_kind"),
     forkReplayCheckpointId: text("fork_replay_checkpoint_id"),
@@ -210,7 +215,67 @@ export const agentSessions = pgTable(
       .defaultNow()
   },
   (table) => ({
-    updatedAtIdx: index("agent_sessions_updated_at_idx").on(table.updatedAt)
+    updatedAtIdx: index("agent_sessions_updated_at_idx").on(table.updatedAt),
+    cronJobUpdatedIdx: index("agent_sessions_cron_job_updated_at_idx").on(
+      table.cronJobId,
+      table.updatedAt
+    )
+  })
+);
+
+export const cronJobs = pgTable(
+  "cron_jobs",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    name: text("name").notNull(),
+    prompt: text("prompt").notNull(),
+    workingDirectory: text("working_directory").notNull(),
+    scheduleMode: text("schedule_mode").$type<CronScheduleMode>().notNull(),
+    intervalUnit: text("interval_unit").$type<CronIntervalUnit>(),
+    intervalValue: integer("interval_value"),
+    weekday: text("weekday").$type<CronWeekday>(),
+    timeOfDay: text("time_of_day"),
+    startsAt: timestamp("starts_at", {
+      mode: "string",
+      withTimezone: true
+    }).notNull(),
+    nextRunAt: timestamp("next_run_at", {
+      mode: "string",
+      withTimezone: true
+    }),
+    maxRuns: integer("max_runs"),
+    runCount: integer("run_count").notNull().default(0),
+    status: text("status").$type<CronJobStatus>().notNull(),
+    modelOverride: text("model_override"),
+    thinkingEffortOverride: text("thinking_effort_override").$type<ThinkingEffort>(),
+    lastRunAt: timestamp("last_run_at", {
+      mode: "string",
+      withTimezone: true
+    }),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", {
+      mode: "string",
+      withTimezone: true
+    })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", {
+      mode: "string",
+      withTimezone: true
+    })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => ({
+    userCreatedIdx: index("cron_jobs_user_created_at_idx").on(
+      table.userId,
+      table.createdAt
+    ),
+    statusNextRunIdx: index("cron_jobs_status_next_run_at_idx").on(
+      table.status,
+      table.nextRunAt
+    )
   })
 );
 
@@ -466,6 +531,7 @@ export const productSchema = {
   routines,
   agentSessions,
   agentSettings,
+  cronJobs,
   backgroundTasks,
   backgroundTaskRuns,
   sessionMessages,
