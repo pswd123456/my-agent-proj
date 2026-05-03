@@ -24,6 +24,7 @@ export {
   normalizeWorkspaceMcpServerName
 } from "@ai-app-template/agent/contracts/workspace-api";
 export type {
+  BuiltinToolAction,
   RoutineRecord,
   SessionSettingsRecord,
   SettingsPermissionToolOption,
@@ -34,6 +35,8 @@ export {
   buildShellApprovalPatternCandidates,
   matchesShellCommandPattern,
   CAPABILITY_PACK_OPTIONS,
+  DEFAULT_TOOL_ASK_LIST,
+  getBuiltinToolAction,
   PERMISSION_TOOL_OPTIONS,
   PLANNING_STATE_TOOL_NAMES,
   SETTINGS_PERMISSION_TOOL_OPTIONS,

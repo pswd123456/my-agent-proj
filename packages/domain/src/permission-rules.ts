@@ -20,61 +20,288 @@ export interface SettingsPermissionToolOption {
   capabilityPack: string | null;
 }
 
-export const TODO_TOOL_NAMES = [
-  "get_todo_list",
-  "replace_todo_list",
-  "update_todo_items"
-] as const;
+export type BuiltinToolAction = "read" | "search" | "edit" | "view" | "call";
 
-export const PLANNING_STATE_TOOL_NAMES = TODO_TOOL_NAMES;
+interface BuiltinToolCatalogEntry {
+  name: string;
+  action: BuiltinToolAction;
+  visibleInSettings: boolean;
+  todoTool?: boolean;
+  planningStateTool?: boolean;
+  defaultToolAskRank?: number;
+}
 
-export const PERMISSION_TOOL_OPTIONS = [
-  "ask_user_question",
-  "delegate_agent",
-  "edit_task_brief",
-  "get_current_time",
-  "get_task_brief",
-  ...PLANNING_STATE_TOOL_NAMES,
-  "manage_capability_packs",
-  "read_task_brief",
-  "replace_task_brief",
-  "load_skill",
-  "search_task_brief",
-  "search_skill",
-  "apply_patch",
-  "read_file",
-  "list_directory",
-  "find_files",
-  "search_text",
-  "create_directory",
-  "write_file",
-  "manage_path",
-  "delete_file",
-  "delete_path",
-  "git_status",
-  "git_diff",
-  "git_diff_cached",
-  "run_shell_command",
-  "make_http_request",
-  "lsp_hover",
-  "lsp_go_to_definition",
-  "lsp_find_references",
-  "lsp_document_symbols",
-  "lsp_workspace_symbols",
-  "lsp_diagnostics",
-  "create_routine",
-  "edit_routine",
-  "delete_routine",
-  "search_routine_by_oclock",
-  "list_routine_by_week",
-  "list_routine_by_date",
-  "ask_for_confirmation"
-] as const;
+const BUILTIN_TOOL_CATALOG: readonly BuiltinToolCatalogEntry[] = [
+  {
+    name: "ask_user_question",
+    action: "call",
+    visibleInSettings: true
+  },
+  {
+    name: "delegate_agent",
+    action: "call",
+    visibleInSettings: true
+  },
+  {
+    name: "edit_task_brief",
+    action: "edit",
+    visibleInSettings: true
+  },
+  {
+    name: "get_current_time",
+    action: "call",
+    visibleInSettings: true
+  },
+  {
+    name: "get_task_brief",
+    action: "call",
+    visibleInSettings: true
+  },
+  {
+    name: "get_todo_list",
+    action: "call",
+    visibleInSettings: true,
+    todoTool: true,
+    planningStateTool: true
+  },
+  {
+    name: "manage_capability_packs",
+    action: "call",
+    visibleInSettings: true
+  },
+  {
+    name: "read_task_brief",
+    action: "read",
+    visibleInSettings: true
+  },
+  {
+    name: "replace_task_brief",
+    action: "edit",
+    visibleInSettings: true
+  },
+  {
+    name: "replace_todo_list",
+    action: "call",
+    visibleInSettings: true,
+    todoTool: true,
+    planningStateTool: true
+  },
+  {
+    name: "load_skill",
+    action: "call",
+    visibleInSettings: true
+  },
+  {
+    name: "search_task_brief",
+    action: "search",
+    visibleInSettings: true
+  },
+  {
+    name: "search_skill",
+    action: "search",
+    visibleInSettings: true
+  },
+  {
+    name: "update_todo_items",
+    action: "call",
+    visibleInSettings: true,
+    todoTool: true,
+    planningStateTool: true
+  },
+  {
+    name: "apply_patch",
+    action: "edit",
+    visibleInSettings: true
+  },
+  {
+    name: "read_file",
+    action: "read",
+    visibleInSettings: true,
+    defaultToolAskRank: 10
+  },
+  {
+    name: "list_directory",
+    action: "view",
+    visibleInSettings: true,
+    defaultToolAskRank: 20
+  },
+  {
+    name: "find_files",
+    action: "search",
+    visibleInSettings: true
+  },
+  {
+    name: "search_text",
+    action: "search",
+    visibleInSettings: true,
+    defaultToolAskRank: 30
+  },
+  {
+    name: "create_directory",
+    action: "edit",
+    visibleInSettings: true,
+    defaultToolAskRank: 40
+  },
+  {
+    name: "write_file",
+    action: "edit",
+    visibleInSettings: true,
+    defaultToolAskRank: 50
+  },
+  {
+    name: "manage_path",
+    action: "edit",
+    visibleInSettings: true,
+    defaultToolAskRank: 60
+  },
+  {
+    name: "delete_file",
+    action: "edit",
+    visibleInSettings: true,
+    defaultToolAskRank: 70
+  },
+  {
+    name: "delete_path",
+    action: "edit",
+    visibleInSettings: true,
+    defaultToolAskRank: 80
+  },
+  {
+    name: "git_status",
+    action: "call",
+    visibleInSettings: true
+  },
+  {
+    name: "git_diff",
+    action: "call",
+    visibleInSettings: true
+  },
+  {
+    name: "git_diff_cached",
+    action: "call",
+    visibleInSettings: true
+  },
+  {
+    name: "run_shell_command",
+    action: "call",
+    visibleInSettings: false,
+    defaultToolAskRank: 90
+  },
+  {
+    name: "make_http_request",
+    action: "call",
+    visibleInSettings: false,
+    defaultToolAskRank: 100
+  },
+  {
+    name: "lsp_hover",
+    action: "call",
+    visibleInSettings: true
+  },
+  {
+    name: "lsp_go_to_definition",
+    action: "call",
+    visibleInSettings: true
+  },
+  {
+    name: "lsp_find_references",
+    action: "call",
+    visibleInSettings: true
+  },
+  {
+    name: "lsp_document_symbols",
+    action: "call",
+    visibleInSettings: true
+  },
+  {
+    name: "lsp_workspace_symbols",
+    action: "call",
+    visibleInSettings: true
+  },
+  {
+    name: "lsp_diagnostics",
+    action: "call",
+    visibleInSettings: true
+  },
+  {
+    name: "create_routine",
+    action: "edit",
+    visibleInSettings: true,
+    defaultToolAskRank: 110
+  },
+  {
+    name: "edit_routine",
+    action: "edit",
+    visibleInSettings: true,
+    defaultToolAskRank: 120
+  },
+  {
+    name: "delete_routine",
+    action: "edit",
+    visibleInSettings: true,
+    defaultToolAskRank: 130
+  },
+  {
+    name: "search_routine_by_oclock",
+    action: "call",
+    visibleInSettings: true,
+    defaultToolAskRank: 140
+  },
+  {
+    name: "list_routine_by_week",
+    action: "call",
+    visibleInSettings: true,
+    defaultToolAskRank: 150
+  },
+  {
+    name: "list_routine_by_date",
+    action: "call",
+    visibleInSettings: true,
+    defaultToolAskRank: 160
+  },
+  {
+    name: "ask_for_confirmation",
+    action: "call",
+    visibleInSettings: true,
+    defaultToolAskRank: 170
+  }
+];
 
-export const SETTINGS_PERMISSION_TOOL_OPTIONS = PERMISSION_TOOL_OPTIONS.filter(
-  (toolName) =>
-    toolName !== "run_shell_command" && toolName !== "make_http_request"
-) as readonly string[];
+const BUILTIN_TOOL_ACTIONS = new Map(
+  BUILTIN_TOOL_CATALOG.map((entry) => [entry.name, entry.action] as const)
+);
+
+export const TODO_TOOL_NAMES = BUILTIN_TOOL_CATALOG.filter(
+  (entry) => entry.todoTool
+).map((entry) => entry.name);
+
+export const PLANNING_STATE_TOOL_NAMES = BUILTIN_TOOL_CATALOG.filter(
+  (entry) => entry.planningStateTool
+).map((entry) => entry.name);
+
+export const PERMISSION_TOOL_OPTIONS = BUILTIN_TOOL_CATALOG.map(
+  (entry) => entry.name
+);
+
+export const SETTINGS_PERMISSION_TOOL_OPTIONS = BUILTIN_TOOL_CATALOG.filter(
+  (entry) => entry.visibleInSettings
+).map((entry) => entry.name);
+
+export const DEFAULT_TOOL_ASK_LIST = BUILTIN_TOOL_CATALOG.filter(
+  (entry) => typeof entry.defaultToolAskRank === "number"
+)
+  .sort(
+    (left, right) =>
+      (left.defaultToolAskRank ?? Number.MAX_SAFE_INTEGER) -
+      (right.defaultToolAskRank ?? Number.MAX_SAFE_INTEGER)
+  )
+  .map((entry) => entry.name);
+
+export function getBuiltinToolAction(
+  toolName: string
+): BuiltinToolAction | null {
+  return BUILTIN_TOOL_ACTIONS.get(toolName) ?? null;
+}
 
 const SHELL_LINE_CONTINUATION_PATTERN = /\\\r?\n[ \t]*/g;
 
