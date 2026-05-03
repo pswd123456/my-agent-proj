@@ -1,4 +1,8 @@
-import type { RunStreamEvent, SessionSnapshot } from "@ai-app-template/sdk";
+import {
+  getBuiltinToolAction,
+  type RunStreamEvent,
+  type SessionSnapshot
+} from "@ai-app-template/sdk";
 
 import { getTimelineEventKey, type TimelineItem } from "./session-timeline";
 
@@ -115,37 +119,7 @@ function toTimelineViewItem(item: TimelineItem): ConversationViewItem {
 function getToolAction(
   toolName: string
 ): "read" | "search" | "edit" | "view" | "call" {
-  if (toolName === "read_file") {
-    return "read";
-  }
-
-  if (toolName === "search_text") {
-    return "search";
-  }
-
-  if (toolName === "list_directory") {
-    return "view";
-  }
-
-  if (
-    [
-      "write_file",
-      "apply_patch",
-      "replace_task_brief",
-      "edit_task_brief",
-      "create_directory",
-      "manage_path",
-      "delete_file",
-      "delete_path",
-      "create_routine",
-      "edit_routine",
-      "delete_routine"
-    ].includes(toolName)
-  ) {
-    return "edit";
-  }
-
-  return "call";
+  return getBuiltinToolAction(toolName) ?? "call";
 }
 
 function getToolVerb(input: {

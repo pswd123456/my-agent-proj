@@ -163,6 +163,36 @@ function renderSettings(
 }
 
 describe("session-workbench settings mode", () => {
+  test("does not render page-level intro blocks on settings child pages", () => {
+    expect(renderSettings({ activeSettingsPage: "general" })).not.toContain(
+      "这里配置默认值。修改后会自动保存"
+    );
+    expect(
+      renderSettings({
+        activeSettingsPage: "permissions"
+      })
+    ).not.toContain(
+      "先决定默认启用哪些能力，再保存常见的 shell 规则和工具询问策略。"
+    );
+    expect(renderSettings({ activeSettingsPage: "mcp" })).not.toContain(
+      "管理当前工作目录下的 MCP server。"
+    );
+    expect(renderSettings({ activeSettingsPage: "skills" })).not.toContain(
+      "控制当前工作目录下哪些 skills 会进入 runtime context，也会影响search_skill / load_skill 的可见范围。修改后下一次 run 生效。"
+    );
+    expect(renderSettings({ activeSettingsPage: "hooks" })).not.toContain(
+      "为不同 runtime 时机配置 context注入或自动发送消息。修改后会自动保存，并在下一次 run 生效。"
+    );
+    expect(
+      renderSettings({
+        activeSettingsPage: "personalization"
+      })
+    ).not.toContain("这里保留长期有效的偏好");
+    expect(renderSettings({ activeSettingsPage: "calendar" })).not.toContain(
+      "在默认设置里直接查看当前工作周的日程"
+    );
+  });
+
   test("renders settings child navigation with return action", () => {
     const markup = renderSettings();
 

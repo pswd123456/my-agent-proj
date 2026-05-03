@@ -495,15 +495,6 @@ export function SessionWorkbenchSettings({
   function renderGeneralPage() {
     return (
       <div className="grid gap-5">
-        <div
-          className={getSoftBlockClass(
-            "text-sm leading-6 text-[var(--app-text-secondary)]"
-          )}
-        >
-          这里配置默认值。修改后会自动保存，后续新建会话会直接使用；当前会话的权限和
-          yolo 也会同步更新。
-        </div>
-
         {currentSession ? (
           <SettingsSection
             eyebrow="Current Session"
@@ -685,14 +676,6 @@ export function SessionWorkbenchSettings({
   function renderPermissionsPage() {
     return (
       <div className="grid gap-5">
-        <div
-          className={getSoftBlockClass(
-            "text-sm leading-6 text-[var(--app-text-secondary)]"
-          )}
-        >
-          先决定默认启用哪些能力，再保存常见的 shell 规则和工具询问策略。
-        </div>
-
         <SettingsSection
           eyebrow="Shell Permission"
           title="Shell 权限"
@@ -864,14 +847,6 @@ export function SessionWorkbenchSettings({
   function renderMcpPage() {
     return (
       <div className="grid gap-5">
-        <div
-          className={getSoftBlockClass(
-            "text-sm leading-6 text-[var(--app-text-secondary)]"
-          )}
-        >
-          管理当前工作目录下的 MCP server。
-        </div>
-
         <SettingsSection
           eyebrow="MCP"
           title="MCP 服务与工具"
@@ -1227,15 +1202,6 @@ export function SessionWorkbenchSettings({
   function renderSkillsPage() {
     return (
       <div className="grid gap-5">
-        <div
-          className={getSoftBlockClass(
-            "text-sm leading-6 text-[var(--app-text-secondary)]"
-          )}
-        >
-          控制当前工作目录下哪些 skills 会进入 runtime context，也会影响
-          search_skill / load_skill 的可见范围。修改后下一次 run 生效。
-        </div>
-
         <SettingsSection
           eyebrow="Workspace Skills"
           title="Skill 列表"
@@ -1322,15 +1288,6 @@ export function SessionWorkbenchSettings({
   function renderHooksPage() {
     return (
       <div className="grid gap-5">
-        <div
-          className={getSoftBlockClass(
-            "text-sm leading-6 text-[var(--app-text-secondary)]"
-          )}
-        >
-          为不同 runtime 时机配置 context
-          注入或自动发送消息。修改后会自动保存，并在下一次 run 生效。
-        </div>
-
         <SettingsSection
           eyebrow="Hooks"
           title="Hook 列表"
@@ -1581,14 +1538,6 @@ export function SessionWorkbenchSettings({
   function renderPersonalizationPage() {
     return (
       <div className="grid gap-5">
-        <div
-          className={getSoftBlockClass(
-            "text-sm leading-6 text-[var(--app-text-secondary)]"
-          )}
-        >
-          这里保留长期有效的偏好、回答约束与固定执行提醒，减少每次重新声明。
-        </div>
-
         <SettingsSection
           eyebrow="Custom Prompt"
           title="长期提示"
@@ -1619,14 +1568,6 @@ export function SessionWorkbenchSettings({
   function renderCalendarPage() {
     return (
       <div className="grid gap-5">
-        <div
-          className={getSoftBlockClass(
-            "text-sm leading-6 text-[var(--app-text-secondary)]"
-          )}
-        >
-          在默认设置里直接查看当前工作周的日程，也可以一键重置全部日程。
-        </div>
-
         <SettingsSection
           eyebrow="Calendar"
           title="当前工作周"
