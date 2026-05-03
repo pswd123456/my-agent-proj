@@ -109,7 +109,7 @@ bun build
 
 ```bash
 bun run minimax:smoke
-bun run stage1:smoke
+bun run db:postgres-session-smoke
 bun run api:session-smoke
 bun run agent:runtime-smoke
 bun run web:workbench-smoke

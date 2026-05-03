@@ -27,29 +27,11 @@ const fakeClient: AnthropicCompatibleClient = {
       calls.push(input.messages);
 
       assert.equal(input.model, "MiniMax-M2.7");
-      assert.ok(
-        input.system.includes(
-          "You are a personal assistant."
-        )
-      );
-      assert.ok(
-        !/scheduling agent.*routine manager/i.test(input.system)
-      );
+      assert.ok(input.system.includes("You are a personal assistant."));
+      assert.ok(!/scheduling agent.*routine manager/i.test(input.system));
       assert.deepEqual(
         input.tools.map((tool) => tool.name),
-        [
-          "copy_path",
-          "create_directory",
-          "delete_path",
-          "edit_file",
-          "list_directory",
-          "make_http_request",
-          "move_path",
-          "read_file",
-          "run_shell_command",
-          "search_text",
-          "write_file"
-        ]
+        toolRegistry.toAnthropicTools().map((tool) => tool.name)
       );
 
       if (calls.length === 1) {
@@ -124,8 +106,6 @@ assert.equal(snapshot.inputTokensCount, 69);
 const recovered = await sessionManager.recover(snapshot);
 assert.equal(recovered.sessionId, snapshot.sessionId);
 assert.equal(recovered.messages.length, snapshot.messages.length);
-
-await rm(smokeRoot, { recursive: true, force: true });
 
 console.log(
   JSON.stringify(
