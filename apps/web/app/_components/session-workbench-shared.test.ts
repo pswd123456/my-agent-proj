@@ -16,6 +16,7 @@ import {
   stringifyPromptDebugValue,
   WorkbenchSwitch
 } from "./session-workbench-shared";
+import { getSidebarPanels } from "./session-workbench-types";
 
 describe("sidebar state tone", () => {
   test("distinguishes active and warning treatments", () => {
@@ -30,6 +31,22 @@ describe("sidebar state tone", () => {
     expect(warningBadge).toContain("app-status-warning");
     expect(activeBadge).not.toContain("border-[");
     expect(activeBadge).not.toContain("bg-[");
+  });
+});
+
+describe("sidebar panels", () => {
+  test("hides inspector when debug conversation view is off", () => {
+    expect(getSidebarPanels(false).map((panel) => panel.id)).toEqual([
+      "settings",
+      "cron",
+      "cron-create"
+    ]);
+  });
+
+  test("keeps inspector when debug conversation view is on", () => {
+    expect(getSidebarPanels(true).map((panel) => panel.id)).toContain(
+      "inspector"
+    );
   });
 });
 
@@ -66,6 +83,7 @@ describe("session sidebar prompt preview", () => {
     return {
       sessions,
       selectedSessionId: "session-1",
+      debugConversationView: true,
       searchValue: "",
       activeSidebarPanel: null,
       collapsed: false,
@@ -73,7 +91,6 @@ describe("session sidebar prompt preview", () => {
       loading: false,
       creatingSession: false,
       onCreateSession: () => {},
-      onCreateCronJob: () => {},
       onSearchValueChange: () => {},
       onSelectSession: () => {},
       onDeleteSession: () => {},
@@ -153,7 +170,7 @@ describe("session sidebar prompt preview", () => {
     );
   });
 
-  test("renders the new-cron entry directly below create session", () => {
+  test("does not render a top-level new-cron entry below create session", () => {
     const markup = renderToStaticMarkup(
       createElement(
         SessionWorkbenchSidebar,
@@ -163,13 +180,10 @@ describe("session sidebar prompt preview", () => {
       )
     );
 
-    expect(markup).toContain("新建定时任务");
-    expect(markup.indexOf("创建新会话")).toBeLessThan(
-      markup.indexOf("新建定时任务")
-    );
+    expect(markup).not.toContain('aria-label="新建定时任务"');
   });
 
-  test("keeps the top new-cron button but removes the lower panel entry", () => {
+  test("keeps the lower panel entry removed while retaining the cron section", () => {
     const markup = renderToStaticMarkup(
       createElement(
         SessionWorkbenchSidebar,
@@ -180,14 +194,30 @@ describe("session sidebar prompt preview", () => {
     );
 
     expect(markup).not.toContain("侧边面板");
-    expect(markup).toContain('aria-label="新建定时任务"');
     expect(markup).not.toContain(
       "<span>新建定时任务</span><span class=\"font-mono text-[0.72rem] uppercase tracking-[0.14em] text-[var(--app-text-muted)]\">view</span>"
     );
-    expect(markup).toContain("默认设置");
+    expect(markup).toContain("设置");
     expect(markup).toContain("定时任务");
-    expect(markup).toContain("日历");
     expect(markup).toContain("调试详情");
+  });
+
+  test("hides debug details panel when debug conversation view is off", () => {
+    const markup = renderToStaticMarkup(
+      createElement(
+        SessionWorkbenchSidebar,
+        {
+          ...createSidebarProps([
+            createSessionSummary("请帮我检查 runtime 的循环退出条件")
+          ]),
+          debugConversationView: false
+        }
+      )
+    );
+
+    expect(markup).toContain("设置");
+    expect(markup).toContain("定时任务");
+    expect(markup).not.toContain("调试详情");
   });
 
   test("distinguishes fork children from subagent children in sidebar labels", () => {

@@ -23,7 +23,7 @@ import {
 } from "./session-workbench-state";
 import {
   createDefaultCronJobFormState,
-  sidebarPanels,
+  getSidebarPanels,
   type CronJobFormState,
   type SidebarPanelId,
   type TurnUsageSummary,
@@ -64,7 +64,6 @@ interface SessionWorkbenchSidebarProps {
   loading: boolean;
   creatingSession: boolean;
   onCreateSession: () => void;
-  onCreateCronJob: () => void;
   onSearchValueChange: (value: string) => void;
   onSelectSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string) => void;
@@ -820,7 +819,6 @@ export function SessionWorkbenchSidebar({
   loading,
   creatingSession,
   onCreateSession,
-  onCreateCronJob,
   onSearchValueChange,
   onSelectSession,
   onDeleteSession,
@@ -876,6 +874,10 @@ export function SessionWorkbenchSidebar({
     () => getAutoCollapsedSessionIds(sidebarRows),
     [sidebarRows]
   );
+  const availableSidebarPanels = useMemo(
+    () => getSidebarPanels(debugConversationView),
+    [debugConversationView]
+  );
   const effectiveCollapsedSessionIds = useMemo(() => {
     const next = new Set(collapsedSessionIds);
     for (const ancestorId of selectedSessionAncestorIds) {
@@ -918,7 +920,7 @@ export function SessionWorkbenchSidebar({
     return "PANEL";
   }
 
-  function renderPanelButton(panel: (typeof sidebarPanels)[number]) {
+  function renderPanelButton(panel: (typeof availableSidebarPanels)[number]) {
     const isActive = activeSidebarPanel === panel.id;
 
     if (collapsed) {
@@ -1011,16 +1013,6 @@ export function SessionWorkbenchSidebar({
             className={`inline-flex items-center justify-center rounded-[var(--app-radius-pill)] border border-[color:color-mix(in_srgb,var(--app-border-accent)_68%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-elevated)_90%,transparent)] font-medium text-[var(--app-text-primary)] transition hover:border-[var(--app-status-success)] hover:text-[var(--app-status-success)] disabled:cursor-not-allowed disabled:opacity-50 ${collapsed ? "mt-3 h-10 w-full text-lg leading-none" : "mt-3 w-full px-4 py-2 text-sm"}`}
           >
             {collapsed ? "+" : "创建新会话"}
-          </button>
-          <button
-            type="button"
-            onClick={onCreateCronJob}
-            disabled={loading}
-            title="新建定时任务"
-            aria-label="新建定时任务"
-            className={`inline-flex items-center justify-center rounded-[var(--app-radius-pill)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] bg-transparent font-medium text-[var(--app-text-secondary)] transition hover:border-[var(--app-border-strong)] hover:text-[var(--app-text-primary)] disabled:cursor-not-allowed disabled:opacity-50 ${collapsed ? "mt-2 h-10 w-full text-[0.72rem] uppercase tracking-[0.14em]" : "mt-2 w-full px-4 py-2 text-sm"}`}
-          >
-            {collapsed ? "Cron" : "新建定时任务"}
           </button>
           {collapsed ? null : (
             <label className="mt-3 block">
@@ -1266,7 +1258,7 @@ export function SessionWorkbenchSidebar({
           className={`border-t border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] ${collapsed ? "px-3 py-3" : "px-4 py-4"}`}
         >
           <div className={`grid gap-2 ${collapsed ? "" : "mt-3"}`}>
-            {sidebarPanels
+            {availableSidebarPanels
               .filter((panel) => panel.id !== "cron-create")
               .map(renderPanelButton)}
           </div>

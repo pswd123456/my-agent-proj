@@ -2156,6 +2156,10 @@ export function SessionWorkbench() {
   }
 
   function handleToggleSidebarPanel(panelId: SidebarPanelId) {
+    if (panelId === "inspector" && !settingsForm.debugConversationView) {
+      return;
+    }
+
     setActiveSidebarPanel((current) => {
       if (current === panelId) {
         return null;
@@ -2614,10 +2618,6 @@ export function SessionWorkbench() {
     setIsSessionRailCollapsed(true);
     void handleCreateSession();
   };
-  const handleOverlayCreateCronJob = () => {
-    setIsSessionRailCollapsed(true);
-    handleCreateCronJob();
-  };
   const sidebarToggleLabel = isSessionRailCollapsed
     ? "展开会话侧边栏"
     : "收起会话侧边栏";
@@ -2670,6 +2670,14 @@ export function SessionWorkbench() {
   }, [currentSession?.sessionId, settingsForm.debugConversationView]);
 
   useEffect(() => {
+    if (settingsForm.debugConversationView || activeSidebarPanel !== "inspector") {
+      return;
+    }
+
+    setActiveSidebarPanel(null);
+  }, [activeSidebarPanel, settingsForm.debugConversationView]);
+
+  useEffect(() => {
     if (conversationProjection.newlyCollapsedFlowKeys.length === 0) {
       return;
     }
@@ -2703,7 +2711,6 @@ export function SessionWorkbench() {
             loading={loading}
             creatingSession={creatingSession}
             onCreateSession={() => void handleCreateSession()}
-            onCreateCronJob={handleCreateCronJob}
             onSearchValueChange={setSessionSearchQuery}
             onSelectSession={handleSelectSession}
             onDeleteSession={(sessionId) => void handleDeleteSession(sessionId)}
@@ -2732,7 +2739,6 @@ export function SessionWorkbench() {
                 loading={loading}
                 creatingSession={creatingSession}
                 onCreateSession={handleOverlayCreateSession}
-                onCreateCronJob={handleOverlayCreateCronJob}
                 onSearchValueChange={setSessionSearchQuery}
                 onSelectSession={handleOverlaySelectSession}
                 onDeleteSession={(sessionId) =>

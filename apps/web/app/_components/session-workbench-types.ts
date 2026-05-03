@@ -29,11 +29,19 @@ export const inspectorTabs = [
 ] as const;
 
 export const sidebarPanels = [
-  { id: "settings", label: "Settings", title: "默认设置" },
+  { id: "settings", label: "Settings", title: "设置" },
   { id: "cron", label: "Cron", title: "定时任务" },
   { id: "cron-create", label: "New Cron", title: "新建定时任务" },
   { id: "inspector", label: "Inspector", title: "调试详情" }
 ] as const;
+
+export function getSidebarPanels(debugConversationView: boolean) {
+  if (debugConversationView) {
+    return sidebarPanels;
+  }
+
+  return sidebarPanels.filter((panel) => panel.id !== "inspector");
+}
 
 export const settingsPages = [
   {
