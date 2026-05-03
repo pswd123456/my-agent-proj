@@ -87,7 +87,7 @@ sequenceDiagram
   Settings-->>API: session defaults
   API->>Session: 读取或创建 session
   API->>Runtime: runtime.run(sessionId, message)
-  Runtime->>Skills: discover .agent/skills/ from session.workingDirectory
+  Runtime->>Skills: discover .agents/skills/ from session.workingDirectory
   Skills-->>Runtime: skill metadata + diagnostics
   Runtime->>Prompt: build(system + prefix + runtime context + skills)
   Prompt-->>Runtime: prompt envelope

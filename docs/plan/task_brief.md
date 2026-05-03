@@ -50,7 +50,7 @@
 
 ```text
 <session.workingDirectory>/
-  .agent/
+  .agents/
     plans/
       <sessionId>/
         <planName>.md
@@ -67,7 +67,7 @@
 
 当前行为是：
 
-- 如果 session 还没有 `taskBriefPath`，则首次调用 `replace_task_brief` 时需要显式提供 `plan_name`，然后绑定 `.agent/plans/<sessionId>/<planName>.md`
+- 如果 session 还没有 `taskBriefPath`，则首次调用 `replace_task_brief` 时需要显式提供 `plan_name`，然后绑定 `.agents/plans/<sessionId>/<planName>.md`
 - `planName` 由模型在生成计划时填写，例如 `jump_joy_web_game.md`
 - 绑定路径本身会进入 session state
 - 开启 `plan mode` 的瞬间不会自动写入 brief 文件正文
@@ -141,7 +141,7 @@
 - 第一次写 brief 时，`replace_task_brief` 必须带 `plan_name`
 - `replace_task_brief` 只允许写当前 session 绑定的 brief 路径
 - 写 brief 只能通过 `replace_task_brief`，不要用 shell 重定向或普通 workspace file 工具写入
-- 必要时会自动创建 `.agent/plans/<sessionId>/`
+- 必要时会自动创建 `.agents/plans/<sessionId>/`
 当前并没有落地结构化 `update_task_brief` 聚合工具，也没有 section 级工具。
 
 ### 6. 当前 plan mode 会把 todo 从工具面拿掉

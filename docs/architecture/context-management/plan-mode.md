@@ -74,7 +74,7 @@
 
 ```text
 <session.workingDirectory>/
-  .agent/
+  .agents/
     plans/
       <sessionId>/
         <planName>.md
@@ -127,7 +127,7 @@
   - 创建第一版 brief 或整篇重写时使用
   - 首次写入时必须显式提供 `plan_name`
   - 只允许写当前 session 绑定的 brief 路径
-  - 必要时自动创建 `.agent/plans/<sessionId>/`
+  - 必要时自动创建 `.agents/plans/<sessionId>/`
 
 `ask_user_question` 的当前恢复语义是：
 
@@ -137,7 +137,7 @@
 - 用户下一条非空消息直接视为对当前澄清 payload 的回答
 - runtime 会先清空 `pendingUserQuestionPayload`，再把这条输入当普通 user message 继续执行
 
-普通文件工具即使目标正好是 `.agent/plans/<sessionId>/<planName>.md`，在 plan mode 下也仍然会被 block。
+普通文件工具即使目标正好是 `.agents/plans/<sessionId>/<planName>.md`，在 plan mode 下也仍然会被 block。
 
 这条约束的目的，是让“写规划 artifact”和“改工作区普通文件”在 runtime 层明确分离。
 

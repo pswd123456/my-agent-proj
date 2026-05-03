@@ -8,13 +8,13 @@
 
 ## 一句话定义
 
-当 session 绑定某个 `workingDirectory` 时，runtime 会自动扫描该目录下的 `.agent/skills/`，读取每个 skill 的 `name` 和 `description`，并将这些信息注入到本轮动态上下文中；prompt 明确要求模型在需要时主动利用这些 skills，但不得编造未加载的 skill。若需要查看具体指令，模型再通过 `search_skill` / `load_skill` 按需读取，而不是把全部 skill 正文直接塞进上下文。
+当 session 绑定某个 `workingDirectory` 时，runtime 会自动扫描该目录下的 `.agents/skills/`，读取每个 skill 的 `name` 和 `description`，并将这些信息注入到本轮动态上下文中；prompt 明确要求模型在需要时主动利用这些 skills，但不得编造未加载的 skill。若需要查看具体指令，模型再通过 `search_skill` / `load_skill` 按需读取，而不是把全部 skill 正文直接塞进上下文。
 
 ## 第一版边界
 
 ### v1 做什么
 
-- 检测当前 `workingDirectory` 下的 `.agent/skills/` 目录
+- 检测当前 `workingDirectory` 下的 `.agents/skills/` 目录
 - 识别每个 skill 子目录中的 `SKILL.md` 或 `skill.md`
 - 从 skill 文件中提取稳定的 `name` 和 `description`
 - 将 skill 列表作为本轮 `runtime context` 注入 prompt
@@ -27,7 +27,7 @@
 - 不把全部 skill 正文全文预加载到模型上下文
 - 不执行 skill 内的脚本、命令或工具
 - 不做远程 skill、marketplace、安装系统
-- 不做多层级 `.agent/` 继承或 merge
+- 不做多层级 `.agents/` 继承或 merge
 - 不做数据库持久化；skills 仅从工作区文件系统派生
 - 不把 skill 和 tool 合并成同一种抽象
 
@@ -37,7 +37,7 @@
 
 ```text
 <workingDirectory>/
-  .agent/
+  .agents/
     skills/
       <skill-id>/
         SKILL.md
@@ -51,7 +51,7 @@
 不兼容：
 
 - 其他文件名
-- 直接放在 `.agent/` 根目录下的 skill 文件
+- 直接放在 `.agents/` 根目录下的 skill 文件
 - 多层嵌套扫描
 
 ### 为什么先固定协议
@@ -88,7 +88,7 @@ description: Read repository structure and summarize the relevant modules for th
 
 ### 1. skill discovery
 
-- runtime 在构建 prompt 前，根据 `session.workingDirectory` 解析 `.agent/skills/`
+- runtime 在构建 prompt 前，根据 `session.workingDirectory` 解析 `.agents/skills/`
 - 仅扫描一级子目录
 - 每个子目录最多识别一个 skill 文件：优先 `SKILL.md`，其次 `skill.md`
 - 读取 frontmatter，构造成内存中的 `SkillDescriptor`
@@ -174,7 +174,7 @@ Only rely on skills explicitly listed in the current runtime context. Do not inv
 - `types.ts`
   - `SkillDescriptor`
 - `loader.ts`
-  - 负责扫描 `.agent/skills/`
+  - 负责扫描 `.agents/skills/`
   - 负责定位 `SKILL.md` / `skill.md`
   - 负责解析 frontmatter
 - `index.ts`
@@ -210,7 +210,7 @@ Only rely on skills explicitly listed in the current runtime context. Do not inv
 - 输入：`workingDirectory`
 - 输出：`Promise<SkillDescriptor[]>`
 - 约束：
-  - `.agent/skills/` 不存在时返回空数组
+  - `.agents/skills/` 不存在时返回空数组
   - 无效 frontmatter 的 skill 跳过
   - 同名 skill 若同时出现，第一版直接按排序后保留第一个，并记录诊断信息
 
@@ -239,7 +239,7 @@ Only rely on skills explicitly listed in the current runtime context. Do not inv
 
 ## 验收标准
 
-- 当 `workingDirectory/.agent/skills/` 不存在时，session 仍可正常运行
+- 当 `workingDirectory/.agents/skills/` 不存在时，session 仍可正常运行
 - 当存在合法 `SKILL.md` 时，prompt 的动态上下文中能看到对应 `name` 和 `description`
 - 当 skill 文件缺少 frontmatter 或字段非法时，该 skill 不进入模型上下文
 - 模型看到的 skill 列表仅包含当前工作区实际存在且合法的 skill
@@ -251,7 +251,7 @@ Only rely on skills explicitly listed in the current runtime context. Do not inv
 
 ### case 1: no skills
 
-工作区没有 `.agent/skills/`：
+工作区没有 `.agents/skills/`：
 
 - prompt 中显示 `Runtime skills for this workspace: none`
 - run 正常继续
@@ -261,7 +261,7 @@ Only rely on skills explicitly listed in the current runtime context. Do not inv
 存在：
 
 ```text
-.agent/skills/repo-reader/SKILL.md
+.agents/skills/repo-reader/SKILL.md
 ```
 
 内容：

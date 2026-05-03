@@ -93,7 +93,7 @@
 - `debugConversationView`
 - `userCustomPrompt`
 
-其中 `/settings/mcp` 读写的是当前用户默认工作目录下的 `.agent/.config.toml`，`/settings/skills` 读取当前用户默认工作目录下的 `.agent/skills/`，它们不是把 MCP server 或 skill 文件内容复制进 `agent_settings`。
+其中 `/settings/mcp` 读写的是当前用户默认工作目录下的 `.agents/.config.toml`，`/settings/skills` 读取当前用户默认工作目录下的 `.agents/skills/`，它们不是把 MCP server 或 skill 文件内容复制进 `agent_settings`。
 
 ### 3. Session 生命周期与执行
 

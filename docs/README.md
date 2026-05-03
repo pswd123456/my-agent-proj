@@ -16,7 +16,7 @@
 - [内建 LSP Capability Pack](./architecture/lsp-capability-pack.md)
 - [Firecrawl Web 接入](./architecture/firecrawl-web.md)
 - [后台任务与 delegation](./architecture/background-tasks-and-delegation.md)
-- [工作区 `.agent/` 运行配置](./architecture/workspace-agent-config.md)
+- [工作区 `.agents/` 运行配置](./architecture/workspace-agent-config.md)
 - [MCP 模块落地](./architecture/mcp-module.md)
 - [Trace / Log 排查](./architecture/trace-debugging.md)
 - [阶段文档目录](./plan/README.md)

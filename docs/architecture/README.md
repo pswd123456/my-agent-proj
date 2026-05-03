@@ -17,7 +17,7 @@
 - [技术栈选择](./tech-stack.md)
 - [工作目录与模块分层](./workspace-structure.md)
 - [后台任务与 delegation](./background-tasks-and-delegation.md)
-- [工作区 `.agent/` 运行配置](./workspace-agent-config.md)
+- [工作区 `.agents/` 运行配置](./workspace-agent-config.md)
 - [MCP 模块落地](./mcp-module.md)
 - [Trace / Log 排查](./trace-debugging.md)
 
@@ -39,7 +39,7 @@
 - 做 session 级 planning、task brief 或 plan mode 权限边界时，也从 [Context 管理](./context-management/README.md) 进入
 - 做依赖选型、provider 接入或运行时边界判断时，读 [技术栈选择](./tech-stack.md)
 - 做目录规划、模块归属、文档同步或新增模块时，读 [工作目录与模块分层](./workspace-structure.md)
-- 做工作区 skills / MCP 配置相关工作时，读 [工作区 `.agent/` 运行配置](./workspace-agent-config.md)
+- 做工作区 skills / MCP 配置相关工作时，读 [工作区 `.agents/` 运行配置](./workspace-agent-config.md)
 - 做工作区 MCP 挂载、权限、trace 或模块拆分时，读 [MCP 模块落地](./mcp-module.md)
 - 做后台任务、子代理执行或 worker 轮询链路时，读 [后台任务与 delegation](./background-tasks-and-delegation.md)
 - 做 cron job 定义、调度触发或它和 background task 的关系时，先读 [后台任务与 delegation](./background-tasks-and-delegation.md) 与 [持久化与 Session 状态模型](./persistence-and-session-state.md)

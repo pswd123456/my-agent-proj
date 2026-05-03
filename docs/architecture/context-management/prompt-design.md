@@ -112,7 +112,7 @@ prefix message 带 `cache_control: { type: "ephemeral" }`，并参与当前 `cac
 - 注入顺序固定为：持久的 `session_started` 结果在前，累积的 `run_started` / `run_end` 结果按生成时间追加在后
 
 5. workspace skills
-   - 从 `session.workingDirectory/.agent/skills/` 发现的 skill metadata
+   - 从 `session.workingDirectory/.agents/skills/` 发现的 skill metadata
    - prompt 当前只暴露模型做技能选择需要的元信息
    - 具体 skill 正文通过 `search_skill` / `load_skill` 按需读取，而不是整篇预注入
 

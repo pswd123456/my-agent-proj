@@ -19,7 +19,7 @@
 - `packages/domain/src/session-settings.ts`
   - `CapabilityPackName` 调研当时只有 `"workspace" | "schedule"`
 - `docs/architecture/mcp-module.md`
-  - 已支持从 `session.workingDirectory/.agent/.config.toml` 动态挂载 MCP tools
+  - 已支持从 `session.workingDirectory/.agents/.config.toml` 动态挂载 MCP tools
   - 支持 `stdio` 和 `http`
   - MCP 工具统一纳入现有 permission / trace / tool registry 主链路
 
@@ -76,7 +76,7 @@
 
 原因：
 
-- 仓库已经有 `.agent/.config.toml -> MCP -> ToolRegistry` 主链路
+- 仓库已经有 `.agents/.config.toml -> MCP -> ToolRegistry` 主链路
 - MCP 工具天然复用当前审批、trace、session 恢复和 mounted tools 感知
 - 不需要先改 `CapabilityPackName`、settings、API 契约和前端开关
 - 可以先用真实任务验证：模型到底更需要“搜索”还是“抓正文 / crawl / 动态页面”
@@ -330,7 +330,7 @@ interface WebProvider {
 
 建议下一步只做一件小事：
 
-- 先写一个 workspace 级 `.agent/.config.toml`，挂一个 `Exa` 或 `Tavily` 的 remote MCP
+- 先写一个 workspace 级 `.agents/.config.toml`，挂一个 `Exa` 或 `Tavily` 的 remote MCP
 
 这样你可以先验证三件关键事情：
 
