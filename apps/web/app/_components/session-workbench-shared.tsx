@@ -86,7 +86,7 @@ interface WorkbenchSelectOption {
 
 interface WorkbenchSelectProps {
   value: string;
-  options: WorkbenchSelectOption[];
+  options: readonly WorkbenchSelectOption[];
   disabled?: boolean;
   ariaLabel: string;
   onValueChange: (value: string) => void;
@@ -911,8 +911,6 @@ export function SessionWorkbenchSidebar({
         return "SET";
       case "cron":
         return "CRON";
-      case "calendar":
-        return "CAL";
       case "inspector":
         return "DBG";
     }

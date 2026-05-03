@@ -108,6 +108,10 @@ function renderSettings(
     createElement(SessionWorkbenchSettings, {
       activeSettingsPage: "general",
       currentSession: createSessionSnapshot(),
+      submitting: false,
+      resettingRoutines: false,
+      weekDates: [],
+      groupedRoutines: new Map(),
       settingsMeta: "user cli-user",
       settingsStatusText: "",
       settingsForm: createSettingsFormState(),
@@ -130,6 +134,7 @@ function renderSettings(
       onSettingsBlur: () => {},
       onChooseWorkingDirectory: () => {},
       onClearSessionHistory: () => {},
+      onResetAllRoutines: () => {},
       onSettingsYoloModeChange: () => {},
       onSettingsDebugConversationViewChange: () => {},
       onSettingsPermissionToolToggle: () => {},
@@ -182,6 +187,40 @@ describe("session-workbench settings mode", () => {
     expect(markup).toContain("git *");
     expect(markup).toContain("bun test *");
     expect(markup).toContain("移除");
+  });
+
+  test("renders calendar as a settings child page", () => {
+    const markup = renderSettings({
+      activeSettingsPage: "calendar",
+      weekDates: ["2026-04-30"],
+      groupedRoutines: new Map([
+        [
+          "2026-04-30",
+          [
+            {
+              id: "routine-1",
+              userId: "user-1",
+              name: "写周报",
+              description: null,
+              date: "2026-04-30",
+              startTime: "10:00",
+              endTime: "11:00",
+              durationMinutes: 60,
+              startAt: "2026-04-30T10:00:00.000Z",
+              endAt: "2026-04-30T11:00:00.000Z",
+              status: "confirmed",
+              source: "manual",
+              createdAt: "2026-04-30T09:00:00.000Z",
+              updatedAt: "2026-04-30T09:00:00.000Z"
+            }
+          ]
+        ]
+      ])
+    });
+
+    expect(markup).toContain("日历");
+    expect(markup).toContain("重置所有日程");
+    expect(markup).toContain("写周报");
   });
 
   test("renders the custom prompt field on the personalization page", () => {

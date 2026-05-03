@@ -2749,6 +2749,10 @@ export function SessionWorkbench() {
             <SessionWorkbenchSettings
               activeSettingsPage={activeSettingsPage}
               currentSession={currentSession}
+              submitting={submitting}
+              resettingRoutines={resettingRoutines}
+              weekDates={weekDates}
+              groupedRoutines={groupedRoutines}
               settingsMeta={settingsMeta}
               settingsStatusText={settingsStatusText}
               settingsForm={settingsForm}
@@ -2773,6 +2777,7 @@ export function SessionWorkbench() {
                 void handleChooseWorkingDirectory()
               }
               onClearSessionHistory={() => void handleClearSessionHistory()}
+              onResetAllRoutines={() => void handleResetAllRoutines()}
               onSettingsYoloModeChange={(checked) =>
                 void handleSettingsYoloModeChange(checked)
               }
@@ -2847,10 +2852,6 @@ export function SessionWorkbench() {
               choosingWorkingDirectory={choosingWorkingDirectory}
               modelCatalog={modelCatalog}
               defaultModelId={defaultCronModelId}
-              submitting={submitting}
-              resettingRoutines={resettingRoutines}
-              weekDates={weekDates}
-              groupedRoutines={groupedRoutines}
               inspectorProjection={inspectorProjection}
               activeTab={activeTab}
               onCreateCronJob={handleCreateCronJob}
@@ -2865,7 +2866,6 @@ export function SessionWorkbench() {
               onChooseWorkingDirectory={() =>
                 void handleChooseCronWorkingDirectory()
               }
-              onResetAllRoutines={() => void handleResetAllRoutines()}
               onSelectTab={setActiveTab}
               headerActions={headerActions}
             />

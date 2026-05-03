@@ -8,6 +8,7 @@ import {
 } from "react";
 
 import type {
+  RoutineRecord,
   SessionSnapshot,
   SettingsPermissionToolOption,
   UserContextHookRecord
@@ -28,6 +29,7 @@ import {
   type SettingsPageId
 } from "./session-workbench-types";
 import {
+  formatDayLabel,
   getPermissionToolLabel,
   getSoftBlockClass,
   WorkbenchSelect,
@@ -315,6 +317,10 @@ function SettingsField({ label, description, children }: SettingsFieldProps) {
 interface SessionWorkbenchSettingsProps {
   activeSettingsPage: SettingsPageId;
   currentSession: SessionSnapshot | null;
+  submitting: boolean;
+  resettingRoutines: boolean;
+  weekDates: string[];
+  groupedRoutines: Map<string, RoutineRecord[]>;
   settingsMeta: string;
   settingsStatusText: string;
   settingsForm: SettingsFormState;
@@ -337,6 +343,7 @@ interface SessionWorkbenchSettingsProps {
   onSettingsBlur: () => void;
   onChooseWorkingDirectory: () => void;
   onClearSessionHistory: () => void;
+  onResetAllRoutines: () => void;
   onSettingsYoloModeChange: (checked: boolean) => void;
   onSettingsDebugConversationViewChange: (checked: boolean) => void;
   onSettingsPermissionToolToggle: (
@@ -389,6 +396,10 @@ interface SessionWorkbenchSettingsProps {
 export function SessionWorkbenchSettings({
   activeSettingsPage,
   currentSession,
+  submitting,
+  resettingRoutines,
+  weekDates,
+  groupedRoutines,
   settingsMeta,
   settingsStatusText,
   settingsForm,
@@ -411,6 +422,7 @@ export function SessionWorkbenchSettings({
   onSettingsBlur,
   onChooseWorkingDirectory,
   onClearSessionHistory,
+  onResetAllRoutines,
   onSettingsYoloModeChange,
   onSettingsDebugConversationViewChange,
   onSettingsPermissionToolToggle,
@@ -1604,7 +1616,98 @@ export function SessionWorkbenchSettings({
     );
   }
 
+  function renderCalendarPage() {
+    return (
+      <div className="grid gap-5">
+        <div
+          className={getSoftBlockClass(
+            "text-sm leading-6 text-[var(--app-text-secondary)]"
+          )}
+        >
+          在默认设置里直接查看当前工作周的日程，也可以一键重置全部日程。
+        </div>
+
+        <SettingsSection
+          eyebrow="Calendar"
+          title="当前工作周"
+          description="这里展示当前会话对应工作周的日程视图。"
+        >
+          <SettingsField
+            label="日期锚点"
+            description="日历按当前会话的日期上下文组织。"
+          >
+            <div
+              className={`px-4 py-3 text-sm text-[var(--app-text-secondary)] ${insetSurfaceClassName}`}
+            >
+              {currentSession?.context.currentDateContext ?? "--"}
+            </div>
+          </SettingsField>
+
+          <SettingsField
+            label="重置日程"
+            description="清空当前会话工作周下的全部日程。"
+          >
+            <button
+              type="button"
+              onClick={onResetAllRoutines}
+              disabled={resettingRoutines || submitting || !currentSession}
+              className="rounded-[var(--app-radius-pill)] border border-[var(--app-status-danger)] px-4 py-3 text-left text-[0.72rem] uppercase tracking-[0.14em] text-[var(--app-status-danger)] transition hover:bg-[color:color-mix(in_srgb,var(--app-status-danger)_12%,transparent)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {resettingRoutines ? "重置中..." : "重置所有日程"}
+            </button>
+          </SettingsField>
+
+          <div className="grid gap-3">
+            {weekDates.length === 0 ? (
+              <div
+                className={getSoftBlockClass(
+                  "text-sm leading-6 text-[var(--app-text-muted)]"
+                )}
+              >
+                当前会话还没有可展示的工作周。
+              </div>
+            ) : (
+              weekDates.map((date) => (
+                <div
+                  key={date}
+                  className="rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_72%,transparent)] px-4 py-4"
+                >
+                  <div className="text-[0.72rem] uppercase tracking-[0.18em] text-[var(--app-text-muted)]">
+                    {formatDayLabel(date)}
+                  </div>
+                  <div className="mt-3 grid gap-2">
+                    {groupedRoutines.get(date)?.map((routine) => (
+                      <div
+                        key={routine.id}
+                        className="rounded-[var(--app-radius-md)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_90%,white_10%)] px-3 py-2"
+                      >
+                        <div className="text-xs font-medium text-[var(--app-text-primary)]">
+                          {routine.name}
+                        </div>
+                        <div className="mt-1 text-[0.72rem] text-[var(--app-text-secondary)]">
+                          {routine.startTime} - {routine.endTime}
+                        </div>
+                      </div>
+                    ))}
+                    {!groupedRoutines.get(date)?.length ? (
+                      <div className="rounded-[var(--app-radius-md)] bg-[color:color-mix(in_srgb,var(--app-bg-surface)_58%,transparent)] px-3 py-3 text-[0.72rem] text-[var(--app-text-muted)]">
+                        暂无日程
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </SettingsSection>
+      </div>
+    );
+  }
+
   function renderPageContent() {
+    if (activeSettingsPage === "calendar") {
+      return renderCalendarPage();
+    }
     if (activeSettingsPage === "permissions") {
       return renderPermissionsPage();
     }

@@ -32,7 +32,6 @@ export const sidebarPanels = [
   { id: "settings", label: "Settings", title: "默认设置" },
   { id: "cron", label: "Cron", title: "定时任务" },
   { id: "cron-create", label: "New Cron", title: "新建定时任务" },
-  { id: "calendar", label: "Calendar", title: "日历" },
   { id: "inspector", label: "Inspector", title: "调试详情" }
 ] as const;
 
@@ -42,6 +41,12 @@ export const settingsPages = [
     label: "常规",
     title: "常规",
     description: "默认工作目录、执行预算与会话历史。"
+  },
+  {
+    id: "calendar",
+    label: "日历",
+    title: "日历",
+    description: "查看当前工作周日程并重置全部日程。"
   },
   {
     id: "permissions",
@@ -88,7 +93,6 @@ export type SidebarPanelId =
   | "settings"
   | "cron"
   | "cron-create"
-  | "calendar"
   | "inspector";
 export type SettingsPageId = (typeof settingsPages)[number]["id"];
 
