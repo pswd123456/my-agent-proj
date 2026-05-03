@@ -234,6 +234,7 @@ interface AssistantTextBubbleProps {
   animate: boolean;
   labelTimestamp?: string | undefined;
   streaming?: boolean;
+  canCopy?: boolean;
   forkAction?: AssistantForkAction | undefined;
   onAnimationComplete?: (itemKey: string) => void;
 }
@@ -677,9 +678,12 @@ function AssistantTextBubble({
   animate,
   labelTimestamp,
   streaming = false,
+  canCopy = false,
   forkAction,
   onAnimationComplete
 }: AssistantTextBubbleProps) {
+  const hasCopyAction = canCopy && content.trim().length > 0;
+
   return (
     <div className="flex flex-col items-start gap-1">
       <MessageRoleLabel role="assistant" timestamp={labelTimestamp} />
@@ -693,9 +697,9 @@ function AssistantTextBubble({
         }`}
         {...(onAnimationComplete ? { onAnimationComplete } : {})}
       />
-      {content.trim().length > 0 || forkAction ? (
+      {hasCopyAction || forkAction ? (
         <div className="flex flex-wrap items-center gap-2">
-          {content.trim().length > 0 ? (
+          {hasCopyAction ? (
             <CopyTextButton
               text={content}
               label="复制"
@@ -727,7 +731,8 @@ function AssistantTextBubble({
 export function renderAssistantMessageBlock(
   block: Extract<SessionSnapshot["messages"][number], { kind: "assistant" }>,
   showTimestamp = false,
-  forkAction?: AssistantForkAction
+  forkAction?: AssistantForkAction,
+  canCopy = false
 ) {
   return (
     <AssistantTextBubble
@@ -737,6 +742,7 @@ export function renderAssistantMessageBlock(
       animate={false}
       labelTimestamp={showTimestamp ? block.createdAt : undefined}
       forkAction={forkAction}
+      canCopy={canCopy}
     />
   );
 }
@@ -839,7 +845,8 @@ function renderConversationBlock(
     return renderAssistantMessageBlock(
       block,
       timestampedAssistantMessageIds.has(block.id),
-      forkAction
+      forkAction,
+      timestampedAssistantMessageIds.has(block.id)
     );
   }
 
@@ -878,6 +885,7 @@ function renderExecutionEvent(
   if (event.kind === "assistant_text") {
     const eventKey = getTimelineEventKey(event);
     const streaming = streamEventKeys.has(eventKey);
+    const isFinalAssistantText = timestampedAssistantEventKeys.has(eventKey);
 
     return (
       <AssistantTextBubble
@@ -886,11 +894,10 @@ function renderExecutionEvent(
         content={event.text}
         animate={streaming || recentAssistantEventKeys.has(eventKey)}
         labelTimestamp={
-          timestampedAssistantEventKeys.has(eventKey)
-            ? event.createdAt
-            : undefined
+          isFinalAssistantText ? event.createdAt : undefined
         }
         streaming={streaming}
+        canCopy={isFinalAssistantText}
         forkAction={forkAction}
         onAnimationComplete={onAssistantAnimationComplete}
       />

@@ -484,7 +484,7 @@ describe("message copy buttons", () => {
     );
   });
 
-  test("renders a copy button for assistant messages", () => {
+  test("does not render a copy button for intermediate assistant messages", () => {
     const markup = renderToStaticMarkup(
       renderAssistantMessageBlock({
         id: "assistant-msg-1",
@@ -492,6 +492,24 @@ describe("message copy buttons", () => {
         content: "先补按钮，再补测试。",
         createdAt: "2026-05-02T08:01:00.000Z"
       })
+    );
+
+    expect(markup).not.toContain("复制助手消息");
+  });
+
+  test("renders a copy button for final assistant messages", () => {
+    const markup = renderToStaticMarkup(
+      renderAssistantMessageBlock(
+        {
+          id: "assistant-msg-1",
+          kind: "assistant",
+          content: "先补按钮，再补测试。",
+          createdAt: "2026-05-02T08:01:00.000Z"
+        },
+        true,
+        undefined,
+        true
+      )
     );
 
     expect(markup).toContain("复制助手消息");
