@@ -22,6 +22,16 @@ export function isSubagentUserContextHook(
   );
 }
 
+export function resolveSubagentHookWaitMode(
+  hook: Pick<UserContextHookRecord, "event" | "waitMode">
+): "blocking" | "unblocking" {
+  if (hook.event === "run_end") {
+    return "unblocking";
+  }
+
+  return hook.waitMode === "unblocking" ? "unblocking" : "blocking";
+}
+
 export function getUserContextHookConfigHash(
   hook: Pick<
     UserContextHookRecord,
@@ -33,7 +43,7 @@ export function getUserContextHookConfigHash(
       JSON.stringify({
         event: hook.event,
         behavior: hook.behavior ?? null,
-        waitMode: hook.waitMode ?? "blocking",
+        waitMode: resolveSubagentHookWaitMode(hook),
         maxTurns: normalizeUserContextHookMaxTurns(hook.maxTurns),
         title: hook.title.trim(),
         content: hook.content.trim()
@@ -73,14 +83,17 @@ export function resolveInjectedHookContextEntries(input: {
       )
   );
 
-  const sessionStartedEntries = matchedEntries
-    .filter((entry) => entry.hookEvent === "session_started")
-    .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
-  const runStartedEntries = matchedEntries
-    .filter((entry) => entry.hookEvent === "run_started")
-    .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+  const eventOrder: HookContextEntry["hookEvent"][] = [
+    "session_started",
+    "run_started",
+    "run_end"
+  ];
 
-  return [...sessionStartedEntries, ...runStartedEntries];
+  return eventOrder.flatMap((event) =>
+    matchedEntries
+      .filter((entry) => entry.hookEvent === event)
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+  );
 }
 
 export function materializeHookContextEntries(input: {

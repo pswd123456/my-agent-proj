@@ -248,11 +248,11 @@ function appendHookContextCompactionSummary(input: {
   summaryMarkdown: string;
   runtimeContext: PromptRuntimeContext;
 }): string {
-  const runStartedEntries =
+  const compactedEntries =
     input.runtimeContext.hookContextEntries?.filter(
-      (entry) => entry.hookEvent === "run_started"
+      (entry) => entry.hookEvent !== "session_started"
     ) ?? [];
-  if (runStartedEntries.length === 0) {
+  if (compactedEntries.length === 0) {
     return input.summaryMarkdown;
   }
 
@@ -260,7 +260,7 @@ function appendHookContextCompactionSummary(input: {
     input.summaryMarkdown,
     "",
     "## Compacted Hook Context",
-    ...runStartedEntries.map((entry, index) =>
+    ...compactedEntries.map((entry, index) =>
       [`${index + 1}. ${entry.title || entry.hookId}`, entry.content].join("\n")
     )
   ].join("\n");

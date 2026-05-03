@@ -92,7 +92,7 @@ export interface TraceHookSubagentScheduledEvent {
   turnCount: number;
   taskId: string;
   hookId: string;
-  hookEvent: "session_started" | "run_started";
+  hookEvent: "session_started" | "run_started" | "run_end";
   waitMode: "blocking" | "unblocking";
   configHash: string;
 }

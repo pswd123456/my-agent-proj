@@ -10,6 +10,7 @@ import {
   createAgentRuntime,
   createBackgroundTaskManager
 } from "../src/index.js";
+import type { RunStreamEvent } from "../src/events.js";
 import type { AnthropicMessageRequest } from "../src/model.js";
 import { getUserContextHookConfigHash } from "../src/subagent-hooks.js";
 import type { TraceEvent, TraceManager, TraceRecord } from "../src/trace.js";
@@ -132,6 +133,95 @@ describe("subagent hook runtime", () => {
     expect(wakeupTask?.payload.metadata.backgroundTaskIds).toContain(
       hookTask?.taskId
     );
+  });
+
+  test("run_end subagent hook schedules an unblocking task after the completed run", async () => {
+    const sessionManager = await createPostgresTestSessionManager();
+    const backgroundTaskRepository = createMemoryBackgroundTaskRepository();
+    const backgroundTaskManager = createBackgroundTaskManager({
+      sessionManager,
+      repository: backgroundTaskRepository
+    });
+    const events: RunStreamEvent[] = [];
+    let requestCount = 0;
+
+    const runtime = createAgentRuntime({
+      client: {
+        messages: {
+          async create() {
+            requestCount += 1;
+            return {
+              content: [{ type: "text" as const, text: "主会话已完成。" }],
+              stop_reason: "end_turn",
+              usage: {
+                input_tokens: 8,
+                output_tokens: 4,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 0
+              }
+            };
+          }
+        }
+      },
+      model: "MiniMax-M2.7",
+      sessionManager,
+      backgroundTaskManager,
+      routineRepository: createMemoryRoutineRepository(),
+      toolRegistry: new ToolRegistry(),
+      eventSink: async (event) => {
+        events.push(structuredClone(event));
+      },
+      userContextHooks: [
+        {
+          id: "hook-run-end",
+          event: "run_end",
+          behavior: "subagent",
+          waitMode: "blocking",
+          maxTurns: 21,
+          title: "收尾整理",
+          content: "在本轮结束后整理一个收尾摘要。",
+          enabled: true
+        }
+      ]
+    });
+
+    const session = await runtime.createSession({
+      workingDirectory: "/tmp/subagent-hook-run-end",
+      userId: "hook-user"
+    });
+
+    const result = await runtime.run({
+      sessionId: session.sessionId,
+      message: "继续"
+    });
+
+    expect(requestCount).toBe(1);
+    expect(result.status).toBe("completed");
+    expect(result.finalAnswer).toBe("主会话已完成。");
+    expect(result.session.context.activeBackgroundTaskCount).toBe(1);
+
+    const tasks = await backgroundTaskManager.listTasksByParentSession(
+      session.sessionId
+    );
+    const hookTask = tasks.find((task) => task.kind === "hook_subagent");
+    expect(hookTask).toBeDefined();
+    expect(hookTask?.payload.maxTurns).toBe(21);
+    expect(hookTask?.payload.metadata).toMatchObject({
+      hookId: "hook-run-end",
+      hookEvent: "run_end"
+    });
+    expect(hookTask?.payload.metadata.resumeMessage).toBeUndefined();
+    expect(hookTask?.taskState).toMatchObject({
+      kind: "hook_subagent",
+      hookEvent: "run_end",
+      waitMode: "unblocking"
+    });
+
+    const completedEvent = events.find(
+      (event): event is Extract<RunStreamEvent, { kind: "run_complete" }> =>
+        event.kind === "run_complete"
+    );
+    expect(completedEvent?.session.context.activeBackgroundTaskCount).toBe(1);
   });
 
   test("materializes completed hook notifications into runtime context on the next run", async () => {

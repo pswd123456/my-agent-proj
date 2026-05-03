@@ -35,7 +35,7 @@ import type {
 } from "./types.js";
 import type { SessionManager } from "./session.js";
 import type { ToolRegistry } from "./tools/registry.js";
-import type { RunEventSink } from "./events.js";
+import { createRunCompleteEvent, type RunEventSink } from "./events.js";
 import type { DelegateAgentService } from "./delegation/index.js";
 import type { BackgroundTaskManager } from "./background-tasks/index.js";
 import { runSessionLoop } from "./runtime/run-loop.js";
@@ -47,7 +47,8 @@ import { incrementSessionBackgroundTaskCount } from "./background-tasks/notifica
 import { scheduleBackgroundTaskPollWakeup } from "./background-tasks/orchestration.js";
 import {
   getUserContextHookConfigHash,
-  isSubagentUserContextHook
+  isSubagentUserContextHook,
+  resolveSubagentHookWaitMode
 } from "./subagent-hooks.js";
 import {
   createRunScopedTraceManager,
@@ -221,14 +222,85 @@ export class AgentRuntime {
       waitMode: "blocking" | "unblocking";
     }
   ) {
+    const waitMode = resolveSubagentHookWaitMode(hook);
     return {
       kind: "hook_subagent" as const,
       hookId: hook.id,
-      hookEvent: hook.event as "session_started" | "run_started",
-      waitMode: hook.waitMode ?? "blocking",
+      hookEvent: hook.event,
+      waitMode,
       title: hook.title.trim() || hook.id,
       configHash: getUserContextHookConfigHash(hook),
       latestResult: null
+    };
+  }
+
+  private async enqueueSubagentHookTask(input: {
+    session: SessionSnapshot;
+    hook: UserContextHookRecord & {
+      behavior: "subagent";
+      waitMode: "blocking" | "unblocking";
+    };
+    traceManager?: TraceManager | undefined;
+    resumeMessage?: string | undefined;
+  }): Promise<{
+    session: SessionSnapshot;
+    taskId: string;
+    waitMode: "blocking" | "unblocking";
+  }> {
+    const taskManager = this.options.backgroundTaskManager;
+    if (!taskManager) {
+      throw new Error("Background task manager is required for subagent hooks.");
+    }
+
+    const configHash = getUserContextHookConfigHash(input.hook);
+    const waitMode = resolveSubagentHookWaitMode(input.hook);
+    const task = await taskManager.enqueueTask({
+      kind: "hook_subagent",
+      parentSessionId: input.session.sessionId,
+      message: input.hook.content.trim(),
+      workingDirectory: input.session.workingDirectory,
+      model: input.session.model,
+      maxTurns: normalizeUserContextHookMaxTurns(input.hook.maxTurns),
+      userId: input.session.context.userId,
+      enabledCapabilityPacks: input.session.context.enabledCapabilityPacks,
+      metadata: {
+        hookId: input.hook.id,
+        hookEvent: input.hook.event,
+        configHash,
+        ...(waitMode === "blocking" && input.resumeMessage
+          ? {
+              resumeMessage: input.resumeMessage,
+              skipSubagentHooks: true
+            }
+          : {})
+      },
+      taskState: this.buildHookSubagentTaskState(input.hook)
+    });
+
+    if (input.traceManager) {
+      await input.traceManager.appendEvent(input.session.sessionId, {
+        kind: "hook_subagent_scheduled",
+        turnCount: Math.max(0, input.session.sessionState.turnCount),
+        taskId: task.taskId,
+        hookId: input.hook.id,
+        hookEvent: input.hook.event,
+        waitMode,
+        configHash
+      });
+    }
+
+    await incrementSessionBackgroundTaskCount({
+      sessionManager: this.options.sessionManager,
+      sessionId: input.session.sessionId,
+      delta: 1
+    });
+
+    return {
+      session:
+        (await this.options.sessionManager.getSession(input.session.sessionId)) ??
+        input.session,
+      taskId: task.taskId,
+      waitMode
     };
   }
 
@@ -310,57 +382,53 @@ export class AgentRuntime {
         continue;
       }
 
-      const task = await taskManager.enqueueTask({
-        kind: "hook_subagent",
-        parentSessionId: input.session.sessionId,
-        message: hook.content.trim(),
-        workingDirectory: input.session.workingDirectory,
-        model: input.session.model,
-        maxTurns: normalizeUserContextHookMaxTurns(hook.maxTurns),
-        userId: input.session.context.userId,
-        enabledCapabilityPacks: input.session.context.enabledCapabilityPacks,
-        metadata: {
-          hookId: hook.id,
-          hookEvent: hook.event,
-          configHash,
-          ...(hook.waitMode === "blocking"
-            ? {
-                resumeMessage: input.message,
-                skipSubagentHooks: true
-              }
-            : {})
-        },
-        taskState: this.buildHookSubagentTaskState(hook)
+      const scheduled = await this.enqueueSubagentHookTask({
+        session: input.session,
+        hook,
+        traceManager: input.traceManager,
+        resumeMessage: input.message
       });
-      if (input.traceManager) {
-        await input.traceManager.appendEvent(input.session.sessionId, {
-          kind: "hook_subagent_scheduled",
-          turnCount: Math.max(0, input.session.sessionState.turnCount),
-          taskId: task.taskId,
-          hookId: hook.id,
-          hookEvent: hook.event,
-          waitMode: hook.waitMode,
-          configHash
-        });
+      if (scheduled.waitMode === "blocking") {
+        nextBlockingTaskIds.push(scheduled.taskId);
       }
-      await incrementSessionBackgroundTaskCount({
-        sessionManager: this.options.sessionManager,
-        sessionId: input.session.sessionId,
-        delta: 1
-      });
-      if ((hook.waitMode ?? "blocking") === "blocking") {
-        nextBlockingTaskIds.push(task.taskId);
-      }
-      session =
-        (await this.options.sessionManager.getSession(
-          input.session.sessionId
-        )) ?? session;
+      session = scheduled.session;
     }
 
     return {
       session,
       blockingTaskIds: nextBlockingTaskIds
     };
+  }
+
+  private async schedulePostRunSubagentHooks(input: {
+    session: SessionSnapshot;
+    traceManager?: TraceManager | undefined;
+  }): Promise<SessionSnapshot> {
+    if (!this.options.backgroundTaskManager) {
+      return input.session;
+    }
+
+    const hooks = (this.options.userContextHooks ?? []).filter(
+      (hook): hook is UserContextHookRecord & {
+        behavior: "subagent";
+        waitMode: "blocking" | "unblocking";
+      } => isSubagentUserContextHook(hook) && hook.event === "run_end"
+    );
+    if (hooks.length === 0) {
+      return input.session;
+    }
+
+    let session = input.session;
+    for (const hook of hooks) {
+      const scheduled = await this.enqueueSubagentHookTask({
+        session,
+        hook,
+        traceManager: input.traceManager
+      });
+      session = scheduled.session;
+    }
+
+    return session;
   }
 
   async createSession(
@@ -711,18 +779,47 @@ export class AgentRuntime {
         }
 
         const postHookMessages = this.resolvePostUserHookMessages(session);
+        const hasPostRunSubagentHooks = (this.options.userContextHooks ?? []).some(
+          (hook) => isSubagentUserContextHook(hook) && hook.event === "run_end"
+        );
         result = await runQueuedMessage(input.message, {
-          emitCompletedRunEvent: postHookMessages.length === 0
+          emitCompletedRunEvent:
+            postHookMessages.length === 0 && !hasPostRunSubagentHooks
         });
         if (result.status === "completed") {
           for (const [index, hookMessage] of postHookMessages.entries()) {
             result = await runQueuedMessage(hookMessage.content, {
-              emitCompletedRunEvent: index === postHookMessages.length - 1,
+              emitCompletedRunEvent:
+                index === postHookMessages.length - 1 &&
+                !hasPostRunSubagentHooks,
               messageBlock: hookMessage
             });
             if (result.status !== "completed") {
               break;
             }
+          }
+        }
+        if (result.status === "completed" && hasPostRunSubagentHooks) {
+          currentSession = await this.schedulePostRunSubagentHooks({
+            session: currentSession,
+            traceManager
+          });
+          result = {
+            ...result,
+            session: currentSession
+          };
+          if (eventSink) {
+            await eventSink(
+              createRunCompleteEvent({
+                session: result.session,
+                finalAnswer: result.finalAnswer,
+                status: result.status,
+                stopReason: result.stopReason,
+                toolCallCount: result.toolCallCount,
+                toolResultCount: result.toolResultCount,
+                toolOutputs: result.toolOutputs
+              })
+            );
           }
         }
       } else {
