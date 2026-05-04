@@ -24,6 +24,7 @@ import {
   userContextHookEventOptions,
   userContextHookWaitModeOptions,
   type SettingsFormState,
+  type SettingsChannelsState,
   type SettingsMcpFormState,
   type SettingsSkillsState,
   type SettingsPageId
@@ -211,7 +212,10 @@ function formatUserContextHookWaitModeLabel(
 function formatUserContextHookWaitModeDescription(
   hook: UserContextHookRecord
 ): string {
-  if (getUserContextHookBehavior(hook) === "subagent" && hook.event === "run_end") {
+  if (
+    getUserContextHookBehavior(hook) === "subagent" &&
+    hook.event === "run_end"
+  ) {
     return "run 结束后后台继续执行，结果会在后续 run 自动注入。";
   }
 
@@ -324,15 +328,19 @@ interface SessionWorkbenchSettingsProps {
   settingsMeta: string;
   settingsStatusText: string;
   settingsForm: SettingsFormState;
+  settingsChannelsState: SettingsChannelsState;
   settingsMcpForm: SettingsMcpFormState;
   settingsSkillsState: SettingsSkillsState;
   permissionTools: SettingsPermissionToolOption[];
   loadingSettings: boolean;
   savingSettings: boolean;
   loadingMcpSettings: boolean;
+  loadingChannelsSettings: boolean;
   loadingSkillsSettings: boolean;
   savingMcpSettings: boolean;
+  savingChannelsSettings: boolean;
   mcpSettingsErrorText: string | null;
+  channelsSettingsErrorText: string | null;
   clearingSessionHistory: boolean;
   clearHistoryErrorText: string | null;
   choosingWorkingDirectory: boolean;
@@ -353,6 +361,11 @@ interface SessionWorkbenchSettingsProps {
   onSettingsCapabilityPackToggle: (packName: string) => void;
   onSettingsShellAllowPatternRemove: (pattern: string) => void;
   onSettingsSkillEnabledChange: (skillName: string, enabled: boolean) => void;
+  onTelegramChannelChange: (
+    patch: Partial<SettingsChannelsState["telegram"]>
+  ) => void;
+  onTelegramChannelEnabledChange: (enabled: boolean) => void;
+  onChannelSettingsBlur: () => void;
   onAddMcpServer: () => void;
   onMcpServerChange: (
     serverId: string,
@@ -403,15 +416,19 @@ export function SessionWorkbenchSettings({
   settingsMeta,
   settingsStatusText,
   settingsForm,
+  settingsChannelsState,
   settingsMcpForm,
   settingsSkillsState,
   permissionTools,
   loadingSettings,
   savingSettings,
   loadingMcpSettings,
+  loadingChannelsSettings,
   loadingSkillsSettings,
   savingMcpSettings,
+  savingChannelsSettings,
   mcpSettingsErrorText,
+  channelsSettingsErrorText,
   clearingSessionHistory,
   clearHistoryErrorText,
   choosingWorkingDirectory,
@@ -429,6 +446,9 @@ export function SessionWorkbenchSettings({
   onSettingsCapabilityPackToggle,
   onSettingsShellAllowPatternRemove,
   onSettingsSkillEnabledChange,
+  onTelegramChannelChange,
+  onTelegramChannelEnabledChange,
+  onChannelSettingsBlur,
   onAddMcpServer,
   onMcpServerChange,
   onMcpServerTransportChange,
@@ -1199,6 +1219,149 @@ export function SessionWorkbenchSettings({
     );
   }
 
+  function renderChannelsPage() {
+    const telegram = settingsChannelsState.telegram;
+    return (
+      <div className="grid gap-5">
+        <SettingsSection
+          eyebrow="Channels"
+          title="Telegram"
+          description="保存到当前工作目录的配置文件。"
+        >
+          <div className="grid gap-3">
+            <div className={`${insetSurfaceClassName} px-4 py-3`}>
+              <div className={tertiaryHeadingClassName}>Config Path</div>
+              <div className="mt-2 break-all font-mono text-xs leading-6 text-[var(--app-text-primary)]">
+                {settingsChannelsState.configPath || "--"}
+              </div>
+              <div className="mt-1 text-xs leading-5 text-[var(--app-text-muted)]">
+                {loadingChannelsSettings
+                  ? "正在读取 channel 配置..."
+                  : settingsChannelsState.foundConfig
+                    ? "已找到配置文件。"
+                    : "还没有 channel 配置文件。"}
+              </div>
+            </div>
+
+            {settingsChannelsState.diagnostics.length > 0 ? (
+              <div className="grid gap-2">
+                {settingsChannelsState.diagnostics.map((diagnostic, index) => (
+                  <div
+                    key={`${diagnostic.code}-${diagnostic.channelName ?? "file"}-${index}`}
+                    className="rounded-[var(--app-radius-lg)] border border-[var(--app-status-danger)]/40 bg-[color:color-mix(in_srgb,var(--app-status-danger)_10%,transparent)] px-3 py-2 text-xs leading-5 text-[var(--app-status-danger)]"
+                  >
+                    {diagnostic.channelName
+                      ? `${diagnostic.channelName}: ${diagnostic.message}`
+                      : diagnostic.message}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            <label
+              className={`flex items-center justify-between gap-3 px-4 py-3 text-sm text-[var(--app-text-secondary)] ${insetSurfaceClassName}`}
+            >
+              <div>
+                <div className="text-sm text-[var(--app-text-primary)]">
+                  Enabled
+                </div>
+                <div className="mt-1 text-xs leading-5 text-[var(--app-text-muted)]">
+                  关闭后 Telegram channel 不会接收消息。
+                </div>
+              </div>
+              <WorkbenchSwitch
+                checked={telegram.enabled}
+                ariaLabel="切换 Telegram channel"
+                onChange={onTelegramChannelEnabledChange}
+              />
+            </label>
+
+            <SettingsField
+              label="Mode"
+              description="Polling 不需要公网入口；Webhook 用于公网部署。"
+            >
+              <select
+                value={telegram.mode}
+                onChange={(event) =>
+                  onTelegramChannelChange({
+                    mode: event.target
+                      .value as SettingsChannelsState["telegram"]["mode"]
+                  })
+                }
+                onBlur={onChannelSettingsBlur}
+                className="rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 text-sm text-[var(--app-text-primary)] outline-none transition focus:border-[var(--app-border-accent)]"
+              >
+                <option value="polling">Polling</option>
+                <option value="webhook">Webhook</option>
+              </select>
+            </SettingsField>
+
+            <SettingsField
+              label="Bot Token"
+              description="可以直接填写 token，也可以填写环境变量引用。"
+            >
+              <input
+                value={telegram.botToken}
+                onChange={(event) =>
+                  onTelegramChannelChange({ botToken: event.target.value })
+                }
+                onBlur={onChannelSettingsBlur}
+                placeholder="$TELEGRAM_BOT_TOKEN"
+                className="rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 font-mono text-xs text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
+              />
+            </SettingsField>
+
+            <SettingsField
+              label="Webhook Secret"
+              description="用于校验 Telegram webhook secret token。"
+            >
+              <input
+                value={telegram.webhookSecret}
+                onChange={(event) =>
+                  onTelegramChannelChange({
+                    webhookSecret: event.target.value
+                  })
+                }
+                onBlur={onChannelSettingsBlur}
+                placeholder="$TELEGRAM_WEBHOOK_SECRET"
+                className="rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 font-mono text-xs text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
+              />
+            </SettingsField>
+
+            <SettingsField
+              label="Webhook URL"
+              description="仅 Webhook 模式需要；Polling 模式可以留空。"
+            >
+              <input
+                value={telegram.webhookUrl}
+                onChange={(event) =>
+                  onTelegramChannelChange({ webhookUrl: event.target.value })
+                }
+                onBlur={onChannelSettingsBlur}
+                placeholder="https://example.com/api/inbox/telegram/webhook"
+                className="rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[var(--app-bg-surface)] px-4 py-3 font-mono text-xs text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)]"
+              />
+            </SettingsField>
+
+            {channelsSettingsErrorText ? (
+              <div className="rounded-[var(--app-radius-lg)] border border-[var(--app-status-danger)]/40 bg-[color:color-mix(in_srgb,var(--app-status-danger)_10%,transparent)] px-3 py-2 text-xs leading-5 text-[var(--app-status-danger)]">
+                {channelsSettingsErrorText}
+              </div>
+            ) : null}
+
+            <div className="text-xs leading-5 text-[var(--app-text-muted)]">
+              {savingChannelsSettings
+                ? "正在保存 channel 配置..."
+                : telegram.configuredInFile
+                  ? "Telegram 配置来自 config.toml。"
+                  : "Telegram 尚未写入 config.toml。"}
+            </div>
+          </div>
+        </SettingsSection>
+      </div>
+    );
+  }
+
   function renderSkillsPage() {
     return (
       <div className="grid gap-5">
@@ -1651,6 +1814,9 @@ export function SessionWorkbenchSettings({
     }
     if (activeSettingsPage === "permissions") {
       return renderPermissionsPage();
+    }
+    if (activeSettingsPage === "channels") {
+      return renderChannelsPage();
     }
     if (activeSettingsPage === "mcp") {
       return renderMcpPage();

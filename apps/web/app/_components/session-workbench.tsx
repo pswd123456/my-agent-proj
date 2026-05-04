@@ -26,6 +26,7 @@ import {
 
 import {
   buildWeekRange,
+  buildChannelsPayloadFromState,
   buildMcpServersFromForm,
   buildSessionSettingsPatchFromUserSettings,
   buildUserSettingsPayloadFromForm,
@@ -47,6 +48,7 @@ import {
   splitPatternLines,
   toSettingsMcpFormState,
   toSettingsFormState,
+  toSettingsChannelsState,
   toSettingsSkillsState
 } from "./session-workbench-state";
 import {
@@ -108,6 +110,7 @@ import {
   type CronJobFormState,
   type InspectorTabId,
   type SettingsFormState,
+  type SettingsChannelsState,
   type SettingsMcpFormState,
   type SettingsSkillsState,
   type SettingsPageId,
@@ -320,14 +323,18 @@ export function SessionWorkbench() {
   const [settingsMcpForm, setSettingsMcpForm] = useState<SettingsMcpFormState>(
     toSettingsMcpFormState(null)
   );
+  const [settingsChannelsState, setSettingsChannelsState] =
+    useState<SettingsChannelsState>(toSettingsChannelsState(null));
   const [settingsSkillsState, setSettingsSkillsState] =
     useState<SettingsSkillsState>(toSettingsSkillsState(null));
   const [loadingSettings, setLoadingSettings] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
   const [updatingRuntimeSettings, setUpdatingRuntimeSettings] = useState(false);
   const [loadingMcpSettings, setLoadingMcpSettings] = useState(false);
+  const [loadingChannelsSettings, setLoadingChannelsSettings] = useState(false);
   const [loadingSkillsSettings, setLoadingSkillsSettings] = useState(false);
   const [savingMcpSettings, setSavingMcpSettings] = useState(false);
+  const [savingChannelsSettings, setSavingChannelsSettings] = useState(false);
   const [cronJobs, setCronJobs] = useState<CronJobRecord[]>([]);
   const [currentCronJobId, setCurrentCronJobId] = useState<string | null>(null);
   const [cronFormState, setCronFormState] = useState<CronJobFormState>(() =>
@@ -341,6 +348,9 @@ export function SessionWorkbench() {
   const [cronStatusText, setCronStatusText] = useState<string | null>(null);
   const [cronErrorText, setCronErrorText] = useState<string | null>(null);
   const [mcpSettingsErrorText, setMcpSettingsErrorText] = useState<
+    string | null
+  >(null);
+  const [channelsSettingsErrorText, setChannelsSettingsErrorText] = useState<
     string | null
   >(null);
   const [workspaceGitStatus, setWorkspaceGitStatus] =
@@ -738,6 +748,7 @@ export function SessionWorkbench() {
       setLoadingSession(true);
       setLoadingSettings(true);
       setLoadingMcpSettings(false);
+      setLoadingChannelsSettings(false);
       setLoadingSkillsSettings(false);
       setErrorText(null);
 
@@ -846,31 +857,37 @@ export function SessionWorkbench() {
 
     let cancelled = false;
     setLoadingMcpSettings(true);
+    setLoadingChannelsSettings(true);
     setLoadingSkillsSettings(true);
     setMcpSettingsErrorText(null);
+    setChannelsSettingsErrorText(null);
 
     void Promise.all([
+      apiClient.getUserSettingsChannels(targetUserId),
       apiClient.getUserSettingsMcp(targetUserId),
       apiClient.getUserSettingsSkills(targetUserId)
     ])
-      .then(([mcpPayload, skillsPayload]) => {
+      .then(([channelsPayload, mcpPayload, skillsPayload]) => {
         if (cancelled) {
           return;
         }
 
+        setSettingsChannelsState(toSettingsChannelsState(channelsPayload));
         setSettingsMcpForm(toSettingsMcpFormState(mcpPayload));
         setSettingsSkillsState(toSettingsSkillsState(skillsPayload));
       })
       .catch((error) => {
         if (!cancelled) {
-          setMcpSettingsErrorText(
-            error instanceof Error ? error.message : String(error)
-          );
+          const message =
+            error instanceof Error ? error.message : String(error);
+          setMcpSettingsErrorText(message);
+          setChannelsSettingsErrorText(message);
         }
       })
       .finally(() => {
         if (!cancelled) {
           setLoadingMcpSettings(false);
+          setLoadingChannelsSettings(false);
           setLoadingSkillsSettings(false);
         }
       });
@@ -1699,17 +1716,20 @@ export function SessionWorkbench() {
       setPermissionTools(updatedPayload.permissionTools);
       setSettingsForm(toSettingsFormState(updated));
       try {
-        const [mcpPayload, skillsPayload] = await Promise.all([
+        const [channelsPayload, mcpPayload, skillsPayload] = await Promise.all([
+          apiClient.getUserSettingsChannels(targetUserId),
           apiClient.getUserSettingsMcp(targetUserId),
           apiClient.getUserSettingsSkills(targetUserId)
         ]);
+        setSettingsChannelsState(toSettingsChannelsState(channelsPayload));
         setSettingsMcpForm(toSettingsMcpFormState(mcpPayload));
         setSettingsSkillsState(toSettingsSkillsState(skillsPayload));
         setMcpSettingsErrorText(null);
+        setChannelsSettingsErrorText(null);
       } catch (error) {
-        setMcpSettingsErrorText(
-          error instanceof Error ? error.message : String(error)
-        );
+        const message = error instanceof Error ? error.message : String(error);
+        setMcpSettingsErrorText(message);
+        setChannelsSettingsErrorText(message);
       }
 
       if (currentSession && currentSession.context.userId === targetUserId) {
@@ -1769,6 +1789,62 @@ export function SessionWorkbench() {
     });
     setSettingsForm(nextForm);
     await handleSaveUserSettings(nextForm);
+  }
+
+  function handleTelegramChannelChange(
+    patch: Partial<SettingsChannelsState["telegram"]>
+  ) {
+    setSettingsChannelsState((current) => ({
+      ...current,
+      telegram: {
+        ...current.telegram,
+        ...patch
+      }
+    }));
+  }
+
+  async function handleTelegramChannelEnabledChange(enabled: boolean) {
+    if (savingChannelsSettings) {
+      return;
+    }
+
+    const nextState = {
+      ...settingsChannelsState,
+      telegram: {
+        ...settingsChannelsState.telegram,
+        enabled
+      }
+    };
+    setSettingsChannelsState(nextState);
+    await handleSaveChannelSettings(nextState);
+  }
+
+  async function handleSaveChannelSettings(
+    nextState: SettingsChannelsState = settingsChannelsState
+  ): Promise<boolean> {
+    const targetUserId = currentSession?.context.userId ?? userSettings?.userId;
+    if (!targetUserId || savingChannelsSettings) {
+      return false;
+    }
+
+    setSavingChannelsSettings(true);
+    setChannelsSettingsErrorText(null);
+
+    try {
+      const payload = await apiClient.updateUserSettingsChannels(
+        targetUserId,
+        buildChannelsPayloadFromState(nextState)
+      );
+      setSettingsChannelsState(toSettingsChannelsState(payload));
+      return true;
+    } catch (error) {
+      setChannelsSettingsErrorText(
+        error instanceof Error ? error.message : String(error)
+      );
+      return false;
+    } finally {
+      setSavingChannelsSettings(false);
+    }
   }
 
   function handleAddMcpServer() {
@@ -2830,15 +2906,19 @@ export function SessionWorkbench() {
               settingsMeta={settingsMeta}
               settingsStatusText={settingsStatusText}
               settingsForm={settingsForm}
+              settingsChannelsState={settingsChannelsState}
               settingsMcpForm={settingsMcpForm}
               settingsSkillsState={settingsSkillsState}
               permissionTools={permissionTools}
               loadingSettings={loadingSettings}
               savingSettings={savingSettings}
+              loadingChannelsSettings={loadingChannelsSettings}
               loadingMcpSettings={loadingMcpSettings}
               loadingSkillsSettings={loadingSkillsSettings}
+              savingChannelsSettings={savingChannelsSettings}
               savingMcpSettings={savingMcpSettings}
               mcpSettingsErrorText={mcpSettingsErrorText}
+              channelsSettingsErrorText={channelsSettingsErrorText}
               clearingSessionHistory={clearingSessionHistory}
               clearHistoryErrorText={clearHistoryErrorText}
               choosingWorkingDirectory={choosingWorkingDirectory}
@@ -2870,6 +2950,11 @@ export function SessionWorkbench() {
               onSettingsSkillEnabledChange={(skillName, enabled) =>
                 void handleSettingsSkillEnabledChange(skillName, enabled)
               }
+              onTelegramChannelChange={handleTelegramChannelChange}
+              onTelegramChannelEnabledChange={(enabled) =>
+                void handleTelegramChannelEnabledChange(enabled)
+              }
+              onChannelSettingsBlur={() => void handleSaveChannelSettings()}
               onAddMcpServer={handleAddMcpServer}
               onMcpServerChange={handleMcpServerChange}
               onMcpServerTransportChange={handleMcpServerTransportChange}

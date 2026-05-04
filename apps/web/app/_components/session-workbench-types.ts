@@ -15,6 +15,7 @@ import {
   USER_CONTEXT_HOOK_EVENT_OPTIONS,
   USER_CONTEXT_HOOK_WAIT_MODE_OPTIONS,
   type UserContextHookRecord,
+  type UserSettingsChannelsPayload,
   type WorkspaceSkillSettingRecord,
   type WorkspaceMcpConfigDiagnostic,
   type WorkspaceMcpToolLoadSummary
@@ -81,6 +82,12 @@ export const settingsPages = [
     description: "不同 runtime 时机的 context 注入与自动消息。"
   },
   {
+    id: "channels",
+    label: "Channels",
+    title: "Channels",
+    description: "当前工作目录下的外部消息通道。"
+  },
+  {
     id: "personalization",
     label: "个性化",
     title: "个性化",
@@ -97,11 +104,7 @@ export const MAX_TURNS_LIMIT = 200;
 export const DEFAULT_CONTEXT_WINDOW = 200_000;
 
 export type InspectorTabId = (typeof inspectorTabs)[number]["id"];
-export type SidebarPanelId =
-  | "settings"
-  | "cron"
-  | "cron-create"
-  | "inspector";
+export type SidebarPanelId = "settings" | "cron" | "cron-create" | "inspector";
 export type SettingsPageId = (typeof settingsPages)[number]["id"];
 
 export interface WorkbenchSessionSummary extends SessionSummary {
@@ -163,6 +166,14 @@ export interface SettingsSkillsState {
   diagnostics: UserSettingsSkillsPayload["diagnostics"];
 }
 
+export interface SettingsChannelsState {
+  workingDirectory: string;
+  configPath: string;
+  foundConfig: boolean;
+  telegram: UserSettingsChannelsPayload["telegram"];
+  diagnostics: UserSettingsChannelsPayload["diagnostics"];
+}
+
 export type CronMaxRunsMode = "infinite" | "finite";
 
 export interface CronJobFormState {
@@ -218,7 +229,9 @@ function formatLocalDateTimeValue(value: Date): string {
   return `${year}-${month}-${day}T${hours}:${minutes}`;
 }
 
-export function formatDateTimeLocalInput(value: string | null | undefined): string {
+export function formatDateTimeLocalInput(
+  value: string | null | undefined
+): string {
   if (!value) {
     return "";
   }
@@ -229,10 +242,12 @@ export function formatDateTimeLocalInput(value: string | null | undefined): stri
   return formatLocalDateTimeValue(parsed);
 }
 
-export function createDefaultCronJobFormState(input: {
-  workingDirectory?: string | null;
-  startsAt?: string;
-} = {}): CronJobFormState {
+export function createDefaultCronJobFormState(
+  input: {
+    workingDirectory?: string | null;
+    startsAt?: string;
+  } = {}
+): CronJobFormState {
   const now = new Date();
   now.setSeconds(0, 0);
   return {

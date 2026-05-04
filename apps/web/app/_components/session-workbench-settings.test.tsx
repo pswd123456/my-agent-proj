@@ -8,6 +8,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { SessionWorkbenchSettings } from "./session-workbench-settings";
 import type {
+  SettingsChannelsState,
   SettingsFormState,
   SettingsMcpFormState,
   SettingsSkillsState
@@ -101,6 +102,24 @@ function createSettingsMcpFormState(): SettingsMcpFormState {
   };
 }
 
+function createSettingsChannelsState(): SettingsChannelsState {
+  return {
+    workingDirectory: "/tmp/workspace",
+    configPath: "/tmp/workspace/.agents/.config.toml",
+    foundConfig: true,
+    telegram: {
+      channel: "telegram",
+      configuredInFile: true,
+      enabled: true,
+      mode: "polling",
+      botToken: "$TELEGRAM_BOT_TOKEN",
+      webhookSecret: "$TELEGRAM_WEBHOOK_SECRET",
+      webhookUrl: "https://example.com/api/inbox/telegram/webhook"
+    },
+    diagnostics: []
+  };
+}
+
 function renderSettings(
   props: Partial<Parameters<typeof SessionWorkbenchSettings>[0]> = {}
 ): string {
@@ -115,15 +134,19 @@ function renderSettings(
       settingsMeta: "user cli-user",
       settingsStatusText: "",
       settingsForm: createSettingsFormState(),
+      settingsChannelsState: createSettingsChannelsState(),
       settingsMcpForm: createSettingsMcpFormState(),
       settingsSkillsState: createSettingsSkillsState(),
       permissionTools: [] satisfies SettingsPermissionToolOption[],
       loadingSettings: false,
       savingSettings: false,
+      loadingChannelsSettings: false,
       loadingMcpSettings: false,
       loadingSkillsSettings: false,
+      savingChannelsSettings: false,
       savingMcpSettings: false,
       mcpSettingsErrorText: null,
+      channelsSettingsErrorText: null,
       clearingSessionHistory: false,
       clearHistoryErrorText: null,
       choosingWorkingDirectory: false,
@@ -141,6 +164,9 @@ function renderSettings(
       onSettingsCapabilityPackToggle: () => {},
       onSettingsShellAllowPatternRemove: () => {},
       onSettingsSkillEnabledChange: () => {},
+      onTelegramChannelChange: () => {},
+      onTelegramChannelEnabledChange: () => {},
+      onChannelSettingsBlur: () => {},
       onAddMcpServer: () => {},
       onMcpServerChange: () => {},
       onMcpServerTransportChange: () => {},
@@ -180,6 +206,9 @@ describe("session-workbench settings mode", () => {
     expect(renderSettings({ activeSettingsPage: "skills" })).not.toContain(
       "控制当前工作目录下哪些 skills 会进入 runtime context，也会影响search_skill / load_skill 的可见范围。修改后下一次 run 生效。"
     );
+    expect(renderSettings({ activeSettingsPage: "channels" })).not.toContain(
+      "管理外部消息通道"
+    );
     expect(renderSettings({ activeSettingsPage: "hooks" })).not.toContain(
       "为不同 runtime 时机配置 context注入或自动发送消息。修改后会自动保存，并在下一次 run 生效。"
     );
@@ -201,7 +230,19 @@ describe("session-workbench settings mode", () => {
     expect(markup).toContain("权限");
     expect(markup).toContain("MCP");
     expect(markup).toContain("Skills");
+    expect(markup).toContain("Channels");
     expect(markup).toContain("个性化");
+  });
+
+  test("renders telegram channel settings from config", () => {
+    const markup = renderSettings({
+      activeSettingsPage: "channels"
+    });
+
+    expect(markup).toContain("Telegram");
+    expect(markup).toContain("Bot Token");
+    expect(markup).toContain("$TELEGRAM_BOT_TOKEN");
+    expect(markup).toContain("Webhook URL");
   });
 
   test("renders saved shell allow patterns on the permissions page", () => {

@@ -1,6 +1,7 @@
 import {
   sessionFileChangeActionResultSchema,
   sessionWorkspaceGitStatusSchema,
+  userSettingsChannelsPayloadSchema,
   userSettingsMcpPayloadSchema,
   workspaceFileSearchResultSchema,
   workspaceSkillSearchResultSchema
@@ -14,7 +15,9 @@ import type {
   SessionSnapshot as AgentSessionSnapshot,
   SessionWorkspaceGitStatus,
   TraceRecord,
+  UpdateUserSettingsChannelsPayload,
   UpdateUserSettingsMcpPayload,
+  UserSettingsChannelsPayload,
   UserSettingsMcpPayload,
   WorkspaceFileChangeSummary,
   WorkspaceFileSearchResult,
@@ -610,6 +613,22 @@ export class ApiClient {
     );
   }
 
+  async getUserSettingsChannels(
+    userId: string
+  ): Promise<UserSettingsChannelsPayload> {
+    const response = await this.fetchImpl(
+      appendCacheBust(
+        buildUrl(this.baseUrl, `/users/${userId}/settings/channels`)
+      ),
+      {
+        cache: "no-store"
+      }
+    );
+    return userSettingsChannelsPayloadSchema.parse(
+      await ensureOk(response).then((result) => result.json())
+    );
+  }
+
   async getUserSettingsSkills(
     userId: string
   ): Promise<UserSettingsSkillsPayload> {
@@ -639,6 +658,23 @@ export class ApiClient {
       }
     );
     return userSettingsMcpPayloadSchema.parse(
+      await ensureOk(response).then((result) => result.json())
+    );
+  }
+
+  async updateUserSettingsChannels(
+    userId: string,
+    input: UpdateUserSettingsChannelsPayload
+  ): Promise<UserSettingsChannelsPayload> {
+    const response = await this.fetchImpl(
+      buildUrl(this.baseUrl, `/users/${userId}/settings/channels`),
+      {
+        method: "PUT",
+        headers: toJsonHeaders(),
+        body: JSON.stringify(input)
+      }
+    );
+    return userSettingsChannelsPayloadSchema.parse(
       await ensureOk(response).then((result) => result.json())
     );
   }

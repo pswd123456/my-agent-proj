@@ -8,6 +8,7 @@ import type {
   SessionSummary,
   TraceRecord,
   UserContextHookRecord,
+  UserSettingsChannelsPayload,
   UserSettingsMcpPayload,
   UserSettingsSkillsPayload,
   WorkspaceSkillSettingRecord,
@@ -24,6 +25,7 @@ import {
   DEFAULT_CONTEXT_WINDOW,
   DEFAULT_MAX_TURNS,
   MAX_TURNS_LIMIT,
+  type SettingsChannelsState,
   type SettingsMcpFormState,
   type SettingsMcpServerFormState,
   type SettingsFormState,
@@ -988,6 +990,26 @@ export function toSettingsSkillsState(
   };
 }
 
+export function toSettingsChannelsState(
+  payload: UserSettingsChannelsPayload | null
+): SettingsChannelsState {
+  return {
+    workingDirectory: payload?.workingDirectory ?? "",
+    configPath: payload?.configPath ?? "",
+    foundConfig: payload?.foundConfig ?? false,
+    telegram: payload?.telegram ?? {
+      channel: "telegram",
+      configuredInFile: false,
+      enabled: false,
+      mode: "polling",
+      botToken: "",
+      webhookSecret: "",
+      webhookUrl: ""
+    },
+    diagnostics: payload?.diagnostics ?? []
+  };
+}
+
 export function createEmptyMcpServerFormState(
   transport: "stdio" | "http" = "stdio"
 ): SettingsMcpServerFormState {
@@ -1084,6 +1106,26 @@ export function buildMcpServersFromForm(
   }
 
   return servers;
+}
+
+export function buildChannelsPayloadFromState(state: SettingsChannelsState): {
+  telegram: {
+    enabled: boolean;
+    mode: SettingsChannelsState["telegram"]["mode"];
+    botToken: string;
+    webhookSecret: string;
+    webhookUrl: string;
+  };
+} {
+  return {
+    telegram: {
+      enabled: state.telegram.enabled,
+      mode: state.telegram.mode,
+      botToken: state.telegram.botToken.trim(),
+      webhookSecret: state.telegram.webhookSecret.trim(),
+      webhookUrl: state.telegram.webhookUrl.trim()
+    }
+  };
 }
 
 export function buildSessionSettingsPatchFromUserSettings(
