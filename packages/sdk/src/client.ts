@@ -568,9 +568,9 @@ export class ApiClient {
     return payload.session;
   }
 
-  async getUserSettingsPayload(userId: string): Promise<UserSettingsPayload> {
+  async getUserSettingsPayload(): Promise<UserSettingsPayload> {
     const response = await this.fetchImpl(
-      appendCacheBust(buildUrl(this.baseUrl, `/users/${userId}/settings`)),
+      appendCacheBust(buildUrl(this.baseUrl, "/settings")),
       {
         cache: "no-store"
       }
@@ -580,8 +580,8 @@ export class ApiClient {
     )) as UserSettingsPayload;
   }
 
-  async getUserSettings(userId: string): Promise<SessionSettingsRecord> {
-    const payload = await this.getUserSettingsPayload(userId);
+  async getUserSettings(): Promise<SessionSettingsRecord> {
+    const payload = await this.getUserSettingsPayload();
     return payload.settings;
   }
 
@@ -601,9 +601,9 @@ export class ApiClient {
     )) as ChooseDirectoryResult;
   }
 
-  async getUserSettingsMcp(userId: string): Promise<UserSettingsMcpPayload> {
+  async getUserSettingsMcp(): Promise<UserSettingsMcpPayload> {
     const response = await this.fetchImpl(
-      appendCacheBust(buildUrl(this.baseUrl, `/users/${userId}/settings/mcp`)),
+      appendCacheBust(buildUrl(this.baseUrl, "/settings/mcp")),
       {
         cache: "no-store"
       }
@@ -613,13 +613,9 @@ export class ApiClient {
     );
   }
 
-  async getUserSettingsChannels(
-    userId: string
-  ): Promise<UserSettingsChannelsPayload> {
+  async getUserSettingsChannels(): Promise<UserSettingsChannelsPayload> {
     const response = await this.fetchImpl(
-      appendCacheBust(
-        buildUrl(this.baseUrl, `/users/${userId}/settings/channels`)
-      ),
+      appendCacheBust(buildUrl(this.baseUrl, "/settings/channels")),
       {
         cache: "no-store"
       }
@@ -629,13 +625,9 @@ export class ApiClient {
     );
   }
 
-  async getUserSettingsSkills(
-    userId: string
-  ): Promise<UserSettingsSkillsPayload> {
+  async getUserSettingsSkills(): Promise<UserSettingsSkillsPayload> {
     const response = await this.fetchImpl(
-      appendCacheBust(
-        buildUrl(this.baseUrl, `/users/${userId}/settings/skills`)
-      ),
+      appendCacheBust(buildUrl(this.baseUrl, "/settings/skills")),
       {
         cache: "no-store"
       }
@@ -646,11 +638,10 @@ export class ApiClient {
   }
 
   async updateUserSettingsMcp(
-    userId: string,
     input: UpdateUserSettingsMcpPayload
   ): Promise<UserSettingsMcpPayload> {
     const response = await this.fetchImpl(
-      buildUrl(this.baseUrl, `/users/${userId}/settings/mcp`),
+      buildUrl(this.baseUrl, "/settings/mcp"),
       {
         method: "PUT",
         headers: toJsonHeaders(),
@@ -663,11 +654,10 @@ export class ApiClient {
   }
 
   async updateUserSettingsChannels(
-    userId: string,
     input: UpdateUserSettingsChannelsPayload
   ): Promise<UserSettingsChannelsPayload> {
     const response = await this.fetchImpl(
-      buildUrl(this.baseUrl, `/users/${userId}/settings/channels`),
+      buildUrl(this.baseUrl, "/settings/channels"),
       {
         method: "PUT",
         headers: toJsonHeaders(),
@@ -753,11 +743,10 @@ export class ApiClient {
   }
 
   async updateUserSettingsPayload(
-    userId: string,
     input: UpdateUserSettingsPayload
   ): Promise<UserSettingsPayload> {
     const response = await this.fetchImpl(
-      buildUrl(this.baseUrl, `/users/${userId}/settings`),
+      buildUrl(this.baseUrl, "/settings"),
       {
         method: "PATCH",
         headers: toJsonHeaders(),
@@ -770,10 +759,9 @@ export class ApiClient {
   }
 
   async updateUserSettings(
-    userId: string,
     input: UpdateUserSettingsPayload
   ): Promise<SessionSettingsRecord> {
-    const payload = await this.updateUserSettingsPayload(userId, input);
+    const payload = await this.updateUserSettingsPayload(input);
     return payload.settings;
   }
 
@@ -946,9 +934,9 @@ export class ApiClient {
     )) as ResetSessionRoutinesResult;
   }
 
-  async listCronJobs(userId: string): Promise<CronJobRecord[]> {
+  async listCronJobs(): Promise<CronJobRecord[]> {
     const response = await this.fetchImpl(
-      appendCacheBust(buildUrl(this.baseUrl, `/users/${userId}/cron-jobs`)),
+      appendCacheBust(buildUrl(this.baseUrl, "/cron-jobs")),
       {
         cache: "no-store"
       }
@@ -959,12 +947,9 @@ export class ApiClient {
     return payload.cronJobs;
   }
 
-  async createCronJob(
-    userId: string,
-    input: CreateCronJobPayload
-  ): Promise<CronJobRecord> {
+  async createCronJob(input: CreateCronJobPayload): Promise<CronJobRecord> {
     const response = await this.fetchImpl(
-      buildUrl(this.baseUrl, `/users/${userId}/cron-jobs`),
+      buildUrl(this.baseUrl, "/cron-jobs"),
       {
         method: "POST",
         headers: toJsonHeaders(),
@@ -978,12 +963,11 @@ export class ApiClient {
   }
 
   async updateCronJob(
-    userId: string,
     cronJobId: string,
     input: UpdateCronJobPayload
   ): Promise<CronJobRecord> {
     const response = await this.fetchImpl(
-      buildUrl(this.baseUrl, `/users/${userId}/cron-jobs/${cronJobId}`),
+      buildUrl(this.baseUrl, `/cron-jobs/${cronJobId}`),
       {
         method: "PATCH",
         headers: toJsonHeaders(),
@@ -996,9 +980,9 @@ export class ApiClient {
     return payload.cronJob;
   }
 
-  async deleteCronJob(userId: string, cronJobId: string): Promise<void> {
+  async deleteCronJob(cronJobId: string): Promise<void> {
     const response = await this.fetchImpl(
-      buildUrl(this.baseUrl, `/users/${userId}/cron-jobs/${cronJobId}`),
+      buildUrl(this.baseUrl, `/cron-jobs/${cronJobId}`),
       {
         method: "DELETE"
       }

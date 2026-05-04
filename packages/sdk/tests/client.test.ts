@@ -146,7 +146,7 @@ describe("ApiClient error handling", () => {
       query: "repo",
       limit: 8
     });
-    await client.getUserSettingsSkills("user-1");
+    await client.getUserSettingsSkills();
 
     expect(calls).toEqual([
       {
@@ -169,7 +169,7 @@ describe("ApiClient error handling", () => {
       },
       {
         url: expect.stringContaining(
-          "http://localhost:3001/users/user-1/settings/skills"
+          "http://localhost:3001/settings/skills"
         ),
         method: undefined
       }
