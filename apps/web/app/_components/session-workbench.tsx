@@ -262,6 +262,7 @@ export function SessionWorkbench() {
   const sessionListMutationInFlightRef = useRef(false);
   const appliedSessionSearchQueryRef = useRef("");
   const sessionLocalStateMapRef = useRef(createSessionLocalStateMap());
+  const runtimeSettingsUpdatePromiseRef = useRef<Promise<boolean> | null>(null);
   // Prevent duplicate undo/reapply submissions before React state settles.
   const runFileChangeActionInFlightRef = useRef<Set<string>>(new Set());
 
@@ -298,8 +299,7 @@ export function SessionWorkbench() {
     string | null
   >(null);
   const [rewriteDraft, setRewriteDraft] = useState("");
-  const [recoveringRewriteTarget, setRecoveringRewriteTarget] =
-    useState(false);
+  const [recoveringRewriteTarget, setRecoveringRewriteTarget] = useState(false);
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(
     null
   );
@@ -324,6 +324,7 @@ export function SessionWorkbench() {
     useState<SettingsSkillsState>(toSettingsSkillsState(null));
   const [loadingSettings, setLoadingSettings] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
+  const [updatingRuntimeSettings, setUpdatingRuntimeSettings] = useState(false);
   const [loadingMcpSettings, setLoadingMcpSettings] = useState(false);
   const [loadingSkillsSettings, setLoadingSkillsSettings] = useState(false);
   const [savingMcpSettings, setSavingMcpSettings] = useState(false);
@@ -355,7 +356,10 @@ export function SessionWorkbench() {
   const currentCronJobIdRef = useRef<string | null>(null);
   const [maxTurns, setMaxTurns] = useState(String(DEFAULT_MAX_TURNS));
   const [errorText, setErrorText] = useState<string | null>(null);
-  const emptyMessageManagerState = useMemo(() => createMessageManagerState(), []);
+  const emptyMessageManagerState = useMemo(
+    () => createMessageManagerState(),
+    []
+  );
   const selectedSessionLocalState = getSessionLocalStateBucket(
     sessionLocalStateMap,
     selectedSessionId
@@ -403,7 +407,9 @@ export function SessionWorkbench() {
     });
   }
 
-  function getLocalSessionSnapshot(sessionId: string | null): SessionSnapshot | null {
+  function getLocalSessionSnapshot(
+    sessionId: string | null
+  ): SessionSnapshot | null {
     if (!sessionId) {
       return null;
     }
@@ -414,7 +420,10 @@ export function SessionWorkbench() {
   function setSelectedSessionIdState(sessionId: string | null) {
     selectedSessionIdRef.current = sessionId;
     setSessionRegistry((current) =>
-      hydrateSelectedSession(selectSession(current, sessionId), getLocalSessionSnapshot(sessionId))
+      hydrateSelectedSession(
+        selectSession(current, sessionId),
+        getLocalSessionSnapshot(sessionId)
+      )
     );
   }
 
@@ -435,7 +444,9 @@ export function SessionWorkbench() {
     }
 
     if (session) {
-      setSessionLocalStateMap((current) => upsertSessionLocalState(current, session));
+      setSessionLocalStateMap((current) =>
+        upsertSessionLocalState(current, session)
+      );
       setSessionRegistry((current) => hydrateSelectedSession(current, session));
       return;
     }
@@ -443,9 +454,7 @@ export function SessionWorkbench() {
     setSessionLocalStateMap((current) =>
       clearSessionLocalState(current, selectedSessionId)
     );
-    setSessionRegistry((current) =>
-      hydrateSelectedSession(current, null)
-    );
+    setSessionRegistry((current) => hydrateSelectedSession(current, null));
   }
 
   function updateSelectedRunFileChanges(
@@ -925,7 +934,9 @@ export function SessionWorkbench() {
         }
       } catch (error) {
         if (!cancelled) {
-          setCronErrorText(error instanceof Error ? error.message : String(error));
+          setCronErrorText(
+            error instanceof Error ? error.message : String(error)
+          );
         }
       } finally {
         if (!cancelled && showLoading) {
@@ -1298,7 +1309,9 @@ export function SessionWorkbench() {
     }
   }
 
-  function handleStartRewrite(block: Extract<SessionSnapshot["messages"][number], { kind: "user" }>) {
+  function handleStartRewrite(
+    block: Extract<SessionSnapshot["messages"][number], { kind: "user" }>
+  ) {
     if (
       !rewriteTarget ||
       rewriteTarget.userMessageId !== block.id ||
@@ -1393,7 +1406,10 @@ export function SessionWorkbench() {
           const applyStreamEvent = () => {
             let streamedSessionSnapshot: SessionSnapshot | null = null;
             setSessionLocalStateMap((current) => {
-              const next = applyStreamEventToSessionLocalState(current, runEvent);
+              const next = applyStreamEventToSessionLocalState(
+                current,
+                runEvent
+              );
               streamedSessionSnapshot =
                 next[runEvent.sessionId]?.uiState.session ?? null;
               return next;
@@ -1404,9 +1420,12 @@ export function SessionWorkbench() {
               "session" in runEvent
                 ? runEvent.session
                 : null;
-            const sessionForRegistry = terminalSession ?? streamedSessionSnapshot;
+            const sessionForRegistry =
+              terminalSession ?? streamedSessionSnapshot;
             if (sessionForRegistry) {
-              setSessionRegistry((current) => upsertSession(current, sessionForRegistry));
+              setSessionRegistry((current) =>
+                upsertSession(current, sessionForRegistry)
+              );
             } else if (isActiveSession) {
               setSessionRegistry((current) =>
                 applyStreamEventToSessionRegistry(current, runEvent)
@@ -1461,6 +1480,11 @@ export function SessionWorkbench() {
     setErrorText(null);
 
     try {
+      const settingsReady = await waitForRuntimeSettingsUpdate();
+      if (!settingsReady) {
+        return;
+      }
+
       const recovered = await apiClient.recoverRewriteTarget(
         currentSession.sessionId,
         {
@@ -1520,21 +1544,14 @@ export function SessionWorkbench() {
     }
 
     const sessionId = currentSession.sessionId;
-    const forceStopRequested =
-      interruptingSessionId === sessionId ||
-      currentSession.sessionState.interruptRequested;
     setErrorText(null);
 
-    if (forceStopRequested) {
-      setSessionLocalStateMap((current) =>
-        beginSessionLocalInterrupt(current, sessionId)
-      );
-    }
+    setSessionLocalStateMap((current) =>
+      beginSessionLocalInterrupt(current, sessionId)
+    );
 
     try {
-      const result = forceStopRequested
-        ? await apiClient.forceStopSessionExecution(sessionId)
-        : await apiClient.interruptSessionExecution(sessionId);
+      const result = await apiClient.interruptSessionExecution(sessionId);
       hydrateCurrentSession(result.session);
       if (result.session.sessionState.loopState === "interrupted") {
         setSessionLocalStateMap((current) =>
@@ -1542,11 +1559,9 @@ export function SessionWorkbench() {
         );
       }
     } catch (error) {
-      if (forceStopRequested) {
-        setSessionLocalStateMap((current) =>
-          rollbackSessionLocalSubmission(current, sessionId)
-        );
-      }
+      setSessionLocalStateMap((current) =>
+        rollbackSessionLocalSubmission(current, sessionId)
+      );
       setErrorText(error instanceof Error ? error.message : String(error));
     }
   }
@@ -1636,7 +1651,7 @@ export function SessionWorkbench() {
                 errorText:
                   error instanceof Error ? error.message : String(error)
               }
-          : view
+            : view
         )
       );
     } finally {
@@ -1715,6 +1730,30 @@ export function SessionWorkbench() {
 
   function handleSettingsFormChange(patch: Partial<SettingsFormState>) {
     setSettingsForm((current) => patchSettingsForm(current, patch));
+  }
+
+  async function trackRuntimeSettingsUpdate(
+    updatePromise: Promise<boolean>
+  ): Promise<boolean> {
+    runtimeSettingsUpdatePromiseRef.current = updatePromise;
+    setUpdatingRuntimeSettings(true);
+    try {
+      return await updatePromise;
+    } finally {
+      if (runtimeSettingsUpdatePromiseRef.current === updatePromise) {
+        runtimeSettingsUpdatePromiseRef.current = null;
+        setUpdatingRuntimeSettings(false);
+      }
+    }
+  }
+
+  async function waitForRuntimeSettingsUpdate(): Promise<boolean> {
+    const pendingUpdate = runtimeSettingsUpdatePromiseRef.current;
+    if (!pendingUpdate) {
+      return true;
+    }
+
+    return pendingUpdate;
   }
 
   async function handleSettingsShellAllowPatternRemove(pattern: string) {
@@ -2211,7 +2250,9 @@ export function SessionWorkbench() {
     if (!selectedCronJobId) {
       return;
     }
-    const nextSelected = jobs.find((cronJob) => cronJob.id === selectedCronJobId);
+    const nextSelected = jobs.find(
+      (cronJob) => cronJob.id === selectedCronJobId
+    );
     if (nextSelected) {
       resetCronEditor(nextSelected);
       return;
@@ -2288,7 +2329,9 @@ export function SessionWorkbench() {
       return;
     }
 
-    const confirmed = window.confirm("删除后不会再触发这个定时任务，确认继续吗？");
+    const confirmed = window.confirm(
+      "删除后不会再触发这个定时任务，确认继续吗？"
+    );
     if (!confirmed) {
       return;
     }
@@ -2362,25 +2405,31 @@ export function SessionWorkbench() {
 
     setErrorText(null);
 
-    try {
-      const updatedSession = await apiClient.updateSessionSettings(
-        currentSession.sessionId,
-        {
-          model
-        }
-      );
-      hydrateCurrentSession(updatedSession);
+    await trackRuntimeSettingsUpdate(
+      (async () => {
+        try {
+          const updatedSession = await apiClient.updateSessionSettings(
+            currentSession.sessionId,
+            {
+              model
+            }
+          );
+          hydrateCurrentSession(updatedSession);
 
-      const settingsPayload = await apiClient.updateUserSettingsPayload(
-        currentSession.context.userId,
-        { model }
-      );
-      setUserSettings(settingsPayload.settings);
-      setPermissionTools(settingsPayload.permissionTools);
-      setSettingsForm(toSettingsFormState(settingsPayload.settings));
-    } catch (error) {
-      setErrorText(error instanceof Error ? error.message : String(error));
-    }
+          const settingsPayload = await apiClient.updateUserSettingsPayload(
+            currentSession.context.userId,
+            { model }
+          );
+          setUserSettings(settingsPayload.settings);
+          setPermissionTools(settingsPayload.permissionTools);
+          setSettingsForm(toSettingsFormState(settingsPayload.settings));
+          return true;
+        } catch (error) {
+          setErrorText(error instanceof Error ? error.message : String(error));
+          return false;
+        }
+      })()
+    );
   }
 
   async function handleSettingsThinkingEffortChange(thinkingEffort: string) {
@@ -2391,25 +2440,31 @@ export function SessionWorkbench() {
     const normalizedThinkingEffort = thinkingEffort === "max" ? "max" : "high";
     setErrorText(null);
 
-    try {
-      const updatedSession = await apiClient.updateSessionSettings(
-        currentSession.sessionId,
-        {
-          thinkingEffort: normalizedThinkingEffort
-        }
-      );
-      hydrateCurrentSession(updatedSession);
+    await trackRuntimeSettingsUpdate(
+      (async () => {
+        try {
+          const updatedSession = await apiClient.updateSessionSettings(
+            currentSession.sessionId,
+            {
+              thinkingEffort: normalizedThinkingEffort
+            }
+          );
+          hydrateCurrentSession(updatedSession);
 
-      const settingsPayload = await apiClient.updateUserSettingsPayload(
-        currentSession.context.userId,
-        { thinkingEffort: normalizedThinkingEffort }
-      );
-      setUserSettings(settingsPayload.settings);
-      setPermissionTools(settingsPayload.permissionTools);
-      setSettingsForm(toSettingsFormState(settingsPayload.settings));
-    } catch (error) {
-      setErrorText(error instanceof Error ? error.message : String(error));
-    }
+          const settingsPayload = await apiClient.updateUserSettingsPayload(
+            currentSession.context.userId,
+            { thinkingEffort: normalizedThinkingEffort }
+          );
+          setUserSettings(settingsPayload.settings);
+          setPermissionTools(settingsPayload.permissionTools);
+          setSettingsForm(toSettingsFormState(settingsPayload.settings));
+          return true;
+        } catch (error) {
+          setErrorText(error instanceof Error ? error.message : String(error));
+          return false;
+        }
+      })()
+    );
   }
 
   async function handleSessionPlanModeChange(checked: boolean) {
@@ -2651,11 +2706,7 @@ export function SessionWorkbench() {
       {isSessionRailCollapsed ? ">>" : "<<"}
     </button>
   );
-  const headerActions = (
-    <>
-      {sidebarToggleButton}
-    </>
-  );
+  const headerActions = <>{sidebarToggleButton}</>;
 
   function handleAssistantAnimationComplete(itemKey: string) {
     const selectedSessionId = selectedSessionIdRef.current;
@@ -2664,7 +2715,11 @@ export function SessionWorkbench() {
     }
 
     setSessionLocalStateMap((current) =>
-      markAssistantAnimationCompleteForSession(current, selectedSessionId, itemKey)
+      markAssistantAnimationCompleteForSession(
+        current,
+        selectedSessionId,
+        itemKey
+      )
     );
   }
 
@@ -2680,7 +2735,10 @@ export function SessionWorkbench() {
   }, [currentSession?.sessionId, settingsForm.debugConversationView]);
 
   useEffect(() => {
-    if (settingsForm.debugConversationView || activeSidebarPanel !== "inspector") {
+    if (
+      settingsForm.debugConversationView ||
+      activeSidebarPanel !== "inspector"
+    ) {
       return;
     }
 
@@ -2924,6 +2982,7 @@ export function SessionWorkbench() {
                 session: currentSession,
                 settingsForm
               })}
+              updatingRuntimeSettings={updatingRuntimeSettings}
               onMessageChange={setMessage}
               onSubmit={(event) => void handleSubmit(event)}
               onInterrupt={() => void handleInterruptSession()}
@@ -2970,14 +3029,22 @@ export function SessionWorkbench() {
               onToggleExpandedItem={(key) =>
                 setSessionLocalStateMap((current) =>
                   selectedSessionId
-                    ? toggleExpandedItemForSession(current, selectedSessionId, key)
+                    ? toggleExpandedItemForSession(
+                        current,
+                        selectedSessionId,
+                        key
+                      )
                     : current
                 )
               }
               onAutoCollapseComplete={(key) =>
                 setSessionLocalStateMap((current) =>
                   selectedSessionId
-                    ? completeAutoCollapseForSession(current, selectedSessionId, key)
+                    ? completeAutoCollapseForSession(
+                        current,
+                        selectedSessionId,
+                        key
+                      )
                     : current
                 )
               }

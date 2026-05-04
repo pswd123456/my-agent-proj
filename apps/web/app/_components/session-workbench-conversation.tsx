@@ -131,6 +131,7 @@ interface SessionWorkbenchConversationPanelProps {
   modelCatalog: ModelCatalogEntry[];
   selectedModelId: string;
   selectedThinkingEffort: string;
+  updatingRuntimeSettings: boolean;
   todoUpdating: boolean;
   loading: boolean;
   conversationProjection: ConversationProjection;
@@ -1966,6 +1967,7 @@ export function SessionWorkbenchConversationPanel({
   modelCatalog,
   selectedModelId,
   selectedThinkingEffort,
+  updatingRuntimeSettings,
   todoUpdating,
   loading,
   conversationProjection,
@@ -2156,6 +2158,7 @@ export function SessionWorkbenchConversationPanel({
     (model) => model.id === selectedModelId
   );
   const thinkingEffortOptions = selectedModel?.thinkingEfforts ?? [];
+  const runtimeControlsDisabled = !currentSession || updatingRuntimeSettings;
   const peakContextUsageLabel = currentSession
     ? formatContextWindowUsage(
         peakTurnContextTokens,
@@ -3626,7 +3629,7 @@ export function SessionWorkbenchConversationPanel({
                     <div className="w-44 max-w-[52vw]">
                       <WorkbenchSelect
                         value={selectedModelId}
-                        disabled={!currentSession}
+                        disabled={runtimeControlsDisabled}
                         ariaLabel="选择当前会话模型"
                         onValueChange={onSettingsModelChange}
                         options={modelCatalog.map((model) => ({
@@ -3642,7 +3645,7 @@ export function SessionWorkbenchConversationPanel({
                       <div className="w-28 max-w-[34vw]">
                         <WorkbenchSelect
                           value={selectedThinkingEffort}
-                          disabled={!currentSession}
+                          disabled={runtimeControlsDisabled}
                           ariaLabel="选择 thinking effort"
                           onValueChange={onSettingsThinkingEffortChange}
                           options={thinkingEffortOptions.map((effort) => ({

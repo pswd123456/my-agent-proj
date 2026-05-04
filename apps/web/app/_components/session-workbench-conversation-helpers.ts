@@ -417,15 +417,7 @@ export function buildComposerActionView(input: {
   interrupting: boolean;
   canSubmit: boolean;
 }): ComposerActionView {
-  if (input.interrupting) {
-    return {
-      buttonLabel: "强制结束",
-      buttonType: "interrupt",
-      disabled: false
-    };
-  }
-
-  if (input.canInterrupt) {
+  if (input.canInterrupt || input.interrupting) {
     return {
       buttonLabel: "停止执行",
       buttonType: "interrupt",
