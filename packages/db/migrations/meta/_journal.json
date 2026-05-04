@@ -204,6 +204,13 @@
       "when": 1778659200000,
       "tag": "0028_manage_tool_permissions",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1778745600000,
+      "tag": "0029_adorable_scream",
+      "breakpoints": true
     }
   ]
 }

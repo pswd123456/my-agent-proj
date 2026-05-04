@@ -16,6 +16,8 @@ import type {
   PendingUserQuestionPayload,
   SessionTodoState,
   HookContextEntry,
+  InboxBindingSettings,
+  InboxChannel,
   UserContextHookRecord
 } from "@ai-app-template/domain";
 import {
@@ -307,6 +309,43 @@ export const agentSettings = pgTable("agent_settings", {
     .defaultNow()
 });
 
+export const inboxBindings = pgTable(
+  "inbox_bindings",
+  {
+    id: text("id").primaryKey(),
+    channel: text("channel").$type<InboxChannel>().notNull(),
+    externalChatId: text("external_chat_id").notNull(),
+    activeSessionId: text("active_session_id"),
+    userId: text("user_id").notNull(),
+    settings: jsonb("settings")
+      .$type<InboxBindingSettings>()
+      .notNull()
+      .default(sql.raw(toSqlJsonbLiteral('{"responseOutputMode":"final"}'))),
+    lastUpdateId: integer("last_update_id"),
+    createdAt: timestamp("created_at", {
+      mode: "string",
+      withTimezone: true
+    })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", {
+      mode: "string",
+      withTimezone: true
+    })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => ({
+    channelExternalChatUnique: uniqueIndex(
+      "inbox_bindings_channel_external_chat_id_key"
+    ).on(table.channel, table.externalChatId),
+    userUpdatedAtIdx: index("inbox_bindings_user_updated_at_idx").on(
+      table.userId,
+      table.updatedAt
+    )
+  })
+);
+
 export const backgroundTasks = pgTable(
   "background_tasks",
   {
@@ -496,6 +535,7 @@ export const productSchema = {
   routines,
   agentSessions,
   agentSettings,
+  inboxBindings,
   cronJobs,
   backgroundTasks,
   backgroundTaskRuns,

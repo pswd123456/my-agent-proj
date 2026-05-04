@@ -1,5 +1,6 @@
 export * from "./background-task.js";
 export * from "./cron-job.js";
+export * from "./inbox.js";
 export * from "./json.js";
 export * from "./permission-rules.js";
 export * from "./routine.js";
