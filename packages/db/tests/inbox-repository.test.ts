@@ -32,8 +32,7 @@ describe("MemoryInboxBindingRepository", () => {
     const repository = createMemoryInboxBindingRepository();
     const binding = await repository.getOrCreate({
       channel: "telegram",
-      externalChatId: "123",
-      userId: "telegram:123"
+      externalChatId: "123"
     });
 
     expect(binding.activeSessionId).toBeNull();
@@ -62,27 +61,26 @@ describe("MemoryInboxBindingRepository", () => {
 });
 
 describePostgres("PostgresInboxBindingRepository", () => {
-  const userIdPrefix = `test-${randomUUID()}`;
+  const chatIdPrefix = `test-${randomUUID()}`;
   const db = createPostgresDatabase(resolveTestDatabaseUrl());
   const repository = createPostgresInboxBindingRepository(db);
 
   afterEach(async () => {
     await db
       .delete(inboxBindings)
-      .where(like(inboxBindings.userId, `${userIdPrefix}-%`));
+      .where(like(inboxBindings.externalChatId, `${chatIdPrefix}-%`));
   });
 
   test("round-trips telegram inbox bindings", async () => {
     await ensureProductSchema(db);
     const binding = await repository.getOrCreate({
       channel: "telegram",
-      externalChatId: "456",
-      userId: `${userIdPrefix}-telegram`
+      externalChatId: `${chatIdPrefix}-456`
     });
 
     const fetched = await repository.getByChannelExternalChat(
       "telegram",
-      "456"
+      `${chatIdPrefix}-456`
     );
     expect(fetched?.id).toBe(binding.id);
 

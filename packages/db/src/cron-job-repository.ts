@@ -18,27 +18,24 @@ import {
 import type { ProductDatabaseClient } from "./client.js";
 import { agentSessions, backgroundTasks, cronJobs } from "./schema.js";
 
-export type CreateCronJobRecordInput = CreateCronJobPayload & {
-  userId: string;
-};
+export type CreateCronJobRecordInput = CreateCronJobPayload;
 
 export type UpdateCronJobRecordInput = UpdateCronJobPayload;
 
 export interface CronJobRepository {
-  listByUserId(userId: string): Promise<CronJobRecord[]>;
+  list(): Promise<CronJobRecord[]>;
   create(input: CreateCronJobRecordInput): Promise<CronJobRecord>;
-  getById(userId: string, cronJobId: string): Promise<CronJobRecord | null>;
+  getById(cronJobId: string): Promise<CronJobRecord | null>;
   update(
-    userId: string,
     cronJobId: string,
     patch: UpdateCronJobRecordInput
   ): Promise<CronJobRecord | null>;
-  remove(userId: string, cronJobId: string): Promise<CronJobRecord | null>;
+  remove(cronJobId: string): Promise<CronJobRecord | null>;
 }
 
 type CronJobRow = typeof cronJobs.$inferSelect;
 type CronJobInsert = typeof cronJobs.$inferInsert;
-type CronJobUpdateSet = Partial<Omit<CronJobInsert, "id" | "userId" | "createdAt">>;
+type CronJobUpdateSet = Partial<Omit<CronJobInsert, "id" | "createdAt">>;
 
 function toIsoString(value: string): string {
   const normalized = value.includes("T") ? value : value.replace(" ", "T");
@@ -97,7 +94,6 @@ function buildInsertValues(input: CreateCronJobRecordInput): CronJobInsert {
 
   return {
     id: randomUUID(),
-    userId: input.userId,
     name: input.name,
     prompt: input.prompt,
     workingDirectory: input.workingDirectory,
@@ -229,7 +225,6 @@ function mapCronJobRow(
 ): CronJobRecord {
   const common = {
     id: row.id,
-    userId: row.userId,
     name: row.name,
     prompt: row.prompt,
     workingDirectory: row.workingDirectory,
@@ -368,11 +363,10 @@ async function loadLatestRunInfo(
 export class PostgresCronJobRepository implements CronJobRepository {
   constructor(private readonly db: ProductDatabaseClient) {}
 
-  async listByUserId(userId: string): Promise<CronJobRecord[]> {
+  async list(): Promise<CronJobRecord[]> {
     const rows = await this.db
       .select()
       .from(cronJobs)
-      .where(eq(cronJobs.userId, userId))
       .orderBy(desc(cronJobs.createdAt));
     const latestRuns = await loadLatestRunInfo(
       this.db,
@@ -389,11 +383,11 @@ export class PostgresCronJobRepository implements CronJobRepository {
     return mapCronJobRow(rows[0]!);
   }
 
-  async getById(userId: string, cronJobId: string): Promise<CronJobRecord | null> {
+  async getById(cronJobId: string): Promise<CronJobRecord | null> {
     const rows = await this.db
       .select()
       .from(cronJobs)
-      .where(and(eq(cronJobs.userId, userId), eq(cronJobs.id, cronJobId)))
+      .where(eq(cronJobs.id, cronJobId))
       .limit(1);
     const row = rows[0];
     if (!row) {
@@ -404,14 +398,13 @@ export class PostgresCronJobRepository implements CronJobRepository {
   }
 
   async update(
-    userId: string,
     cronJobId: string,
     patch: UpdateCronJobRecordInput
   ): Promise<CronJobRecord | null> {
     const existingRows = await this.db
       .select()
       .from(cronJobs)
-      .where(and(eq(cronJobs.userId, userId), eq(cronJobs.id, cronJobId)))
+      .where(eq(cronJobs.id, cronJobId))
       .limit(1);
     const existing = existingRows[0];
     if (!existing) {
@@ -421,7 +414,7 @@ export class PostgresCronJobRepository implements CronJobRepository {
     const rows = await this.db
       .update(cronJobs)
       .set(buildUpdatedRow(existing, patch))
-      .where(and(eq(cronJobs.userId, userId), eq(cronJobs.id, cronJobId)))
+      .where(eq(cronJobs.id, cronJobId))
       .returning();
     const row = rows[0];
     if (!row) {
@@ -431,10 +424,10 @@ export class PostgresCronJobRepository implements CronJobRepository {
     return mapCronJobRow(row, latestRuns.get(row.id));
   }
 
-  async remove(userId: string, cronJobId: string): Promise<CronJobRecord | null> {
+  async remove(cronJobId: string): Promise<CronJobRecord | null> {
     const rows = await this.db
       .delete(cronJobs)
-      .where(and(eq(cronJobs.userId, userId), eq(cronJobs.id, cronJobId)))
+      .where(eq(cronJobs.id, cronJobId))
       .returning();
     return rows[0] ? mapCronJobRow(rows[0]) : null;
   }

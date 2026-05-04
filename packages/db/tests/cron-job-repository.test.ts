@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { and, eq, like } from "drizzle-orm";
+import { eq, like } from "drizzle-orm";
 
 import {
   createPostgresCronJobRepository,
@@ -25,21 +25,20 @@ function resolveTestDatabaseUrl(): string {
 }
 
 describePostgres("PostgresCronJobRepository", () => {
-  const userIdPrefix = `test-${randomUUID()}`;
+  const namePrefix = `test-${randomUUID()}`;
   const db = createPostgresDatabase(resolveTestDatabaseUrl());
   const repository = createPostgresCronJobRepository(db);
 
   afterEach(async () => {
     await db
       .delete(cronJobs)
-      .where(like(cronJobs.userId, `${userIdPrefix}-%`));
+      .where(like(cronJobs.name, `${namePrefix}-%`));
   });
 
   test("creates interval cron jobs with computed next run", async () => {
     await ensureProductSchema(db);
     const cronJob = await repository.create({
-      userId: `${userIdPrefix}-user`,
-      name: "清理 trace",
+      name: `${namePrefix}-清理 trace`,
       prompt: "清理 trace",
       workingDirectory: "/tmp/workspace",
       scheduleMode: "interval",
@@ -57,8 +56,7 @@ describePostgres("PostgresCronJobRepository", () => {
   test("updates weekly cron jobs and clears overrides", async () => {
     await ensureProductSchema(db);
     const created = await repository.create({
-      userId: `${userIdPrefix}-user`,
-      name: "周报",
+      name: `${namePrefix}-周报`,
       prompt: "写周报",
       workingDirectory: "/tmp/workspace",
       scheduleMode: "weekly",
@@ -69,7 +67,7 @@ describePostgres("PostgresCronJobRepository", () => {
       thinkingEffort: "high"
     });
 
-    const updated = await repository.update(created.userId, created.id, {
+    const updated = await repository.update(created.id, {
       scheduleMode: "interval",
       intervalUnit: "day",
       intervalValue: 2,
@@ -88,8 +86,7 @@ describePostgres("PostgresCronJobRepository", () => {
   test("deletes cron jobs by user id and id", async () => {
     await ensureProductSchema(db);
     const created = await repository.create({
-      userId: `${userIdPrefix}-user`,
-      name: "周报",
+      name: `${namePrefix}-周报`,
       prompt: "写周报",
       workingDirectory: "/tmp/workspace",
       scheduleMode: "weekly",
@@ -98,13 +95,13 @@ describePostgres("PostgresCronJobRepository", () => {
       startsAt: "2026-05-02T09:00:00+08:00"
     });
 
-    const removed = await repository.remove(created.userId, created.id);
+    const removed = await repository.remove(created.id);
     expect(removed?.id).toBe(created.id);
 
     const remaining = await db
       .select()
       .from(cronJobs)
-      .where(and(eq(cronJobs.userId, created.userId), eq(cronJobs.id, created.id)));
+      .where(eq(cronJobs.id, created.id));
     expect(remaining).toHaveLength(0);
   });
 });

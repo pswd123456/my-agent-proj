@@ -27,7 +27,6 @@ import type { ProductDatabaseClient } from "./client.js";
 import { routines } from "./schema.js";
 
 export interface CreateRoutineRecordInput {
-  userId: string;
   name: string;
   description?: string | null;
   date: string;
@@ -48,22 +47,19 @@ export interface UpdateRoutineRecordInput {
 
 export interface RoutineRepository {
   create(input: CreateRoutineRecordInput): Promise<RoutineRecord>;
-  getById(userId: string, routineId: string): Promise<RoutineRecord | null>;
+  getById(routineId: string): Promise<RoutineRecord | null>;
   update(
-    userId: string,
     routineId: string,
     patch: UpdateRoutineRecordInput
   ): Promise<RoutineRecord | null>;
-  remove(userId: string, routineId: string): Promise<RoutineRecord | null>;
-  resetAll(userId: string): Promise<number>;
+  remove(routineId: string): Promise<RoutineRecord | null>;
+  resetAll(): Promise<number>;
   listByDateRange(
-    userId: string,
     startDate: string,
     endDate: string
   ): Promise<RoutineRecord[]>;
-  listByWeek(userId: string, weekStartDate: string): Promise<RoutineRecord[]>;
+  listByWeek(weekStartDate: string): Promise<RoutineRecord[]>;
   searchByTime(
-    userId: string,
     input: {
       date: string;
       time?: string;
@@ -74,7 +70,6 @@ export interface RoutineRepository {
     }
   ): Promise<RoutineRecord[]>;
   findConflicts(
-    userId: string,
     input: {
       date: string;
       startTime: string;
@@ -104,7 +99,6 @@ function toIsoString(value: string): string {
 export function mapRoutineRow(row: RoutineRow): RoutineRecord {
   return {
     id: row.id,
-    userId: row.userId,
     name: row.name,
     description: row.description,
     date: row.date,
@@ -175,7 +169,6 @@ export class PostgresRoutineRepository implements RoutineRepository {
       .insert(routines)
       .values({
         id: routineId,
-        userId: input.userId,
         name: input.name,
         description: input.description ?? null,
         date: timing.date,
@@ -197,25 +190,21 @@ export class PostgresRoutineRepository implements RoutineRepository {
     return mapRoutineRow(created);
   }
 
-  async getById(
-    userId: string,
-    routineId: string
-  ): Promise<RoutineRecord | null> {
+  async getById(routineId: string): Promise<RoutineRecord | null> {
     const rows = await this.db
       .select()
       .from(routines)
-      .where(and(eq(routines.id, routineId), eq(routines.userId, userId)))
+      .where(eq(routines.id, routineId))
       .limit(1);
 
     return rows[0] ? mapRoutineRow(rows[0]) : null;
   }
 
   async update(
-    userId: string,
     routineId: string,
     patch: UpdateRoutineRecordInput
   ): Promise<RoutineRecord | null> {
-    const existing = await this.getById(userId, routineId);
+    const existing = await this.getById(routineId);
     if (!existing || existing.status !== "active") {
       return null;
     }
@@ -240,16 +229,13 @@ export class PostgresRoutineRepository implements RoutineRepository {
         endAt: timing.endAt,
         updatedAt: new Date().toISOString()
       })
-      .where(and(eq(routines.id, routineId), eq(routines.userId, userId)))
+      .where(eq(routines.id, routineId))
       .returning();
 
     return rows[0] ? mapRoutineRow(rows[0]) : null;
   }
 
-  async remove(
-    userId: string,
-    routineId: string
-  ): Promise<RoutineRecord | null> {
+  async remove(routineId: string): Promise<RoutineRecord | null> {
     const rows = await this.db
       .update(routines)
       .set({
@@ -259,7 +245,6 @@ export class PostgresRoutineRepository implements RoutineRepository {
       .where(
         and(
           eq(routines.id, routineId),
-          eq(routines.userId, userId),
           eq(routines.status, "active")
         )
       )
@@ -268,21 +253,20 @@ export class PostgresRoutineRepository implements RoutineRepository {
     return rows[0] ? mapRoutineRow(rows[0]) : null;
   }
 
-  async resetAll(userId: string): Promise<number> {
+  async resetAll(): Promise<number> {
     const rows = await this.db
       .update(routines)
       .set({
         status: "deleted",
         updatedAt: new Date().toISOString()
       })
-      .where(and(eq(routines.userId, userId), eq(routines.status, "active")))
+      .where(eq(routines.status, "active"))
       .returning({ id: routines.id });
 
     return rows.length;
   }
 
   async listByDateRange(
-    userId: string,
     startDate: string,
     endDate: string
   ): Promise<RoutineRecord[]> {
@@ -292,7 +276,6 @@ export class PostgresRoutineRepository implements RoutineRepository {
       .from(routines)
       .where(
         and(
-          eq(routines.userId, userId),
           eq(routines.status, "active"),
           lte(routines.startAt, range.endAt.toISOString()),
           gte(routines.endAt, range.startAt.toISOString())
@@ -303,10 +286,7 @@ export class PostgresRoutineRepository implements RoutineRepository {
     return sortRoutinesByStartAt(rows.map(mapRoutineRow));
   }
 
-  async listByWeek(
-    userId: string,
-    weekStartDate: string
-  ): Promise<RoutineRecord[]> {
+  async listByWeek(weekStartDate: string): Promise<RoutineRecord[]> {
     const weekStart = new Date(`${weekStartDate}T00:00:00`);
     const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000 - 1);
     const rows = await this.db
@@ -314,7 +294,6 @@ export class PostgresRoutineRepository implements RoutineRepository {
       .from(routines)
       .where(
         and(
-          eq(routines.userId, userId),
           eq(routines.status, "active"),
           lte(routines.startAt, weekEnd.toISOString()),
           gte(routines.endAt, weekStart.toISOString())
@@ -326,7 +305,6 @@ export class PostgresRoutineRepository implements RoutineRepository {
   }
 
   async searchByTime(
-    userId: string,
     input: {
       date: string;
       time?: string;
@@ -337,7 +315,7 @@ export class PostgresRoutineRepository implements RoutineRepository {
     const endTime = input.timeRange?.end ?? input.time;
 
     if (!startTime || !endTime) {
-      return this.listByDateRange(userId, input.date, input.date);
+      return this.listByDateRange(input.date, input.date);
     }
 
     const timing = resolveRoutineTiming(
@@ -353,7 +331,6 @@ export class PostgresRoutineRepository implements RoutineRepository {
       .from(routines)
       .where(
         and(
-          eq(routines.userId, userId),
           eq(routines.status, "active"),
           lt(routines.startAt, timing.endAt),
           gt(routines.endAt, timing.startAt)
@@ -365,7 +342,6 @@ export class PostgresRoutineRepository implements RoutineRepository {
   }
 
   async findConflicts(
-    userId: string,
     input: {
       date: string;
       startTime: string;
@@ -377,7 +353,6 @@ export class PostgresRoutineRepository implements RoutineRepository {
     const timing = resolveRoutineTiming(toTimingInput(input));
 
     const conditions = [
-      eq(routines.userId, userId),
       eq(routines.status, "active"),
       lt(routines.startAt, timing.endAt),
       gt(routines.endAt, timing.startAt)
@@ -416,7 +391,6 @@ export class MemoryRoutineRepository implements RoutineRepository {
     const now = new Date().toISOString();
     const routine: RoutineRecord = {
       id: randomUUID(),
-      userId: input.userId,
       name: input.name,
       description: input.description ?? null,
       date: timing.date,
@@ -435,22 +409,16 @@ export class MemoryRoutineRepository implements RoutineRepository {
     return routine;
   }
 
-  async getById(
-    userId: string,
-    routineId: string
-  ): Promise<RoutineRecord | null> {
+  async getById(routineId: string): Promise<RoutineRecord | null> {
     const routine = this.routines.get(routineId);
-    return routine && routine.userId === userId
-      ? structuredClone(routine)
-      : null;
+    return routine ? structuredClone(routine) : null;
   }
 
   async update(
-    userId: string,
     routineId: string,
     patch: UpdateRoutineRecordInput
   ): Promise<RoutineRecord | null> {
-    const existing = await this.getById(userId, routineId);
+    const existing = await this.getById(routineId);
     if (!existing || existing.status !== "active") {
       return null;
     }
@@ -479,11 +447,8 @@ export class MemoryRoutineRepository implements RoutineRepository {
     return structuredClone(updated);
   }
 
-  async remove(
-    userId: string,
-    routineId: string
-  ): Promise<RoutineRecord | null> {
-    const existing = await this.getById(userId, routineId);
+  async remove(routineId: string): Promise<RoutineRecord | null> {
+    const existing = await this.getById(routineId);
     if (!existing || existing.status !== "active") {
       return null;
     }
@@ -497,11 +462,11 @@ export class MemoryRoutineRepository implements RoutineRepository {
     return structuredClone(deleted);
   }
 
-  async resetAll(userId: string): Promise<number> {
+  async resetAll(): Promise<number> {
     let removed = 0;
 
     for (const [routineId, routine] of this.routines.entries()) {
-      if (routine.userId !== userId || routine.status !== "active") {
+      if (routine.status !== "active") {
         continue;
       }
 
@@ -517,7 +482,6 @@ export class MemoryRoutineRepository implements RoutineRepository {
   }
 
   async listByDateRange(
-    userId: string,
     startDate: string,
     endDate: string
   ): Promise<RoutineRecord[]> {
@@ -525,7 +489,6 @@ export class MemoryRoutineRepository implements RoutineRepository {
     return sortRoutinesByStartAt(
       [...this.routines.values()].filter(
         (routine) =>
-          routine.userId === userId &&
           routine.status === "active" &&
           new Date(routine.startAt).getTime() <= range.endAt.getTime() &&
           new Date(routine.endAt).getTime() >= range.startAt.getTime()
@@ -533,29 +496,21 @@ export class MemoryRoutineRepository implements RoutineRepository {
     ).map((routine) => structuredClone(routine));
   }
 
-  async listByWeek(
-    userId: string,
-    weekStartDate: string
-  ): Promise<RoutineRecord[]> {
+  async listByWeek(weekStartDate: string): Promise<RoutineRecord[]> {
     const startDate = weekStartDate;
     const weekEnd = new Date(`${weekStartDate}T00:00:00`);
     weekEnd.setDate(weekEnd.getDate() + 6);
-    return this.listByDateRange(
-      userId,
-      startDate,
-      weekEnd.toISOString().slice(0, 10)
-    );
+    return this.listByDateRange(startDate, weekEnd.toISOString().slice(0, 10));
   }
 
   async searchByTime(
-    userId: string,
     input: {
       date: string;
       time?: string;
       timeRange?: { start: string; end: string };
     }
   ): Promise<RoutineRecord[]> {
-    const routines = await this.listByDateRange(userId, input.date, input.date);
+    const routines = await this.listByDateRange(input.date, input.date);
     if (!input.time && !input.timeRange) {
       return routines;
     }
@@ -575,7 +530,6 @@ export class MemoryRoutineRepository implements RoutineRepository {
   }
 
   async findConflicts(
-    userId: string,
     input: {
       date: string;
       startTime: string;
@@ -593,7 +547,6 @@ export class MemoryRoutineRepository implements RoutineRepository {
     return [...this.routines.values()]
       .filter(
         (routine) =>
-          routine.userId === userId &&
           routine.status === "active" &&
           routine.id !== input.excludeRoutineId &&
           doIntervalsOverlap(routine, candidate)

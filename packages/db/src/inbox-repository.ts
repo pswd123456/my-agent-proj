@@ -18,7 +18,6 @@ import { inboxBindings } from "./schema.js";
 export interface CreateInboxBindingInput {
   channel: InboxChannel;
   externalChatId: string;
-  userId: string;
 }
 
 export interface InboxBindingRepository {
@@ -79,7 +78,6 @@ function mapInboxBindingRow(row: InboxBindingRow): InboxBindingRecord {
     channel: row.channel,
     externalChatId: row.externalChatId,
     activeSessionId: row.activeSessionId ?? null,
-    userId: row.userId,
     settings: normalizeInboxBindingSettings(parseJsonValue(row.settings)),
     lastUpdateId: row.lastUpdateId ?? null,
     createdAt: toIsoString(row.createdAt),
@@ -94,7 +92,6 @@ function buildInsert(input: CreateInboxBindingInput): InboxBindingInsert {
     channel: input.channel,
     externalChatId: input.externalChatId,
     activeSessionId: null,
-    userId: input.userId,
     settings: createDefaultInboxBindingSettings(),
     lastUpdateId: null,
     createdAt: now,
@@ -248,7 +245,6 @@ export function createMemoryInboxBindingRepository(): InboxBindingRepository {
         channel: input.channel,
         externalChatId: input.externalChatId,
         activeSessionId: null,
-        userId: input.userId,
         settings: createDefaultInboxBindingSettings(),
         lastUpdateId: null,
         createdAt: now,

@@ -211,6 +211,13 @@
       "when": 1778745600000,
       "tag": "0029_adorable_scream",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1778832000000,
+      "tag": "0030_quick_thunderbolts",
+      "breakpoints": true
     }
   ]
 }

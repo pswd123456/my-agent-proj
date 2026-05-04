@@ -17,14 +17,11 @@ import type {
   SessionTodoState,
   HookContextEntry,
   InboxBindingSettings,
-  InboxChannel,
-  UserContextHookRecord
+  InboxChannel
 } from "@ai-app-template/domain";
 import {
   DEFAULT_CONTEXT_WINDOW,
-  DEFAULT_SESSION_MODEL,
   DEFAULT_SESSION_MAX_TURNS,
-  DEFAULT_SESSION_WORKING_DIRECTORY,
   DEFAULT_THINKING_EFFORT,
   DEFAULT_TOOL_ASK_LIST,
   type ThinkingEffort
@@ -98,7 +95,6 @@ export const routines = pgTable(
   "routines",
   {
     id: text("id").primaryKey(),
-    userId: text("user_id").notNull(),
     name: text("name").notNull(),
     description: text("description"),
     date: text("date").notNull(),
@@ -123,10 +119,7 @@ export const routines = pgTable(
       .defaultNow()
   },
   (table) => ({
-    userStartAtIdx: index("routines_user_start_at_idx").on(
-      table.userId,
-      table.startAt
-    )
+    startAtIdx: index("routines_start_at_idx").on(table.startAt)
   })
 );
 
@@ -134,7 +127,6 @@ export const agentSessions = pgTable(
   "agent_sessions",
   {
     id: text("id").primaryKey(),
-    userId: text("user_id").notNull(),
     status: text("status").notNull(),
     currentDateContext: text("current_date_context").notNull(),
     planModeEnabled: boolean("plan_mode_enabled").notNull().default(false),
@@ -222,7 +214,6 @@ export const cronJobs = pgTable(
   "cron_jobs",
   {
     id: text("id").primaryKey(),
-    userId: text("user_id").notNull(),
     name: text("name").notNull(),
     prompt: text("prompt").notNull(),
     workingDirectory: text("working_directory").notNull(),
@@ -265,49 +256,13 @@ export const cronJobs = pgTable(
       .defaultNow()
   },
   (table) => ({
-    userCreatedIdx: index("cron_jobs_user_created_at_idx").on(
-      table.userId,
-      table.createdAt
-    ),
+    createdAtIdx: index("cron_jobs_created_at_idx").on(table.createdAt),
     statusNextRunIdx: index("cron_jobs_status_next_run_at_idx").on(
       table.status,
       table.nextRunAt
     )
   })
 );
-
-export const agentSettings = pgTable("agent_settings", {
-  userId: text("user_id").primaryKey(),
-  workingDirectory: text("working_directory")
-    .notNull()
-    .default(DEFAULT_SESSION_WORKING_DIRECTORY),
-  model: text("model").notNull().default(DEFAULT_SESSION_MODEL),
-  ...createSharedRuntimeSettingColumns(),
-  workspaceSkillSettings: jsonb("workspace_skill_settings")
-    .$type<Array<{ skillName: string; enabled: boolean }>>()
-    .notNull()
-    .default(defaultJsonbArray),
-  userContextHooks: jsonb("user_context_hooks")
-    .$type<UserContextHookRecord[]>()
-    .notNull()
-    .default(defaultJsonbArray),
-  debugConversationView: boolean("debug_conversation_view")
-    .notNull()
-    .default(false),
-  userCustomPrompt: text("user_custom_prompt").notNull().default(""),
-  createdAt: timestamp("created_at", {
-    mode: "string",
-    withTimezone: true
-  })
-    .notNull()
-    .defaultNow(),
-  updatedAt: timestamp("updated_at", {
-    mode: "string",
-    withTimezone: true
-  })
-    .notNull()
-    .defaultNow()
-});
 
 export const inboxBindings = pgTable(
   "inbox_bindings",
@@ -316,7 +271,6 @@ export const inboxBindings = pgTable(
     channel: text("channel").$type<InboxChannel>().notNull(),
     externalChatId: text("external_chat_id").notNull(),
     activeSessionId: text("active_session_id"),
-    userId: text("user_id").notNull(),
     settings: jsonb("settings")
       .$type<InboxBindingSettings>()
       .notNull()
@@ -339,10 +293,7 @@ export const inboxBindings = pgTable(
     channelExternalChatUnique: uniqueIndex(
       "inbox_bindings_channel_external_chat_id_key"
     ).on(table.channel, table.externalChatId),
-    userUpdatedAtIdx: index("inbox_bindings_user_updated_at_idx").on(
-      table.userId,
-      table.updatedAt
-    )
+    updatedAtIdx: index("inbox_bindings_updated_at_idx").on(table.updatedAt)
   })
 );
 
@@ -534,7 +485,6 @@ export const sessionForkCheckpoints = pgTable(
 export const productSchema = {
   routines,
   agentSessions,
-  agentSettings,
   inboxBindings,
   cronJobs,
   backgroundTasks,
