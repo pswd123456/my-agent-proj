@@ -12,8 +12,12 @@ import {
   normalizeThinkingEffort,
   type ThinkingEffort
 } from "./session-context.js";
+import { sessionSettingsFromUserSettingsFieldNames } from "./settings-field-groups.js";
 import type { UserContextHookRecord } from "./user-context-hooks.js";
-import type { UpdateUserSettingsPayload } from "./settings-payload-schema.js";
+import {
+  type UpdateUserSettingsPayload
+} from "./settings-payload-schema.js";
+import type { UpdateSessionSettingsPayload } from "./settings-payload-schema.js";
 import type { WorkspaceSkillSettingRecord } from "./workspace-skills.js";
 
 export const DEFAULT_SESSION_WORKING_DIRECTORY = "agent-workspace";
@@ -140,4 +144,20 @@ export function sanitizeSessionMaxTurns(value: number | undefined): number {
   }
 
   return Math.min(SESSION_MAX_TURNS_LIMIT, Math.max(1, Math.floor(value)));
+}
+
+export function buildSessionSettingsPatchFromRecord(
+  settings: SessionSettingsRecord
+): UpdateSessionSettingsPayload {
+  void sessionSettingsFromUserSettingsFieldNames;
+  return {
+    thinkingEffort: settings.thinkingEffort,
+    yoloMode: settings.yoloMode,
+    shellAllowPatterns: settings.shellAllowPatterns,
+    shellDenyPatterns: settings.shellDenyPatterns,
+    toolAllowList: settings.toolAllowList,
+    toolAskList: settings.toolAskList,
+    toolDenyList: settings.toolDenyList,
+    enabledCapabilityPacks: settings.enabledCapabilityPacks
+  };
 }

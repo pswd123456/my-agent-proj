@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+export {
+  sessionSettingsFromUserSettingsFieldNames,
+  updateSessionSettingsFieldNames,
+  updateUserSettingsFieldNames
+} from "./settings-field-groups.js";
 import { THINKING_EFFORT_OPTIONS } from "./session-context.js";
 import { SESSION_MAX_TURNS_LIMIT } from "./session-settings.js";
 import {
