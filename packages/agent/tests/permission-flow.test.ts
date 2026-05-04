@@ -451,8 +451,9 @@ describe("Stage 4 permission flow", () => {
       session,
       turnCount: 1,
       toolCallId: "call-planmode-todo",
-      toolName: "replace_todo_list",
+      toolName: "manage_todo_list",
       toolInput: {
+        action: "replace",
         items: [{ content: "Should be blocked in plan mode" }]
       },
       eventSink: undefined

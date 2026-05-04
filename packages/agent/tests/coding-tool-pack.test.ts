@@ -8,10 +8,7 @@ import { promisify } from "node:util";
 import type { ToolExecutionContext } from "../src/tools/runtime-tool.js";
 import { createApplyPatchTool } from "../src/tools/apply-patch.js";
 import { createFindFilesTool } from "../src/tools/find-files.js";
-import {
-  createGitDiffCachedTool,
-  createGitDiffToolUncached
-} from "../src/tools/git-diff.js";
+import { createGitDiffTool } from "../src/tools/git-diff.js";
 import { createGitStatusTool } from "../src/tools/git-status.js";
 import { createReadFileTool } from "../src/tools/read-file.js";
 import type { ConversationBlock } from "../src/types.js";
@@ -228,15 +225,11 @@ describe("apply_patch", () => {
     expect(tool.description).toContain(
       "Header counts must include every unchanged context line shown in the hunk body"
     );
-    expect(tool.description).toContain(
-      "Do not rewrite nearby identifiers"
-    );
+    expect(tool.description).toContain("Do not rewrite nearby identifiers");
     expect(tool.description).toContain(
       "do not change conditions, branches, wrappers"
     );
-    expect(tool.description).toContain(
-      "Do not invert control flow"
-    );
+    expect(tool.description).toContain("Do not invert control flow");
     expect(tool.description).toContain(
       "the deleted content line must appear with a - prefix"
     );
@@ -876,9 +869,9 @@ describe("git read-only tools", () => {
 
     const context = createContext(workspace);
     const statusResult = await createGitStatusTool().execute({}, context);
-    const diffResult = await createGitDiffToolUncached().execute({}, context);
-    const diffCachedResult = await createGitDiffCachedTool().execute(
-      {},
+    const diffResult = await createGitDiffTool().execute({}, context);
+    const diffCachedResult = await createGitDiffTool().execute(
+      { cached: true },
       context
     );
 

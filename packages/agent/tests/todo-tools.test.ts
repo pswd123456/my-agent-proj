@@ -7,14 +7,8 @@ import {
   type PostgresTestSessionManager
 } from "../../../tests/helpers/postgres-session-manager.js";
 import {
-  createEditTaskBriefTool,
-  createGetTaskBriefTool,
-  createGetTodoListTool,
-  createReadTaskBriefTool,
-  createReplaceTaskBriefTool,
-  createReplaceTodoListTool,
-  createSearchTaskBriefTool,
-  createUpdateTodoItemsTool
+  createManageTaskBriefTool,
+  createManageTodoListTool
 } from "../src/tools/index.js";
 import type { ToolExecutionContext } from "../src/tools/runtime-tool.js";
 
@@ -59,15 +53,16 @@ async function createSessionContext(
 }
 
 describe("todo tools", () => {
-  test("replace_todo_list persists a new session todo state and get_todo_list reads it back", async () => {
+  test("manage_todo_list action=replace persists a new session todo state and action=get reads it back", async () => {
     const sessionManager = await createPostgresTestSessionManager();
     const session = await sessionManager.createSession({
       workingDirectory: "/tmp/workspace",
       userId: "todo-user"
     });
 
-    const replaceResult = await createReplaceTodoListTool().execute(
+    const replaceResult = await createManageTodoListTool().execute(
       {
+        action: "replace",
         items: [
           { content: "Inspect runtime boundaries" },
           { content: "Implement todo tools" }
@@ -91,8 +86,8 @@ describe("todo tools", () => {
       persisted?.context.todoState?.items[0]?.id
     );
 
-    const readResult = await createGetTodoListTool().execute(
-      {},
+    const readResult = await createManageTodoListTool().execute(
+      { action: "get" },
       await createSessionContext(sessionManager, session.sessionId)
     );
     expect(readResult.state).toBe("success");
@@ -100,15 +95,16 @@ describe("todo tools", () => {
     expect(readResult.displayText).toContain("Inspect runtime boundaries");
   });
 
-  test("update_todo_items keeps one active item and can clear the todo state", async () => {
+  test("manage_todo_list action=update keeps one active item and can clear the todo state", async () => {
     const sessionManager = await createPostgresTestSessionManager();
     const session = await sessionManager.createSession({
       workingDirectory: "/tmp/workspace",
       userId: "todo-user"
     });
 
-    await createReplaceTodoListTool().execute(
+    await createManageTodoListTool().execute(
       {
+        action: "replace",
         items: [
           { content: "Inspect runtime boundaries" },
           { content: "Implement todo tools" }
@@ -121,7 +117,7 @@ describe("todo tools", () => {
     const firstSnapshot = await sessionManager.getSession(session.sessionId);
     const firstTodo = firstSnapshot?.context.todoState;
     if (!firstTodo) {
-      throw new Error("Expected todo state after replace_todo_list");
+      throw new Error("Expected todo state after manage_todo_list replace");
     }
 
     const implementId = firstTodo.items[1]?.id;
@@ -130,8 +126,9 @@ describe("todo tools", () => {
       throw new Error("Expected seeded todo ids");
     }
 
-    const updateResult = await createUpdateTodoItemsTool().execute(
+    const updateResult = await createManageTodoListTool().execute(
       {
+        action: "update",
         operations: [
           { type: "set_status", id: inspectId, status: "done" },
           { type: "set_active", id: implementId },
@@ -163,8 +160,9 @@ describe("todo tools", () => {
     );
 
     const todoIds = secondTodo?.items.map((item) => item.id) ?? [];
-    await createUpdateTodoItemsTool().execute(
+    await createManageTodoListTool().execute(
       {
+        action: "update",
         operations: todoIds.map((id) => ({
           type: "remove" as const,
           id
@@ -177,17 +175,27 @@ describe("todo tools", () => {
     expect(clearedSnapshot?.context.todoState).toBeNull();
   });
 
-  test("update_todo_items schema explains that ids are todo item ids rather than visible numbering", () => {
-    const tool = createUpdateTodoItemsTool();
-    expect(tool.description).toContain("not the visible list numbering");
+  test("manage_todo_list schema explains that ids are todo item ids rather than visible numbering", () => {
+    const tool = createManageTodoListTool();
+    expect(tool.description).toContain("not visible numbering");
 
-    const operations = tool.inputSchema.properties?.operations;
+    const updateVariant = tool.inputSchema.oneOf?.find(
+      (variant) =>
+        variant &&
+        typeof variant === "object" &&
+        "properties" in variant &&
+        variant.properties?.action &&
+        typeof variant.properties.action === "object" &&
+        "const" in variant.properties.action &&
+        variant.properties.action.const === "update"
+    );
+    const operations = updateVariant?.properties?.operations;
     if (
       !operations ||
       typeof operations !== "object" ||
       !("items" in operations)
     ) {
-      throw new Error("Expected operations schema metadata");
+      throw new Error("Expected update operations schema metadata");
     }
 
     const variants = (
@@ -228,31 +236,54 @@ describe("todo tools", () => {
       userId: "todo-user",
       planModeEnabled: true
     });
-    const context = await createSessionContext(sessionManager, session.sessionId);
+    const context = await createSessionContext(
+      sessionManager,
+      session.sessionId
+    );
     const cases = [
       {
-        name: "replace_todo_list",
-        execute: () => createReplaceTodoListTool().execute({} as never, context),
+        name: "manage_todo_list",
+        execute: () =>
+          createManageTodoListTool().execute(
+            { action: "replace" } as never,
+            context
+          ),
         expectedField: "items"
       },
       {
-        name: "update_todo_items",
-        execute: () => createUpdateTodoItemsTool().execute({} as never, context),
+        name: "manage_todo_list",
+        execute: () =>
+          createManageTodoListTool().execute(
+            { action: "update" } as never,
+            context
+          ),
         expectedField: "operations"
       },
       {
-        name: "replace_task_brief",
-        execute: () => createReplaceTaskBriefTool().execute({} as never, context),
+        name: "manage_task_brief",
+        execute: () =>
+          createManageTaskBriefTool().execute(
+            { action: "replace" } as never,
+            context
+          ),
         expectedField: "content"
       },
       {
-        name: "edit_task_brief",
-        execute: () => createEditTaskBriefTool().execute({} as never, context),
+        name: "manage_task_brief",
+        execute: () =>
+          createManageTaskBriefTool().execute(
+            { action: "edit" } as never,
+            context
+          ),
         expectedField: "startLine"
       },
       {
-        name: "search_task_brief",
-        execute: () => createSearchTaskBriefTool().execute({} as never, context),
+        name: "manage_task_brief",
+        execute: () =>
+          createManageTaskBriefTool().execute(
+            { action: "search" } as never,
+            context
+          ),
         expectedField: "query"
       }
     ];
@@ -272,7 +303,7 @@ describe("todo tools", () => {
     }
   });
 
-  test("replace_task_brief writes the bound markdown file and get_task_brief reads it back", async () => {
+  test("manage_task_brief action=replace writes the bound markdown file and action=get reads it back", async () => {
     const sessionManager = await createPostgresTestSessionManager();
     const session = await sessionManager.createSession({
       workingDirectory: "/tmp/workspace",
@@ -280,8 +311,8 @@ describe("todo tools", () => {
       planModeEnabled: true
     });
 
-    const initialRead = await createGetTaskBriefTool().execute(
-      {},
+    const initialRead = await createManageTaskBriefTool().execute(
+      { action: "get" },
       await createSessionContext(sessionManager, session.sessionId)
     );
     expect(initialRead.state).toBe("success");
@@ -297,8 +328,8 @@ describe("todo tools", () => {
       "## Acceptance Criteria",
       "- no file writes"
     ].join("\n");
-    const replaceResult = await createReplaceTaskBriefTool().execute(
-      { plan_name: "jump_joy_web_game", content },
+    const replaceResult = await createManageTaskBriefTool().execute(
+      { action: "replace", plan_name: "jump_joy_web_game", content },
       await createSessionContext(sessionManager, session.sessionId)
     );
     expect(replaceResult.state).toBe("success");
@@ -336,8 +367,8 @@ describe("todo tools", () => {
     }
     expect(await readFile(taskBriefPath, "utf8")).toBe(content);
 
-    const readResult = await createGetTaskBriefTool().execute(
-      {},
+    const readResult = await createManageTaskBriefTool().execute(
+      { action: "get" },
       await createSessionContext(sessionManager, session.sessionId)
     );
     expect(readResult.state).toBe("success");
@@ -345,7 +376,7 @@ describe("todo tools", () => {
     expect(readResult.content).toContain("Jump joy web game");
   });
 
-  test("read_task_brief supports line windows and search_task_brief returns line numbers", async () => {
+  test("manage_task_brief supports line windows and returns search line numbers", async () => {
     const sessionManager = await createPostgresTestSessionManager();
     const session = await sessionManager.createSession({
       workingDirectory: "/tmp/workspace",
@@ -363,13 +394,13 @@ describe("todo tools", () => {
       "- no file writes",
       "- keep plan mode read only"
     ].join("\n");
-    await createReplaceTaskBriefTool().execute(
-      { plan_name: "jump_joy_web_game", content },
+    await createManageTaskBriefTool().execute(
+      { action: "replace", plan_name: "jump_joy_web_game", content },
       await createSessionContext(sessionManager, session.sessionId)
     );
 
-    const readResult = await createReadTaskBriefTool().execute(
-      { startLine: 3, endLine: 7 },
+    const readResult = await createManageTaskBriefTool().execute(
+      { action: "read", startLine: 3, endLine: 7 },
       await createSessionContext(sessionManager, session.sessionId)
     );
     expect(readResult.state).toBe("success");
@@ -378,8 +409,8 @@ describe("todo tools", () => {
     expect(readResult.content).toContain("Jump joy web game");
     expect(readResult.content).not.toContain("# Task Brief");
 
-    const searchResult = await createSearchTaskBriefTool().execute(
-      { query: "plan mode", maxResults: 5 },
+    const searchResult = await createManageTaskBriefTool().execute(
+      { action: "search", query: "plan mode", maxResults: 5 },
       await createSessionContext(sessionManager, session.sessionId)
     );
     expect(searchResult.state).toBe("success");
@@ -387,7 +418,7 @@ describe("todo tools", () => {
     expect(searchResult.content).toContain("keep plan mode read only");
   });
 
-  test("edit_task_brief replaces an inclusive line range", async () => {
+  test("manage_task_brief action=edit replaces an inclusive line range", async () => {
     const sessionManager = await createPostgresTestSessionManager();
     const session = await sessionManager.createSession({
       workingDirectory: "/tmp/workspace",
@@ -395,8 +426,9 @@ describe("todo tools", () => {
       planModeEnabled: true
     });
 
-    await createReplaceTaskBriefTool().execute(
+    await createManageTaskBriefTool().execute(
       {
+        action: "replace",
         plan_name: "jump_joy_web_game",
         content: [
           "# Task Brief",
@@ -411,8 +443,9 @@ describe("todo tools", () => {
       await createSessionContext(sessionManager, session.sessionId)
     );
 
-    const editResult = await createEditTaskBriefTool().execute(
+    const editResult = await createManageTaskBriefTool().execute(
       {
+        action: "edit",
         startLine: 6,
         endLine: 7,
         content: ["## Next Checkpoint", "Draft v2"].join("\n")
@@ -444,15 +477,15 @@ describe("todo tools", () => {
       endLine: 7
     });
 
-    const readResult = await createReadTaskBriefTool().execute(
-      {},
+    const readResult = await createManageTaskBriefTool().execute(
+      { action: "read" },
       await createSessionContext(sessionManager, session.sessionId)
     );
     expect(readResult.content).toContain("Draft v2");
     expect(readResult.content).not.toContain("Draft v1");
   });
 
-  test("replace_task_brief requires plan_name before the first write", async () => {
+  test("manage_task_brief action=replace requires plan_name before the first write", async () => {
     const sessionManager = await createPostgresTestSessionManager();
     const session = await sessionManager.createSession({
       workingDirectory: "/tmp/workspace",
@@ -460,8 +493,9 @@ describe("todo tools", () => {
       planModeEnabled: true
     });
 
-    const replaceResult = await createReplaceTaskBriefTool().execute(
+    const replaceResult = await createManageTaskBriefTool().execute(
       {
+        action: "replace",
         content: "# Task Brief\n\n## Goal\nJump joy web game\n"
       },
       await createSessionContext(sessionManager, session.sessionId)

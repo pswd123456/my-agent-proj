@@ -24,7 +24,6 @@ describe("ToolRegistry stage4 metadata contract", () => {
       "delete_path",
       "find_files",
       "git_diff",
-      "git_diff_cached",
       "git_status",
       "list_directory",
       "load_skill",
@@ -48,16 +47,10 @@ describe("ToolRegistry stage4 metadata contract", () => {
     expect(registry.list().map((tool) => tool.name)).toEqual([
       "ask_user_question",
       "delegate_agent",
-      "edit_task_brief",
       "get_current_time",
-      "get_task_brief",
-      "get_todo_list",
       "manage_capability_packs",
-      "read_task_brief",
-      "replace_task_brief",
-      "replace_todo_list",
-      "search_task_brief",
-      "update_todo_items"
+      "manage_task_brief",
+      "manage_todo_list"
     ]);
   });
 
@@ -71,10 +64,7 @@ describe("ToolRegistry stage4 metadata contract", () => {
     expect(enabledRegistry.list().map((tool) => tool.name)).toEqual([
       "ask_user_question",
       "delegate_agent",
-      "edit_task_brief",
       "get_current_time",
-      "get_task_brief",
-      "get_todo_list",
       "lsp_diagnostics",
       "lsp_document_symbols",
       "lsp_find_references",
@@ -82,11 +72,8 @@ describe("ToolRegistry stage4 metadata contract", () => {
       "lsp_hover",
       "lsp_workspace_symbols",
       "manage_capability_packs",
-      "read_task_brief",
-      "replace_task_brief",
-      "replace_todo_list",
-      "search_task_brief",
-      "update_todo_items"
+      "manage_task_brief",
+      "manage_todo_list"
     ]);
 
     const disabledRegistry = createDefaultToolRegistry({
@@ -138,8 +125,13 @@ describe("ToolRegistry stage4 metadata contract", () => {
       family: "workspace-file",
       capabilityPack: "workspace"
     });
-    expect(options.find((tool) => tool.name === "create_routine")).toEqual({
-      name: "create_routine",
+    expect(options.find((tool) => tool.name === "manage_routine")).toEqual({
+      name: "manage_routine",
+      family: "schedule",
+      capabilityPack: "schedule"
+    });
+    expect(options.find((tool) => tool.name === "manage_cron_jobs")).toEqual({
+      name: "manage_cron_jobs",
       family: "schedule",
       capabilityPack: "schedule"
     });

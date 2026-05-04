@@ -4,12 +4,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { createAskUserQuestionTool } from "../src/tools/ask-user-question.js";
-import { createCreateRoutineTool } from "../src/tools/create-routine.js";
-import { createEditTaskBriefTool } from "../src/tools/edit-task-brief.js";
-import { createReadTaskBriefTool } from "../src/tools/read-task-brief.js";
-import { createReplaceTaskBriefTool } from "../src/tools/replace-task-brief.js";
-import { createReplaceTodoListTool } from "../src/tools/replace-todo-list.js";
-import { createSearchTaskBriefTool } from "../src/tools/search-task-brief.js";
+import { createManageRoutineTool } from "../src/tools/manage-routine.js";
+import { createManageTaskBriefTool } from "../src/tools/manage-task-brief.js";
+import { createManageTodoListTool } from "../src/tools/manage-todo-list.js";
 import { createWriteFileTool } from "../src/tools/write-file.js";
 import { createReadFileTool } from "../src/tools/read-file.js";
 import { ToolRegistry } from "../src/tools/registry.js";
@@ -513,31 +510,25 @@ describe("PromptBuilder skill context", () => {
       );
 
       const toolRegistry = new ToolRegistry()
-        .register(createEditTaskBriefTool())
+        .register(createManageTaskBriefTool())
         .register(createReadFileTool(workspaceRoot))
-        .register(createReadTaskBriefTool())
-        .register(createReplaceTodoListTool())
-        .register(createWriteFileTool(workspaceRoot))
-        .register(createReplaceTaskBriefTool())
-        .register(createSearchTaskBriefTool());
+        .register(createManageTodoListTool())
+        .register(createWriteFileTool(workspaceRoot));
 
       const promptEnvelope = promptBuilder.build(session, toolRegistry);
 
       expect(promptEnvelope.tools.map((tool) => tool.name)).toEqual([
-        "edit_task_brief",
-        "read_file",
-        "read_task_brief",
-        "replace_task_brief",
-        "search_task_brief"
+        "manage_task_brief",
+        "read_file"
       ]);
       expect(JSON.stringify(promptEnvelope.prefixMessages[0])).toContain(
-        "Mounted tools: edit_task_brief, read_file, read_task_brief, replace_task_brief, search_task_brief"
+        "Mounted tools: manage_task_brief, read_file"
       );
       expect(JSON.stringify(promptEnvelope.prefixMessages[0])).not.toContain(
         "write_file"
       );
       expect(JSON.stringify(promptEnvelope.prefixMessages[0])).not.toContain(
-        "replace_todo_list"
+        "manage_todo_list"
       );
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true });
@@ -658,9 +649,7 @@ describe("PromptBuilder skill context", () => {
     expect(promptEnvelope.system).toContain(
       "call read_file for that exact path"
     );
-    expect(promptEnvelope.system).toContain(
-      "delete only that target content"
-    );
+    expect(promptEnvelope.system).toContain("delete only that target content");
     expect(promptEnvelope.system).toContain(
       "Do not change adjacent identifiers"
     );
@@ -676,12 +665,8 @@ describe("PromptBuilder skill context", () => {
     expect(promptEnvelope.system).toContain(
       "the removed content line itself should be the - line"
     );
-    expect(promptEnvelope.system).toContain(
-      "Concrete local-content example"
-    );
-    expect(promptEnvelope.system).toContain(
-      "do not switch to write_file"
-    );
+    expect(promptEnvelope.system).toContain("Concrete local-content example");
+    expect(promptEnvelope.system).toContain("do not switch to write_file");
     expect(promptEnvelope.system).toContain(
       "Do not pivot to shell inspection first"
     );
@@ -875,12 +860,12 @@ describe("PromptBuilder skill context", () => {
   test("adds routine guidance only when routine tools are mounted", () => {
     const promptBuilder = createPromptBuilder();
     const session = createSessionSnapshot();
-    const toolRegistry = new ToolRegistry().register(createCreateRoutineTool());
+    const toolRegistry = new ToolRegistry().register(createManageRoutineTool());
 
     const promptEnvelope = promptBuilder.build(session, toolRegistry);
 
     expect(JSON.stringify(promptEnvelope.prefixMessages[0])).toContain(
-      "Mounted tools: create_routine"
+      "Mounted tools: manage_routine"
     );
     expect(JSON.stringify(promptEnvelope.prefixMessages[0])).toContain(
       "Enabled capability packs: workspace, schedule"
