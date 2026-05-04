@@ -127,7 +127,7 @@ export function createFindFilesTool(workingDirectory: string): RuntimeTool {
       examples: [
         '{"path":"packages/agent/src","glob":"**/*.ts","namePattern":"prompt"}',
         '{"suffix":".test.ts","maxResults":20}',
-        '{"path":"apps/web","glob":"**/*.tsx","namePattern":"conversation"}'
+        '{"path":"docs","glob":"**/*.md","namePattern":"architecture"}'
       ]
     }),
     family: "workspace-file",

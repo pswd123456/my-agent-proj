@@ -659,25 +659,25 @@ describe("PromptBuilder skill context", () => {
       "call read_file for that exact path"
     );
     expect(promptEnvelope.system).toContain(
-      "delete only that text line or literal"
+      "delete only that target content"
     );
     expect(promptEnvelope.system).toContain(
-      "Do not change adjacent className strings"
+      "Do not change adjacent identifiers"
     );
     expect(promptEnvelope.system).toContain(
-      "keep the surrounding render structure byte-for-byte stable"
+      "keep the surrounding structure and behavior byte-for-byte stable"
     );
     expect(promptEnvelope.system).toContain(
-      "Do not rewrite boolean literals, ternary branches"
+      "Do not rewrite branches, wrappers, delimiters"
     );
     expect(promptEnvelope.system).toContain(
-      "keep surrounding lines like {true ? null : ( and )} unchanged"
+      "keep surrounding containers, branch boundaries, and closing lines unchanged"
     );
     expect(promptEnvelope.system).toContain(
-      "the removed text line itself should be the - line"
+      "the removed content line itself should be the - line"
     );
     expect(promptEnvelope.system).toContain(
-      "Concrete JSX example"
+      "Concrete local-content example"
     );
     expect(promptEnvelope.system).toContain(
       "do not switch to write_file"

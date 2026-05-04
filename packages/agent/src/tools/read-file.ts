@@ -263,7 +263,7 @@ export function createReadFileTool(workingDirectory: string): RuntimeTool {
         "If the tool says the file is unchanged, reuse the previous content already in context instead of rereading it."
       ],
       examples: [
-        '{"path":"apps/web/app/_components/session-workbench-conversation.tsx","startLine":3025,"endLine":3045}',
+        '{"path":"docs/architecture/overview.md","startLine":25,"endLine":45}',
         '{"path":"packages/agent/src/prompt.ts","offset":100,"limit":40}',
         '{"path":"README.md","startLine":1,"endLine":40,"maxCharacters":4000}'
       ]
