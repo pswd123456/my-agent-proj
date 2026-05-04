@@ -2,7 +2,7 @@
 
 ## 定位
 
-`plan mode` 是当前 session runtime 上的一层执行模式，不是独立 runtime，也不是新的 user default settings。
+`plan mode` 是当前 session runtime 上的一层执行模式，不是独立 runtime，也不是新的全局默认 settings。
 
 它解决的是一个很窄的问题：
 
@@ -54,13 +54,13 @@
 - `taskBriefPath: string | null`
 - `pendingUserQuestionPayload: PendingUserQuestionPayload | null`
 
-它们属于 session 事实，不属于 user settings。
+它们属于 session 事实，不属于 global settings。
 
 这意味着：
 
 - `POST /sessions` 可以显式开启 plan mode
 - `PATCH /sessions/:sessionId/settings` 可以切换 plan mode
-- `GET/PATCH /users/:userId/settings` 不持久化 plan mode 默认值
+- `GET/PATCH /settings` 不持久化 plan mode 默认值
 
 当前事实源：
 
@@ -186,7 +186,7 @@
 
 ## UI 与 API
 
-当前 workbench 只提供“当前会话级”的 plan mode 开关，不把它放进用户默认设置。
+当前 workbench 只提供“当前会话级”的 plan mode 开关，不把它放进全局默认设置。
 
 设置面板会展示：
 
@@ -199,7 +199,7 @@
 - 选中后会直接把当前 session 的 `planModeEnabled` 设为 `true`
 - 不会自动发送一条新的 user message
 
-这和 user settings 中的 `workingDirectory / yoloMode / permission rules` 是两层不同的状态。
+这和全局 settings 中的 `workingDirectory / yoloMode / permission rules` 是两层不同的状态。
 
 ## 当前不做的事
 

@@ -36,7 +36,7 @@
 - 发起流式执行
 - 轮询 session 列表 / 当前 session
 - hydrate forkTargets / rewriteTarget 并把历史操作映射回对话区
-- 拉 trace、routines、user settings、model catalog
+- 拉 trace、routines、global settings、model catalog
 - 组合多个本地 state slice
 
 它知道“页面如何工作”，但不直接承担所有细节状态转换。

@@ -6,12 +6,17 @@
 
 - `AGENTS.md`：给本轮 prompt 提供工作区根指令
 - `.agents/skills/`：给 runtime 提供 workspace skill metadata，并作为 `search_skill` / `load_skill` 的只读来源
-- `.agents/.config.toml`：给 runtime 提供 workspace MCP server 配置和 workspace hooks
+- `.agents/.config.toml`：给 runtime 提供 workspace 级 settings 覆盖、MCP server、channels 和 legacy hook section
 - `.agents/plans/`：承载 session 级 task brief artifact
 
 其中 `AGENTS.md`、`.agents/skills/` 和 `.agents/.config.toml` 是运行时输入；`.agents/plans/` 是运行时产物与用户可编辑 artifact。
 
-配置与指令输入不会复制进数据库；`task brief` 绑定路径会进入 session state，但文件正文仍以工作区里的 markdown 为事实源。`.agents/.config.toml` 里的 hooks 会在每次 runtime 创建时和 user settings 里的 `userContextHooks` 做一次运行时合并，workspace hooks 排在前面，同类型冲突时优先生效。
+配置与指令输入不会复制进数据库；`task brief` 绑定路径会进入 session state，但文件正文仍以工作区里的 markdown 为事实源。当前统一 settings 的真相源是：
+
+- 全局：`~/.agents/config.toml`
+- 工作区：`<workingDirectory>/.agents/.config.toml`
+
+runtime 创建时先读全局，再读工作区，并按字段级 merge。workspace 里 legacy `[hooks.<id>]` 会先并入 workspace hooks，再排到全局 hooks 前面统一归一化。
 
 如果想看 MCP 从配置读取到工具挂载、权限与 trace 的完整链路，继续读 `docs/architecture/mcp-module.md`。
 
@@ -55,10 +60,10 @@
 不做：
 
 - 向父目录递归查找
-- 多文件 merge
-- 把 MCP server、channel 配置和 user settings / session settings 混合解析
+- 多级 workspace 级联 merge
+- 把 workspace 配置写回数据库 settings 表
 
-workspace hooks 是同文件里的独立运行时输入；它们会在解析后和 user settings hooks 合并，见下方 hook 协议。
+`[mcp_servers.*]`、`[channels.*]` 和 legacy `[hooks.*]` 仍然保留在这个文件里，但它们现在被视为统一 settings 的 workspace 覆盖分区，而不是“独立于 settings 的第二套运行时输入”。
 
 ### 协议
 
@@ -107,7 +112,7 @@ channel 字段：
 - `webhook_secret`：可选 webhook secret token，同样支持环境变量引用
 - `webhook_url`：仅 webhook 模式需要；调用设置 webhook 接口时可省略 URL
 
-这组配置由 Settings > Channels 页面读写，仍然保存在当前用户默认工作目录下的 `.agents/.config.toml`，不复制进 `agent_settings`。
+这组配置由 Settings > Channels 页面读写，保存在当前全局默认工作目录下的 `.agents/.config.toml`，不复制进数据库。
 
 同一个文件也支持 `[hooks.<id>]`：
 
@@ -137,16 +142,16 @@ hook 字段：
 - `wait_mode`：仅 `subagent` 支持，`blocking` / `unblocking`；`run_end` subagent 固定归一化为 `unblocking`
 - `max_turns`：仅 `subagent` 支持，按 session 上限归一化
 
-workspace hooks 使用同一套 `normalizeUserContextHooks(...)` 规则，因此每个 `behavior:event` 只会保留第一条 enabled hook。合并顺序是 `.agents/.config.toml` 在前、user settings 在后；同类型冲突时 settings 里的后续 hook 会被保留为 disabled，而不是绕过规则重复执行。
+workspace hooks 使用同一套 `normalizeUserContextHooks(...)` 规则，因此每个 `behavior:event` 只会保留第一条 enabled hook。合并顺序是 workspace `[hooks.*]` 在前、全局 `user_context_hooks` 在后；同类型冲突时后续 hook 会被保留为 disabled，而不是绕过规则重复执行。
 
 ## 运行时装配
 
-- API 和 worker 在各自的 runtime 创建前读取 `.agents/.config.toml`
+- API 和 worker 在各自的 runtime 创建前读取 global `~/.agents/config.toml`，再读取 workspace `.agents/.config.toml`
 - 启用且连接成功的 MCP server 会把未禁用的子工具挂进本次 `ToolRegistry`
 - MCP tool 统一命名为 `mcp__<server>__<tool>`
 - MCP tool 默认走 `always-ask-user`
 - `YOLO mode` 不绕过 MCP 工具审批
-- workspace hooks 会和当前用户的 settings hooks 合并后传入 runtime，后续 context / message / subagent 行为仍走原有 hook runtime
+- workspace hooks 会和全局 settings hooks 合并后传入 runtime，后续 context / message / subagent 行为仍走原有 hook runtime
 
 这意味着 MCP 连接、channel 配置和 workspace hooks 都是“按次装配”的运行时上下文，而不是持久化 session 状态。
 

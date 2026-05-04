@@ -59,7 +59,7 @@ packages/db/src/schema.ts
 
 `cron_job` 当前已经有对外 HTTP 接口和 worker 执行装配：
 
-- API 通过 `/users/:userId/cron-jobs` 暴露增删改查
+- API 通过 `/cron-jobs` 暴露增删改查
 - worker 在每轮 drain 前先调用 `cronJobDispatcher.dispatchNextDueCronJob()`，把到期任务转成 `agent_sessions` + `background_tasks(kind=cron_job)`
 - `cron_job` 任务本身复用 `agent_session` 执行器，不另外引入第三种执行后端
 

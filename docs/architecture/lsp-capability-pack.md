@@ -43,7 +43,7 @@
 - `lsp` 现在是默认 capability pack 之一
 - 当前默认 capability packs 是 `workspace`、`schedule`、`lsp`
 - 新 session 和新 settings 会带上这个默认值
-- 迁移会把旧默认 `agent_settings` 记录补到新默认，但不会重写自定义组合
+- 首次启用单租户 settings 时，会把旧默认 `agent_settings` 记录 seed 到 `~/.agents/config.toml`，但不会重写自定义组合
 
 相关迁移见 `packages/db/migrations/0018_futuristic_black_bolt.sql`
 

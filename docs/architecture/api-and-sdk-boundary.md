@@ -60,27 +60,29 @@
 
 这组接口不直接触发 runtime 执行，主要服务于 workbench 初始化和设置面板。
 
-### 2. 用户级默认设置
+### 2. 单租户默认设置
 
-- `GET /users/:userId/settings`
-- `GET /users/:userId/cron-jobs`
-- `POST /users/:userId/cron-jobs`
-- `PATCH /users/:userId/cron-jobs/:cronJobId`
-- `DELETE /users/:userId/cron-jobs/:cronJobId`
-- `GET /users/:userId/settings/mcp`
-- `PUT /users/:userId/settings/mcp`
-- `GET /users/:userId/settings/skills`
-- `PATCH /users/:userId/settings`
+- `GET /settings`
+- `PATCH /settings`
+- `GET /settings/channels`
+- `PUT /settings/channels`
+- `GET /settings/mcp`
+- `PUT /settings/mcp`
+- `GET /settings/skills`
+- `GET /cron-jobs`
+- `POST /cron-jobs`
+- `PATCH /cron-jobs/:cronJobId`
+- `DELETE /cron-jobs/:cronJobId`
 
-这组接口以 `agent_settings`、`cron_jobs` 和用户默认工作目录为核心，同时暴露基于用户默认工作目录读取或写入的 workspace 配置视图。
+这组接口以单租户 settings TOML、`cron_jobs` 和当前全局默认工作目录为核心，同时暴露基于该工作目录读取或写入的 workspace 配置视图。
 
 其中 cron job 接口负责：
 
-- 列出当前用户的定时任务
+- 列出当前租户的定时任务
 - 创建、更新、删除定时任务定义
 - 为每次调度产出的 session / background task 提供上游配置来源
 
-`agent_settings` 保存跨 session 复用的默认值，例如：
+统一 settings TOML 保存跨 session 复用的默认值，例如：
 
 - `workingDirectory`
 - `model`
@@ -94,7 +96,7 @@
 - `debugConversationView`
 - `userCustomPrompt`
 
-其中 `/settings/mcp` 和 `/settings/channels` 读写的是当前用户默认工作目录下的 `.agents/.config.toml`，`/settings/skills` 读取当前用户默认工作目录下的 `.agents/skills/`，它们不是把 MCP server、channel 或 skill 文件内容复制进 `agent_settings`。
+其中 `/settings/mcp` 和 `/settings/channels` 读写的是当前全局默认工作目录下的 `.agents/.config.toml`，`/settings/skills` 读取当前全局默认工作目录下的 `.agents/skills/`。
 
 ### 3. Session 生命周期与执行
 
@@ -115,7 +117,7 @@
 
 这里的关键分工是：
 
-- `POST /sessions`：根据 `explicit override > user settings > repo default` 创建 session
+- `POST /sessions`：根据 `explicit override > effective settings > repo default` 创建 session
 - `GET /sessions/:sessionId/fork-targets`：返回当前可 fork 的 assistant 节点，以及最近一个可 rewrite 的用户目标
 - `POST /sessions/:sessionId/forks`：从历史 checkpoint 派生一个新的 fork session
 - `POST /sessions/:sessionId/rewrite-target/recover`：把当前 session 回退到最新可改写用户回合之前，供前端改写后重提
@@ -174,10 +176,11 @@
 - 创建 `createBackgroundTaskManager()`
 - 创建 `createModelService(process.env)`
 - 每次创建 runtime 时：
-  - 读取 user settings
+- 读取 effective settings
   - 创建 LSP manager
   - 创建默认 tool registry
-  - 加载 workspace hooks，并和 user settings hooks 合并
+  - 读取统一 settings，其中 workspace `.agents/.config.toml` 覆盖 global `~/.agents/config.toml`
+  - 如果 workspace config 包含 legacy `[hooks.<id>]`，先并入 workspace hooks，再和全局 hooks 统一归一化
   - 加载 workspace MCP tools
   - 组装 trace / prompt / permission / background task 依赖
 

@@ -71,10 +71,13 @@
   - `session_fork_checkpoints`
   - `session_messages`
   - `cron_jobs`
-  - `agent_settings`
   - `inbox_bindings`
   - `background_tasks`
   - `background_task_runs`
+
+- 单租户 settings 真相源是 TOML：
+  - 全局：`~/.agents/config.toml`
+  - 工作区：`<workingDirectory>/.agents/.config.toml`
 
 当前 API 与 worker 进程都会在启动时调用 `ensureProductSchema()`，因此 schema 初始化属于运行时装配链路，而不是独立的部署服务。
 

@@ -69,7 +69,7 @@ sequenceDiagram
   participant Web as apps/web
   participant SDK as packages/sdk
   participant API as apps/api
-  participant Settings as SettingsRepository(Postgres)
+  participant Settings as SettingsConfigStore(TOML)
   participant Session as SessionManager(Postgres)
   participant Runtime as AgentRuntime
   participant Skills as WorkspaceSkills
@@ -83,8 +83,8 @@ sequenceDiagram
   User->>Web: 输入自然语言请求
   Web->>SDK: createSession / executeSession / streamSessionExecution
   SDK->>API: POST /sessions or /execute/stream
-  API->>Settings: getOrCreate / update user settings
-  Settings-->>API: session defaults
+  API->>Settings: read / update global and workspace settings
+  Settings-->>API: effective session defaults
   API->>Session: 读取或创建 session
   API->>Runtime: runtime.run(sessionId, message)
   Runtime->>Skills: discover .agents/skills/ from session.workingDirectory
@@ -141,4 +141,4 @@ sequenceDiagram
 - `packages/ui-patterns`、`packages/ui` 和 `packages/tokens` 是 `apps/web` 的共享视觉与布局层
 - tool 执行前还有独立的 permission checker；待批准请求和业务确认流是分开建模的
 - `PostgreSQL` 保存 session、routine 与 background task 数据，`tmp/` 主要保存 trace 与 system logs
-- `settingsRepository` 保存用户级 session settings，包含工作目录、yolo、context window、max turns 和权限规则
+- `SettingsConfigStore` 统一读取 `~/.agents/config.toml` 与 workspace `.agents/.config.toml`，提供单租户 session settings

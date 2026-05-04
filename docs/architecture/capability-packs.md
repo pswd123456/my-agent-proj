@@ -41,7 +41,7 @@
 - `schedule`：`manage_routine` / `query_routines` / `manage_cron_jobs` / `ask_for_confirmation`
 - `lsp`：`lsp_hover` / `lsp_go_to_definition` / `lsp_find_references` / `lsp_document_symbols` / `lsp_workspace_symbols` / `lsp_diagnostics`，用于 TS/JS 语义查询；细节见 [内建 LSP Capability Pack](./lsp-capability-pack.md)
 
-当前默认 capability packs 是 `workspace`、`schedule` 和 `lsp`。session create 时会继承 user settings 里的启用组合；`manage_capability_packs` 或 session settings 更新写回后，从下一次 run 开始影响实际 mounted tools。
+当前默认 capability packs 是 `workspace`、`schedule` 和 `lsp`。session create 时会继承 effective settings 里的启用组合；`manage_capability_packs` 或 session settings 更新写回后，从下一次 run 开始影响实际 mounted tools。
 
 公开 web 搜索、抓取、map、crawl 与结构化抽取不再作为内建 capability pack 维护；当前通过工作区 Firecrawl MCP 按次挂载，细节见 [Firecrawl Web 接入](./firecrawl-web.md)。
 

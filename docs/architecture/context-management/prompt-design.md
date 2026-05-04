@@ -83,7 +83,7 @@ prefix message 带 `cache_control: { type: "ephemeral" }`，并参与当前 `cac
    - 当前会强调：todo 工具不可用、优先通过 `manage_task_brief` 的 `search/read/edit/replace` action 维护 brief、普通 workspace 文件写工具不可用
 
 2. user custom prompt
-   - 来自 user settings 里的 `userCustomPrompt`
+   - 来自 global settings 里的 `userCustomPrompt`
    - 只作为 runtime context 注入，不进入 `system`、`prefixMessages` 或 `cacheKey`
    - 适合承载长期偏好、回答约束或固定执行提醒
 
@@ -93,8 +93,8 @@ prefix message 带 `cache_control: { type: "ephemeral" }`，并参与当前 `cac
    - 不进入 `prefixMessages` 或 `cacheKey`，避免工作区指令变化影响稳定前缀
 
 4. user context hooks
-   - 来自 user settings 里的 `userContextHooks`，以及当前 `session.workingDirectory/.agents/.config.toml` 的 `[hooks.<id>]`
-   - runtime 创建时先放 workspace hooks，再放 user settings hooks，并通过同一套 `normalizeUserContextHooks(...)` 归一化
+   - 来自 global settings 里的 `userContextHooks`，以及当前 `session.workingDirectory/.agents/.config.toml` 的 `[hooks.<id>]`
+   - runtime 创建时先放 workspace hooks，再放 global settings hooks，并通过同一套 `normalizeUserContextHooks(...)` 归一化
    - `behavior: "context"` 的 hook 由 runtime 在每次 run 开始时解析，只进入 `runtimeContextMessages`
    - context 注入当前只支持 `session_started`、`run_started` 两个时机；`run_end` 不支持 context hook，但支持 message / subagent
    - `session_started` 只在当前 session 的第一次 run 注入；同一轮内的显示顺序固定为 `session_started -> run_started`

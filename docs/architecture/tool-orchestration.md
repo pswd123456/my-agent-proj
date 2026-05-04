@@ -41,7 +41,7 @@
 - workspace-rooted 工具先做 realpath / symlink escape preflight
 - workspace 外路径需要一次 session 级审批
 - YOLO mode 自动放行除 shell / network 之外的工具
-- shell allow / deny、tool allow / ask / deny 按 session/user settings 生效
+- shell allow / deny、tool allow / ask / deny 按 session/effective settings 生效
 - `destructive-only` 和 `always-ask-user` 工具按各自 profile 进入审批
 
 如果进入 `ask_user`，runtime 会保留已经写入的 `tool call`，设置 `pendingPermissionRequest` 与 `pendingToolCallIds`，并结束当前 run 到等待输入状态。用户批准后，runtime 复用原来的 pending tool call，不重复追加新的 tool call block，只追加最终 tool result。

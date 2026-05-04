@@ -10,6 +10,8 @@
 - `apps/api/src/working-directory.ts`
 - `packages/db/src/schema.ts`
 
+注意：这是一份阶段性历史文档，保留了当时的“用户级 settings + `agent_settings`”设计语境。当前主线已经收口为“单租户 + TOML 真相源”，请以 `docs/architecture/` 下的现状文档和代码为准。
+
 ## 目标
 
 Stage 5 主要把“每次新建 session 时临时询问的运行参数”收敛成稳定的 session settings 体系，让 runtime 在多轮执行里有明确、可持久化、可复用的默认值。
