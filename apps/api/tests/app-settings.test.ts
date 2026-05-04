@@ -13,6 +13,7 @@ import {
   FileSystemLogManager,
   createLogger,
   listSettingsPermissionToolOptions,
+  userSettingsChannelsPayloadSchema,
   userSettingsMcpPayloadSchema
 } from "@ai-app-template/agent";
 import {
@@ -237,6 +238,66 @@ describe("createApiApp settings bootstrap", () => {
     expect(session.context.yoloMode).toBe(true);
     expect(session.contextWindow).toBe(123_456);
     expect(session.maxTurns).toBe(77);
+  });
+
+  test("round-trips channel settings through workspace config", async () => {
+    const { app } = await createTestApp();
+    const workingDirectory = await mkdtemp(
+      path.join(os.tmpdir(), "api-settings-channels-")
+    );
+
+    try {
+      const settingsResponse = await app.request(
+        "/users/stage5-channel-user/settings",
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ workingDirectory })
+        }
+      );
+      expect(settingsResponse.status).toBe(200);
+
+      const updateResponse = await app.request(
+        "/users/stage5-channel-user/settings/channels",
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            telegram: {
+              enabled: true,
+              mode: "polling",
+              botToken: "$TELEGRAM_BOT_TOKEN",
+              webhookSecret: "$TELEGRAM_WEBHOOK_SECRET",
+              webhookUrl: "https://example.com/api/inbox/telegram/webhook"
+            }
+          })
+        }
+      );
+      expect(updateResponse.status).toBe(200);
+      const updatePayload = userSettingsChannelsPayloadSchema.parse(
+        await updateResponse.json()
+      );
+      expect(updatePayload.telegram).toMatchObject({
+        configuredInFile: true,
+        enabled: true,
+        mode: "polling",
+        botToken: "$TELEGRAM_BOT_TOKEN",
+        webhookSecret: "$TELEGRAM_WEBHOOK_SECRET"
+      });
+
+      const readResponse = await app.request(
+        "/users/stage5-channel-user/settings/channels"
+      );
+      expect(readResponse.status).toBe(200);
+      const readPayload = userSettingsChannelsPayloadSchema.parse(
+        await readResponse.json()
+      );
+      expect(readPayload.telegram.webhookUrl).toBe(
+        "https://example.com/api/inbox/telegram/webhook"
+      );
+    } finally {
+      await rm(workingDirectory, { recursive: true, force: true });
+    }
   });
 
   test("passes hooks and workspace skill settings through to the repository patch", async () => {

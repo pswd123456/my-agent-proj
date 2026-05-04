@@ -41,6 +41,8 @@ const delegateAgentService = createDelegateAgentService({
   taskManager: runtimeEnvironment.backgroundTaskManager
 });
 const defaultModel = runtimeEnvironment.modelService.getDefaultModel();
+const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN?.trim();
+const telegramWebhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET?.trim();
 const runtimeFactory = createRuntimeHandleFactory({
   environment: runtimeEnvironment,
   delegateAgentService
@@ -51,6 +53,7 @@ export const app = createApiApp({
   routineRepository: runtimeEnvironment.routineRepository,
   cronJobRepository: runtimeEnvironment.cronJobRepository,
   settingsRepository: runtimeEnvironment.settingsRepository,
+  inboxBindingRepository: runtimeEnvironment.inboxBindingRepository,
   backgroundTaskRepository: runtimeEnvironment.backgroundTaskRepository,
   traceManager: runtimeEnvironment.traceManager,
   systemLogManager: runtimeEnvironment.systemLogManager,
@@ -60,6 +63,8 @@ export const app = createApiApp({
   modelService: runtimeEnvironment.modelService,
   ...(defaultModel ? { runtimeFactory } : {}),
   ...(defaultModel ? { defaultModel } : {}),
+  ...(telegramBotToken ? { telegramBotToken } : {}),
+  ...(telegramWebhookSecret ? { telegramWebhookSecret } : {}),
   runtimeUnavailableMessage:
     "No model provider is configured. Set MINIMAX_API_KEY or DEEPSEEK_API_KEY."
 });
