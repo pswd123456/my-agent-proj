@@ -148,9 +148,10 @@ describe("session-conversation-view", () => {
         toEventItem(
           toolCallEvent({
             toolCallId: "tool-1",
-            toolName: "replace_task_brief",
+            toolName: "manage_task_brief",
             createdAt: "2026-04-27T00:00:02.000Z",
             toolInput: {
+              action: "replace",
               plan_name: "ship_task_brief",
               content: "# Task Brief\n\n## Goal\nShip it"
             }
@@ -159,7 +160,7 @@ describe("session-conversation-view", () => {
         toEventItem(
           toolResultEvent({
             toolCallId: "tool-1",
-            toolName: "replace_task_brief",
+            toolName: "manage_task_brief",
             createdAt: "2026-04-27T00:00:03.000Z",
             details: {
               kind: "task_brief",

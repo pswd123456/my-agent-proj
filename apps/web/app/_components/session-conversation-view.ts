@@ -178,12 +178,18 @@ function getToolTarget(
     return path ? `${query} @ ${path}` : query;
   }
 
-  if (toolName === "replace_task_brief") {
+  if (
+    toolName === "manage_task_brief" &&
+    stringifyValue(input.action) === "replace"
+  ) {
     const planName = stringifyValue(input.plan_name);
     return planName ? `task brief / ${planName}` : "task brief";
   }
 
-  if (toolName === "edit_task_brief") {
+  if (
+    toolName === "manage_task_brief" &&
+    stringifyValue(input.action) === "edit"
+  ) {
     return "task brief";
   }
 

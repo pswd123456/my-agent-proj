@@ -7,18 +7,18 @@ import {
 
 describe("session-todo-state", () => {
   test("recognizes built-in todo tools", () => {
-    expect(isTodoToolName("replace_todo_list")).toBe(true);
+    expect(isTodoToolName("manage_todo_list")).toBe(true);
     expect(isTodoToolName("read_file")).toBe(false);
   });
 
-  test("extracts todo state from get_todo_list structured tool output", () => {
+  test("extracts todo state from manage_todo_list structured tool output", () => {
     const todoState = getTodoStateFromToolResultEvent({
       kind: "tool_result",
       sessionId: "session-1",
       createdAt: "2026-04-26T00:00:00.000Z",
       turnCount: 1,
       toolCallId: "tool-call-1",
-      toolName: "get_todo_list",
+      toolName: "manage_todo_list",
       isError: false,
       output: JSON.stringify({
         ok: true,
@@ -62,7 +62,7 @@ describe("session-todo-state", () => {
       createdAt: "2026-04-26T00:00:00.000Z",
       turnCount: 1,
       toolCallId: "tool-call-1",
-      toolName: "replace_todo_list",
+      toolName: "manage_todo_list",
       isError: false,
       output: JSON.stringify({
         ok: true,
@@ -87,7 +87,7 @@ describe("session-todo-state", () => {
       createdAt: "2026-04-26T00:00:00.000Z",
       turnCount: 2,
       toolCallId: "tool-call-2",
-      toolName: "update_todo_items",
+      toolName: "manage_todo_list",
       isError: false,
       output: JSON.stringify({
         ok: true,

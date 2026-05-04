@@ -193,7 +193,7 @@ describe("session-state-manager", () => {
     expect(refreshed.session?.sessionState.loopState).toBe("interrupted");
   });
 
-  test("updates todo state from streamed get_todo_list results", () => {
+  test("updates todo state from streamed manage_todo_list results", () => {
     const session = createSessionSnapshot();
     session.context.status = "running";
     session.context.pendingPermissionRequest = null;
@@ -206,7 +206,7 @@ describe("session-state-manager", () => {
       createdAt: "2026-04-26T00:00:01.000Z",
       turnCount: 1,
       toolCallId: "tool-call-1",
-      toolName: "get_todo_list",
+      toolName: "manage_todo_list",
       isError: false,
       output: JSON.stringify({
         ok: true,

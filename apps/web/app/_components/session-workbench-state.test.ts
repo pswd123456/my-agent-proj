@@ -907,7 +907,7 @@ describe("applyStreamEventToSession", () => {
     }
   });
 
-  test("hydrates todo state from get_todo_list results before run completion", () => {
+  test("hydrates todo state from manage_todo_list results before run completion", () => {
     const session = createSessionSnapshot();
     session.context.status = "running";
     session.sessionState.loopState = "waiting for tool result";
@@ -919,7 +919,7 @@ describe("applyStreamEventToSession", () => {
       createdAt: "2026-04-26T00:00:01.000Z",
       turnCount: 1,
       toolCallId: "tool-call-1",
-      toolName: "get_todo_list",
+      toolName: "manage_todo_list",
       isError: false,
       output: JSON.stringify({
         ok: true,

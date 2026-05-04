@@ -31,8 +31,9 @@ const priorToolCall: Extract<
   id: "tool-call-previous",
   kind: "tool call",
   toolCallId: "call-previous",
-  toolName: "edit_routine",
+  toolName: "manage_routine",
   input: {
+    action: "edit",
     routine_id: "routine-1",
     start_time: "19:00"
   },
@@ -75,8 +76,9 @@ const currentToolCall: Extract<RunStreamEvent, { kind: "tool_call" }> = {
   createdAt: "2026-04-21T18:46:21.720Z",
   turnCount: 1,
   toolCallId: "call-current",
-  toolName: "delete_routine",
+  toolName: "manage_routine",
   input: {
+    action: "delete",
     routine_id: "routine-2"
   }
 };
@@ -87,7 +89,7 @@ const currentToolResult: Extract<RunStreamEvent, { kind: "tool_result" }> = {
   createdAt: "2026-04-21T18:46:21.735Z",
   turnCount: 1,
   toolCallId: "call-current",
-  toolName: "delete_routine",
+  toolName: "manage_routine",
   output: "ok",
   isError: false
 };
@@ -150,11 +152,12 @@ const permissionRequestEvent: Extract<
   createdAt: "2026-04-21T18:46:21.730Z",
   turnCount: 1,
   toolCallId: "call-current",
-  toolName: "delete_routine",
+  toolName: "manage_routine",
   request: {
     toolCallId: "call-current",
-    toolName: "delete_routine",
+    toolName: "manage_routine",
     toolInput: {
+      action: "delete",
       routine_id: "routine-2"
     },
     family: "workspace-file",
@@ -173,7 +176,7 @@ const permissionApprovedEvent: Extract<
   createdAt: "2026-04-21T18:46:21.734Z",
   turnCount: 1,
   toolCallId: "call-current",
-  toolName: "delete_routine",
+  toolName: "manage_routine",
   request: permissionRequestEvent.request
 };
 
@@ -186,7 +189,7 @@ const permissionRejectedEvent: Extract<
   createdAt: "2026-04-21T18:46:21.734Z",
   turnCount: 1,
   toolCallId: "call-current",
-  toolName: "delete_routine",
+  toolName: "manage_routine",
   request: permissionRequestEvent.request
 };
 
@@ -335,7 +338,7 @@ describe("buildTimelineItems", () => {
       id: "tool-result-1",
       kind: "tool result",
       toolCallId: "call-current",
-      toolName: "delete_routine",
+      toolName: "manage_routine",
       output: "ok",
       isError: false,
       state: "success",
@@ -358,9 +361,9 @@ describe("buildTimelineItems", () => {
       createdAt: "2026-04-21T18:46:21.735Z",
       turnCount: 1,
       toolCallId: "call-current",
-      toolName: "delete_routine",
+      toolName: "manage_routine",
       output: "ok",
-      displayText: "[delete_routine] success",
+      displayText: "[manage_routine] success",
       isError: false
     };
 
@@ -433,7 +436,7 @@ describe("buildTimelineItems", () => {
       createdAt: "2026-04-21T18:46:21.735Z",
       turnCount: 1,
       toolCallId: "call-current",
-      toolName: "delete_routine",
+      toolName: "manage_routine",
       output: "pending approval",
       isError: false
     };
