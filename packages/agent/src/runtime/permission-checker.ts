@@ -163,7 +163,7 @@ export async function checkToolPermission(input: {
   ) {
     return buildSandboxBlockedResult(
       input.tool.name,
-      "Plan mode blocks workspace file mutations. Use replace_task_brief for task brief writes, or exit plan mode first."
+      "Plan mode blocks workspace file mutations. Use manage_task_brief action=replace for task brief writes, or exit plan mode first."
     );
   }
 

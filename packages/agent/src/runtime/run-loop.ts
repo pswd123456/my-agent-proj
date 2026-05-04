@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import type { RoutineRepository } from "@ai-app-template/db";
+import type { CronJobRepository, RoutineRepository } from "@ai-app-template/db";
 
 import {
   createRunTraceEvent,
@@ -219,6 +219,7 @@ export async function runSessionLoop(input: {
   prepareMessages?: (messages: AnthropicMessage[]) => AnthropicMessage[];
   sessionManager: SessionManager;
   routineRepository: RoutineRepository;
+  cronJobRepository?: CronJobRepository;
   toolRegistry: ToolRegistry;
   delegateAgentService?: DelegateAgentService;
   backgroundTaskManager?: BackgroundTaskManager;
@@ -655,6 +656,9 @@ export async function runSessionLoop(input: {
         const prepared = await prepareToolAction({
           sessionManager: input.sessionManager,
           routineRepository: input.routineRepository,
+          ...(input.cronJobRepository
+            ? { cronJobRepository: input.cronJobRepository }
+            : {}),
           toolRegistry: input.toolRegistry,
           ...(input.delegateAgentService
             ? { delegateAgentService: input.delegateAgentService }
@@ -729,6 +733,9 @@ export async function runSessionLoop(input: {
       const executed = await executeToolAction({
         sessionManager: input.sessionManager,
         routineRepository: input.routineRepository,
+        ...(input.cronJobRepository
+          ? { cronJobRepository: input.cronJobRepository }
+          : {}),
         toolRegistry: input.toolRegistry,
         ...(input.delegateAgentService
           ? { delegateAgentService: input.delegateAgentService }
@@ -812,6 +819,9 @@ export async function runSessionLoop(input: {
       const handled = await handlePendingPermissionReply({
         sessionManager: input.sessionManager,
         routineRepository: input.routineRepository,
+        ...(input.cronJobRepository
+          ? { cronJobRepository: input.cronJobRepository }
+          : {}),
         toolRegistry: input.toolRegistry,
         ...(input.backgroundTaskManager
           ? { backgroundTaskManager: input.backgroundTaskManager }
@@ -921,6 +931,9 @@ export async function runSessionLoop(input: {
       const handled = await handlePendingConfirmationReply({
         sessionManager: input.sessionManager,
         routineRepository: input.routineRepository,
+        ...(input.cronJobRepository
+          ? { cronJobRepository: input.cronJobRepository }
+          : {}),
         toolRegistry: input.toolRegistry,
         ...(input.backgroundTaskManager
           ? { backgroundTaskManager: input.backgroundTaskManager }

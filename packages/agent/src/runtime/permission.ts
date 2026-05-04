@@ -11,7 +11,7 @@ import { completeLocally } from "./complete-run.js";
 import { emitTraceEvent } from "./run-events.js";
 import { executeToolAction } from "./tool-execution.js";
 
-import type { RoutineRepository } from "@ai-app-template/db";
+import type { CronJobRepository, RoutineRepository } from "@ai-app-template/db";
 
 import type { RunEventSink } from "../events.js";
 import type { BackgroundTaskManager } from "../background-tasks/index.js";
@@ -38,6 +38,7 @@ const WORKSPACE_ESCAPE_APPROVAL_REPLY = "本会话允许 workspace 外文件操�
 export async function handlePendingPermissionReply(input: {
   sessionManager: SessionManager;
   routineRepository: RoutineRepository;
+  cronJobRepository?: CronJobRepository;
   toolRegistry: ToolRegistry;
   backgroundTaskManager?: BackgroundTaskManager;
   traceManager: TraceManager | undefined;
@@ -55,8 +56,7 @@ export async function handlePendingPermissionReply(input: {
   const isWorkspaceEscapeRequest =
     input.pendingPermissionRequest.allowWorkspaceEscape === true;
   const isExplicitWorkspaceEscapeReply =
-    isWorkspaceEscapeRequest &&
-    normalized === WORKSPACE_ESCAPE_APPROVAL_REPLY;
+    isWorkspaceEscapeRequest && normalized === WORKSPACE_ESCAPE_APPROVAL_REPLY;
   const isExplicitSessionApprovalReply =
     !isWorkspaceEscapeRequest &&
     (normalized.startsWith("本会话允许 shell:") ||
@@ -76,7 +76,10 @@ export async function handlePendingPermissionReply(input: {
   let session =
     input.session.sessionState.turnCount === turnCount
       ? input.session
-      : await input.sessionManager.setTurnCount(input.session.sessionId, turnCount);
+      : await input.sessionManager.setTurnCount(
+          input.session.sessionId,
+          turnCount
+        );
 
   if (isNegativeConfirmationReply(normalized)) {
     await input.permissionLogger?.info("permission_rejected", {
@@ -169,28 +172,27 @@ export async function handlePendingPermissionReply(input: {
     };
   }
 
-  const approvalRules: PermissionRuleLists | null =
-    isWorkspaceEscapeRequest
-      ? null
-      : normalized.startsWith("本会话允许 shell:")
+  const approvalRules: PermissionRuleLists | null = isWorkspaceEscapeRequest
+    ? null
+    : normalized.startsWith("本会话允许 shell:")
+      ? {
+          shellAllowPatterns: [
+            normalized.slice("本会话允许 shell:".length).trim()
+          ],
+          shellDenyPatterns: [],
+          toolAllowList: [],
+          toolAskList: [],
+          toolDenyList: []
+        }
+      : normalized.startsWith("本会话允许 tool:")
         ? {
-            shellAllowPatterns: [
-              normalized.slice("本会话允许 shell:".length).trim()
-            ],
+            shellAllowPatterns: [],
             shellDenyPatterns: [],
-            toolAllowList: [],
+            toolAllowList: [normalized.slice("本会话允许 tool:".length).trim()],
             toolAskList: [],
             toolDenyList: []
           }
-        : normalized.startsWith("本会话允许 tool:")
-          ? {
-              shellAllowPatterns: [],
-              shellDenyPatterns: [],
-              toolAllowList: [normalized.slice("本会话允许 tool:".length).trim()],
-              toolAskList: [],
-              toolDenyList: []
-            }
-          : null;
+        : null;
 
   session = await input.sessionManager.updateContext(session.sessionId, {
     status: "running",
@@ -250,14 +252,16 @@ export async function handlePendingPermissionReply(input: {
     allowWorkspaceEscape:
       input.pendingPermissionRequest.allowWorkspaceEscape ?? false,
     reply: normalized,
-    grantedSessionShellPattern:
-      approvalRules?.shellAllowPatterns[0] ?? null,
+    grantedSessionShellPattern: approvalRules?.shellAllowPatterns[0] ?? null,
     grantedSessionTool: approvalRules?.toolAllowList[0] ?? null
   });
 
   const executed = await executeToolAction({
     sessionManager: input.sessionManager,
     routineRepository: input.routineRepository,
+    ...(input.cronJobRepository
+      ? { cronJobRepository: input.cronJobRepository }
+      : {}),
     toolRegistry: input.toolRegistry,
     ...(input.backgroundTaskManager
       ? { backgroundTaskManager: input.backgroundTaskManager }
@@ -326,7 +330,10 @@ export async function handlePendingPermissionReply(input: {
       []
     );
   }
-  session = await input.sessionManager.setLoopState(session.sessionId, "running");
+  session = await input.sessionManager.setLoopState(
+    session.sessionId,
+    "running"
+  );
   return {
     kind: "approved",
     session,

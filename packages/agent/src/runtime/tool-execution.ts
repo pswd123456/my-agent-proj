@@ -1,4 +1,4 @@
-import type { RoutineRepository } from "@ai-app-template/db";
+import type { CronJobRepository, RoutineRepository } from "@ai-app-template/db";
 
 import type { RunEventSink } from "../events.js";
 import type { BackgroundTaskManager } from "../background-tasks/index.js";
@@ -92,6 +92,7 @@ function isYoloAutoAllowTool(
 function createToolExecutionContext(input: {
   session: SessionSnapshot;
   routineRepository: RoutineRepository;
+  cronJobRepository?: CronJobRepository;
   sessionManager: SessionManager;
   delegateAgentService?: DelegateAgentService;
   backgroundTaskManager?: BackgroundTaskManager;
@@ -112,6 +113,9 @@ function createToolExecutionContext(input: {
     workingDirectory: input.session.workingDirectory,
     ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
     routineRepository: input.routineRepository,
+    ...(input.cronJobRepository
+      ? { cronJobRepository: input.cronJobRepository }
+      : {}),
     sessionManager: input.sessionManager,
     ...(input.delegateAgentService
       ? { delegateAgentService: input.delegateAgentService }
@@ -244,17 +248,18 @@ export async function persistToolActionCompletion(input: {
     });
   }
 
-  await input.toolLogger?.[
-    input.completion.output.isError ? "warn" : "info"
-  ]("tool_finished", {
-    toolCallId: input.completion.toolCallId,
-    toolName: input.completion.toolName,
-    responseGroupId: input.completion.responseGroupId ?? null,
-    isError: input.completion.output.isError,
-    displayText: input.completion.output.displayText,
-    lastError: input.completion.lastError,
-    detailsKind: input.completion.output.details?.kind ?? null
-  });
+  await input.toolLogger?.[input.completion.output.isError ? "warn" : "info"](
+    "tool_finished",
+    {
+      toolCallId: input.completion.toolCallId,
+      toolName: input.completion.toolName,
+      responseGroupId: input.completion.responseGroupId ?? null,
+      isError: input.completion.output.isError,
+      displayText: input.completion.output.displayText,
+      lastError: input.completion.lastError,
+      detailsKind: input.completion.output.details?.kind ?? null
+    }
+  );
 
   return session;
 }
@@ -262,6 +267,7 @@ export async function persistToolActionCompletion(input: {
 export async function prepareToolAction(input: {
   sessionManager: SessionManager;
   routineRepository: RoutineRepository;
+  cronJobRepository?: CronJobRepository;
   toolRegistry: ToolRegistry;
   delegateAgentService?: DelegateAgentService;
   backgroundTaskManager?: BackgroundTaskManager;
@@ -356,6 +362,9 @@ export async function prepareToolAction(input: {
   const executionContext = createToolExecutionContext({
     session: input.session,
     routineRepository: input.routineRepository,
+    ...(input.cronJobRepository
+      ? { cronJobRepository: input.cronJobRepository }
+      : {}),
     sessionManager: input.sessionManager,
     ...(input.delegateAgentService
       ? { delegateAgentService: input.delegateAgentService }
@@ -483,6 +492,7 @@ export async function prepareToolAction(input: {
 export async function executeToolAction(input: {
   sessionManager: SessionManager;
   routineRepository: RoutineRepository;
+  cronJobRepository?: CronJobRepository;
   toolRegistry: ToolRegistry;
   delegateAgentService?: DelegateAgentService;
   backgroundTaskManager?: BackgroundTaskManager;
@@ -531,6 +541,9 @@ export async function executeToolAction(input: {
   const prepared = await prepareToolAction({
     sessionManager: input.sessionManager,
     routineRepository: input.routineRepository,
+    ...(input.cronJobRepository
+      ? { cronJobRepository: input.cronJobRepository }
+      : {}),
     toolRegistry: input.toolRegistry,
     ...(input.delegateAgentService
       ? { delegateAgentService: input.delegateAgentService }

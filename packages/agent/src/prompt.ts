@@ -340,7 +340,7 @@ function createDomainInstructions(tools: AnthropicToolDefinition[]): string[] {
 function createTaskBriefWriteRule(binding: TaskBriefBindingInfo): string {
   switch (binding.state) {
     case "unbound":
-      return "include plan_name on the first replace_task_brief call.";
+      return "include plan_name on the first manage_task_brief action=replace call.";
     case "bound_named":
       return binding.planFileName
         ? `omit plan_name unless you are reusing ${binding.planFileName}.`
@@ -598,24 +598,9 @@ function createPlanModePromptMessage(
       "- Use ask_user_question for requirement clarification instead of asking a plain-text question and guessing."
     );
   }
-  if (toolNames.has("search_task_brief")) {
+  if (toolNames.has("manage_task_brief")) {
     lines.push(
-      "- Use search_task_brief first when you need to locate a section or line number in the current brief."
-    );
-  }
-  if (toolNames.has("read_task_brief")) {
-    lines.push(
-      "- Use read_task_brief with narrow line windows to inspect the brief."
-    );
-  }
-  if (toolNames.has("edit_task_brief")) {
-    lines.push(
-      "- Use edit_task_brief for targeted line edits inside an existing brief."
-    );
-  }
-  if (toolNames.has("replace_task_brief")) {
-    lines.push(
-      "- Use replace_task_brief when creating the first brief or when a full rewrite is clearly cheaper than several small edits."
+      "- Use manage_task_brief action=search/read to locate and inspect brief content, action=edit for targeted line edits, and action=replace for the first brief or a clearly cheaper full rewrite."
     );
   }
   lines.push(

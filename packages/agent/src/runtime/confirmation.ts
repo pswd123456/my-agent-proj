@@ -1,16 +1,12 @@
 import { randomUUID } from "node:crypto";
 
-import type { RoutineRepository } from "@ai-app-template/db";
+import type { CronJobRepository, RoutineRepository } from "@ai-app-template/db";
 
 import type { RunEventSink } from "../events.js";
 import type { BackgroundTaskManager } from "../background-tasks/index.js";
 import type { SessionManager } from "../session.js";
 import type { TraceManager } from "../trace.js";
-import type {
-  JsonValue,
-  RunSessionResult,
-  SessionSnapshot
-} from "../types.js";
+import type { JsonValue, RunSessionResult, SessionSnapshot } from "../types.js";
 import type { ToolRegistry } from "../tools/registry.js";
 import {
   isAffirmativeConfirmationReply,
@@ -24,6 +20,7 @@ import { executeToolAction } from "./tool-execution.js";
 export async function handlePendingConfirmationReply(input: {
   sessionManager: SessionManager;
   routineRepository: RoutineRepository;
+  cronJobRepository?: CronJobRepository;
   toolRegistry: ToolRegistry;
   backgroundTaskManager?: BackgroundTaskManager;
   traceManager: TraceManager | undefined;
@@ -93,8 +90,9 @@ export async function handlePendingConfirmationReply(input: {
     toolInput: Record<string, JsonValue>;
   }> = [
     ...(input.pendingConfirmation.conflictItems ?? []).map((item) => ({
-      toolName: "delete_routine",
+      toolName: "manage_routine",
       toolInput: {
+        action: "delete",
         routine_id: item.routineId,
         reason: "user confirmed overwrite"
       } as Record<string, JsonValue>
@@ -123,7 +121,8 @@ export async function handlePendingConfirmationReply(input: {
       session,
       turnCount,
       loopState: "waiting for input",
-      finalAnswer: "已经收到确认，但当前没有可执行的调整。请直接告诉我新的安排。",
+      finalAnswer:
+        "已经收到确认，但当前没有可执行的调整。请直接告诉我新的安排。",
       stopReason: "confirmation_missing_actions",
       toolCallCount,
       toolResultCount,
@@ -136,6 +135,9 @@ export async function handlePendingConfirmationReply(input: {
     const executed = await executeToolAction({
       sessionManager: input.sessionManager,
       routineRepository: input.routineRepository,
+      ...(input.cronJobRepository
+        ? { cronJobRepository: input.cronJobRepository }
+        : {}),
       toolRegistry: input.toolRegistry,
       ...(input.backgroundTaskManager
         ? { backgroundTaskManager: input.backgroundTaskManager }

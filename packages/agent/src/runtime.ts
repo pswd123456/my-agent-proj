@@ -6,7 +6,7 @@ import {
   type SystemLogManager
 } from "./system-log.js";
 
-import type { RoutineRepository } from "@ai-app-template/db";
+import type { CronJobRepository, RoutineRepository } from "@ai-app-template/db";
 import {
   DEFAULT_SESSION_MODEL,
   normalizeUserContextHookMaxTurns,
@@ -50,10 +50,7 @@ import {
   isSubagentUserContextHook,
   resolveSubagentHookWaitMode
 } from "./subagent-hooks.js";
-import {
-  createRunScopedTraceManager,
-  type TraceManager
-} from "./trace.js";
+import { createRunScopedTraceManager, type TraceManager } from "./trace.js";
 
 export interface AgentRuntimeOptions {
   systemLogManager?: SystemLogManager;
@@ -63,6 +60,7 @@ export interface AgentRuntimeOptions {
   modelService?: ModelService;
   sessionManager: SessionManager;
   routineRepository: RoutineRepository;
+  cronJobRepository?: CronJobRepository;
   toolRegistry: ToolRegistry;
   delegateAgentService?: DelegateAgentService;
   backgroundTaskManager?: BackgroundTaskManager;
@@ -249,7 +247,9 @@ export class AgentRuntime {
   }> {
     const taskManager = this.options.backgroundTaskManager;
     if (!taskManager) {
-      throw new Error("Background task manager is required for subagent hooks.");
+      throw new Error(
+        "Background task manager is required for subagent hooks."
+      );
     }
 
     const configHash = getUserContextHookConfigHash(input.hook);
@@ -297,8 +297,9 @@ export class AgentRuntime {
 
     return {
       session:
-        (await this.options.sessionManager.getSession(input.session.sessionId)) ??
-        input.session,
+        (await this.options.sessionManager.getSession(
+          input.session.sessionId
+        )) ?? input.session,
       taskId: task.taskId,
       waitMode
     };
@@ -409,7 +410,9 @@ export class AgentRuntime {
     }
 
     const hooks = (this.options.userContextHooks ?? []).filter(
-      (hook): hook is UserContextHookRecord & {
+      (
+        hook
+      ): hook is UserContextHookRecord & {
         behavior: "subagent";
         waitMode: "blocking" | "unblocking";
       } => isSubagentUserContextHook(hook) && hook.event === "run_end"
@@ -684,6 +687,9 @@ export class AgentRuntime {
           this.sanitizeMessagesForModel(activeSession.model, messages),
         sessionManager: this.options.sessionManager,
         routineRepository: this.options.routineRepository,
+        ...(this.options.cronJobRepository
+          ? { cronJobRepository: this.options.cronJobRepository }
+          : {}),
         toolRegistry: this.options.toolRegistry,
         traceManager,
         promptBuilder: this.promptBuilder,
@@ -751,7 +757,9 @@ export class AgentRuntime {
           ...runLoopBaseInput,
           session: currentSession,
           message,
-          ...(options.messageBlock ? { messageBlock: options.messageBlock } : {}),
+          ...(options.messageBlock
+            ? { messageBlock: options.messageBlock }
+            : {}),
           ...(typeof options.emitCompletedRunEvent === "boolean"
             ? { emitCompletedRunEvent: options.emitCompletedRunEvent }
             : {})
@@ -779,7 +787,9 @@ export class AgentRuntime {
         }
 
         const postHookMessages = this.resolvePostUserHookMessages(session);
-        const hasPostRunSubagentHooks = (this.options.userContextHooks ?? []).some(
+        const hasPostRunSubagentHooks = (
+          this.options.userContextHooks ?? []
+        ).some(
           (hook) => isSubagentUserContextHook(hook) && hook.event === "run_end"
         );
         result = await runQueuedMessage(input.message, {

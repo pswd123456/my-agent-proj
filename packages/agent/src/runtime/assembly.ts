@@ -108,6 +108,7 @@ export function createRuntimeHandleFactory(input: {
       const toolRegistry = createDefaultToolRegistry({
         workingDirectory: session.workingDirectory,
         routineRepository: environment.routineRepository,
+        cronJobRepository: environment.cronJobRepository,
         lspServerManager,
         enabledCapabilityPacks: session.context.enabledCapabilityPacks,
         workspaceSkillSettings: settings.workspaceSkillSettings,
@@ -124,6 +125,7 @@ export function createRuntimeHandleFactory(input: {
           modelService: environment.modelService,
           sessionManager: environment.sessionManager,
           routineRepository: environment.routineRepository,
+          cronJobRepository: environment.cronJobRepository,
           toolRegistry,
           backgroundTaskManager: environment.backgroundTaskManager,
           traceManager: environment.traceManager,
@@ -186,7 +188,8 @@ export async function createPostgresRuntimeEnvironment(
   });
   const settingsPermissionToolOptions = listSettingsPermissionToolOptions({
     workingDirectory: input.settingsPermissionWorkingDirectory,
-    routineRepository
+    routineRepository,
+    cronJobRepository
   }).map((tool) => tool.name);
   const settingsRepository = createPostgresSettingsRepository(database, {
     settingsPermissionToolOptions
