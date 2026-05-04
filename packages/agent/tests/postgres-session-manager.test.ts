@@ -3,12 +3,14 @@ import { createPostgresTestSessionManager } from "../../../tests/helpers/postgre
 
 import {
   hasActiveExecutionLease,
+  toIsoString
+} from "../src/session/execution-lease.js";
+import {
   serializeBlock,
-  toSessionContext,
   toConversationBlock,
-  toIsoString,
   type SessionMessageRow
-} from "../src/session/postgres-session-manager.js";
+} from "../src/session/message-codec.js";
+import { toSessionContext } from "../src/session/session-row-mapper.js";
 import { createSnapshot, isConversationBlock } from "../src/session/shared.js";
 import { DEFAULT_EXECUTION_LEASE_TIMEOUT_MS } from "../src/session/contracts.js";
 

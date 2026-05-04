@@ -13,7 +13,7 @@ import { agentSessions, backgroundTasks, cronJobs } from "@ai-app-template/db";
 import type { ModelService } from "../models/index.js";
 import type { SettingsConfigStore } from "../settings-config/index.js";
 
-import { buildSessionPersistenceValues } from "../session/postgres-session-manager.js";
+import { buildSessionPersistenceValues } from "../session/session-row-mapper.js";
 import { createSnapshot } from "../session/shared.js";
 
 const CRON_TASK_DEADLINE_MS = 10 * 60_000;
