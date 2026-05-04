@@ -30,6 +30,15 @@
         "zod": "4.3.6",
       },
     },
+    "apps/gateway": {
+      "name": "@ai-app-template/gateway",
+      "version": "0.1.0",
+      "dependencies": {
+        "@ai-app-template/agent": "workspace:*",
+        "@ai-app-template/db": "workspace:*",
+        "@ai-app-template/domain": "workspace:*",
+      },
+    },
     "apps/web": {
       "name": "@ai-app-template/web",
       "version": "0.1.0",
@@ -130,6 +139,8 @@
     "@ai-app-template/db": ["@ai-app-template/db@workspace:packages/db"],
 
     "@ai-app-template/domain": ["@ai-app-template/domain@workspace:packages/domain"],
+
+    "@ai-app-template/gateway": ["@ai-app-template/gateway@workspace:apps/gateway"],
 
     "@ai-app-template/sdk": ["@ai-app-template/sdk@workspace:packages/sdk"],
 

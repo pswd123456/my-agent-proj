@@ -12,7 +12,20 @@
         "DATABASE_URL",
         "PORT",
         "API_PORT",
+        "API_BASE_URL",
+        "GATEWAY_API_BASE_URL",
+        "GATEWAY_TELEGRAM_DEBUG",
+        "GATEWAY_TELEGRAM_REQUEST_TIMEOUT_MS",
+        "GATEWAY_TELEGRAM_POLL_TIMEOUT_SECONDS",
         "WEB_PORT",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "NO_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "all_proxy",
+        "no_proxy",
         "MINIMAX_API_KEY",
         "MINIMAX_BASE_URL",
         "SEARXNG_BASE_URL",
@@ -31,7 +44,9 @@
         "WORKER_ID",
         "WORKER_POLL_INTERVAL_MS",
         "WORKER_TASK_HEARTBEAT_MS",
-        "WORKER_TASK_STALE_MS"
+        "WORKER_TASK_STALE_MS",
+        "TELEGRAM_BOT_TOKEN",
+        "TELEGRAM_WEBHOOK_SECRET"
       ]
     },
     "lint": {

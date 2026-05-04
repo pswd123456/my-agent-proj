@@ -60,6 +60,8 @@ cp .env.example .env
 - 可选：`WORKER_POLL_INTERVAL_MS`
 - 可选：`WORKER_TASK_HEARTBEAT_MS`
 - 可选：`WORKER_TASK_STALE_MS`
+- 可选：`TELEGRAM_BOT_TOKEN`（启用 Telegram polling inbox）
+- 可选：`TELEGRAM_WEBHOOK_SECRET`（仅 webhook 模式需要，校验 Telegram webhook secret header）
 
 另外，`web` 和 `lsp` 这两组能力的外部依赖是：
 
@@ -85,9 +87,9 @@ bun dev
 
 - `apps/api`：默认 `http://localhost:3001`
 - `apps/web`：默认 `http://localhost:3000`
-- `apps/worker`：后台任务 worker（无 HTTP 端口）
+- `apps/gateway`：Telegram polling 与后续外部常驻接入
 
-如果只想单独启动某一端，可以分别在两个终端里运行：
+如果只想单独启动某一端，可以分别运行：
 
 ```bash
 cd apps/api && bun dev
@@ -95,6 +97,16 @@ cd apps/api && bun dev
 
 ```bash
 cd apps/web && bun dev
+```
+
+```bash
+bun dev:gateway
+```
+
+后台任务 worker 单独启动：
+
+```bash
+bun dev:worker
 ```
 
 ## 常用命令
