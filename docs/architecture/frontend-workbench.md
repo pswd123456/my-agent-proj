@@ -83,9 +83,10 @@
 - `searchSessions()` / `listSessionForkTargets()` / `createSessionFork()`
 - `recoverRewriteTarget()`
 - `streamSessionExecution()`
+- `interruptSessionExecution()`
 - `chooseDirectory()`
 - `getUserSettingsMcp()` / `updateUserSettingsMcp()` / `getUserSettingsSkills()`
-- `getSessionWorkspaceGitStatus()` / `forceStopSessionExecution()`
+- `getSessionWorkspaceGitStatus()`
 - `getSessionTrace()`
 - `toSessionSummary()`
 

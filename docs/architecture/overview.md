@@ -27,7 +27,7 @@
 - 工作区 runtime 上下文还会按次读取 `session.workingDirectory` 下的工作区输入：
   - `AGENTS.md` 提供工作区根指令，进入本轮 runtime context，不进入 cache key
   - `.agents/skills/` 提供 skill metadata
-  - `.agents/.config.toml` 提供 MCP server 配置
+  - `.agents/.config.toml` 提供 MCP server 配置和 workspace hooks
   - `.agents/plans/` 承载 session 级 task brief artifact
   - 其中 `.agents/plans/` 是运行时产物与用户可编辑 artifact，其余是运行时输入
 - 公开 web 搜索、抓取和结构化抽取通过工作区 Firecrawl MCP 接入，不属于内建 capability pack
@@ -44,6 +44,8 @@
   - `userContextHooks`
   - `debugConversationView`
   - `userCustomPrompt`
+
+workspace hooks 不复制进 `agent_settings`；runtime 创建时会把 `.agents/.config.toml` 的 `[hooks.<id>]` 排在 user settings hooks 前面，再统一归一化后执行。
 
 当前权限语义里，`yoloMode` 会自动放行除 `run_shell_command` / `make_http_request` 之外的所有工具；shell / network 不走用户级 tool allow/ask/deny 配置，仍然在运行时单独审批。
 
@@ -68,8 +70,8 @@
 - `GET /sessions/:sessionId/git-status`
 - `POST /sessions/:sessionId/execute`
 - `POST /sessions/:sessionId/execute/stream`
-- `POST /sessions/:sessionId/interrupt`
-- `POST /sessions/:sessionId/force-stop`
+- `POST /sessions/:sessionId/interrupt`（默认中断入口，包含状态修复与当前 run 取消）
+- `POST /sessions/:sessionId/force-stop`（兼容入口）
 - `POST /sessions/:sessionId/file-changes`
 - `POST /sessions/:sessionId/snapshot`
 - `POST /sessions/:sessionId/recover`

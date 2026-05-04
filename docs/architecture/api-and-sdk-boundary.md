@@ -121,6 +121,7 @@
 - `PATCH /sessions/:sessionId/settings`：只改当前 session 上下文，不回写用户默认值
 - `execute`：一次性返回 `RunSessionResult`
 - `execute/stream`：通过 SSE 按事件增量回传执行过程
+- `interrupt`：单阶段中断入口，立即修复 session 可见状态并让当前 active run 观察取消；`force-stop` 仅保留为兼容入口
 
 ### 4. Workspace 辅助入口
 
@@ -166,6 +167,7 @@
   - 读取 user settings
   - 创建 LSP manager
   - 创建默认 tool registry
+  - 加载 workspace hooks，并和 user settings hooks 合并
   - 加载 workspace MCP tools
   - 组装 trace / prompt / permission / background task 依赖
 

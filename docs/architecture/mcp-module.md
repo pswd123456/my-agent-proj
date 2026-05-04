@@ -53,7 +53,7 @@ packages/agent/src/trace.ts
 - `sdk-loader.ts`：动态加载 `@modelcontextprotocol/sdk` 运行时模块
 - `client-manager.ts`：连接 server、拉取 tool、汇总 server 级加载结果
 - `tool-adapter.ts`：把 MCP tool 转成统一 `RuntimeTool`
-- `apps/api/src/index.ts`：把 MCP tool 注册进本轮 runtime，并在结束时 `dispose`
+- `packages/agent/src/runtime/assembly.ts`：把 MCP tool 注册进本轮 runtime，并在结束时 `dispose`
 
 ## 运行链路
 
@@ -193,8 +193,8 @@ task-style MCP 结果如果没有 `content`，当前会走兼容分支，写成 
 
 MCP 连接不是单例，也不跨回合复用：
 
-- `apps/api/src/index.ts` 在 `createRuntime(session)` 内调用 `loadWorkspaceMcpTools()`
-- `apps/worker/src/index.ts` 在 background task runtime 创建时也调用同一入口
+- `packages/agent/src/runtime/assembly.ts` 在每次创建 runtime handle 时调用 `loadWorkspaceMcpTools()`
+- `apps/api/src/index.ts` 与 `apps/worker/src/index.ts` 都通过同一套 runtime assembly 进入这条链路
 - 本轮执行完成后通过 `runtimeHandle.dispose()` 关闭连接
 - 对 `StreamableHTTPClientTransport` 会先尝试 `terminateSession()`
 - 无论关闭过程中是否出错，都会吞掉清理异常，避免影响主流程收尾
@@ -220,7 +220,7 @@ MCP 连接不是单例，也不跨回合复用：
 - SDK 动态加载：`packages/agent/src/mcp/sdk-loader.ts`
 - server 连接与工具挂载：`packages/agent/src/mcp/client-manager.ts`
 - tool 适配：`packages/agent/src/mcp/tool-adapter.ts`
-- runtime 装配：`apps/api/src/index.ts`
+- runtime 装配：`packages/agent/src/runtime/assembly.ts`
 - 权限检查：`packages/agent/src/runtime/permission-checker.ts`
 - trace 事件：`packages/agent/src/trace.ts`
 

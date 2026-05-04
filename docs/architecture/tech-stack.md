@@ -66,7 +66,9 @@
 - 当前主要表包括：
   - `routines`
   - `agent_sessions`
+  - `session_fork_checkpoints`
   - `session_messages`
+  - `cron_jobs`
   - `agent_settings`
   - `background_tasks`
   - `background_task_runs`

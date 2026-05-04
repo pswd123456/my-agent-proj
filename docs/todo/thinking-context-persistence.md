@@ -10,7 +10,7 @@
 
 - 新增 `assistant thinking` conversation block，并在 prompt replay 中序列化为 Anthropic-compatible `type="thinking"` block
 - runtime 仅在原生 `tool_use` response 中持久化带签名的 thinking；text-tool-call fallback 与 final `end_turn` thinking 不持久化
-- file/memory snapshot 校验与 PostgreSQL session message 序列化支持 `assistant_thinking`
+- session snapshot 校验与 PostgreSQL session message 序列化支持 `assistant_thinking`
 - compact summary 不输出完整 thinking 或 signature，tail 中未 compact 的 thinking 仍按原始 protocol block 回放
 - 已补 prompt/session/runtime 测试，并通过 agent typecheck 与 build
 
@@ -178,10 +178,10 @@ user: tool_result
 
 ### 5. session 持久化支持
 
-File session：
+Session snapshot：
 
 - 更新 `packages/agent/src/session/shared.ts` 的 `isConversationBlock(...)`
-- file-backed snapshot 无需 schema migration，但要保证旧 snapshot 仍可读
+- snapshot 校验无需 schema migration，但要保证旧 snapshot 仍可读
 
 Postgres session：
 
@@ -253,7 +253,6 @@ assistant thinking: preserved reasoning for a prior tool-use turn; signature omi
 新增或扩展 session 测试：
 
 - `isConversationBlock(...)` 接受 `assistant thinking`
-- memory / file session 能保存和恢复 thinking block
 - Postgres serialize / deserialize 能 round-trip `role="assistant_thinking"` 和 signature
 
 ### runtime 测试
@@ -292,7 +291,7 @@ Streaming 测试：
 3. `thinking` 不被拼入普通 assistant text
 4. `tool_use` / `tool_result` 配对不受影响
 5. compact summary 不伪造 signed thinking
-6. file-backed 和 Postgres-backed session 都能恢复 thinking block
+6. session snapshot 校验和 Postgres-backed session 都能恢复 thinking block
 7. trace 中可以直接验证 prompt messages 包含 thinking
 8. MiniMax Anthropic-compatible smoke 通过
 

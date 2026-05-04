@@ -6,12 +6,12 @@
 
 - `AGENTS.md`：给本轮 prompt 提供工作区根指令
 - `.agents/skills/`：给 runtime 提供 workspace skill metadata，并作为 `search_skill` / `load_skill` 的只读来源
-- `.agents/.config.toml`：给 runtime 提供 workspace MCP server 配置
+- `.agents/.config.toml`：给 runtime 提供 workspace MCP server 配置和 workspace hooks
 - `.agents/plans/`：承载 session 级 task brief artifact
 
 其中 `AGENTS.md`、`.agents/skills/` 和 `.agents/.config.toml` 是运行时输入；`.agents/plans/` 是运行时产物与用户可编辑 artifact。
 
-配置与指令输入不进入数据库，也不和 user settings 做 merge；`task brief` 绑定路径会进入 session state，但文件正文仍以工作区里的 markdown 为事实源。
+配置与指令输入不会复制进数据库；`task brief` 绑定路径会进入 session state，但文件正文仍以工作区里的 markdown 为事实源。`.agents/.config.toml` 里的 hooks 会在每次 runtime 创建时和 user settings 里的 `userContextHooks` 做一次运行时合并，workspace hooks 排在前面，同类型冲突时优先生效。
 
 如果想看 MCP 从配置读取到工具挂载、权限与 trace 的完整链路，继续读 `docs/architecture/mcp-module.md`。
 
@@ -56,11 +56,13 @@
 
 - 向父目录递归查找
 - 多文件 merge
-- 和 user settings / session settings 混合解析
+- 把 MCP server 配置和 user settings / session settings 混合解析
+
+workspace hooks 是同文件里的独立运行时输入；它们会在解析后和 user settings hooks 合并，见下方 hook 协议。
 
 ### 协议
 
-顶层采用 Codex 风格的 `[mcp_servers.<name>]`：
+MCP 顶层采用 Codex 风格的 `[mcp_servers.<name>]`：
 
 - `stdio` server：`command` / `args` / `env`
 - `http` server：`url` / `headers`
@@ -77,6 +79,36 @@ transport 通过字段推断：
 - 诊断进入 trace / log
 - 不阻断内置工具运行
 
+同一个文件也支持 `[hooks.<id>]`：
+
+```toml
+[hooks.repo_context]
+event = "run_started"
+behavior = "context"
+title = "Repo context"
+content = "先读取本仓库约定和当前任务相关上下文。"
+
+[hooks.wrap_up]
+event = "run_end"
+behavior = "subagent"
+wait_mode = "unblocking"
+max_turns = 40
+title = "Wrap up"
+content = "当前 run 结束后整理可复用的后续上下文。"
+```
+
+hook 字段：
+
+- `event`：`session_started` / `run_started` / `run_end`
+- `behavior`：可选，`context` / `message` / `subagent`；省略时沿用现有兼容规则，`run_end` 默认为 `message`，其他事件默认为 `context`
+- `content`：必填非空字符串
+- `title`：可选字符串，省略时使用 hook id
+- `enabled`：可选布尔值，默认 `true`
+- `wait_mode`：仅 `subagent` 支持，`blocking` / `unblocking`；`run_end` subagent 固定归一化为 `unblocking`
+- `max_turns`：仅 `subagent` 支持，按 session 上限归一化
+
+workspace hooks 使用同一套 `normalizeUserContextHooks(...)` 规则，因此每个 `behavior:event` 只会保留第一条 enabled hook。合并顺序是 `.agents/.config.toml` 在前、user settings 在后；同类型冲突时 settings 里的后续 hook 会被保留为 disabled，而不是绕过规则重复执行。
+
 ## 运行时装配
 
 - API 和 worker 在各自的 runtime 创建前读取 `.agents/.config.toml`
@@ -84,8 +116,9 @@ transport 通过字段推断：
 - MCP tool 统一命名为 `mcp__<server>__<tool>`
 - MCP tool 默认走 `always-ask-user`
 - `YOLO mode` 不绕过 MCP 工具审批
+- workspace hooks 会和当前用户的 settings hooks 合并后传入 runtime，后续 context / message / subagent 行为仍走原有 hook runtime
 
-这意味着 MCP 连接是“按次装配”的运行时上下文，而不是持久化 session 状态。
+这意味着 MCP 连接和 workspace hooks 都是“按次装配”的运行时上下文，而不是持久化 session 状态。
 
 ## `.agents/plans/`
 
@@ -103,11 +136,13 @@ transport 通过字段推断：
 
 - trace 会在每次执行前写入一条 `mcp_loaded`
 - `mcp_loaded` 记录配置路径、是否找到配置文件、server 加载结果和配置诊断
+- workspace hook 配置诊断会写入 `runtime` system log 的 `workspace_hooks_config_diagnostics`
 - prompt 不额外注入 MCP 长文案；模型只通过 mounted tools 感知可用 MCP 工具
 
 ## 当前事实源
 
-- 配置解析：`packages/agent/src/mcp/config-loader.ts`
+- MCP 配置解析：`packages/agent/src/mcp/config-loader.ts`
+- workspace hook 配置解析：`packages/agent/src/workspace-hooks/config-loader.ts`
 - MCP 连接与工具挂载：`packages/agent/src/mcp/client-manager.ts`
 - API / worker 装配：`apps/api/src/index.ts`、`apps/worker/src/index.ts`
 - workspace instructions：`packages/agent/src/workspace-instructions/`

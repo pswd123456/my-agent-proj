@@ -93,7 +93,8 @@ prefix message 带 `cache_control: { type: "ephemeral" }`，并参与当前 `cac
    - 不进入 `prefixMessages` 或 `cacheKey`，避免工作区指令变化影响稳定前缀
 
 4. user context hooks
-   - 来自 user settings 里的 `userContextHooks`
+   - 来自 user settings 里的 `userContextHooks`，以及当前 `session.workingDirectory/.agents/.config.toml` 的 `[hooks.<id>]`
+   - runtime 创建时先放 workspace hooks，再放 user settings hooks，并通过同一套 `normalizeUserContextHooks(...)` 归一化
    - `behavior: "context"` 的 hook 由 runtime 在每次 run 开始时解析，只进入 `runtimeContextMessages`
    - context 注入当前只支持 `session_started`、`run_started` 两个时机；`run_end` 不支持 context hook，但支持 message / subagent
    - `session_started` 只在当前 session 的第一次 run 注入；同一轮内的显示顺序固定为 `session_started -> run_started`

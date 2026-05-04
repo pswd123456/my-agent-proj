@@ -136,11 +136,7 @@ When a structured todo list is available, use it to stay aligned with the curren
 第一版建议新增以下结构：
 
 ```ts
-export type TodoItemStatus =
-  | "pending"
-  | "in_progress"
-  | "done"
-  | "cancelled";
+export type TodoItemStatus = "pending" | "in_progress" | "done" | "cancelled";
 
 export interface SessionTodoItem {
   id: string;
@@ -245,7 +241,11 @@ export interface SessionTodoState {
 ```ts
 {
   operations: Array<
-    | { type: "set_status"; id: string; status: "pending" | "in_progress" | "done" | "cancelled" }
+    | {
+        type: "set_status";
+        id: string;
+        status: "pending" | "in_progress" | "done" | "cancelled";
+      }
     | { type: "set_content"; id: string; content: string }
     | { type: "append"; content: string }
     | { type: "remove"; id: string }
@@ -344,14 +344,13 @@ todo 真相源应保留在 session state，模型当前主要通过 todo tool re
 原因：
 
 - todo 的生命周期天然跟 session 绑定
-- 当前 repo 已有 file / memory / postgres 三套 session manager
-- 复用现有 snapshot 读写，比新增一张任务表更符合 v1 范围
+- 当时 repo 仍需要同步多套 session manager；当前主链路已经收敛为 `PostgresSessionManager`
+- 复用 session snapshot 读写，比新增一张任务表更符合 v1 范围
 
 需要同步更新：
 
-- in-memory session manager
-- file session manager
-- postgres session manager
+- `packages/agent/src/session/shared.ts`
+- `packages/agent/src/session/postgres-session-manager.ts`
 - snapshot 校验逻辑
 
 ## 模块落点建议
