@@ -261,7 +261,6 @@ export class AgentRuntime {
       workingDirectory: input.session.workingDirectory,
       model: input.session.model,
       maxTurns: normalizeUserContextHookMaxTurns(input.hook.maxTurns),
-      userId: input.session.context.userId,
       enabledCapabilityPacks: input.session.context.enabledCapabilityPacks,
       metadata: {
         hookId: input.hook.id,
@@ -442,7 +441,6 @@ export class AgentRuntime {
       workingDirectory?: string;
       model?: string;
       thinkingEffort?: ReturnType<typeof normalizeThinkingEffort>;
-      userId?: string;
       yoloMode?: boolean;
       planModeEnabled?: boolean;
       contextWindow?: number;
@@ -462,7 +460,6 @@ export class AgentRuntime {
       workingDirectory?: string;
       model?: string;
       thinkingEffort?: ReturnType<typeof normalizeThinkingEffort>;
-      userId?: string;
       yoloMode?: boolean;
       planModeEnabled?: boolean;
       contextWindow?: number;
@@ -505,9 +502,6 @@ export class AgentRuntime {
       createInput.thinkingEffort = normalizeThinkingEffort(
         input.thinkingEffort
       );
-    }
-    if (typeof input.userId === "string" && input.userId.length > 0) {
-      createInput.userId = input.userId;
     }
     if (typeof input.yoloMode === "boolean") {
       createInput.yoloMode = input.yoloMode;

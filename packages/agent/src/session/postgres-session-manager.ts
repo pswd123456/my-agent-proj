@@ -352,7 +352,6 @@ export function toSessionContext(row: SessionRow): ScheduleSessionContext {
   const fullCompactionState = parseJsonValue(row.fullCompactionState);
 
   return {
-    userId: row.userId,
     status: row.status as ScheduleSessionContext["status"],
     currentDateContext: row.currentDateContext,
     yoloMode: row.yoloMode ?? false,
@@ -442,7 +441,6 @@ export function buildSessionPersistenceValues(
 ): typeof agentSessions.$inferInsert {
   return {
     id: snapshot.sessionId,
-    userId: snapshot.context.userId,
     status: snapshot.context.status,
     currentDateContext: snapshot.context.currentDateContext,
     yoloMode: snapshot.context.yoloMode,
@@ -1200,7 +1198,6 @@ export class PostgresSessionManager implements SessionManager {
       .onConflictDoUpdate({
         target: agentSessions.id,
         set: {
-          userId: values.userId,
           status: values.status,
           currentDateContext: values.currentDateContext,
           yoloMode: values.yoloMode,

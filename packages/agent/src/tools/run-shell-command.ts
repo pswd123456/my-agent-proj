@@ -601,7 +601,6 @@ export function createRunShellCommandTool(): RuntimeTool {
         workingDirectory: session.workingDirectory,
         model: session.model,
         maxTurns: session.maxTurns,
-        userId: session.context.userId,
         enabledCapabilityPacks: session.context.enabledCapabilityPacks,
         message: "",
         command,

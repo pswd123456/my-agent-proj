@@ -109,7 +109,6 @@ function createToolExecutionContext(input: {
 
   return {
     sessionId: input.session.sessionId,
-    userId: input.session.context.userId,
     workingDirectory: input.session.workingDirectory,
     ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
     routineRepository: input.routineRepository,

@@ -83,7 +83,6 @@ export interface TraceWorkspaceInstructionsLoadedEvent {
 export interface TraceContextHooksLoadedEvent {
   kind: "context_hooks_loaded";
   turnCount: number;
-  userId: string;
   hooks: ResolvedUserContextHookSection[];
 }
 

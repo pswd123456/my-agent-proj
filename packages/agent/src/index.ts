@@ -25,6 +25,7 @@ export type {
 export * from "./prompt.js";
 export * from "./runtime.js";
 export * from "./session.js";
+export * from "./settings-config/index.js";
 export * from "./skills/search.js";
 export * from "./system-log.js";
 export * from "./skills/index.js";

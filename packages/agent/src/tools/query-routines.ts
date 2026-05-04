@@ -215,7 +215,6 @@ export function createQueryRoutinesTool(): RuntimeTool {
 
       if (parsed.data.action === "by_time") {
         const routines = await context.routineRepository.searchByTime(
-          context.userId,
           buildSearchInput(parsed.data)
         );
         return successResult(
@@ -233,7 +232,6 @@ export function createQueryRoutinesTool(): RuntimeTool {
 
       if (parsed.data.action === "by_week") {
         const routines = await context.routineRepository.listByWeek(
-          context.userId,
           parsed.data.week_start_date
         );
         return successResult(
@@ -250,7 +248,6 @@ export function createQueryRoutinesTool(): RuntimeTool {
       }
 
       const routines = await context.routineRepository.listByDateRange(
-        context.userId,
         parsed.data.date_range.start,
         parsed.data.date_range.end
       );

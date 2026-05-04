@@ -6,13 +6,12 @@ import {
   DEFAULT_SESSION_MODEL,
   normalizeThinkingEffort,
   resolveCronJobNextRunAt,
-  resolveSessionSettingsDefaults,
   type SessionSettingsRecord
 } from "@ai-app-template/domain";
 import type { ProductDatabaseClient } from "@ai-app-template/db";
-import { agentSessions, agentSettings, backgroundTasks, cronJobs } from "@ai-app-template/db";
-import { mapSettingsRow } from "@ai-app-template/db";
+import { agentSessions, backgroundTasks, cronJobs } from "@ai-app-template/db";
 import type { ModelService } from "../models/index.js";
+import type { SettingsConfigStore } from "../settings-config/index.js";
 
 import { buildSessionPersistenceValues } from "../session/postgres-session-manager.js";
 import { createSnapshot } from "../session/shared.js";
@@ -37,17 +36,6 @@ export type DispatchNextDueCronJobResult =
     };
 
 type CronJobRow = typeof cronJobs.$inferSelect;
-type AgentSettingsRow = typeof agentSettings.$inferSelect;
-
-function resolveSettingsRecord(
-  userId: string,
-  row: AgentSettingsRow | undefined
-): SessionSettingsRecord {
-  if (row) {
-    return mapSettingsRow(row);
-  }
-  return resolveSessionSettingsDefaults(userId);
-}
 
 function resolveModel(input: {
   cronJob: CronJobRow;
@@ -96,6 +84,7 @@ async function markDispatchFailure(input: {
 export class CronJobDispatcher {
   constructor(
     private readonly db: ProductDatabaseClient,
+    private readonly settingsConfigStore: SettingsConfigStore,
     private readonly modelService?: ModelService
   ) {}
 
@@ -133,16 +122,11 @@ export class CronJobDispatcher {
       attempted.add(candidate.id);
 
       try {
-        const dispatchResult = await this.db.transaction(async (tx) => {
-          const settingsRows = await tx
-            .select()
-            .from(agentSettings)
-            .where(eq(agentSettings.userId, candidate.userId))
-            .limit(1);
-          const settings = resolveSettingsRecord(
-            candidate.userId,
-            settingsRows[0]
+        const settings =
+          await this.settingsConfigStore.getEffectiveSettings(
+            candidate.workingDirectory
           );
+        const dispatchResult = await this.db.transaction(async (tx) => {
           const model = resolveModel({
             cronJob: candidate,
             settings,
@@ -178,7 +162,6 @@ export class CronJobDispatcher {
             thinkingEffort: normalizeThinkingEffort(
               candidate.thinkingEffortOverride ?? settings.thinkingEffort
             ),
-            userId: candidate.userId,
             yoloMode: settings.yoloMode,
             contextWindow: settings.contextWindow,
             maxTurns: settings.maxTurns,
@@ -284,7 +267,12 @@ export class CronJobDispatcher {
 
 export function createCronJobDispatcher(input: {
   db: ProductDatabaseClient;
+  settingsConfigStore: SettingsConfigStore;
   modelService?: ModelService;
 }): CronJobDispatcher {
-  return new CronJobDispatcher(input.db, input.modelService);
+  return new CronJobDispatcher(
+    input.db,
+    input.settingsConfigStore,
+    input.modelService
+  );
 }

@@ -158,7 +158,6 @@ export interface CreateSessionInput {
   workingDirectory?: string;
   model?: string;
   thinkingEffort?: ThinkingEffort;
-  userId?: string;
   yoloMode?: boolean;
   planModeEnabled?: boolean;
   contextWindow?: number;

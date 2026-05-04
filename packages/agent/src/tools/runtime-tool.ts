@@ -37,7 +37,6 @@ export type RuntimeToolSandboxProfile =
 
 export interface ToolExecutionContext {
   sessionId: string;
-  userId: string;
   workingDirectory: string;
   abortSignal?: AbortSignal;
   routineRepository: RoutineRepository;

@@ -36,7 +36,6 @@ type CreateSnapshotInput = {
   forkReplayCheckpointId?: string | null;
   workingDirectory: string;
   model: string;
-  userId?: string;
   yoloMode?: boolean;
   planModeEnabled?: boolean;
   thinkingEffort?: ThinkingEffort;
@@ -57,7 +56,6 @@ type CreateSnapshotInput = {
 function pickScheduleSessionContextInput(
   input: Pick<
     CreateSnapshotInput,
-    | "userId"
     | "yoloMode"
     | "planModeEnabled"
     | "thinkingEffort"
@@ -74,7 +72,6 @@ function pickScheduleSessionContextInput(
   >
 ) {
   return {
-    ...(typeof input.userId === "string" ? { userId: input.userId } : {}),
     ...(typeof input.yoloMode === "boolean"
       ? { yoloMode: input.yoloMode }
       : {}),
@@ -358,7 +355,6 @@ function resolveCurrentDateContext(now = new Date()): string {
 
 export function createScheduleSessionContext(
   input: {
-    userId?: string;
     yoloMode?: boolean;
     planModeEnabled?: boolean;
     thinkingEffort?: ThinkingEffort;
@@ -379,7 +375,6 @@ export function createScheduleSessionContext(
 ): ScheduleSessionContext {
   const permissionRules = createPermissionRuleLists();
   return {
-    userId: input.userId ?? "cli-user",
     status: "waiting_for_user_input",
     currentDateContext: resolveCurrentDateContext(),
     yoloMode: input.yoloMode ?? false,
@@ -599,7 +594,6 @@ export function isSessionSnapshot(value: unknown): value is SessionSnapshot {
     typeof value.contextWindow === "number" &&
     typeof value.maxTurns === "number" &&
     isPlainRecord(value.context) &&
-    typeof value.context.userId === "string" &&
     typeof value.context.status === "string" &&
     typeof value.context.currentDateContext === "string" &&
     (typeof value.context.yoloMode === "boolean" ||

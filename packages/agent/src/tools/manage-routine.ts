@@ -234,7 +234,6 @@ async function executeCreate(
   context: Parameters<RuntimeTool["execute"]>[1]
 ) {
   const conflicts = await context.routineRepository.findConflicts(
-    context.userId,
     buildCreateConflictInput({
       date: input.date,
       startTime: input.start_time,
@@ -263,14 +262,12 @@ async function executeCreate(
   }
 
   const createInput = {
-    userId: context.userId,
     name: input.name,
     description: input.description ?? null,
     date: input.date,
     startTime: input.start_time,
     source: input.source
   } as {
-    userId: string;
     name: string;
     description: string | null;
     date: string;
@@ -312,10 +309,7 @@ async function executeEdit(
   input: Extract<ManageRoutineInput, { action: "edit" }>,
   context: Parameters<RuntimeTool["execute"]>[1]
 ) {
-  const existing = await context.routineRepository.getById(
-    context.userId,
-    input.routine_id
-  );
+  const existing = await context.routineRepository.getById(input.routine_id);
   if (!existing || existing.status !== "active") {
     return failureResult(
       createToolResult({
@@ -328,7 +322,6 @@ async function executeEdit(
   }
 
   const conflicts = await context.routineRepository.findConflicts(
-    context.userId,
     buildEditConflictInput(
       mergeRoutineTimingForUpdate(existing, {
         ...buildTimingPatch({
@@ -362,7 +355,6 @@ async function executeEdit(
   }
 
   const routine = await context.routineRepository.update(
-    context.userId,
     existing.id,
     buildUpdateInput({
       name: input.name,
@@ -408,10 +400,7 @@ async function executeDelete(
   input: Extract<ManageRoutineInput, { action: "delete" }>,
   context: Parameters<RuntimeTool["execute"]>[1]
 ) {
-  const existing = await context.routineRepository.getById(
-    context.userId,
-    input.routine_id
-  );
+  const existing = await context.routineRepository.getById(input.routine_id);
   if (!existing || existing.status !== "active") {
     return failureResult(
       createToolResult({
@@ -423,10 +412,7 @@ async function executeDelete(
     );
   }
 
-  const deleted = await context.routineRepository.remove(
-    context.userId,
-    input.routine_id
-  );
+  const deleted = await context.routineRepository.remove(input.routine_id);
   if (!deleted) {
     return failureResult(
       createToolResult({

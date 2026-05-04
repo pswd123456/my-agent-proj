@@ -233,7 +233,6 @@ export async function enqueueBackgroundNotification(input: {
     workingDirectory: parentSession.workingDirectory,
     model: parentSession.model,
     maxTurns: parentSession.maxTurns,
-    userId: parentSession.context.userId,
     enabledCapabilityPacks: parentSession.context.enabledCapabilityPacks,
     metadata: {
       reason: "background_notification",

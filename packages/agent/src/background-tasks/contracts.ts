@@ -23,7 +23,6 @@ export interface EnqueueBackgroundTaskInput {
   deadlineAt?: string | null;
   maxAttempts?: number;
   permissionReply?: boolean;
-  userId?: string;
   enabledCapabilityPacks?: CapabilityPackName[];
   metadata?: Record<string, JsonValue>;
   taskState?: BackgroundTaskState | null;

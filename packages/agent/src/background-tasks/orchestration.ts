@@ -214,7 +214,6 @@ export async function scheduleBackgroundTaskPollWakeup(input: {
     workingDirectory: parentSession.workingDirectory,
     model: parentSession.model,
     maxTurns: parentSession.maxTurns,
-    userId: parentSession.context.userId,
     enabledCapabilityPacks: parentSession.context.enabledCapabilityPacks,
     metadata: nextMetadata,
     maxAttempts: 1,

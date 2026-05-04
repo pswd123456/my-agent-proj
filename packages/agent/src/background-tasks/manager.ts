@@ -74,9 +74,7 @@ export class DefaultBackgroundTaskManager implements BackgroundTaskManager {
             workingDirectory: input.workingDirectory,
             model: input.model,
             maxTurns,
-            enabledCapabilityPacks,
-            userId:
-              input.userId ?? input.sessionSeed?.userId ?? "cli-user"
+            enabledCapabilityPacks
           })
       : null;
 

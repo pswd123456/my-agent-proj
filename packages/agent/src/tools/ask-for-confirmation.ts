@@ -174,10 +174,8 @@ export function createAskForConfirmationTool(): RuntimeTool {
           continue;
         }
 
-        const conflicts = await context.routineRepository.findConflicts(
-          context.userId,
-          createInput
-        );
+        const conflicts =
+          await context.routineRepository.findConflicts(createInput);
         if (conflicts.length > 0) {
           return failureResult(
             createToolResult({

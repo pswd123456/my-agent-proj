@@ -454,9 +454,7 @@ export function createManageCronJobsTool(): RuntimeTool {
 
       if (parsed.data.action === "list") {
         const listInput = parsed.data;
-        const cronJobs = (
-          await context.cronJobRepository.listByUserId(context.userId)
-        ).filter((job) =>
+        const cronJobs = (await context.cronJobRepository.list()).filter((job) =>
           typeof listInput.status === "string"
             ? job.status === listInput.status
             : true
@@ -479,7 +477,6 @@ export function createManageCronJobsTool(): RuntimeTool {
 
       if (parsed.data.action === "create") {
         const cronJob = await context.cronJobRepository.create({
-          userId: context.userId,
           ...toCreatePayload(parsed.data, context.workingDirectory)
         });
         return successResult(
@@ -499,7 +496,6 @@ export function createManageCronJobsTool(): RuntimeTool {
 
       if (parsed.data.action === "update") {
         const cronJob = await context.cronJobRepository.update(
-          context.userId,
           parsed.data.cron_job_id,
           toUpdatePayload(parsed.data)
         );
@@ -528,10 +524,7 @@ export function createManageCronJobsTool(): RuntimeTool {
         );
       }
 
-      const removed = await context.cronJobRepository.remove(
-        context.userId,
-        parsed.data.cron_job_id
-      );
+      const removed = await context.cronJobRepository.remove(parsed.data.cron_job_id);
       if (!removed) {
         return failureResult(
           createToolResult({

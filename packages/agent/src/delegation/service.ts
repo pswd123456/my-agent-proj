@@ -223,7 +223,6 @@ export class DefaultDelegateAgentService implements DelegateAgentService {
       parentSessionId: parentSession.sessionId,
       workingDirectory: parentSession.workingDirectory,
       model: parentSession.model,
-      userId: parentSession.context.userId,
       message: buildDelegateStartMessage(taskState),
       taskState
     });

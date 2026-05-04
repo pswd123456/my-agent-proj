@@ -2,8 +2,7 @@ import type {
   BackgroundTaskRepository,
   CronJobRepository,
   InboxBindingRepository,
-  RoutineRepository,
-  SettingsRepository
+  RoutineRepository
 } from "@ai-app-template/db";
 import {
   createPostgresBackgroundTaskRepository,
@@ -11,7 +10,6 @@ import {
   createPostgresCronJobRepository,
   createPostgresInboxBindingRepository,
   createPostgresRoutineRepository,
-  createPostgresSettingsRepository,
   ensureProductSchema,
   resolveDatabaseUrl
 } from "@ai-app-template/db";
@@ -52,13 +50,13 @@ import {
   createDefaultToolRegistry,
   listSettingsPermissionToolOptions
 } from "../tools/index.js";
+import {
+  createSettingsConfigStore,
+  type SettingsConfigStore
+} from "../settings-config/index.js";
 import { createFileTraceManager, type TraceManager } from "../trace.js";
 import type { TraceEvent, TraceMcpLoadedEvent } from "../trace.js";
-import type { JsonValue, SessionSnapshot } from "../types.js";
-import {
-  loadWorkspaceHookConfig,
-  mergeWorkspaceAndSettingsUserContextHooks
-} from "../workspace-hooks/index.js";
+import type { SessionSnapshot } from "../types.js";
 
 export interface PostgresRuntimeEnvironment {
   workspaceRoot: string;
@@ -77,7 +75,7 @@ export interface PostgresRuntimeEnvironment {
   cronJobDispatcher: CronJobDispatcher;
   backgroundTaskRepository: BackgroundTaskRepository;
   backgroundTaskManager: BackgroundTaskManager;
-  settingsRepository: SettingsRepository;
+  settingsConfigStore: SettingsConfigStore;
   inboxBindingRepository: InboxBindingRepository;
 }
 
@@ -101,8 +99,8 @@ export function createRuntimeHandleFactory(input: {
   const { environment, delegateAgentService } = input;
 
   return async (session) => {
-    const settings = await environment.settingsRepository.getOrCreate(
-      session.context.userId
+    const settings = await environment.settingsConfigStore.getEffectiveSettings(
+      session.workingDirectory
     );
     const lspServerManager = createLspServerManager({
       workingDirectory: session.workingDirectory
@@ -112,29 +110,6 @@ export function createRuntimeHandleFactory(input: {
     > | null = null;
 
     try {
-      const workspaceHookConfigResult = await loadWorkspaceHookConfig(
-        session.workingDirectory
-      );
-      if (workspaceHookConfigResult.diagnostics.length > 0) {
-        const diagnostics: JsonValue =
-          workspaceHookConfigResult.diagnostics.map((diagnostic) => ({
-            scope: diagnostic.scope,
-            code: diagnostic.code,
-            message: diagnostic.message,
-            ...(diagnostic.hookId ? { hookId: diagnostic.hookId } : {})
-          }));
-        await environment.runtimeLogger.warn(
-          "workspace_hooks_config_diagnostics",
-          {
-            configPath: workspaceHookConfigResult.configPath,
-            diagnostics
-          }
-        );
-      }
-      const userContextHooks = mergeWorkspaceAndSettingsUserContextHooks({
-        workspaceHooks: workspaceHookConfigResult.hooks,
-        settingsHooks: settings.userContextHooks
-      });
       const toolRegistry = createDefaultToolRegistry({
         workingDirectory: session.workingDirectory,
         lspServerManager,
@@ -160,7 +135,7 @@ export function createRuntimeHandleFactory(input: {
           systemLogManager: environment.systemLogManager,
           runtimeLogger: environment.runtimeLogger,
           promptBuilder: environment.promptBuilder,
-          userContextHooks,
+          userContextHooks: settings.userContextHooks,
           workspaceSkillSettings: settings.workspaceSkillSettings,
           userCustomPrompt: settings.userCustomPrompt,
           maxTurns: DEFAULT_SESSION_MAX_TURNS,
@@ -218,12 +193,15 @@ export async function createPostgresRuntimeEnvironment(
   const settingsPermissionToolOptions = listSettingsPermissionToolOptions({
     workingDirectory: input.settingsPermissionWorkingDirectory
   }).map((tool) => tool.name);
-  const settingsRepository = createPostgresSettingsRepository(database, {
+  const settingsConfigStore = createSettingsConfigStore({
+    db: database,
+    seedUserId: "cli-user",
     settingsPermissionToolOptions
   });
   const cronJobDispatcher = createCronJobDispatcher({
     db: database,
-    modelService
+    modelService,
+    settingsConfigStore
   });
 
   return {
@@ -246,7 +224,7 @@ export async function createPostgresRuntimeEnvironment(
     cronJobDispatcher,
     backgroundTaskRepository,
     backgroundTaskManager,
-    settingsRepository,
+    settingsConfigStore,
     inboxBindingRepository
   };
 }

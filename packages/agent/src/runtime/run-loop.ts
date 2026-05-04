@@ -1161,7 +1161,6 @@ export async function runSessionLoop(input: {
         event: {
           kind: "context_hooks_loaded",
           turnCount,
-          userId: session.context.userId,
           hooks: resolvedContextHooks
         }
       });
