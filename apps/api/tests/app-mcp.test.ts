@@ -6,15 +6,13 @@ import {
   FileSystemLogManager,
   createLogger
 } from "@ai-app-template/agent";
-import {
-  createMemoryRoutineRepository,
-  createMemorySettingsRepository
-} from "@ai-app-template/db";
+import { createMemoryRoutineRepository } from "@ai-app-template/db";
 
 import { mkdtemp } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+import { createTestSettingsConfigStore } from "./helpers/settings-config-store.js";
 import { createApiApp, type ApiAppDependencies } from "../src/app.js";
 import { resolveApiWorkingDirectory } from "../src/working-directory.js";
 
@@ -26,7 +24,7 @@ async function createRuntimeTestApp(options?: {
 }) {
   const sessionManager = await createPostgresTestSessionManager();
   const routineRepository = createMemoryRoutineRepository();
-  const settingsRepository = createMemorySettingsRepository();
+  const { settingsConfigStore } = await createTestSettingsConfigStore();
   const traceEvents: Array<{ sessionId: string; event: unknown }> = [];
   const logDir = await mkdtemp(path.join(os.tmpdir(), "api-mcp-log-"));
   const systemLogManager = new FileSystemLogManager(logDir, {
@@ -102,7 +100,7 @@ async function createRuntimeTestApp(options?: {
   const app = createApiApp({
     sessionManager,
     routineRepository,
-    settingsRepository,
+    settingsConfigStore,
     traceManager,
     systemLogManager,
     apiLogger,
@@ -128,7 +126,7 @@ async function createSession(
   const response = await app.request("/sessions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ userId: "mcp-api-user" })
+    body: JSON.stringify({})
   });
 
   expect(response.status).toBe(201);

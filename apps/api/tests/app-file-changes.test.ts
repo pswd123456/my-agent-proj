@@ -9,17 +9,15 @@ import {
   createLogger,
   sessionFileChangeActionResultSchema
 } from "@ai-app-template/agent";
-import {
-  createMemoryRoutineRepository,
-  createMemorySettingsRepository
-} from "@ai-app-template/db";
+import { createMemoryRoutineRepository } from "@ai-app-template/db";
 
+import { createTestSettingsConfigStore } from "./helpers/settings-config-store.js";
 import { createApiApp } from "../src/app.js";
 
 async function createTestApp(workspaceRoot: string) {
   const sessionManager = await createPostgresTestSessionManager();
   const routineRepository = createMemoryRoutineRepository();
-  const settingsRepository = createMemorySettingsRepository();
+  const { settingsConfigStore } = await createTestSettingsConfigStore();
   const logDir = await mkdtemp(path.join(os.tmpdir(), "api-file-changes-log-"));
   const systemLogManager = new FileSystemLogManager(logDir, {
     maxBytes: 4096,
@@ -34,7 +32,7 @@ async function createTestApp(workspaceRoot: string) {
     app: createApiApp({
       sessionManager,
       routineRepository,
-      settingsRepository,
+      settingsConfigStore,
       traceManager: {
         async appendEvent() {},
         async readEvents() {
@@ -68,7 +66,7 @@ describe("createApiApp workspace file changes", () => {
     const createResponse = await app.request("/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId: "file-change-user" })
+      body: JSON.stringify({})
     });
 
     expect(createResponse.status).toBe(201);
@@ -145,7 +143,7 @@ describe("createApiApp workspace file changes", () => {
     const createResponse = await app.request("/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId: "file-delete-user" })
+      body: JSON.stringify({})
     });
 
     expect(createResponse.status).toBe(201);

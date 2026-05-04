@@ -11,12 +11,10 @@ import {
   FileSystemLogManager,
   createLogger
 } from "@ai-app-template/agent";
-import {
-  createMemoryRoutineRepository,
-  createMemorySettingsRepository
-} from "@ai-app-template/db";
+import { createMemoryRoutineRepository } from "@ai-app-template/db";
 
 import { createPostgresTestSessionManager } from "../../../tests/helpers/postgres-session-manager.js";
+import { createTestSettingsConfigStore } from "./helpers/settings-config-store.js";
 import { createApiApp } from "../src/app.js";
 import { resolveApiWorkingDirectory } from "../src/working-directory.js";
 
@@ -28,7 +26,6 @@ function createCronJobRecord(
   const scheduleMode = overrides.scheduleMode ?? "interval";
   const common = {
     id: "cron-1",
-    userId: "user-1",
     name: "清理 trace",
     prompt: "清理 trace",
     workingDirectory: resolveApiWorkingDirectory(workspaceRoot),
@@ -79,7 +76,7 @@ async function createCronTestApp(
 }> {
   const sessionManager = await createPostgresTestSessionManager();
   const routineRepository = createMemoryRoutineRepository();
-  const settingsRepository = createMemorySettingsRepository();
+  const { settingsConfigStore } = await createTestSettingsConfigStore();
   const logDir = await mkdtemp(path.join(os.tmpdir(), "api-cron-log-"));
   const systemLogManager = new FileSystemLogManager(logDir, {
     maxBytes: 4096,
@@ -94,7 +91,7 @@ async function createCronTestApp(
     sessionManager,
     routineRepository,
     cronJobRepository: repository,
-    settingsRepository,
+    settingsConfigStore,
     traceManager: {
       async appendEvent() {},
       async readEvents() {
@@ -149,12 +146,10 @@ async function createCronTestApp(
 }
 
 describe("createApiApp cron jobs", () => {
-  test("lists cron jobs for the resolved user id", async () => {
-    let requestedUserId: string | null = null;
+  test("lists cron jobs without user scoping", async () => {
     const repository: CronJobRepository = {
-      async listByUserId(userId) {
-        requestedUserId = userId;
-        return [createCronJobRecord({ userId })];
+      async list() {
+        return [createCronJobRecord()];
       },
       async create() {
         throw new Error("not used");
@@ -171,25 +166,23 @@ describe("createApiApp cron jobs", () => {
     };
     const { app } = await createCronTestApp(repository);
 
-    const response = await app.request("/users/cron-list-user/cron-jobs");
+    const response = await app.request("/cron-jobs");
 
     expect(response.status).toBe(200);
-    expect(requestedUserId).toBe("cron-list-user");
     const payload = (await response.json()) as { cronJobs: CronJobRecord[] };
     expect(payload.cronJobs).toHaveLength(1);
-    expect(payload.cronJobs[0]?.userId).toBe("cron-list-user");
+    expect(payload.cronJobs[0]?.id).toBe("cron-1");
   });
 
   test("creates cron jobs with normalized working directory and model override", async () => {
     let createInput: Record<string, unknown> | null = null;
     const repository: CronJobRepository = {
-      async listByUserId() {
+      async list() {
         return [];
       },
       async create(input) {
         createInput = input;
         return createCronJobRecord({
-          userId: input.userId,
           scheduleMode: "weekly",
           intervalUnit: null,
           intervalValue: null,
@@ -212,7 +205,7 @@ describe("createApiApp cron jobs", () => {
     };
     const { app } = await createCronTestApp(repository);
 
-    const response = await app.request("/users/cron-create-user/cron-jobs", {
+    const response = await app.request("/cron-jobs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -231,7 +224,6 @@ describe("createApiApp cron jobs", () => {
 
     expect(response.status).toBe(201);
     expect(createInput).toMatchObject({
-      userId: "cron-create-user",
       workingDirectory: resolveApiWorkingDirectory(workspaceRoot, "apps/web"),
       model: DEFAULT_DEEPSEEK_MODEL,
       thinkingEffort: "high",
@@ -250,7 +242,7 @@ describe("createApiApp cron jobs", () => {
   test("rejects mixed weekly and interval patch payloads before calling the repository", async () => {
     let updateCalls = 0;
     const repository: CronJobRepository = {
-      async listByUserId() {
+      async list() {
         return [];
       },
       async create() {
@@ -269,7 +261,7 @@ describe("createApiApp cron jobs", () => {
     };
     const { app } = await createCronTestApp(repository);
 
-    const response = await app.request("/users/cron-update-user/cron-jobs/cron-1", {
+    const response = await app.request("/cron-jobs/cron-1", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -286,7 +278,7 @@ describe("createApiApp cron jobs", () => {
 
   test("returns 404 when deleting a missing cron job", async () => {
     const repository: CronJobRepository = {
-      async listByUserId() {
+      async list() {
         return [];
       },
       async create() {
@@ -304,7 +296,7 @@ describe("createApiApp cron jobs", () => {
     };
     const { app } = await createCronTestApp(repository);
 
-    const response = await app.request("/users/cron-delete-user/cron-jobs/missing", {
+    const response = await app.request("/cron-jobs/missing", {
       method: "DELETE"
     });
 

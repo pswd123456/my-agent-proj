@@ -61,8 +61,8 @@ import type {
   TraceEvent,
   TraceManager
 } from "@ai-app-template/agent";
+import type { SettingsConfigStore } from "@ai-app-template/agent";
 import {
-  DEFAULT_SESSION_SETTINGS_USER_ID,
   THINKING_EFFORT_OPTIONS,
   createSessionPayloadSchema,
   executeSessionPayloadSchema,
@@ -83,8 +83,7 @@ import type { SessionSettingsRecord } from "@ai-app-template/domain";
 import type {
   BackgroundTaskRepository,
   InboxBindingRepository,
-  RoutineRepository,
-  SettingsRepository
+  RoutineRepository
 } from "@ai-app-template/db";
 
 import type { CronJobRepository } from "./cron-jobs.js";
@@ -222,7 +221,7 @@ export interface ApiAppDependencies {
   sessionManager: SessionManager;
   routineRepository: RoutineRepository;
   cronJobRepository?: CronJobRepository;
-  settingsRepository: SettingsRepository;
+  settingsConfigStore: SettingsConfigStore;
   inboxBindingRepository?: InboxBindingRepository;
   backgroundTaskRepository?: BackgroundTaskRepository;
   traceManager: TraceManager;
@@ -237,7 +236,6 @@ export interface ApiAppDependencies {
   }>;
   modelService?: ModelService;
   defaultModel?: string;
-  defaultUserId?: string;
   telegramBotToken?: string;
   telegramWebhookSecret?: string;
   telegramClient?: TelegramClient;
@@ -354,24 +352,11 @@ function resolveRequestedModel(
   };
 }
 
-function resolveUserId(
-  dependencies: ApiAppDependencies,
-  userId: string | undefined
-): string {
-  const candidate = userId?.trim();
-  if (candidate) {
-    return candidate;
-  }
-
-  return dependencies.defaultUserId ?? DEFAULT_SESSION_SETTINGS_USER_ID;
-}
-
 function toCreateSessionInput(input: {
   settings: SessionSettingsRecord;
   defaultModel: string | undefined;
   modelOverride: string | undefined;
   thinkingEffortOverride: string | undefined;
-  userId: string;
   workingDirectoryOverride: string | undefined;
   yoloModeOverride: boolean | undefined;
   planModeEnabledOverride: boolean | undefined;
@@ -383,7 +368,6 @@ function toCreateSessionInput(input: {
   workingDirectory: string;
   model?: string;
   thinkingEffort: ReturnType<typeof normalizeThinkingEffort>;
-  userId: string;
   yoloMode: boolean;
   planModeEnabled?: boolean;
   contextWindow: number;
@@ -408,7 +392,6 @@ function toCreateSessionInput(input: {
     thinkingEffort: normalizeThinkingEffort(
       input.thinkingEffortOverride ?? input.settings.thinkingEffort
     ),
-    userId: input.userId,
     yoloMode: input.yoloModeOverride ?? input.settings.yoloMode,
     ...(typeof input.planModeEnabledOverride === "boolean"
       ? { planModeEnabled: input.planModeEnabledOverride }
@@ -864,8 +847,7 @@ function resolveTelegramWebhookSecret(
 async function resolveWorkspaceTelegramChannelConfig(
   dependencies: ApiAppDependencies
 ): Promise<ResolvedTelegramChannelConfig> {
-  const userId = resolveUserId(dependencies, undefined);
-  const settings = await dependencies.settingsRepository.getOrCreate(userId);
+  const settings = await dependencies.settingsConfigStore.getGlobalSettings();
   const config = await loadWorkspaceChannelConfig(settings.workingDirectory);
   const telegram = config.telegram;
   if (telegram.configuredInFile) {
@@ -957,10 +939,6 @@ function formatSettingsForTelegram(binding: InboxBindingRecord): string {
   return `Output mode: ${binding.settings.responseOutputMode}`;
 }
 
-function resolveTelegramUserId(chatId: string): string {
-  return `telegram:${chatId}`;
-}
-
 async function sendTelegramText(input: {
   dependencies: ApiAppDependencies;
   chatId: string;
@@ -979,20 +957,16 @@ async function sendTelegramText(input: {
 
 async function createInboxSession(input: {
   dependencies: ApiAppDependencies;
-  userId: string;
   model?: string;
   thinkingEffort?: string;
 }): Promise<SessionSnapshot> {
-  const settings = await input.dependencies.settingsRepository.getOrCreate(
-    input.userId
-  );
+  const settings = await input.dependencies.settingsConfigStore.getGlobalSettings();
   const requestedModel = resolveRequestedModel(input.dependencies, input.model);
   const createInput = toCreateSessionInput({
     settings,
     defaultModel: resolveDefaultModel(input.dependencies),
     modelOverride: requestedModel.model,
     thinkingEffortOverride: input.thinkingEffort,
-    userId: input.userId,
     workingDirectoryOverride: undefined,
     yoloModeOverride: undefined,
     planModeEnabledOverride: undefined,
@@ -1027,8 +1001,7 @@ async function ensureTelegramActiveSession(input: {
   }
 
   const session = await createInboxSession({
-    dependencies: input.dependencies,
-    userId: input.binding.userId
+    dependencies: input.dependencies
   });
   const updatedBinding =
     (await repository.updateActiveSession(
@@ -1085,7 +1058,6 @@ async function handleTelegramCommand(input: {
   if (command.kind === "new_session") {
     const session = await createInboxSession({
       dependencies: input.dependencies,
-      userId: input.binding.userId,
       ...(command.model ? { model: command.model } : {}),
       ...(command.thinkingEffort
         ? { thinkingEffort: command.thinkingEffort }
@@ -1586,8 +1558,7 @@ export function createApiApp(dependencies: ApiAppDependencies) {
     const chatId = String(message.chat.id);
     const binding = await dependencies.inboxBindingRepository.getOrCreate({
       channel: "telegram",
-      externalChatId: chatId,
-      userId: resolveTelegramUserId(chatId)
+      externalChatId: chatId
     });
     const processedBinding =
       await dependencies.inboxBindingRepository.markUpdateProcessed(
@@ -1633,15 +1604,13 @@ export function createApiApp(dependencies: ApiAppDependencies) {
   app.post("/sessions", async (c) => {
     const requestId = getRequestId(c);
     const body = createSessionPayloadSchema.parse(await c.req.json());
-    const userId = resolveUserId(dependencies, body.userId);
-    const settings = await dependencies.settingsRepository.getOrCreate(userId);
+    const settings = await dependencies.settingsConfigStore.getGlobalSettings();
     const requestedModel = resolveRequestedModel(dependencies, body.model);
     const createInput = toCreateSessionInput({
       settings,
       defaultModel: resolveDefaultModel(dependencies),
       modelOverride: requestedModel.model,
       thinkingEffortOverride: body.thinkingEffort,
-      userId,
       workingDirectoryOverride: body.workingDirectory,
       yoloModeOverride: body.yoloMode,
       planModeEnabledOverride: body.planModeEnabled,
@@ -1658,42 +1627,37 @@ export function createApiApp(dependencies: ApiAppDependencies) {
       requestId,
       event: "session_created",
       sessionId: session.sessionId,
-      details: { userId, workingDirectory: session.workingDirectory }
+      details: { workingDirectory: session.workingDirectory }
     });
     return c.json({ session }, 201);
   });
 
-  app.get("/users/:userId/settings", async (c) => {
-    const settings = await dependencies.settingsRepository.getOrCreate(
-      resolveUserId(dependencies, c.req.param("userId"))
-    );
+  app.get("/settings", async (c) => {
+    const settings = await dependencies.settingsConfigStore.getGlobalSettings();
     return c.json({ settings, permissionTools: settingsPermissionTools });
   });
 
-  app.get("/users/:userId/cron-jobs", async (c) => {
+  app.get("/cron-jobs", async (c) => {
     if (!dependencies.cronJobRepository) {
       return c.json({ error: "Cron jobs are not configured." }, 503);
     }
 
-    const userId = resolveUserId(dependencies, c.req.param("userId"));
-    const cronJobs = await dependencies.cronJobRepository.listByUserId(userId);
+    const cronJobs = await dependencies.cronJobRepository.list();
     return c.json(listCronJobsResponseSchema.parse({ cronJobs }));
   });
 
-  app.post("/users/:userId/cron-jobs", async (c) => {
+  app.post("/cron-jobs", async (c) => {
     if (!dependencies.cronJobRepository) {
       return c.json({ error: "Cron jobs are not configured." }, 503);
     }
 
     const requestId = getRequestId(c);
-    const userId = resolveUserId(dependencies, c.req.param("userId"));
     const body = createCronJobBodySchema.parse(await c.req.json());
     const requestedModel =
       typeof body.model === "string"
         ? resolveRequestedModel(dependencies, body.model).model
         : undefined;
     const cronJob = await dependencies.cronJobRepository.create({
-      userId,
       ...body,
       workingDirectory: dependencies.buildWorkingDirectory(
         body.workingDirectory
@@ -1705,19 +1669,18 @@ export function createApiApp(dependencies: ApiAppDependencies) {
       logger: dependencies.apiLogger,
       requestId,
       event: "cron_job_created",
-      details: { userId, cronJobId: cronJob.id }
+      details: { cronJobId: cronJob.id }
     });
 
     return c.json(cronJobResponseSchema.parse({ cronJob }), 201);
   });
 
-  app.patch("/users/:userId/cron-jobs/:cronJobId", async (c) => {
+  app.patch("/cron-jobs/:cronJobId", async (c) => {
     if (!dependencies.cronJobRepository) {
       return c.json({ error: "Cron jobs are not configured." }, 503);
     }
 
     const requestId = getRequestId(c);
-    const userId = resolveUserId(dependencies, c.req.param("userId"));
     const cronJobId = c.req.param("cronJobId");
     const body = updateCronJobBodySchema.parse(await c.req.json());
     const requestedModel =
@@ -1727,7 +1690,6 @@ export function createApiApp(dependencies: ApiAppDependencies) {
           ? resolveRequestedModel(dependencies, body.model).model
           : undefined;
     const cronJob = await dependencies.cronJobRepository.update(
-      userId,
       cronJobId,
       {
         ...body,
@@ -1752,24 +1714,20 @@ export function createApiApp(dependencies: ApiAppDependencies) {
       logger: dependencies.apiLogger,
       requestId,
       event: "cron_job_updated",
-      details: { userId, cronJobId }
+      details: { cronJobId }
     });
 
     return c.json(cronJobResponseSchema.parse({ cronJob }));
   });
 
-  app.delete("/users/:userId/cron-jobs/:cronJobId", async (c) => {
+  app.delete("/cron-jobs/:cronJobId", async (c) => {
     if (!dependencies.cronJobRepository) {
       return c.json({ error: "Cron jobs are not configured." }, 503);
     }
 
     const requestId = getRequestId(c);
-    const userId = resolveUserId(dependencies, c.req.param("userId"));
     const cronJobId = c.req.param("cronJobId");
-    const removed = await dependencies.cronJobRepository.remove(
-      userId,
-      cronJobId
-    );
+    const removed = await dependencies.cronJobRepository.remove(cronJobId);
     if (!removed) {
       return c.json({ error: "Cron job not found." }, 404);
     }
@@ -1778,7 +1736,7 @@ export function createApiApp(dependencies: ApiAppDependencies) {
       logger: dependencies.apiLogger,
       requestId,
       event: "cron_job_deleted",
-      details: { userId, cronJobId }
+      details: { cronJobId }
     });
 
     return c.body(null, 204);
@@ -1799,43 +1757,40 @@ export function createApiApp(dependencies: ApiAppDependencies) {
     });
   });
 
-  app.get("/users/:userId/settings/channels", async (c) => {
-    const userId = resolveUserId(dependencies, c.req.param("userId"));
-    const settings = await dependencies.settingsRepository.getOrCreate(userId);
+  app.get("/settings/channels", async (c) => {
+    const settings = await dependencies.settingsConfigStore.getGlobalSettings();
     return c.json(
       await buildUserSettingsChannelsPayload(settings.workingDirectory)
     );
   });
 
-  app.put("/users/:userId/settings/channels", async (c) => {
-    const userId = resolveUserId(dependencies, c.req.param("userId"));
-    const settings = await dependencies.settingsRepository.getOrCreate(userId);
+  app.put("/settings/channels", async (c) => {
+    const settings = await dependencies.settingsConfigStore.getGlobalSettings();
     const body = updateUserSettingsChannelsPayloadSchema.parse(
       await c.req.json()
     );
-    await replaceWorkspaceChannelConfig(settings.workingDirectory, {
-      channel: "telegram",
-      configuredInFile: true,
-      enabled: body.telegram.enabled,
-      mode: body.telegram.mode,
-      botToken: body.telegram.botToken.trim(),
-      webhookSecret: body.telegram.webhookSecret.trim(),
-      webhookUrl: body.telegram.webhookUrl.trim()
-    });
+    await dependencies.settingsConfigStore.updateWorkspaceChannels(
+      settings.workingDirectory,
+      {
+        enabled: body.telegram.enabled,
+        mode: body.telegram.mode,
+        botToken: body.telegram.botToken.trim(),
+        webhookSecret: body.telegram.webhookSecret.trim(),
+        webhookUrl: body.telegram.webhookUrl.trim()
+      }
+    );
     return c.json(
       await buildUserSettingsChannelsPayload(settings.workingDirectory)
     );
   });
 
-  app.get("/users/:userId/settings/mcp", async (c) => {
-    const userId = resolveUserId(dependencies, c.req.param("userId"));
-    const settings = await dependencies.settingsRepository.getOrCreate(userId);
+  app.get("/settings/mcp", async (c) => {
+    const settings = await dependencies.settingsConfigStore.getGlobalSettings();
     return c.json(await buildUserSettingsMcpPayload(settings.workingDirectory));
   });
 
-  app.put("/users/:userId/settings/mcp", async (c) => {
-    const userId = resolveUserId(dependencies, c.req.param("userId"));
-    const settings = await dependencies.settingsRepository.getOrCreate(userId);
+  app.put("/settings/mcp", async (c) => {
+    const settings = await dependencies.settingsConfigStore.getGlobalSettings();
     const body = updateUserSettingsMcpPayloadSchema.parse(await c.req.json());
     if (hasDuplicateMcpServerNames(body.servers)) {
       return c.json({ error: "MCP server names must be unique." }, 400);
@@ -1845,13 +1800,15 @@ export function createApiApp(dependencies: ApiAppDependencies) {
       normalizeWorkspaceMcpServerConfigs(
         body.servers as Parameters<typeof normalizeWorkspaceMcpServerConfigs>[0]
       );
-    await replaceWorkspaceMcpConfigServers(settings.workingDirectory, servers);
+    await dependencies.settingsConfigStore.updateWorkspaceMcpServers(
+      settings.workingDirectory,
+      servers
+    );
     return c.json(await buildUserSettingsMcpPayload(settings.workingDirectory));
   });
 
-  app.get("/users/:userId/settings/skills", async (c) => {
-    const userId = resolveUserId(dependencies, c.req.param("userId"));
-    const settings = await dependencies.settingsRepository.getOrCreate(userId);
+  app.get("/settings/skills", async (c) => {
+    const settings = await dependencies.settingsConfigStore.getGlobalSettings();
     return c.json(
       await buildUserSettingsSkillsPayload(
         settings.workingDirectory,
@@ -1860,11 +1817,10 @@ export function createApiApp(dependencies: ApiAppDependencies) {
     );
   });
 
-  app.patch("/users/:userId/settings", async (c) => {
-    const userId = resolveUserId(dependencies, c.req.param("userId"));
+  app.patch("/settings", async (c) => {
     const body = updateUserSettingsPayloadSchema.parse(await c.req.json());
     const requestedModel = resolveRequestedModel(dependencies, body.model);
-    const settings = await dependencies.settingsRepository.update(userId, {
+    const settings = await dependencies.settingsConfigStore.updateGlobalSettings({
       ...(typeof body.workingDirectory === "string"
         ? {
             workingDirectory: dependencies.buildWorkingDirectory(
@@ -1951,8 +1907,8 @@ export function createApiApp(dependencies: ApiAppDependencies) {
     const checkpoints =
       await dependencies.sessionManager.listForkCheckpoints(sessionId);
     const forkableCheckpoints = listForkableCheckpoints(checkpoints);
-    const settings = await dependencies.settingsRepository.getOrCreate(
-      session.context.userId
+    const settings = await dependencies.settingsConfigStore.getEffectiveSettings(
+      session.workingDirectory
     );
     const rewriteTarget = resolveLatestRewriteTarget({
       session,
@@ -2069,8 +2025,8 @@ export function createApiApp(dependencies: ApiAppDependencies) {
     const body = recoverRewriteTargetBodySchema.parse(await c.req.json());
     const checkpoints =
       await dependencies.sessionManager.listForkCheckpoints(sessionId);
-    const settings = await dependencies.settingsRepository.getOrCreate(
-      session.context.userId
+    const settings = await dependencies.settingsConfigStore.getEffectiveSettings(
+      session.workingDirectory
     );
     const rewriteTarget = resolveLatestRewriteTarget({
       session,
@@ -2660,7 +2616,6 @@ export function createApiApp(dependencies: ApiAppDependencies) {
 
     const query = listRoutinesQuerySchema.parse(c.req.query());
     const routines = await dependencies.routineRepository.listByDateRange(
-      session.context.userId,
       query.startDate,
       query.endDate
     );
@@ -2680,9 +2635,7 @@ export function createApiApp(dependencies: ApiAppDependencies) {
       return c.json({ error: "Session not found." }, 404);
     }
 
-    const resetCount = await dependencies.routineRepository.resetAll(
-      session.context.userId
-    );
+    const resetCount = await dependencies.routineRepository.resetAll();
 
     return c.json({
       sessionId,

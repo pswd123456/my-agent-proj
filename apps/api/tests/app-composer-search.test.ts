@@ -10,11 +10,9 @@ import {
   workspaceFileSearchResultSchema,
   workspaceSkillSearchResultSchema
 } from "@ai-app-template/agent";
-import {
-  createMemoryRoutineRepository,
-  createMemorySettingsRepository
-} from "@ai-app-template/db";
+import { createMemoryRoutineRepository } from "@ai-app-template/db";
 
+import { createTestSettingsConfigStore } from "./helpers/settings-config-store.js";
 import { createApiApp } from "../src/app.js";
 
 async function createWorkspace(): Promise<string> {
@@ -68,7 +66,7 @@ async function createWorkspace(): Promise<string> {
 async function createTestApp() {
   const sessionManager = await createPostgresTestSessionManager();
   const routineRepository = createMemoryRoutineRepository();
-  const settingsRepository = createMemorySettingsRepository();
+  const { settingsConfigStore } = await createTestSettingsConfigStore();
   const systemLogManager = new FileSystemLogManager(
     "/tmp/my-agent-proj-composer-search-test"
   );
@@ -78,7 +76,7 @@ async function createTestApp() {
     app: createApiApp({
       sessionManager,
       routineRepository,
-      settingsRepository,
+      settingsConfigStore,
       traceManager: {
         async appendEvent() {},
         async readEvents() {
@@ -102,8 +100,8 @@ async function createTestApp() {
 describe("composer search endpoints", () => {
   test("searches sessions by session id and user or assistant text", async () => {
     const { app, sessionManager } = await createTestApp();
-    const sessionA = await sessionManager.createSession({ userId: "user-a" });
-    const sessionB = await sessionManager.createSession({ userId: "user-a" });
+    const sessionA = await sessionManager.createSession();
+    const sessionB = await sessionManager.createSession();
 
     await sessionManager.appendBlock(sessionA.sessionId, {
       id: "user-1",
@@ -152,8 +150,7 @@ describe("composer search endpoints", () => {
     const workspace = await createWorkspace();
     const { app, sessionManager } = await createTestApp();
     const session = await sessionManager.createSession({
-      workingDirectory: workspace,
-      userId: "user-a"
+      workingDirectory: workspace
     });
 
     const response = await app.request(
@@ -176,8 +173,7 @@ describe("composer search endpoints", () => {
     const workspace = await createWorkspace();
     const { app, sessionManager } = await createTestApp();
     const session = await sessionManager.createSession({
-      workingDirectory: workspace,
-      userId: "user-a"
+      workingDirectory: workspace
     });
 
     const listResponse = await app.request(

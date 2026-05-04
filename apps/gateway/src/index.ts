@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import {
   createFileSystemLogManager,
   createLogger,
+  createSettingsConfigStore,
   createTelegramClient,
   loadWorkspaceChannelConfig,
   startTelegramPolling,
@@ -10,11 +11,9 @@ import {
 } from "@ai-app-template/agent";
 import {
   createPostgresDatabase,
-  createPostgresSettingsRepository,
   ensureProductSchema,
   resolveDatabaseUrl
 } from "@ai-app-template/db";
-import { DEFAULT_SESSION_SETTINGS_USER_ID } from "@ai-app-template/domain";
 
 const workspaceRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const apiBaseUrl = (
@@ -36,7 +35,10 @@ const gatewayLogger = createLogger({
   manager: systemLogManager,
   component: "gateway"
 });
-const settingsRepository = createPostgresSettingsRepository(database);
+const settingsConfigStore = createSettingsConfigStore({
+  db: database,
+  seedUserId: "cli-user"
+});
 
 function createTelegramGatewayFetch(): typeof fetch | undefined {
   if (process.env.GATEWAY_TELEGRAM_DEBUG !== "true") {
@@ -72,9 +74,7 @@ async function resolveTelegramGatewayConfig(): Promise<{
   botToken: string | null;
   webhookSecret: string | null;
 }> {
-  const settings = await settingsRepository.getOrCreate(
-    DEFAULT_SESSION_SETTINGS_USER_ID
-  );
+  const settings = await settingsConfigStore.getGlobalSettings();
   const config = await loadWorkspaceChannelConfig(settings.workingDirectory);
   for (const diagnostic of config.diagnostics) {
     await gatewayLogger.warn("gateway_channel_config_diagnostic", {

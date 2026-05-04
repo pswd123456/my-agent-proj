@@ -11,10 +11,10 @@ import {
 } from "@ai-app-template/agent";
 import {
   createMemoryBackgroundTaskRepository,
-  createMemoryRoutineRepository,
-  createMemorySettingsRepository
+  createMemoryRoutineRepository
 } from "@ai-app-template/db";
 
+import { createTestSettingsConfigStore } from "./helpers/settings-config-store.js";
 import { createApiApp } from "../src/app.js";
 
 describe("session relation responses", () => {
@@ -22,7 +22,7 @@ describe("session relation responses", () => {
     const sessionManager = await createPostgresTestSessionManager();
     const backgroundTaskRepository = createMemoryBackgroundTaskRepository();
     const routineRepository = createMemoryRoutineRepository();
-    const settingsRepository = createMemorySettingsRepository();
+    const { settingsConfigStore } = await createTestSettingsConfigStore();
     const logDir = await mkdtemp(path.join(os.tmpdir(), "api-session-rel-"));
     const systemLogManager = new FileSystemLogManager(logDir, {
       maxBytes: 4096,
@@ -36,7 +36,7 @@ describe("session relation responses", () => {
     const app = createApiApp({
       sessionManager,
       routineRepository,
-      settingsRepository,
+      settingsConfigStore,
       backgroundTaskRepository,
       traceManager: {
         async appendEvent() {},
@@ -54,12 +54,10 @@ describe("session relation responses", () => {
     });
 
     const parent = await sessionManager.createSession({
-      workingDirectory: "/tmp/parent",
-      userId: "user-a"
+      workingDirectory: "/tmp/parent"
     });
     const child = await sessionManager.createSession({
-      workingDirectory: "/tmp/child",
-      userId: "user-a"
+      workingDirectory: "/tmp/child"
     });
     await backgroundTaskRepository.enqueueTask({
       kind: "subagent",
@@ -103,7 +101,7 @@ describe("session relation responses", () => {
     const sessionManager = await createPostgresTestSessionManager();
     const backgroundTaskRepository = createMemoryBackgroundTaskRepository();
     const routineRepository = createMemoryRoutineRepository();
-    const settingsRepository = createMemorySettingsRepository();
+    const { settingsConfigStore } = await createTestSettingsConfigStore();
     const logDir = await mkdtemp(path.join(os.tmpdir(), "api-session-rel-"));
     const systemLogManager = new FileSystemLogManager(logDir, {
       maxBytes: 4096,
@@ -117,7 +115,7 @@ describe("session relation responses", () => {
     const app = createApiApp({
       sessionManager,
       routineRepository,
-      settingsRepository,
+      settingsConfigStore,
       backgroundTaskRepository,
       traceManager: {
         async appendEvent() {},
@@ -135,12 +133,10 @@ describe("session relation responses", () => {
     });
 
     const parent = await sessionManager.createSession({
-      workingDirectory: "/tmp/parent",
-      userId: "user-a"
+      workingDirectory: "/tmp/parent"
     });
     const child = await sessionManager.createSession({
       workingDirectory: "/tmp/child",
-      userId: "user-a",
       parentSessionId: parent.sessionId,
       parentRelationKind: "subagent"
     });
@@ -169,7 +165,7 @@ describe("session relation responses", () => {
     const sessionManager = await createPostgresTestSessionManager();
     const backgroundTaskRepository = createMemoryBackgroundTaskRepository();
     const routineRepository = createMemoryRoutineRepository();
-    const settingsRepository = createMemorySettingsRepository();
+    const { settingsConfigStore } = await createTestSettingsConfigStore();
     const logDir = await mkdtemp(path.join(os.tmpdir(), "api-session-rel-"));
     const systemLogManager = new FileSystemLogManager(logDir, {
       maxBytes: 4096,
@@ -183,7 +179,7 @@ describe("session relation responses", () => {
     const app = createApiApp({
       sessionManager,
       routineRepository,
-      settingsRepository,
+      settingsConfigStore,
       backgroundTaskRepository,
       traceManager: {
         async appendEvent() {},
@@ -203,12 +199,10 @@ describe("session relation responses", () => {
     });
 
     const parent = await sessionManager.createSession({
-      workingDirectory: "/tmp/parent",
-      userId: "user-a"
+      workingDirectory: "/tmp/parent"
     });
     const child = await sessionManager.createSession({
-      workingDirectory: "/tmp/child",
-      userId: "user-a"
+      workingDirectory: "/tmp/child"
     });
     await backgroundTaskRepository.enqueueTask({
       kind: "subagent",
@@ -246,7 +240,7 @@ describe("session relation responses", () => {
     const sessionManager = await createPostgresTestSessionManager();
     const backgroundTaskRepository = createMemoryBackgroundTaskRepository();
     const routineRepository = createMemoryRoutineRepository();
-    const settingsRepository = createMemorySettingsRepository();
+    const { settingsConfigStore } = await createTestSettingsConfigStore();
     const logDir = await mkdtemp(path.join(os.tmpdir(), "api-session-rel-"));
     const systemLogManager = new FileSystemLogManager(logDir, {
       maxBytes: 4096,
@@ -260,7 +254,7 @@ describe("session relation responses", () => {
     const app = createApiApp({
       sessionManager,
       routineRepository,
-      settingsRepository,
+      settingsConfigStore,
       backgroundTaskRepository,
       traceManager: {
         async appendEvent() {},
@@ -278,12 +272,10 @@ describe("session relation responses", () => {
     });
 
     const parent = await sessionManager.createSession({
-      workingDirectory: "/tmp/parent",
-      userId: "user-a"
+      workingDirectory: "/tmp/parent"
     });
     const child = await sessionManager.createSession({
       workingDirectory: "/tmp/child",
-      userId: "user-a",
       parentSessionId: parent.sessionId,
       parentRelationKind: "hook_subagent"
     });

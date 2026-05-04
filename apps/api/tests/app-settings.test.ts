@@ -1,11 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { createPostgresTestSessionManager } from "../../../tests/helpers/postgres-session-manager.js";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
 import { SESSION_MAX_TURNS_LIMIT } from "@ai-app-template/domain";
-import type { SessionSettingsInput } from "@ai-app-template/domain";
 import type { SessionSnapshot } from "@ai-app-template/agent";
 import {
   DEFAULT_DEEPSEEK_MODEL,
@@ -16,11 +15,9 @@ import {
   userSettingsChannelsPayloadSchema,
   userSettingsMcpPayloadSchema
 } from "@ai-app-template/agent";
-import {
-  createMemoryRoutineRepository,
-  createMemorySettingsRepository
-} from "@ai-app-template/db";
+import { createMemoryRoutineRepository } from "@ai-app-template/db";
 
+import { createTestSettingsConfigStore } from "./helpers/settings-config-store.js";
 import { createApiApp } from "../src/app.js";
 import { resolveApiWorkingDirectory } from "../src/working-directory.js";
 
@@ -41,7 +38,7 @@ async function createTestApp() {
   const settingsPermissionToolOptions = listSettingsPermissionToolOptions({
     workingDirectory: resolveApiWorkingDirectory(workspaceRoot)
   }).map((tool) => tool.name);
-  const settingsRepository = createMemorySettingsRepository({
+  const { settingsConfigStore, homeDir } = await createTestSettingsConfigStore({
     settingsPermissionToolOptions
   });
 
@@ -49,7 +46,7 @@ async function createTestApp() {
     app: createApiApp({
       sessionManager,
       routineRepository,
-      settingsRepository,
+      settingsConfigStore,
       traceManager: {
         async appendEvent() {},
         async readEvents() {
@@ -123,7 +120,9 @@ async function createTestApp() {
       }
     }),
     sessionManager,
-    systemLogManager
+    systemLogManager,
+    settingsConfigStore,
+    homeDir
   };
 }
 
@@ -144,15 +143,10 @@ async function createSession(
 
 describe("createApiApp settings bootstrap", () => {
   test("creates a new session from repo defaults when no user settings exist yet", async () => {
-    const { app, sessionManager } = await createTestApp();
+    const { app } = await createTestApp();
 
-    const session = await createSession(app, {
-      userId: "stage5-default-user"
-    });
+    const session = await createSession(app, {});
 
-    expect(session.context.userId).toBe(
-      sessionManager.testUserId("stage5-default-user")
-    );
     expect(session.workingDirectory).toBe(
       resolveApiWorkingDirectory(workspaceRoot)
     );
@@ -171,7 +165,7 @@ describe("createApiApp settings bootstrap", () => {
     const { app } = await createTestApp();
 
     const updateResponse = await app.request(
-      "/users/stage5-settings-user/settings",
+      "/settings",
       {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -226,9 +220,7 @@ describe("createApiApp settings bootstrap", () => {
     ]);
     expect(updatePayload.permissionTools.length).toBeGreaterThan(0);
 
-    const session = await createSession(app, {
-      userId: "stage5-settings-user"
-    });
+    const session = await createSession(app, {});
 
     expect(session.workingDirectory).toBe(
       resolveApiWorkingDirectory(workspaceRoot, "apps/web")
@@ -248,7 +240,7 @@ describe("createApiApp settings bootstrap", () => {
 
     try {
       const settingsResponse = await app.request(
-        "/users/stage5-channel-user/settings",
+        "/settings",
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -258,7 +250,7 @@ describe("createApiApp settings bootstrap", () => {
       expect(settingsResponse.status).toBe(200);
 
       const updateResponse = await app.request(
-        "/users/stage5-channel-user/settings/channels",
+        "/settings/channels",
         {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -286,7 +278,7 @@ describe("createApiApp settings bootstrap", () => {
       });
 
       const readResponse = await app.request(
-        "/users/stage5-channel-user/settings/channels"
+        "/settings/channels"
       );
       expect(readResponse.status).toBe(200);
       const readPayload = userSettingsChannelsPayloadSchema.parse(
@@ -301,64 +293,7 @@ describe("createApiApp settings bootstrap", () => {
   });
 
   test("passes hooks and workspace skill settings through to the repository patch", async () => {
-    const updateCalls: SessionSettingsInput[] = [];
-    const baseRepository = createMemorySettingsRepository();
-    const settingsRepository = {
-      async getOrCreate(userId: string) {
-        return baseRepository.getOrCreate(userId);
-      },
-      async update(userId: string, patch: SessionSettingsInput) {
-        updateCalls.push(patch);
-        return baseRepository.update(userId, patch);
-      }
-    };
-    const passThroughApp = createApiApp({
-      sessionManager: await createPostgresTestSessionManager(),
-      routineRepository: createMemoryRoutineRepository(),
-      settingsRepository,
-      traceManager: {
-        async appendEvent() {},
-        async readEvents() {
-          return [];
-        },
-        async deleteEvents() {},
-        async truncateEventsAfterTurn() {}
-      },
-      systemLogManager: new FileSystemLogManager(
-        await mkdtemp(path.join(os.tmpdir(), "api-log-")),
-        {
-          maxBytes: 4096,
-          maxFiles: 2
-        }
-      ),
-      buildWorkingDirectory(input) {
-        return resolveApiWorkingDirectory(workspaceRoot, input);
-      },
-      defaultModel: DEFAULT_MINIMAX_MODEL,
-      modelService: {
-        listModels() {
-          return [];
-        },
-        getDefaultModel() {
-          return DEFAULT_MINIMAX_MODEL;
-        },
-        isModelSupported() {
-          return true;
-        },
-        isModelAvailable() {
-          return true;
-        },
-        supportsThinking() {
-          return true;
-        },
-        getThinkingEfforts() {
-          return [];
-        },
-        assertModelAvailable(model) {
-          return model;
-        }
-      }
-    });
+    const { app, settingsConfigStore, homeDir } = await createTestApp();
     const workspaceSkillSettings = [
       { skillName: "planner", enabled: true },
       { skillName: "repo-reader", enabled: false }
@@ -376,24 +311,25 @@ describe("createApiApp settings bootstrap", () => {
       }
     ];
 
-    const response = await passThroughApp.request(
-      "/users/stage5-pass-through-user/settings",
-      {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          workspaceSkillSettings,
-          userContextHooks
-        })
-      }
-    );
+    const response = await app.request("/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        workspaceSkillSettings,
+        userContextHooks
+      })
+    });
 
     expect(response.status).toBe(200);
-    expect(updateCalls).toHaveLength(1);
-    expect(updateCalls[0]?.workspaceSkillSettings).toEqual(
-      workspaceSkillSettings
+    const settings = await settingsConfigStore.getGlobalSettings();
+    expect(settings.workspaceSkillSettings).toEqual(workspaceSkillSettings);
+    expect(settings.userContextHooks).toEqual(userContextHooks);
+    const rawConfig = await readFile(
+      path.join(homeDir, ".agents", "config.toml"),
+      "utf8"
     );
-    expect(updateCalls[0]?.userContextHooks).toEqual(userContextHooks);
+    expect(rawConfig).toContain("workspace_skill_settings");
+    expect(rawConfig).toContain("user_context_hooks");
   });
 
   test("accepts a default working directory outside the repo root", async () => {
@@ -401,7 +337,7 @@ describe("createApiApp settings bootstrap", () => {
     const externalDirectory = "/tmp/my-agent-proj-external-workspace";
 
     const updateResponse = await app.request(
-      "/users/stage5-external-workspace-user/settings",
+      "/settings",
       {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -417,9 +353,7 @@ describe("createApiApp settings bootstrap", () => {
     };
     expect(updatePayload.settings.workingDirectory).toBe(externalDirectory);
 
-    const session = await createSession(app, {
-      userId: "stage5-external-workspace-user"
-    });
+    const session = await createSession(app, {});
 
     expect(session.workingDirectory).toBe(externalDirectory);
   });
@@ -427,12 +361,10 @@ describe("createApiApp settings bootstrap", () => {
   test("updating user default model does not rewrite an existing session model", async () => {
     const { app } = await createTestApp();
 
-    const session = await createSession(app, {
-      userId: "stage5-existing-session-user"
-    });
+    const session = await createSession(app, {});
 
     const updateResponse = await app.request(
-      "/users/stage5-existing-session-user/settings",
+      "/settings",
       {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -458,9 +390,7 @@ describe("createApiApp settings bootstrap", () => {
   test("syncs normalized permission rules onto the current session", async () => {
     const { app } = await createTestApp();
 
-    const session = await createSession(app, {
-      userId: "stage5-permission-user"
-    });
+    const session = await createSession(app, {});
 
     const response = await app.request(
       `/sessions/${session.sessionId}/settings`,
@@ -490,7 +420,7 @@ describe("createApiApp settings bootstrap", () => {
   test("returns dynamic permission tools with user settings", async () => {
     const { app } = await createTestApp();
 
-    const response = await app.request("/users/stage5-meta-user/settings");
+    const response = await app.request("/settings");
 
     expect(response.status).toBe(200);
     const payload = (await response.json()) as {
@@ -526,7 +456,7 @@ describe("createApiApp settings bootstrap", () => {
 
     try {
       const settingsResponse = await app.request(
-        "/users/stage5-mcp-user/settings",
+        "/settings",
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -536,7 +466,7 @@ describe("createApiApp settings bootstrap", () => {
       expect(settingsResponse.status).toBe(200);
 
       const updateResponse = await app.request(
-        "/users/stage5-mcp-user/settings/mcp",
+        "/settings/mcp",
         {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -579,7 +509,7 @@ describe("createApiApp settings bootstrap", () => {
 
     try {
       const settingsResponse = await app.request(
-        "/users/stage5-mcp-normalized-user/settings",
+        "/settings",
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -589,7 +519,7 @@ describe("createApiApp settings bootstrap", () => {
       expect(settingsResponse.status).toBe(200);
 
       const updateResponse = await app.request(
-        "/users/stage5-mcp-normalized-user/settings/mcp",
+        "/settings/mcp",
         {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -635,9 +565,7 @@ describe("createApiApp settings bootstrap", () => {
   test("updates the current session model through session settings", async () => {
     const { app } = await createTestApp();
 
-    const session = await createSession(app, {
-      userId: "stage5-model-user"
-    });
+    const session = await createSession(app, {});
 
     const response = await app.request(
       `/sessions/${session.sessionId}/settings`,
@@ -662,7 +590,6 @@ describe("createApiApp settings bootstrap", () => {
     const { app } = await createTestApp();
 
     const session = await createSession(app, {
-      userId: "stage5-thinking-effort-user",
       model: DEFAULT_DEEPSEEK_MODEL
     });
 
@@ -689,7 +616,6 @@ describe("createApiApp settings bootstrap", () => {
     const { app } = await createTestApp();
 
     const session = await createSession(app, {
-      userId: "stage5-planmode-user",
       planModeEnabled: true
     });
 
@@ -719,7 +645,7 @@ describe("createApiApp settings bootstrap", () => {
     const { app } = await createTestApp();
 
     const updateResponse = await app.request(
-      "/users/stage5-limit-user/settings",
+      "/settings",
       {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -739,7 +665,6 @@ describe("createApiApp settings bootstrap", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        userId: "stage5-limit-user",
         maxTurns: SESSION_MAX_TURNS_LIMIT + 100
       })
     });
@@ -791,7 +716,7 @@ describe("createApiApp settings bootstrap", () => {
         "content-type": "application/json",
         "x-request-id": "req-create"
       },
-      body: JSON.stringify({ userId: "log-user" })
+      body: JSON.stringify({})
     });
 
     const payload = await systemLogManager.query({
@@ -808,9 +733,7 @@ describe("createApiApp settings bootstrap", () => {
 
   test("reads a session without logging an interrupt request", async () => {
     const { app, systemLogManager } = await createTestApp();
-    const session = await createSession(app, {
-      userId: "stage5-session-read-user"
-    });
+    const session = await createSession(app, {});
 
     const response = await app.request(`/sessions/${session.sessionId}`, {
       headers: {
@@ -839,12 +762,8 @@ describe("createApiApp settings bootstrap", () => {
   test("clears all session history in one request", async () => {
     const { app, sessionManager } = await createTestApp();
 
-    const parentSession = await createSession(app, {
-      userId: "stage5-clear-history-user"
-    });
-    const childSession = await createSession(app, {
-      userId: "stage5-clear-history-user"
-    });
+    const parentSession = await createSession(app, {});
+    const childSession = await createSession(app, {});
 
     const childSnapshot = await sessionManager.getSession(
       childSession.sessionId

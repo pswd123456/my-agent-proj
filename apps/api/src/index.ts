@@ -52,7 +52,7 @@ export const app = createApiApp({
   sessionManager: runtimeEnvironment.sessionManager,
   routineRepository: runtimeEnvironment.routineRepository,
   cronJobRepository: runtimeEnvironment.cronJobRepository,
-  settingsRepository: runtimeEnvironment.settingsRepository,
+  settingsConfigStore: runtimeEnvironment.settingsConfigStore,
   inboxBindingRepository: runtimeEnvironment.inboxBindingRepository,
   backgroundTaskRepository: runtimeEnvironment.backgroundTaskRepository,
   traceManager: runtimeEnvironment.traceManager,

@@ -4,15 +4,14 @@ import {
   FileSystemLogManager,
   createLogger
 } from "@ai-app-template/agent";
-import {
-  createMemoryRoutineRepository,
-  createMemorySettingsRepository
-} from "@ai-app-template/db";
+import { createMemoryRoutineRepository } from "@ai-app-template/db";
 
+import { createTestSettingsConfigStore } from "./helpers/settings-config-store.js";
 import { createApiApp } from "../src/app.js";
 
 describe("createApiApp error responses", () => {
   test("returns structured error details for unexpected failures", async () => {
+    const { settingsConfigStore } = await createTestSettingsConfigStore();
     const app = createApiApp({
       sessionManager: {
         async listSessions() {
@@ -25,7 +24,7 @@ describe("createApiApp error responses", () => {
         }
       } as never,
       routineRepository: createMemoryRoutineRepository(),
-      settingsRepository: createMemorySettingsRepository(),
+      settingsConfigStore,
       traceManager: {
         async appendEvent() {},
         async readEvents() {
@@ -78,6 +77,7 @@ describe("createApiApp error responses", () => {
 
   test("reuses the same generated request id for logs and error responses", async () => {
     let capturedRequestId: string | null = null;
+    const { settingsConfigStore } = await createTestSettingsConfigStore();
     const app = createApiApp({
       sessionManager: {
         async listSessions() {
@@ -85,7 +85,7 @@ describe("createApiApp error responses", () => {
         }
       } as never,
       routineRepository: createMemoryRoutineRepository(),
-      settingsRepository: createMemorySettingsRepository(),
+      settingsConfigStore,
       traceManager: {
         async appendEvent() {},
         async readEvents() {

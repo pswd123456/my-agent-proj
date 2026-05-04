@@ -18,11 +18,11 @@ import {
 } from "@ai-app-template/agent";
 import {
   createMemoryInboxBindingRepository,
-  createMemoryRoutineRepository,
-  createMemorySettingsRepository
+  createMemoryRoutineRepository
 } from "@ai-app-template/db";
 
 import { createPostgresTestSessionManager } from "../../../tests/helpers/postgres-session-manager.js";
+import { createTestSettingsConfigStore } from "./helpers/settings-config-store.js";
 import { createApiApp } from "../src/app.js";
 
 const workspaceRoot = "/Users/boneda/gitrepo/my-agent-proj";
@@ -127,12 +127,13 @@ async function createTestApp(input?: {
   });
   const telegramClient = createTelegramClientSpy();
   const inboxBindingRepository = createMemoryInboxBindingRepository();
+  const { settingsConfigStore } = await createTestSettingsConfigStore();
 
   return {
     app: createApiApp({
       sessionManager,
       routineRepository: createMemoryRoutineRepository(),
-      settingsRepository: createMemorySettingsRepository(),
+      settingsConfigStore,
       inboxBindingRepository,
       traceManager: {
         async appendEvent() {},

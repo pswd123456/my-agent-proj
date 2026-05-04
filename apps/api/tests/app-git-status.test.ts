@@ -10,11 +10,9 @@ import {
   createLogger,
   sessionWorkspaceGitStatusSchema
 } from "@ai-app-template/agent";
-import {
-  createMemoryRoutineRepository,
-  createMemorySettingsRepository
-} from "@ai-app-template/db";
+import { createMemoryRoutineRepository } from "@ai-app-template/db";
 
+import { createTestSettingsConfigStore } from "./helpers/settings-config-store.js";
 import { createApiApp } from "../src/app.js";
 
 function runGit(args: string[], cwd: string) {
@@ -66,7 +64,7 @@ async function createPlainWorkspace(): Promise<string> {
 async function createTestApp() {
   const sessionManager = await createPostgresTestSessionManager();
   const routineRepository = createMemoryRoutineRepository();
-  const settingsRepository = createMemorySettingsRepository();
+  const { settingsConfigStore } = await createTestSettingsConfigStore();
   const systemLogManager = new FileSystemLogManager(
     "/tmp/my-agent-proj-git-status-test"
   );
@@ -76,7 +74,7 @@ async function createTestApp() {
     app: createApiApp({
       sessionManager,
       routineRepository,
-      settingsRepository,
+      settingsConfigStore,
       traceManager: {
         async appendEvent() {},
         async readEvents() {
@@ -104,8 +102,7 @@ describe("session git status API", () => {
     try {
       const { app, sessionManager } = await createTestApp();
       const session = await sessionManager.createSession({
-        workingDirectory: workspace,
-        userId: "user-a"
+        workingDirectory: workspace
       });
 
       const response = await app.request(
@@ -138,8 +135,7 @@ describe("session git status API", () => {
     try {
       const { app, sessionManager } = await createTestApp();
       const session = await sessionManager.createSession({
-        workingDirectory: workspace,
-        userId: "user-a"
+        workingDirectory: workspace
       });
 
       const response = await app.request(

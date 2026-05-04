@@ -5,11 +5,9 @@ import {
   FileSystemLogManager,
   createLogger
 } from "@ai-app-template/agent";
-import {
-  createMemoryRoutineRepository,
-  createMemorySettingsRepository
-} from "@ai-app-template/db";
+import { createMemoryRoutineRepository } from "@ai-app-template/db";
 
+import { createTestSettingsConfigStore } from "./helpers/settings-config-store.js";
 import { createApiApp } from "../src/app.js";
 
 async function createTestApp(options?: {
@@ -17,7 +15,7 @@ async function createTestApp(options?: {
 }) {
   const sessionManager = await createPostgresTestSessionManager();
   const routineRepository = createMemoryRoutineRepository();
-  const settingsRepository = createMemorySettingsRepository();
+  const { settingsConfigStore } = await createTestSettingsConfigStore();
   const systemLogManager = new FileSystemLogManager(
     "/tmp/my-agent-proj-directory-picker-test"
   );
@@ -25,7 +23,7 @@ async function createTestApp(options?: {
   return createApiApp({
     sessionManager,
     routineRepository,
-    settingsRepository,
+    settingsConfigStore,
     traceManager: {
       async appendEvent() {},
       async readEvents() {

@@ -10,16 +10,13 @@ import {
   type SessionSnapshot,
   type TraceRecord
 } from "@ai-app-template/agent";
-import {
-  createMemoryRoutineRepository,
-  createMemorySettingsRepository,
-  type MemorySettingsRepository
-} from "@ai-app-template/db";
+import { createMemoryRoutineRepository } from "@ai-app-template/db";
 
 import { mkdtemp } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+import { createTestSettingsConfigStore } from "./helpers/settings-config-store.js";
 import { createApiApp, type ApiAppDependencies } from "../src/app.js";
 import { resolveApiWorkingDirectory } from "../src/working-directory.js";
 
@@ -28,7 +25,7 @@ const workspaceRoot = "/Users/boneda/gitrepo/my-agent-proj";
 async function createForkTestApp() {
   const sessionManager = await createPostgresTestSessionManager();
   const routineRepository = createMemoryRoutineRepository();
-  const settingsRepository = createMemorySettingsRepository();
+  const { settingsConfigStore } = await createTestSettingsConfigStore();
   const logDir = await mkdtemp(path.join(os.tmpdir(), "api-fork-log-"));
   let traceRecords: TraceRecord[] = [];
 
@@ -58,7 +55,7 @@ async function createForkTestApp() {
   const app = createApiApp({
     sessionManager,
     routineRepository,
-    settingsRepository,
+    settingsConfigStore,
     traceManager,
     systemLogManager,
     buildWorkingDirectory(input) {
@@ -70,7 +67,7 @@ async function createForkTestApp() {
   return {
     app,
     sessionManager,
-    settingsRepository,
+    settingsConfigStore,
     getTraceRecords() {
       return traceRecords;
     },
@@ -90,8 +87,7 @@ async function seedCheckpoint(
   let sourceSession = createSnapshot({
     sessionId: sessionManager.testId("source-session"),
     workingDirectory: "/tmp/workspace",
-    model: "MiniMax-M2.7",
-    userId: "fork-user"
+    model: "MiniMax-M2.7"
   });
   sourceSession.messages = [
     {
@@ -149,8 +145,7 @@ async function seedIntermediateCheckpoint(
   let sourceSession = createSnapshot({
     sessionId: sessionManager.testId("source-intermediate-session"),
     workingDirectory: "/tmp/workspace",
-    model: "MiniMax-M2.7",
-    userId: "fork-user"
+    model: "MiniMax-M2.7"
   });
   sourceSession.messages = [
     {
@@ -224,7 +219,7 @@ async function seedIntermediateCheckpoint(
 
 async function seedRewriteScenario(input: {
   sessionManager: PostgresTestSessionManager;
-  settingsRepository: MemorySettingsRepository;
+  settingsConfigStore: Awaited<ReturnType<typeof createTestSettingsConfigStore>>["settingsConfigStore"];
   setTraceRecords(records: TraceRecord[]): void;
 }): Promise<{
   session: SessionSnapshot;
@@ -235,7 +230,6 @@ async function seedRewriteScenario(input: {
     sessionId: input.sessionManager.testId("rewrite-session"),
     workingDirectory: "/tmp/workspace",
     model: "MiniMax-M2.7",
-    userId: "rewrite-user",
     firstUserMessage: "先看 runtime",
     lastUserMessage: "继续检查 checkpoint"
   });
@@ -329,7 +323,7 @@ async function seedRewriteScenario(input: {
 
   await input.sessionManager.saveForkCheckpoint(firstCheckpoint);
   await input.sessionManager.saveForkCheckpoint(latestCheckpoint);
-  await input.settingsRepository.update(session.context.userId, {
+  await input.settingsConfigStore.updateGlobalSettings({
     userContextHooks: [
       {
         id: "hook-run-end",
@@ -435,11 +429,11 @@ describe("session fork endpoints", () => {
   });
 
   test("prefers persisted hook metadata and returns the latest rewriteable user target", async () => {
-    const { app, sessionManager, settingsRepository, setTraceRecords } =
+    const { app, sessionManager, settingsConfigStore, setTraceRecords } =
       await createForkTestApp();
     const { session, latestCheckpoint } = await seedRewriteScenario({
       sessionManager,
-      settingsRepository,
+      settingsConfigStore,
       setTraceRecords
     });
 
@@ -500,13 +494,13 @@ describe("session fork endpoints", () => {
     const {
       app,
       sessionManager,
-      settingsRepository,
+      settingsConfigStore,
       setTraceRecords,
       getTraceRecords
     } = await createForkTestApp();
     const { session, firstCheckpoint, latestCheckpoint } = await seedRewriteScenario({
       sessionManager,
-      settingsRepository,
+      settingsConfigStore,
       setTraceRecords
     });
 
@@ -559,11 +553,11 @@ describe("session fork endpoints", () => {
   });
 
   test("keeps current model and thinking effort when recovering a rewrite target", async () => {
-    const { app, sessionManager, settingsRepository, setTraceRecords } =
+    const { app, sessionManager, settingsConfigStore, setTraceRecords } =
       await createForkTestApp();
     const { session, latestCheckpoint } = await seedRewriteScenario({
       sessionManager,
-      settingsRepository,
+      settingsConfigStore,
       setTraceRecords
     });
 
@@ -601,11 +595,11 @@ describe("session fork endpoints", () => {
   });
 
   test("rejects rewrites that do not target the latest rewriteable user message", async () => {
-    const { app, sessionManager, settingsRepository, setTraceRecords } =
+    const { app, sessionManager, settingsConfigStore, setTraceRecords } =
       await createForkTestApp();
     const { session, firstCheckpoint, latestCheckpoint } = await seedRewriteScenario({
       sessionManager,
-      settingsRepository,
+      settingsConfigStore,
       setTraceRecords
     });
 
