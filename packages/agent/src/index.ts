@@ -1,4 +1,5 @@
 export * from "./background-tasks/index.js";
+export * from "./channels/index.js";
 export * from "./context-hooks.js";
 export * from "./contracts/workspace-api.js";
 export * from "./delegation/index.js";

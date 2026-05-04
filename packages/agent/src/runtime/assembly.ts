@@ -1,6 +1,7 @@
 import type {
   BackgroundTaskRepository,
   CronJobRepository,
+  InboxBindingRepository,
   RoutineRepository,
   SettingsRepository
 } from "@ai-app-template/db";
@@ -8,6 +9,7 @@ import {
   createPostgresBackgroundTaskRepository,
   createPostgresDatabase,
   createPostgresCronJobRepository,
+  createPostgresInboxBindingRepository,
   createPostgresRoutineRepository,
   createPostgresSettingsRepository,
   ensureProductSchema,
@@ -76,6 +78,7 @@ export interface PostgresRuntimeEnvironment {
   backgroundTaskRepository: BackgroundTaskRepository;
   backgroundTaskManager: BackgroundTaskManager;
   settingsRepository: SettingsRepository;
+  inboxBindingRepository: InboxBindingRepository;
 }
 
 export interface CreatePostgresRuntimeEnvironmentInput {
@@ -207,6 +210,7 @@ export async function createPostgresRuntimeEnvironment(
   const cronJobRepository = createPostgresCronJobRepository(database);
   const backgroundTaskRepository =
     createPostgresBackgroundTaskRepository(database);
+  const inboxBindingRepository = createPostgresInboxBindingRepository(database);
   const backgroundTaskManager = createBackgroundTaskManager({
     sessionManager,
     repository: backgroundTaskRepository
@@ -242,7 +246,8 @@ export async function createPostgresRuntimeEnvironment(
     cronJobDispatcher,
     backgroundTaskRepository,
     backgroundTaskManager,
-    settingsRepository
+    settingsRepository,
+    inboxBindingRepository
   };
 }
 

@@ -11,7 +11,8 @@ export type SystemLogComponent =
   | "confirmation"
   | "interrupt"
   | "api"
-  | "worker";
+  | "worker"
+  | "gateway";
 
 export interface SystemLogRecord {
   timestamp: string;

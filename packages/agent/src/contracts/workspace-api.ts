@@ -1,6 +1,11 @@
 import { z } from "zod";
 
 import {
+  workspaceChannelConfigDiagnosticSchema,
+  workspaceTelegramChannelConfigSchema,
+  type WorkspaceTelegramChannelConfig
+} from "../channels/config-types.js";
+import {
   workspaceMcpConfigDiagnosticSchema,
   workspaceMcpServerConfigSchema,
   workspaceMcpServerLoadSummarySchema
@@ -104,6 +109,36 @@ export const userSettingsMcpPayloadSchema = z.object({
 
 export type UserSettingsMcpPayload = z.infer<
   typeof userSettingsMcpPayloadSchema
+>;
+
+export const userSettingsChannelsPayloadSchema = z.object({
+  workingDirectory: z.string(),
+  configPath: z.string(),
+  foundConfig: z.boolean(),
+  telegram: workspaceTelegramChannelConfigSchema,
+  diagnostics: z.array(workspaceChannelConfigDiagnosticSchema)
+});
+
+export type UserSettingsChannelsPayload = z.infer<
+  typeof userSettingsChannelsPayloadSchema
+>;
+
+export const updateUserSettingsTelegramChannelSchema = z.object({
+  enabled: z.boolean(),
+  mode: z.enum(["polling", "webhook"]).optional().default("polling"),
+  botToken: z.string().optional().default(""),
+  webhookSecret: z.string().optional().default(""),
+  webhookUrl: z.string().optional().default("")
+}) satisfies z.ZodType<
+  Omit<WorkspaceTelegramChannelConfig, "channel" | "configuredInFile">
+>;
+
+export const updateUserSettingsChannelsPayloadSchema = z.object({
+  telegram: updateUserSettingsTelegramChannelSchema
+});
+
+export type UpdateUserSettingsChannelsPayload = z.infer<
+  typeof updateUserSettingsChannelsPayloadSchema
 >;
 
 export const updateUserSettingsMcpServerSchema = z.discriminatedUnion(
