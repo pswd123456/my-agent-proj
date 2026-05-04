@@ -80,7 +80,7 @@ prefix message 带 `cache_control: { type: "ephemeral" }`，并参与当前 `cac
 1. plan mode prompt
    - 只在当前 session 开启 `plan mode` 时注入
    - 用来给模型一组只属于本轮 planning 态的执行规则
-   - 当前会强调：todo 工具不可用、优先通过 `search_task_brief / read_task_brief / edit_task_brief / replace_task_brief` 维护 brief、普通 workspace 文件写工具不可用
+   - 当前会强调：todo 工具不可用、优先通过 `manage_task_brief` 的 `search/read/edit/replace` action 维护 brief、普通 workspace 文件写工具不可用
 
 2. user custom prompt
    - 来自 user settings 里的 `userCustomPrompt`

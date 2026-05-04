@@ -37,8 +37,8 @@
 
 当前仓库里，真正按 pack 装配的是下面几组：
 
-- `workspace`：`apply_patch`、`read_file`、`list_directory`、`find_files`、`search_text`、`write_file`、`create_directory`、`delete_file`、`delete_path`、`manage_path`、`git_status`、`git_diff`、`git_diff_cached`、`run_shell_command`、`make_http_request`、`search_skill`、`load_skill`
-- `schedule`：`create_routine` / `edit_routine` / `delete_routine` / `search_routine_by_oclock` / `list_routine_by_week` / `list_routine_by_date` / `ask_for_confirmation`
+- `workspace`：`apply_patch`、`read_file`、`list_directory`、`find_files`、`search_text`、`write_file`、`create_directory`、`delete_file`、`delete_path`、`manage_path`、`git_status`、`git_diff`（`cached: true` 读取 staged diff）、`run_shell_command`、`make_http_request`、`search_skill`、`load_skill`
+- `schedule`：`manage_routine` / `query_routines` / `manage_cron_jobs` / `ask_for_confirmation`
 - `lsp`：`lsp_hover` / `lsp_go_to_definition` / `lsp_find_references` / `lsp_document_symbols` / `lsp_workspace_symbols` / `lsp_diagnostics`，用于 TS/JS 语义查询；细节见 [内建 LSP Capability Pack](./lsp-capability-pack.md)
 
 当前默认 capability packs 是 `workspace`、`schedule` 和 `lsp`。session create 时会继承 user settings 里的启用组合；`manage_capability_packs` 或 session settings 更新写回后，从下一次 run 开始影响实际 mounted tools。
@@ -48,7 +48,9 @@
 其中 `schedule` 会继续使用当前的：
 
 - `RoutineRepository`
-- `create_routine` / `edit_routine` / `delete_routine`
+- `manage_routine`
+- `query_routines`
+- `manage_cron_jobs`
 - confirmation 相关等待流转
 
 `ask_user_question` 不属于 capability pack；它作为普通 planning 工具暴露，用于把当前 run 暂停到结构化澄清问题。

@@ -20,7 +20,7 @@
 - prompt 会在 `runtimeContextMessages` 中明确注入一条专用的 `plan mode prompt`，以及一条控制态 context：
   - `plan mode prompt` 会强调：
     - `todo` 工具在 plan mode 下不可用
-    - 通过 `search_task_brief / read_task_brief / edit_task_brief / replace_task_brief` 维护 brief
+    - 通过 `manage_task_brief` 的 `search/read/edit/replace` action 维护 brief
     - 普通 workspace 文件写工具不可用
     - 需要澄清时优先用 `ask_user_question`
   - 控制态 context 会继续注入：
@@ -30,15 +30,15 @@
     - `Task brief next write`
     - `Pending user question payload`
 - prompt 暴露给模型的工具列表会隐藏普通 `workspace-file` 写工具
-- prompt 暴露给模型的工具列表也会隐藏 `get_todo_list / replace_todo_list / update_todo_items`
+- prompt 暴露给模型的工具列表也会隐藏 `manage_todo_list`
 - 普通 `workspace-file` 写工具会在权限检查前被直接 block
 - `todo` 工具在执行层也会被直接 block
 - `task brief` 不能用 shell 重定向或普通 workspace file 工具绕过
 - `task brief` 当前推荐通过下列工具消费：
-  - `search_task_brief`：先定位 section / line
-  - `read_task_brief`：按 1-based 行窗口读取
-  - `edit_task_brief`：按 1-based 行范围改写已有 brief
-  - `replace_task_brief`：创建第一版 brief，或在整篇重写更便宜时使用
+  - `manage_task_brief` `action=search`：先定位 section / line
+  - `manage_task_brief` `action=read`：按 1-based 行窗口读取
+  - `manage_task_brief` `action=edit`：按 1-based 行范围改写已有 brief
+  - `manage_task_brief` `action=replace`：创建第一版 brief，或在整篇重写更便宜时使用
 
 当 `planModeEnabled = false` 时：
 
@@ -96,7 +96,7 @@
 - 让 runtime 通过 planning tool surface 读取和维护最新版本
 - 不在 v1 做 session.context 与文件内容的双写同步
 
-当前实现里，开启 plan mode 后不会自动为 session 绑定这条路径；第一次写 `task brief` 时，需要通过 `replace_task_brief` 显式提供 `plan_name`，不会在切换瞬间自动写文件。
+当前实现里，开启 plan mode 后不会自动为 session 绑定这条路径；第一次写 `task brief` 时，需要通过 `manage_task_brief` 的 `action=replace` 显式提供 `plan_name`，不会在切换瞬间自动写文件。
 
 ## 工具面
 
@@ -110,24 +110,13 @@
   - 每个问题默认提供一个“取消”快捷回复；如确实不需要，可通过该问题的 `allow_cancel = false` 关闭
   - 每个问题的 `context_note` 会作为该问题 tab 内的一个“补充说明”选项展示，用户点击后会把说明文本直接返回给模型
   - 调用后会把 session 置为 `waiting_for_user_question`
-- `search_task_brief`
-  - 只读
-  - 在当前 brief 中搜索匹配行
-  - 返回 line number 与 snippet
-- `read_task_brief`
-  - 只读
-  - 支持 `startLine/endLine` 或 `offset/limit`
-  - 返回 `path / exists / content / startLine / endLine / totalLines / truncated`
-- `edit_task_brief`
-  - 用于按 inclusive 1-based line range 改写已有 brief
-  - 只适合局部编辑
-- `get_task_brief`
-  - 兼容保留的整篇读取工具
-- `replace_task_brief`
-  - 创建第一版 brief 或整篇重写时使用
-  - 首次写入时必须显式提供 `plan_name`
-  - 只允许写当前 session 绑定的 brief 路径
-  - 必要时自动创建 `.agents/plans/<sessionId>/`
+- `manage_task_brief`
+  - `action=get`：读取整篇 brief snapshot
+  - `action=search`：在当前 brief 中搜索匹配行，返回 line number 与 snippet
+  - `action=read`：支持 `startLine/endLine` 或 `offset/limit` 窗口读取
+  - `action=edit`：按 inclusive 1-based line range 局部改写已有 brief
+  - `action=replace`：创建第一版 brief 或整篇重写；首次写入时必须显式提供 `plan_name`
+  - 写入只允许落在当前 session 绑定的 brief 路径，必要时自动创建 `.agents/plans/<sessionId>/`
 
 `ask_user_question` 的当前恢复语义是：
 
@@ -146,7 +135,7 @@
 当前 plan mode 会拦两类工具：
 
 1. 普通 `workspace-file` 写工具
-2. `todo` 工具（`get_todo_list / replace_todo_list / update_todo_items`）
+2. `todo` 工具（`manage_todo_list`）
 
 当前被 block 的范围：
 
@@ -155,9 +144,7 @@
 - `manage_path`
 - `delete_path`
 - `apply_patch`
-- `get_todo_list`
-- `replace_todo_list`
-- `update_todo_items`
+- `manage_todo_list`
 
 当前 prompt 不会向模型暴露以上这些普通文件写工具；权限层继续保留 block，作为兜底约束，避免旧消息回放或异常 tool call 绕过 plan mode。`ask_user_question` 不属于这类限制，它作为普通工具保持可见。
 
@@ -170,18 +157,14 @@
 - `git_status`
 - `git_diff`
 - `ask_user_question`
-- `search_task_brief`
-- `read_task_brief`
-- `edit_task_brief`
-- `get_task_brief`
-- `replace_task_brief`
+- `manage_task_brief`
 - `workspace-shell`
 - `workspace-network`
 - `schedule`
 
 这不是通用“所有 mutating tool 一律禁用”的实现，而是刻意收敛到工作区文件改动。
 
-- task brief 的写入仍必须走 `replace_task_brief`，不能用 shell 重定向代替。
+- task brief 的写入仍必须走 `manage_task_brief`，不能用 shell 重定向代替。
 
 ## Prompt 与 Cache
 
@@ -192,7 +175,7 @@
 - 稳定规则继续放 `system`
 - 当前 session 是否处在 plan mode，以及 brief 绑定/写入规则这类控制信息，进入 `runtimeContextMessages`
 - plan mode 额外有一条 session 级专用 prompt message，也进入 `runtimeContextMessages`
-- brief 正文不再重复注入 `runtimeContextMessages`，当前主要依赖 `read_task_brief / search_task_brief / edit_task_brief / replace_task_brief / get_task_brief` 的 tool result 回放；后续若需要更稳的消费链路，再单独设计
+- brief 正文不再重复注入 `runtimeContextMessages`，当前主要依赖 `manage_task_brief` 的 tool result 回放；后续若需要更稳的消费链路，再单独设计
 
 因此：
 
