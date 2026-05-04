@@ -148,8 +148,9 @@ describe("session context mappers", () => {
         proposed_items: [
           {
             preview_text: "创建 10:00 复习",
-            tool_name: "create_routine",
+            tool_name: "manage_routine",
             tool_input: {
+              action: "create",
               date: "2026-05-02",
               start_time: "10:00",
               duration_minutes: 45
@@ -172,8 +173,9 @@ describe("session context mappers", () => {
       proposedItems: [
         {
           previewText: "创建 10:00 复习",
-          toolName: "create_routine",
+          toolName: "manage_routine",
           toolInput: {
+            action: "create",
             date: "2026-05-02",
             start_time: "10:00",
             duration_minutes: 45
@@ -195,8 +197,9 @@ describe("session context mappers", () => {
       proposed_items: [
         {
           preview_text: "创建 10:00 复习",
-          tool_name: "create_routine",
+          tool_name: "manage_routine",
           tool_input: {
+            action: "create",
             date: "2026-05-02",
             start_time: "10:00",
             duration_minutes: 45
@@ -220,8 +223,9 @@ describe("session context mappers", () => {
         proposedItems: [
           {
             previewText: "创建 10:00 复习",
-            toolName: "create_routine",
+            toolName: "manage_routine",
             toolInput: {
+              action: "create",
               date: "2026-05-02",
               start_time: "10:00",
               duration_minutes: 45

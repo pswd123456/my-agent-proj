@@ -43,7 +43,7 @@ const BUILTIN_TOOL_CATALOG: readonly BuiltinToolCatalogEntry[] = [
     visibleInSettings: true
   },
   {
-    name: "edit_task_brief",
+    name: "manage_task_brief",
     action: "edit",
     visibleInSettings: true
   },
@@ -53,12 +53,7 @@ const BUILTIN_TOOL_CATALOG: readonly BuiltinToolCatalogEntry[] = [
     visibleInSettings: true
   },
   {
-    name: "get_task_brief",
-    action: "call",
-    visibleInSettings: true
-  },
-  {
-    name: "get_todo_list",
+    name: "manage_todo_list",
     action: "call",
     visibleInSettings: true,
     todoTool: true,
@@ -70,43 +65,14 @@ const BUILTIN_TOOL_CATALOG: readonly BuiltinToolCatalogEntry[] = [
     visibleInSettings: true
   },
   {
-    name: "read_task_brief",
-    action: "read",
-    visibleInSettings: true
-  },
-  {
-    name: "replace_task_brief",
-    action: "edit",
-    visibleInSettings: true
-  },
-  {
-    name: "replace_todo_list",
-    action: "call",
-    visibleInSettings: true,
-    todoTool: true,
-    planningStateTool: true
-  },
-  {
     name: "load_skill",
     action: "call",
-    visibleInSettings: true
-  },
-  {
-    name: "search_task_brief",
-    action: "search",
     visibleInSettings: true
   },
   {
     name: "search_skill",
     action: "search",
     visibleInSettings: true
-  },
-  {
-    name: "update_todo_items",
-    action: "call",
-    visibleInSettings: true,
-    todoTool: true,
-    planningStateTool: true
   },
   {
     name: "apply_patch",
@@ -177,11 +143,6 @@ const BUILTIN_TOOL_CATALOG: readonly BuiltinToolCatalogEntry[] = [
     visibleInSettings: true
   },
   {
-    name: "git_diff_cached",
-    action: "call",
-    visibleInSettings: true
-  },
-  {
     name: "run_shell_command",
     action: "call",
     visibleInSettings: false,
@@ -224,46 +185,28 @@ const BUILTIN_TOOL_CATALOG: readonly BuiltinToolCatalogEntry[] = [
     visibleInSettings: true
   },
   {
-    name: "create_routine",
+    name: "manage_routine",
     action: "edit",
     visibleInSettings: true,
     defaultToolAskRank: 110
   },
   {
-    name: "edit_routine",
-    action: "edit",
+    name: "query_routines",
+    action: "call",
     visibleInSettings: true,
     defaultToolAskRank: 120
-  },
-  {
-    name: "delete_routine",
-    action: "edit",
-    visibleInSettings: true,
-    defaultToolAskRank: 130
-  },
-  {
-    name: "search_routine_by_oclock",
-    action: "call",
-    visibleInSettings: true,
-    defaultToolAskRank: 140
-  },
-  {
-    name: "list_routine_by_week",
-    action: "call",
-    visibleInSettings: true,
-    defaultToolAskRank: 150
-  },
-  {
-    name: "list_routine_by_date",
-    action: "call",
-    visibleInSettings: true,
-    defaultToolAskRank: 160
   },
   {
     name: "ask_for_confirmation",
     action: "call",
     visibleInSettings: true,
-    defaultToolAskRank: 170
+    defaultToolAskRank: 130
+  },
+  {
+    name: "manage_cron_jobs",
+    action: "edit",
+    visibleInSettings: true,
+    defaultToolAskRank: 140
   }
 ];
 
