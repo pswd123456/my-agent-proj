@@ -32,4 +32,5 @@ export * from "./trace.js";
 export * from "./tools/index.js";
 export * from "./types.js";
 export * from "./workspace-file-search.js";
+export * from "./workspace-hooks/index.js";
 export * from "./workspace-instructions/index.js";

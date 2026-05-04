@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-import { stringify } from "smol-toml";
+import { parse, stringify } from "smol-toml";
 
 import type {
   WorkspaceMcpConfigLoadResult,
@@ -15,7 +15,33 @@ import {
 
 type TomlObject = Record<string, unknown>;
 
-function toTomlConfig(servers: readonly WorkspaceMcpServerConfig[]): string {
+function isTomlObject(value: unknown): value is TomlObject {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+async function readExistingConfigRoot(configPath: string): Promise<TomlObject> {
+  let rawContent: string;
+  try {
+    rawContent = await fs.readFile(configPath, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return {};
+    }
+    throw error;
+  }
+
+  try {
+    const parsed = parse(rawContent);
+    return isTomlObject(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function toTomlConfig(
+  servers: readonly WorkspaceMcpServerConfig[],
+  existingRoot: TomlObject = {}
+): string {
   const mcpServers: Record<string, TomlObject> = {};
   const normalizedServers = normalizeWorkspaceMcpServerConfigs(servers);
 
@@ -42,7 +68,7 @@ function toTomlConfig(servers: readonly WorkspaceMcpServerConfig[]): string {
     };
   }
 
-  return `${stringify({ mcp_servers: mcpServers })}\n`;
+  return `${stringify({ ...existingRoot, mcp_servers: mcpServers })}\n`;
 }
 
 export async function readManageableWorkspaceMcpConfig(
@@ -58,7 +84,8 @@ export async function replaceWorkspaceMcpConfigServers(
   servers: readonly WorkspaceMcpServerConfig[]
 ): Promise<WorkspaceMcpConfigLoadResult> {
   const configPath = getWorkspaceMcpConfigPath(workingDirectory);
+  const existingRoot = await readExistingConfigRoot(configPath);
   await fs.mkdir(path.dirname(configPath), { recursive: true });
-  await fs.writeFile(configPath, toTomlConfig(servers), "utf8");
+  await fs.writeFile(configPath, toTomlConfig(servers, existingRoot), "utf8");
   return readManageableWorkspaceMcpConfig(workingDirectory);
 }

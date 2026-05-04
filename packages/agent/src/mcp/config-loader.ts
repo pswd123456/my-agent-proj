@@ -1,5 +1,4 @@
 import { promises as fs } from "node:fs";
-import path from "node:path";
 
 import { parse, TomlError } from "smol-toml";
 
@@ -14,9 +13,7 @@ import {
   normalizeWorkspaceMcpDisabledTools,
   normalizeWorkspaceMcpServerConfig
 } from "./config-normalization.js";
-
-const MCP_CONFIG_DIRECTORY = ".agents";
-const MCP_CONFIG_FILE_NAME = ".config.toml";
+import { getWorkspaceAgentConfigPath } from "../workspace-config/index.js";
 
 export interface WorkspaceMcpConfigLoadOptions {
   resolveEnvironment?: boolean;
@@ -27,11 +24,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export function getWorkspaceMcpConfigPath(workingDirectory: string): string {
-  return path.join(
-    path.resolve(workingDirectory),
-    MCP_CONFIG_DIRECTORY,
-    MCP_CONFIG_FILE_NAME
-  );
+  return getWorkspaceAgentConfigPath(workingDirectory);
 }
 
 function collectDuplicateServerNames(rawContent: string): Set<string> {

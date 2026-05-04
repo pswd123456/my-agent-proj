@@ -599,6 +599,11 @@ export class AgentRuntime {
     if (!acquiredSession) {
       throw new SessionExecutionInProgressError(input.sessionId);
     }
+    this.options.sessionManager.registerExecutionAbort(
+      input.sessionId,
+      runId,
+      interruptController
+    );
     session = acquiredSession;
     let interruptWatcher: ReturnType<typeof setInterval> | null = null;
     let interruptCheckInFlight = false;

@@ -52,7 +52,11 @@ import {
 } from "../tools/index.js";
 import { createFileTraceManager, type TraceManager } from "../trace.js";
 import type { TraceEvent, TraceMcpLoadedEvent } from "../trace.js";
-import type { SessionSnapshot } from "../types.js";
+import type { JsonValue, SessionSnapshot } from "../types.js";
+import {
+  loadWorkspaceHookConfig,
+  mergeWorkspaceAndSettingsUserContextHooks
+} from "../workspace-hooks/index.js";
 
 export interface PostgresRuntimeEnvironment {
   workspaceRoot: string;
@@ -105,10 +109,31 @@ export function createRuntimeHandleFactory(input: {
     > | null = null;
 
     try {
+      const workspaceHookConfigResult = await loadWorkspaceHookConfig(
+        session.workingDirectory
+      );
+      if (workspaceHookConfigResult.diagnostics.length > 0) {
+        const diagnostics: JsonValue =
+          workspaceHookConfigResult.diagnostics.map((diagnostic) => ({
+            scope: diagnostic.scope,
+            code: diagnostic.code,
+            message: diagnostic.message,
+            ...(diagnostic.hookId ? { hookId: diagnostic.hookId } : {})
+          }));
+        await environment.runtimeLogger.warn(
+          "workspace_hooks_config_diagnostics",
+          {
+            configPath: workspaceHookConfigResult.configPath,
+            diagnostics
+          }
+        );
+      }
+      const userContextHooks = mergeWorkspaceAndSettingsUserContextHooks({
+        workspaceHooks: workspaceHookConfigResult.hooks,
+        settingsHooks: settings.userContextHooks
+      });
       const toolRegistry = createDefaultToolRegistry({
         workingDirectory: session.workingDirectory,
-        routineRepository: environment.routineRepository,
-        cronJobRepository: environment.cronJobRepository,
         lspServerManager,
         enabledCapabilityPacks: session.context.enabledCapabilityPacks,
         workspaceSkillSettings: settings.workspaceSkillSettings,
@@ -132,7 +157,7 @@ export function createRuntimeHandleFactory(input: {
           systemLogManager: environment.systemLogManager,
           runtimeLogger: environment.runtimeLogger,
           promptBuilder: environment.promptBuilder,
-          userContextHooks: settings.userContextHooks,
+          userContextHooks,
           workspaceSkillSettings: settings.workspaceSkillSettings,
           userCustomPrompt: settings.userCustomPrompt,
           maxTurns: DEFAULT_SESSION_MAX_TURNS,
@@ -187,9 +212,7 @@ export async function createPostgresRuntimeEnvironment(
     repository: backgroundTaskRepository
   });
   const settingsPermissionToolOptions = listSettingsPermissionToolOptions({
-    workingDirectory: input.settingsPermissionWorkingDirectory,
-    routineRepository,
-    cronJobRepository
+    workingDirectory: input.settingsPermissionWorkingDirectory
   }).map((tool) => tool.name);
   const settingsRepository = createPostgresSettingsRepository(database, {
     settingsPermissionToolOptions

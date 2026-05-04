@@ -645,6 +645,10 @@ export function serializeBlock(block: ConversationBlock): {
 
 export class PostgresSessionManager implements SessionManager {
   private readonly forceStoppedRunIds = new Map<string, Set<string>>();
+  private readonly executionAbortControllers = new Map<
+    string,
+    Map<string, AbortController>
+  >();
 
   constructor(private readonly db: ProductDatabaseClient) {}
 
@@ -726,10 +730,17 @@ export class PostgresSessionManager implements SessionManager {
           sql`${agentSessions.activeRunId} is not null`
         )
       )
-      .returning({ id: agentSessions.id });
+      .returning({
+        id: agentSessions.id,
+        activeRunId: agentSessions.activeRunId
+      });
 
     if (rows.length === 0) {
       return null;
+    }
+    const activeRunId = rows[0]?.activeRunId;
+    if (activeRunId) {
+      this.abortExecution(sessionId, activeRunId);
     }
 
     return this.getSession(sessionId);
@@ -756,6 +767,7 @@ export class PostgresSessionManager implements SessionManager {
         this.forceStoppedRunIds.get(sessionId) ?? new Set<string>();
       runIds.add(activeRunId);
       this.forceStoppedRunIds.set(sessionId, runIds);
+      this.abortExecution(sessionId, activeRunId);
     }
 
     await this.db
@@ -778,6 +790,18 @@ export class PostgresSessionManager implements SessionManager {
     return this.getSession(sessionId);
   }
 
+  registerExecutionAbort(
+    sessionId: string,
+    runId: string,
+    controller: AbortController
+  ): void {
+    const controllers =
+      this.executionAbortControllers.get(sessionId) ??
+      new Map<string, AbortController>();
+    controllers.set(runId, controller);
+    this.executionAbortControllers.set(sessionId, controllers);
+  }
+
   async isInterruptRequested(
     sessionId: string,
     runId: string
@@ -788,18 +812,23 @@ export class PostgresSessionManager implements SessionManager {
 
     const rows = await this.db
       .select({
+        activeRunId: agentSessions.activeRunId,
+        loopState: agentSessions.loopState,
         interruptRequested: agentSessions.interruptRequested
       })
       .from(agentSessions)
-      .where(
-        and(
-          eq(agentSessions.id, sessionId),
-          eq(agentSessions.activeRunId, runId)
-        )
-      )
+      .where(eq(agentSessions.id, sessionId))
       .limit(1);
 
-    return rows[0]?.interruptRequested ?? false;
+    const row = rows[0];
+    if (!row) {
+      return false;
+    }
+    if (row.activeRunId !== runId) {
+      return row.loopState === "interrupted" || row.activeRunId !== null;
+    }
+
+    return row.interruptRequested;
   }
 
   async deleteSession(sessionId: string): Promise<boolean> {
@@ -1119,6 +1148,7 @@ export class PostgresSessionManager implements SessionManager {
   ): Promise<SessionSnapshot | null> {
     const releasedAt = new Date().toISOString();
     this.forceStoppedRunIds.get(sessionId)?.delete(runId);
+    this.executionAbortControllers.get(sessionId)?.delete(runId);
     await this.db
       .update(agentSessions)
       .set({
@@ -1135,6 +1165,16 @@ export class PostgresSessionManager implements SessionManager {
       );
 
     return this.getSession(sessionId);
+  }
+
+  private abortExecution(sessionId: string, runId: string): void {
+    const controller = this.executionAbortControllers
+      .get(sessionId)
+      ?.get(runId);
+    if (!controller || controller.signal.aborted) {
+      return;
+    }
+    controller.abort();
   }
 
   private async updateSession(

@@ -141,6 +141,10 @@ export function buildCreateSnapshotOverridesFromSessionInput(
     input.forkReplayCheckpointId === null
       ? { forkReplayCheckpointId: input.forkReplayCheckpointId }
       : {}),
+    ...(typeof input.contextWindow === "number"
+      ? { contextWindow: input.contextWindow }
+      : {}),
+    ...(typeof input.maxTurns === "number" ? { maxTurns: input.maxTurns } : {}),
     ...pickScheduleSessionContextInput(input)
   };
 }

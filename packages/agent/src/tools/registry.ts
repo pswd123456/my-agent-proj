@@ -1,6 +1,5 @@
 import type { AnthropicToolDefinition } from "../model.js";
 
-import type { CronJobRepository, RoutineRepository } from "@ai-app-template/db";
 import {
   DEFAULT_CAPABILITY_PACKS,
   type CapabilityPackName,
@@ -172,11 +171,7 @@ export function createWorkspaceToolRegistry(options: {
   ]);
 }
 
-export function createScheduleToolRegistry(options: {
-  routineRepository: RoutineRepository;
-  cronJobRepository?: CronJobRepository;
-}): ToolRegistry {
-  void options;
+export function createScheduleToolRegistry(): ToolRegistry {
   return registerTools(new ToolRegistry(), [
     createManageCronJobsTool(),
     createManageRoutineTool(),
@@ -194,8 +189,6 @@ export function createLspToolRegistry(options: {
 
 export function createDefaultToolRegistry(options: {
   workingDirectory: string;
-  routineRepository: RoutineRepository;
-  cronJobRepository?: CronJobRepository;
   lspServerManager?: LspServerManager;
   enabledCapabilityPacks?: readonly string[];
   workspaceSkillSettings?: readonly WorkspaceSkillSettingRecord[];
@@ -212,7 +205,7 @@ export function createDefaultToolRegistry(options: {
     }
   }
   if (enabled.has("schedule")) {
-    for (const tool of createScheduleToolRegistry(options).list()) {
+    for (const tool of createScheduleToolRegistry().list()) {
       registry.register(tool);
     }
   }
@@ -226,8 +219,6 @@ export function createDefaultToolRegistry(options: {
 
 export function listSettingsPermissionToolOptions(options: {
   workingDirectory: string;
-  routineRepository: RoutineRepository;
-  cronJobRepository?: CronJobRepository;
 }): SettingsPermissionToolOption[] {
   const tools = new Map<string, SettingsPermissionToolOption>();
 
@@ -245,7 +236,7 @@ export function listSettingsPermissionToolOptions(options: {
     }
   }
 
-  for (const tool of createScheduleToolRegistry(options).list()) {
+  for (const tool of createScheduleToolRegistry().list()) {
     const option = toSettingsPermissionToolOption(tool, "schedule");
     if (option) {
       tools.set(option.name, option);
