@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { afterEach } from "bun:test";
-import { like } from "drizzle-orm";
+import { inArray } from "drizzle-orm";
 
 import {
   createPostgresSessionManager,
@@ -22,8 +22,8 @@ import {
 } from "../../packages/db/src/index.js";
 
 export interface PostgresTestSessionManager extends SessionManager {
-  readonly userIdPrefix: string;
-  testUserId(userId?: string): string;
+  readonly idPrefix: string;
+  readonly trackedSessionIds: ReadonlySet<string>;
   testId(id: string): string;
   cleanup(): Promise<void>;
 }
@@ -42,31 +42,16 @@ function resolveTestDatabaseUrl(): string {
   return databaseUrl;
 }
 
-function createPrefixedUserId(prefix: string, userId?: string): string {
-  const suffix = userId && userId.length > 0 ? userId : "test-user";
-  return suffix.startsWith(`${prefix}-`) ? suffix : `${prefix}-${suffix}`;
-}
-
-function createPrefixedSnapshot(
-  snapshot: SessionSnapshot,
-  prefix: string
-): SessionSnapshot {
-  return {
-    ...snapshot,
-    context: {
-      ...snapshot.context,
-      userId: createPrefixedUserId(prefix, snapshot.context.userId)
-    }
-  };
-}
-
 async function cleanupManager(input: {
   db: ProductDatabaseClient;
-  userIdPrefix: string;
+  trackedSessionIds: ReadonlySet<string>;
 }): Promise<void> {
-  await input.db
-    .delete(agentSessions)
-    .where(like(agentSessions.userId, `${input.userIdPrefix}-%`));
+  const sessionIds = Array.from(input.trackedSessionIds);
+  if (sessionIds.length > 0) {
+    await input.db
+      .delete(agentSessions)
+      .where(inArray(agentSessions.id, sessionIds));
+  }
   await input.db.$client.end();
 }
 
@@ -75,19 +60,20 @@ export async function createPostgresTestSessionManager(): Promise<PostgresTestSe
   await ensureProductSchema(db);
 
   const inner = createPostgresSessionManager(db);
-  const userIdPrefix = `test-${randomUUID()}`;
+  const idPrefix = `test-${randomUUID()}`;
+  const trackedSessionIds = new Set<string>();
   let cleanedUp = false;
 
   const manager = new Proxy(inner, {
     get(target, property, receiver) {
-      if (property === "userIdPrefix") {
-        return userIdPrefix;
+      if (property === "idPrefix") {
+        return idPrefix;
       }
-      if (property === "testUserId") {
-        return (userId?: string) => createPrefixedUserId(userIdPrefix, userId);
+      if (property === "trackedSessionIds") {
+        return trackedSessionIds;
       }
       if (property === "testId") {
-        return (id: string) => `${userIdPrefix}-${id}`;
+        return (id: string) => `${idPrefix}-${id}`;
       }
       if (property === "cleanup") {
         return async () => {
@@ -96,25 +82,24 @@ export async function createPostgresTestSessionManager(): Promise<PostgresTestSe
           }
           cleanedUp = true;
           activeManagers.delete(manager);
-          await cleanupManager({ db, userIdPrefix });
+          await cleanupManager({ db, trackedSessionIds });
         };
       }
       if (property === "createSession") {
         return async (
           input: CreateSessionInput = {}
         ): Promise<SessionSnapshot> => {
-          return target.createSession({
-            ...input,
-            userId: createPrefixedUserId(userIdPrefix, input.userId)
+          const snapshot = await target.createSession({
+            ...input
           });
+          trackedSessionIds.add(snapshot.sessionId);
+          return snapshot;
         };
       }
       if (property === "listSessions") {
         return async (): Promise<SessionSnapshot[]> => {
           const sessions = await target.listSessions();
-          return sessions.filter((session) =>
-            session.context.userId.startsWith(`${userIdPrefix}-`)
-          );
+          return sessions.filter((session) => trackedSessionIds.has(session.sessionId));
         };
       }
       if (property === "appendBlock") {
@@ -124,22 +109,20 @@ export async function createPostgresTestSessionManager(): Promise<PostgresTestSe
         ): Promise<SessionSnapshot> => {
           return target.appendBlock(sessionId, {
             ...block,
-            id: block.id.startsWith(`${userIdPrefix}-`)
-              ? block.id
-              : `${userIdPrefix}-${block.id}`
+            id: block.id.startsWith(`${sessionId}-`) ? block.id : `${sessionId}-${block.id}`
           });
         };
       }
       if (property === "saveSession") {
         return async (snapshot: SessionSnapshot): Promise<SessionSnapshot> => {
-          return target.saveSession(
-            createPrefixedSnapshot(snapshot, userIdPrefix)
-          );
+          trackedSessionIds.add(snapshot.sessionId);
+          return target.saveSession(snapshot);
         };
       }
       if (property === "recover") {
         return async (snapshot: SessionSnapshot): Promise<SessionSnapshot> => {
-          return target.recover(createPrefixedSnapshot(snapshot, userIdPrefix));
+          trackedSessionIds.add(snapshot.sessionId);
+          return target.recover(snapshot);
         };
       }
 

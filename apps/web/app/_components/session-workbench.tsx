@@ -259,7 +259,6 @@ export function SessionWorkbench() {
   const searchParams = useSearchParams();
   const requestedSessionId = searchParams.get("sessionId");
   const selectedSessionIdRef = useRef<string | null>(null);
-  const preferredUserIdRef = useRef<string | null>(null);
   const backgroundRefreshInFlightRef = useRef(false);
   const sessionListRefreshVersionRef = useRef(0);
   const sessionListMutationInFlightRef = useRef(false);
@@ -549,11 +548,6 @@ export function SessionWorkbench() {
   }, []);
 
   useEffect(() => {
-    preferredUserIdRef.current =
-      currentSession?.context.userId ?? userSettings?.userId ?? null;
-  }, [currentSession, userSettings]);
-
-  useEffect(() => {
     if (!currentSession) {
       setWorkspaceGitStatus(null);
       setWorkspaceGitStatusLoading(false);
@@ -614,20 +608,6 @@ export function SessionWorkbench() {
     () => deriveRenderedSessions(sessionRegistry),
     [sessionRegistry]
   );
-
-  function getCreateSessionPayload(): { userId?: string } {
-    const userId = preferredUserIdRef.current?.trim();
-    return userId ? { userId } : {};
-  }
-
-  function getCronJobsUserId(): string | null {
-    return (
-      currentSession?.context.userId ??
-      userSettings?.userId ??
-      preferredUserIdRef.current ??
-      null
-    );
-  }
 
   function resetCronEditor(cronJob: CronJobRecord | null = null) {
     if (cronJob) {
@@ -692,9 +672,7 @@ export function SessionWorkbench() {
         if (!snapshots.length) {
           beginSessionListMutation();
           try {
-            const created = await apiClient.createSession(
-              getCreateSessionPayload()
-            );
+            const created = await apiClient.createSession();
             if (cancelled) {
               return;
             }
@@ -788,7 +766,7 @@ export function SessionWorkbench() {
               startDate: week.startDate,
               endDate: week.endDate
             }),
-            apiClient.getUserSettingsPayload(session.context.userId)
+            apiClient.getUserSettingsPayload()
           ]);
 
         if (
@@ -850,11 +828,6 @@ export function SessionWorkbench() {
       return;
     }
 
-    const targetUserId = currentSession?.context.userId ?? userSettings?.userId;
-    if (!targetUserId) {
-      return;
-    }
-
     let cancelled = false;
     setLoadingMcpSettings(true);
     setLoadingChannelsSettings(true);
@@ -863,9 +836,9 @@ export function SessionWorkbench() {
     setChannelsSettingsErrorText(null);
 
     void Promise.all([
-      apiClient.getUserSettingsChannels(targetUserId),
-      apiClient.getUserSettingsMcp(targetUserId),
-      apiClient.getUserSettingsSkills(targetUserId)
+      apiClient.getUserSettingsChannels(),
+      apiClient.getUserSettingsMcp(),
+      apiClient.getUserSettingsSkills()
     ])
       .then(([channelsPayload, mcpPayload, skillsPayload]) => {
         if (cancelled) {
@@ -895,11 +868,7 @@ export function SessionWorkbench() {
     return () => {
       cancelled = true;
     };
-  }, [
-    activeSidebarPanel,
-    currentSession?.context.userId,
-    userSettings?.userId
-  ]);
+  }, [activeSidebarPanel]);
 
   useEffect(() => {
     if (
@@ -922,12 +891,6 @@ export function SessionWorkbench() {
       return;
     }
 
-    const userId = getCronJobsUserId();
-    if (!userId) {
-      return;
-    }
-    const targetUserId = userId;
-
     let cancelled = false;
 
     async function loadCronJobs(showLoading: boolean) {
@@ -936,7 +899,7 @@ export function SessionWorkbench() {
       }
 
       try {
-        const jobs = await apiClient.listCronJobs(targetUserId);
+        const jobs = await apiClient.listCronJobs();
         if (cancelled) {
           return;
         }
@@ -972,11 +935,7 @@ export function SessionWorkbench() {
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [
-    activeSidebarPanel,
-    currentSession?.context.userId,
-    userSettings?.userId
-  ]);
+  }, [activeSidebarPanel]);
 
   async function refreshSelectedSession(
     sessionId: string,
@@ -1005,7 +964,7 @@ export function SessionWorkbench() {
           endDate: week.endDate
         }),
         syncSettings
-          ? apiClient.getUserSettingsPayload(session.context.userId)
+          ? apiClient.getUserSettingsPayload()
           : Promise.resolve<{
               settings: SessionSettingsRecord;
               permissionTools: SettingsPermissionToolOption[];
@@ -1173,7 +1132,7 @@ export function SessionWorkbench() {
       setCreatingSession(true);
       setErrorText(null);
       beginSessionListMutation();
-      const session = await apiClient.createSession(getCreateSessionPayload());
+      const session = await apiClient.createSession();
       setSelectedSessionIdState(session.sessionId);
       hydrateCurrentSession(session);
       focusConversationView();
@@ -1269,9 +1228,7 @@ export function SessionWorkbench() {
         return;
       }
 
-      const newSession = await apiClient.createSession(
-        getCreateSessionPayload()
-      );
+      const newSession = await apiClient.createSession();
       setSelectedSessionIdState(newSession.sessionId);
       hydrateCurrentSession(newSession);
       replaceSessionRoute(newSession.sessionId);
@@ -1309,9 +1266,7 @@ export function SessionWorkbench() {
       hydrateCurrentSession(null);
       resetSelectedSessionResources();
       focusConversationView();
-      const newSession = await apiClient.createSession(
-        getCreateSessionPayload()
-      );
+      const newSession = await apiClient.createSession();
       setSelectedSessionIdState(newSession.sessionId);
       hydrateCurrentSession(newSession);
       replaceSessionRoute(newSession.sessionId);
@@ -1695,8 +1650,7 @@ export function SessionWorkbench() {
   async function handleSaveUserSettings(
     nextForm: SettingsFormState = settingsForm
   ): Promise<boolean> {
-    const targetUserId = currentSession?.context.userId ?? userSettings?.userId;
-    if (!targetUserId || savingSettings) {
+    if (savingSettings) {
       return false;
     }
 
@@ -1708,7 +1662,6 @@ export function SessionWorkbench() {
 
     try {
       const updatedPayload = await apiClient.updateUserSettingsPayload(
-        targetUserId,
         buildUserSettingsPayloadFromForm(normalizedForm)
       );
       const updated = updatedPayload.settings;
@@ -1717,9 +1670,9 @@ export function SessionWorkbench() {
       setSettingsForm(toSettingsFormState(updated));
       try {
         const [channelsPayload, mcpPayload, skillsPayload] = await Promise.all([
-          apiClient.getUserSettingsChannels(targetUserId),
-          apiClient.getUserSettingsMcp(targetUserId),
-          apiClient.getUserSettingsSkills(targetUserId)
+          apiClient.getUserSettingsChannels(),
+          apiClient.getUserSettingsMcp(),
+          apiClient.getUserSettingsSkills()
         ]);
         setSettingsChannelsState(toSettingsChannelsState(channelsPayload));
         setSettingsMcpForm(toSettingsMcpFormState(mcpPayload));
@@ -1732,7 +1685,7 @@ export function SessionWorkbench() {
         setChannelsSettingsErrorText(message);
       }
 
-      if (currentSession && currentSession.context.userId === targetUserId) {
+      if (currentSession) {
         const syncedSession = await apiClient.updateSessionSettings(
           currentSession.sessionId,
           buildSessionSettingsPatchFromUserSettings(updated)
@@ -1822,8 +1775,7 @@ export function SessionWorkbench() {
   async function handleSaveChannelSettings(
     nextState: SettingsChannelsState = settingsChannelsState
   ): Promise<boolean> {
-    const targetUserId = currentSession?.context.userId ?? userSettings?.userId;
-    if (!targetUserId || savingChannelsSettings) {
+    if (savingChannelsSettings) {
       return false;
     }
 
@@ -1832,7 +1784,6 @@ export function SessionWorkbench() {
 
     try {
       const payload = await apiClient.updateUserSettingsChannels(
-        targetUserId,
         buildChannelsPayloadFromState(nextState)
       );
       setSettingsChannelsState(toSettingsChannelsState(payload));
@@ -1950,8 +1901,7 @@ export function SessionWorkbench() {
   async function handleSaveMcpSettings(
     nextForm: SettingsMcpFormState = settingsMcpForm
   ): Promise<boolean> {
-    const targetUserId = currentSession?.context.userId ?? userSettings?.userId;
-    if (!targetUserId || savingMcpSettings) {
+    if (savingMcpSettings) {
       return false;
     }
 
@@ -1959,7 +1909,7 @@ export function SessionWorkbench() {
     setMcpSettingsErrorText(null);
 
     try {
-      const payload = await apiClient.updateUserSettingsMcp(targetUserId, {
+      const payload = await apiClient.updateUserSettingsMcp({
         servers: buildMcpServersFromForm(nextForm)
       });
       setSettingsMcpForm(toSettingsMcpFormState(payload));
@@ -2317,11 +2267,8 @@ export function SessionWorkbench() {
     }));
   }
 
-  async function refreshCronJobsAfterMutation(
-    userId: string,
-    selectedCronJobId: string | null
-  ) {
-    const jobs = await apiClient.listCronJobs(userId);
+  async function refreshCronJobsAfterMutation(selectedCronJobId: string | null) {
+    const jobs = await apiClient.listCronJobs();
     setCronJobs(jobs);
     if (!selectedCronJobId) {
       return;
@@ -2339,8 +2286,7 @@ export function SessionWorkbench() {
   async function handleSaveCronJob(
     payload: CreateCronJobPayload | UpdateCronJobPayload
   ) {
-    const userId = getCronJobsUserId();
-    if (!userId || savingCronJob) {
+    if (savingCronJob) {
       return;
     }
 
@@ -2350,12 +2296,9 @@ export function SessionWorkbench() {
 
     try {
       const savedCronJob = currentCronJob
-        ? await apiClient.updateCronJob(userId, currentCronJob.id, payload)
-        : await apiClient.createCronJob(
-            userId,
-            payload as CreateCronJobPayload
-          );
-      await refreshCronJobsAfterMutation(userId, savedCronJob.id);
+        ? await apiClient.updateCronJob(currentCronJob.id, payload)
+        : await apiClient.createCronJob(payload as CreateCronJobPayload);
+      await refreshCronJobsAfterMutation(savedCronJob.id);
       setCronStatusText(
         currentCronJob ? "已保存定时任务。" : "已创建定时任务。"
       );
@@ -2368,8 +2311,7 @@ export function SessionWorkbench() {
   }
 
   async function handleToggleCronJobStatus(cronJob: CronJobRecord) {
-    const userId = getCronJobsUserId();
-    if (!userId || savingCronJob) {
+    if (savingCronJob) {
       return;
     }
 
@@ -2385,10 +2327,10 @@ export function SessionWorkbench() {
           : "active";
 
     try {
-      await apiClient.updateCronJob(userId, cronJob.id, {
+      await apiClient.updateCronJob(cronJob.id, {
         status: nextStatus
       });
-      await refreshCronJobsAfterMutation(userId, cronJob.id);
+      await refreshCronJobsAfterMutation(cronJob.id);
       setCronStatusText(
         nextStatus === "active" ? "已启用定时任务。" : "已暂停定时任务。"
       );
@@ -2400,8 +2342,7 @@ export function SessionWorkbench() {
   }
 
   async function handleDeleteCronJob(cronJobId: string) {
-    const userId = getCronJobsUserId();
-    if (!userId || deletingCronJobId) {
+    if (deletingCronJobId) {
       return;
     }
 
@@ -2417,12 +2358,12 @@ export function SessionWorkbench() {
     setCronStatusText(null);
 
     try {
-      await apiClient.deleteCronJob(userId, cronJobId);
+      await apiClient.deleteCronJob(cronJobId);
       const nextSelectedCronJobId =
         currentCronJobIdRef.current === cronJobId
           ? null
           : currentCronJobIdRef.current;
-      await refreshCronJobsAfterMutation(userId, nextSelectedCronJobId);
+      await refreshCronJobsAfterMutation(nextSelectedCronJobId);
       setCronStatusText("已删除定时任务。");
     } catch (error) {
       setCronErrorText(error instanceof Error ? error.message : String(error));
@@ -2493,7 +2434,6 @@ export function SessionWorkbench() {
           hydrateCurrentSession(updatedSession);
 
           const settingsPayload = await apiClient.updateUserSettingsPayload(
-            currentSession.context.userId,
             { model }
           );
           setUserSettings(settingsPayload.settings);
@@ -2528,7 +2468,6 @@ export function SessionWorkbench() {
           hydrateCurrentSession(updatedSession);
 
           const settingsPayload = await apiClient.updateUserSettingsPayload(
-            currentSession.context.userId,
             { thinkingEffort: normalizedThinkingEffort }
           );
           setUserSettings(settingsPayload.settings);
@@ -2671,20 +2610,19 @@ export function SessionWorkbench() {
     }
   }
 
-  const activeUserId = currentSession?.context.userId ?? userSettings?.userId;
   const settingsMeta = loadingSettings
     ? "syncing"
     : savingSettings
       ? "autosaving"
-      : activeUserId
-        ? `user ${activeUserId}`
+      : userSettings
+        ? "single tenant"
         : "--";
 
   const settingsStatusText = savingSettings
     ? "正在自动保存..."
     : loadingSettings
       ? "正在同步默认设置..."
-      : activeUserId
+      : userSettings
         ? "修改后会自动保存，并用于后续新建会话"
         : "设置尚未加载";
 

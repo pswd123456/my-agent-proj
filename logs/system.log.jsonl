@@ -19,3 +19,4 @@
 {"timestamp":"2026-05-04T11:03:30.678Z","level":"info","component":"gateway","event":"gateway_ready","details":{"apiBaseUrl":"http://localhost:3001","telegramEnabled":true,"telegramMode":"polling"}}
 {"timestamp":"2026-05-04T11:17:34.069Z","level":"info","component":"gateway","event":"gateway_shutdown","details":{"signal":"SIGINT"}}
 {"timestamp":"2026-05-04T11:18:57.150Z","level":"info","component":"gateway","event":"gateway_ready","details":{"apiBaseUrl":"http://localhost:3001","telegramEnabled":true,"telegramMode":"polling"}}
+{"timestamp":"2026-05-04T13:42:24.655Z","level":"info","component":"gateway","event":"gateway_ready","details":{"apiBaseUrl":"http://localhost:3001","telegramEnabled":true,"telegramMode":"polling"}}
