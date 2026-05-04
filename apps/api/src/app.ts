@@ -213,7 +213,10 @@ function buildSettingsPermissionMetadata(
 ): SettingsPermissionToolOption[] {
   return listSettingsPermissionToolOptions({
     workingDirectory: dependencies.buildWorkingDirectory(),
-    routineRepository: dependencies.routineRepository
+    routineRepository: dependencies.routineRepository,
+    ...(dependencies.cronJobRepository
+      ? { cronJobRepository: dependencies.cronJobRepository }
+      : {})
   });
 }
 
@@ -410,8 +413,8 @@ function buildMessageHookContentSet(
       .filter(
         (hook) =>
           hook.enabled &&
-          (hook.behavior ?? (hook.event === "run_end" ? "message" : "context")) ===
-            "message" &&
+          (hook.behavior ??
+            (hook.event === "run_end" ? "message" : "context")) === "message" &&
           hook.content.trim().length > 0
       )
       .map((hook) => hook.content.trim())
@@ -935,7 +938,9 @@ export function createApiApp(dependencies: ApiAppDependencies) {
     const cronJob = await dependencies.cronJobRepository.create({
       userId,
       ...body,
-      workingDirectory: dependencies.buildWorkingDirectory(body.workingDirectory),
+      workingDirectory: dependencies.buildWorkingDirectory(
+        body.workingDirectory
+      ),
       ...(requestedModel ? { model: requestedModel } : {})
     });
 
@@ -1317,9 +1322,8 @@ export function createApiApp(dependencies: ApiAppDependencies) {
       traceRecords,
       rewriteTarget.turnCount
     );
-    let recoveredSession = await dependencies.sessionManager.recover(
-      rewindSnapshot
-    );
+    let recoveredSession =
+      await dependencies.sessionManager.recover(rewindSnapshot);
     await dependencies.sessionManager.pruneForkCheckpointsFromTurn(
       sessionId,
       rewriteTarget.turnCount
