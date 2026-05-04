@@ -7,6 +7,7 @@
 - API 是 `Hono` + `Zod`
 - agent runtime 是仓库内自定义的 `AgentRuntime.run` 执行循环
 - 后台执行入口是 `apps/worker`，和 API 共享同一套 runtime、数据库与任务模型
+- 外部常驻接入入口是 `apps/gateway`，当前负责 Telegram polling，后续可扩展其他主动对外 gateway 服务
 - 数据层是 `PostgreSQL` + `Drizzle ORM` + `postgres` 驱动
 - 模型接入当前通过 `Anthropic SDK` 对接 Anthropic-compatible endpoint，并由统一模型服务在 MiniMax 与 DeepSeek 之间做选择
 
@@ -33,6 +34,7 @@
 - `apps/api` 使用 `Hono`
 - 请求入参校验使用 `Zod`
 - 当前 API 契约以代码和 SDK 为准，`OpenAPI` 尚未落地为权威源
+- Telegram inbox adapter v1 的 HTTP 处理仍挂在 `apps/api`；本地 polling 常驻入口移到 `apps/gateway`，由 gateway 调 Bot API long polling 后转交 API webhook。公网部署时可切到 webhook，同样通过同一套 session/runtime 边界执行
 
 ### Agent Runtime
 
@@ -70,6 +72,7 @@
   - `session_messages`
   - `cron_jobs`
   - `agent_settings`
+  - `inbox_bindings`
   - `background_tasks`
   - `background_task_runs`
 

@@ -7,6 +7,7 @@
 当前边界分三层：
 
 - `apps/api`：服务端入口与运行时装配
+- `apps/gateway`：常驻外部接入入口，主动拉取或订阅外部事件后转交 API
 - `packages/sdk`：给 Web 用的类型化客户端与少量展示友好投影
 - `apps/web`：通过 SDK 调 API，不直接操作数据库或 runtime
 
@@ -19,7 +20,7 @@
 `apps/api` 不是业务规则层，而是当前运行主入口与 HTTP 壳层。它主要做四件事：
 
 1. 连接 API 进程级依赖，并把共享 runtime assembly 产出的 session/settings/trace/log 能力暴露给 HTTP 层
-2. 暴露 session / settings / trace / routines / cron jobs / workspace helper 接口
+2. 暴露 session / settings / trace / routines / cron jobs / inbox adapter / workspace helper 接口
 3. 负责 request/response schema 校验与错误映射
 4. 在每次 runtime 创建前注入工作区输入、MCP 工具和 model service
 
@@ -93,7 +94,7 @@
 - `debugConversationView`
 - `userCustomPrompt`
 
-其中 `/settings/mcp` 读写的是当前用户默认工作目录下的 `.agents/.config.toml`，`/settings/skills` 读取当前用户默认工作目录下的 `.agents/skills/`，它们不是把 MCP server 或 skill 文件内容复制进 `agent_settings`。
+其中 `/settings/mcp` 和 `/settings/channels` 读写的是当前用户默认工作目录下的 `.agents/.config.toml`，`/settings/skills` 读取当前用户默认工作目录下的 `.agents/skills/`，它们不是把 MCP server、channel 或 skill 文件内容复制进 `agent_settings`。
 
 ### 3. Session 生命周期与执行
 
@@ -145,9 +146,18 @@
 
 这组接口把 trace、system log、日程能力结果作为 workbench 的 inspectable data surface 暴露出来；cron job 自身的增删改查则属于上一组用户级接口。
 
+### 6. Inbox / Telegram adapter
+
+- `GET /inbox/telegram/status`
+- `POST /inbox/telegram/set-webhook`
+- `POST /inbox/telegram/webhook`
+
+这组接口把 Telegram 私聊消息转换成 session 输入。adapter 只维护 channel chat 到 active session 的绑定、命令解析、输出模式和 update 幂等；真正的 session 创建、设置切换、interrupt 与 run 执行仍走当前 API / runtime / session manager 边界。
+`apps/gateway` 在 `[channels.telegram].mode = "polling"` 时负责拉取 Bot API update，并把 update POST 到 API 的 `/inbox/telegram/webhook`；`set-webhook` 和 webhook endpoint 保留给公网 webhook 模式。API 进程自身不再启动 Telegram polling。
+
 ## 装配边界
 
-`apps/api/src/index.ts` 负责 API 进程级 wiring，真正复用的 runtime 装配收口在 `packages/agent/src/runtime/assembly.ts`。
+`apps/api/src/index.ts` 负责 API 进程级 wiring，真正复用的 runtime 装配收口在 `packages/agent/src/runtime/assembly.ts`。需要主动常驻对外拉取或订阅外部事件的逻辑放在 `apps/gateway`，不要塞进 API 启动副作用。
 
 `apps/api/src/index.ts` 主要负责：
 

@@ -49,6 +49,8 @@ workspace hooks 不复制进 `agent_settings`；runtime 创建时会把 `.agents
 
 当前权限语义里，`yoloMode` 会自动放行除 `run_shell_command` / `make_http_request` 之外的所有工具；shell / network 不走用户级 tool allow/ask/deny 配置，仍然在运行时单独审批。
 
+当前还落地了 Telegram inbox adapter v1。它通过 `inbox_bindings` 维护私聊 chat 到 active session 的绑定，默认用 polling 接收 Bot API update，只处理文本私聊和 slash command；当 active session 正在 running 时，新普通消息会被报错并丢弃，不进入队列。
+
 ## API 现状
 
 当前 API 不只是 session create/execute：
@@ -56,6 +58,10 @@ workspace hooks 不复制进 `agent_settings`；runtime 创建时会把 `.agents
 - `GET /health`
 - `GET /`
 - `GET /models`
+- `GET/PUT /users/:userId/settings/channels`
+- `GET /inbox/telegram/status`
+- `POST /inbox/telegram/set-webhook`
+- `POST /inbox/telegram/webhook`
 - `GET/POST /sessions`
 - `GET /sessions/search`
 - `GET/POST/PATCH/DELETE /users/:userId/cron-jobs`
@@ -113,6 +119,7 @@ workspace hooks 不复制进 `agent_settings`；runtime 创建时会把 `.agents
 - 工作区 `.agents/` 配置：`docs/architecture/workspace-agent-config.md`
 - workspace instructions：`packages/agent/src/workspace-instructions/`
 - 数据表：`packages/db/src/schema.ts`
+- Telegram inbox adapter：`apps/api/src/app.ts`、`apps/gateway/src/index.ts`、`packages/agent/src/channels/telegram.ts`、`packages/db/src/inbox-repository.ts`
 
 ## 推荐阅读顺序
 

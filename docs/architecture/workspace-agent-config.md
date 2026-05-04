@@ -56,7 +56,7 @@
 
 - 向父目录递归查找
 - 多文件 merge
-- 把 MCP server 配置和 user settings / session settings 混合解析
+- 把 MCP server、channel 配置和 user settings / session settings 混合解析
 
 workspace hooks 是同文件里的独立运行时输入；它们会在解析后和 user settings hooks 合并，见下方 hook 协议。
 
@@ -78,6 +78,36 @@ transport 通过字段推断：
 - 只跳过对应 server（或整个非法文件）
 - 诊断进入 trace / log
 - 不阻断内置工具运行
+
+外部消息通道使用 `[channels.<name>]`。当前只支持 Telegram：
+
+```toml
+[channels.telegram]
+enabled = true
+mode = "polling"
+bot_token = "$TELEGRAM_BOT_TOKEN"
+```
+
+Webhook 部署是可选模式：
+
+```toml
+[channels.telegram]
+enabled = true
+mode = "webhook"
+bot_token = "$TELEGRAM_BOT_TOKEN"
+webhook_secret = "$TELEGRAM_WEBHOOK_SECRET"
+webhook_url = "https://example.com/api/inbox/telegram/webhook"
+```
+
+channel 字段：
+
+- `enabled`：可选布尔值，控制该 channel 是否接收消息
+- `mode`：可选，`polling` / `webhook`；默认 `polling`，不需要公网 URL
+- `bot_token`：Telegram bot token；可直接写值，也可写 `$ENV_NAME` / `${ENV_NAME}` 环境变量引用
+- `webhook_secret`：可选 webhook secret token，同样支持环境变量引用
+- `webhook_url`：仅 webhook 模式需要；调用设置 webhook 接口时可省略 URL
+
+这组配置由 Settings > Channels 页面读写，仍然保存在当前用户默认工作目录下的 `.agents/.config.toml`，不复制进 `agent_settings`。
 
 同一个文件也支持 `[hooks.<id>]`：
 
@@ -118,7 +148,7 @@ workspace hooks 使用同一套 `normalizeUserContextHooks(...)` 规则，因此
 - `YOLO mode` 不绕过 MCP 工具审批
 - workspace hooks 会和当前用户的 settings hooks 合并后传入 runtime，后续 context / message / subagent 行为仍走原有 hook runtime
 
-这意味着 MCP 连接和 workspace hooks 都是“按次装配”的运行时上下文，而不是持久化 session 状态。
+这意味着 MCP 连接、channel 配置和 workspace hooks 都是“按次装配”的运行时上下文，而不是持久化 session 状态。
 
 ## `.agents/plans/`
 
