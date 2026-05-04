@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 
-import { createMemoryRoutineRepository } from "@ai-app-template/db";
 import { PERMISSION_TOOL_OPTIONS } from "@ai-app-template/domain";
 
 import {
@@ -40,7 +39,6 @@ describe("ToolRegistry stage4 metadata contract", () => {
   test("mounts planning tools in the default runtime registry even without capability packs", () => {
     const registry = createDefaultToolRegistry({
       workingDirectory: "/tmp/workspace",
-      routineRepository: createMemoryRoutineRepository(),
       enabledCapabilityPacks: []
     });
 
@@ -57,7 +55,6 @@ describe("ToolRegistry stage4 metadata contract", () => {
   test("mounts lsp tools only when the lsp capability pack is enabled", () => {
     const enabledRegistry = createDefaultToolRegistry({
       workingDirectory: "/tmp/workspace",
-      routineRepository: createMemoryRoutineRepository(),
       enabledCapabilityPacks: ["lsp"]
     });
 
@@ -78,7 +75,6 @@ describe("ToolRegistry stage4 metadata contract", () => {
 
     const disabledRegistry = createDefaultToolRegistry({
       workingDirectory: "/tmp/workspace",
-      routineRepository: createMemoryRoutineRepository(),
       enabledCapabilityPacks: ["workspace", "schedule"]
     });
 
@@ -87,8 +83,7 @@ describe("ToolRegistry stage4 metadata contract", () => {
 
   test("keeps the settings permission list aligned with built-in tools", () => {
     const registry = createDefaultToolRegistry({
-      workingDirectory: "/tmp/workspace",
-      routineRepository: createMemoryRoutineRepository()
+      workingDirectory: "/tmp/workspace"
     });
 
     expect([...PERMISSION_TOOL_OPTIONS].sort()).toEqual(
@@ -99,7 +94,6 @@ describe("ToolRegistry stage4 metadata contract", () => {
   test("all built-in tool descriptions follow the four-section instruction format", () => {
     const registry = createDefaultToolRegistry({
       workingDirectory: "/tmp/workspace",
-      routineRepository: createMemoryRoutineRepository(),
       enabledCapabilityPacks: ["workspace", "schedule", "lsp"]
     });
 
@@ -113,8 +107,7 @@ describe("ToolRegistry stage4 metadata contract", () => {
 
   test("derives settings permission tools from the runtime registry surface", () => {
     const options = listSettingsPermissionToolOptions({
-      workingDirectory: "/tmp/workspace",
-      routineRepository: createMemoryRoutineRepository()
+      workingDirectory: "/tmp/workspace"
     });
 
     expect(options.map((tool) => tool.name)).toEqual(
@@ -177,8 +170,7 @@ describe("ToolRegistry stage4 metadata contract", () => {
 
 function registryNamesWithoutShellOrNetwork(): string[] {
   return createDefaultToolRegistry({
-    workingDirectory: "/tmp/workspace",
-    routineRepository: createMemoryRoutineRepository()
+    workingDirectory: "/tmp/workspace"
   })
     .list()
     .filter(

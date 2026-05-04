@@ -15,6 +15,8 @@ describe("session force stop", () => {
     });
     expect(acquired).not.toBeNull();
     await sessionManager.setLoopState(session.sessionId, "running");
+    const controller = new AbortController();
+    sessionManager.registerExecutionAbort(session.sessionId, runId, controller);
 
     const stopped = await sessionManager.forceStop(session.sessionId);
 
@@ -28,6 +30,7 @@ describe("session force stop", () => {
     expect(
       await sessionManager.isInterruptRequested(session.sessionId, runId)
     ).toBe(true);
+    expect(controller.signal.aborted).toBe(true);
 
     const nextRun = await sessionManager.acquireExecution(session.sessionId, {
       runId: "run-force-stop-2"
