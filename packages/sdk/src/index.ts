@@ -35,6 +35,7 @@ export type {
   WorkspaceSkillSettingRecord
 } from "@ai-app-template/domain";
 export {
+  buildSessionSettingsPatchFromRecord,
   buildShellApprovalPatternCandidates,
   matchesShellCommandPattern,
   CAPABILITY_PACK_OPTIONS,
