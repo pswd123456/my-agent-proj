@@ -149,7 +149,6 @@ export const updateCronJobPayloadSchema = z.union([
 
 const cronJobRecordBaseShape = {
   id: z.string().min(1),
-  userId: z.string().min(1),
   name: z.string().min(1),
   prompt: z.string().min(1),
   workingDirectory: z.string().min(1),

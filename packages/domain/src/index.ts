@@ -5,6 +5,7 @@ export * from "./json.js";
 export * from "./permission-rules.js";
 export * from "./routine.js";
 export * from "./session-context.js";
+export * from "./settings-config.js";
 export * from "./session-settings.js";
 export * from "./settings-payload-schema.js";
 export * from "./tool-result.js";

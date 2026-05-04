@@ -480,7 +480,6 @@ export function normalizeThinkingEffort(value: unknown): ThinkingEffort {
 }
 
 export interface ScheduleSessionContext {
-  userId: string;
   status: ScheduleSessionStatus;
   currentDateContext: string;
   yoloMode: boolean;

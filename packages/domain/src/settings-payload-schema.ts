@@ -57,7 +57,6 @@ export const createSessionPayloadSchema = z.object({
   workingDirectory: z.string().optional(),
   model: z.string().optional(),
   thinkingEffort: z.enum(THINKING_EFFORT_OPTIONS).optional(),
-  userId: z.string().optional(),
   yoloMode: z.boolean().optional(),
   planModeEnabled: z.boolean().optional(),
   contextWindow: z.number().int().min(1000).optional(),

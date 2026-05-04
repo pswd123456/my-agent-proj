@@ -3,7 +3,6 @@ export type RoutineSource = "user_confirmed" | "agent_suggested_confirmed";
 
 export interface RoutineRecord {
   id: string;
-  userId: string;
   name: string;
   description: string | null;
   date: string;

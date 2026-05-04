@@ -16,7 +16,6 @@ import type { UserContextHookRecord } from "./user-context-hooks.js";
 import type { UpdateUserSettingsPayload } from "./settings-payload-schema.js";
 import type { WorkspaceSkillSettingRecord } from "./workspace-skills.js";
 
-export const DEFAULT_SESSION_SETTINGS_USER_ID = "cli-user";
 export const DEFAULT_SESSION_WORKING_DIRECTORY = "agent-workspace";
 export const DEFAULT_CONTEXT_WINDOW = 200_000;
 export const DEFAULT_SESSION_MAX_TURNS = 100;
@@ -36,7 +35,6 @@ export const DEFAULT_CAPABILITY_PACKS = [
 export type CapabilityPackName = (typeof CAPABILITY_PACK_OPTIONS)[number];
 
 export interface SessionSettingsRecord {
-  userId: string;
   workingDirectory: string;
   model: string;
   thinkingEffort: ThinkingEffort;
@@ -60,7 +58,6 @@ export interface SessionSettingsRecord {
 export type SessionSettingsInput = UpdateUserSettingsPayload;
 
 export function resolveSessionSettingsDefaults(
-  userId = DEFAULT_SESSION_SETTINGS_USER_ID,
   options?: {
     settingsPermissionToolOptions?: readonly string[];
   }
@@ -72,7 +69,6 @@ export function resolveSessionSettingsDefaults(
     )
   ];
   return {
-    userId,
     workingDirectory: DEFAULT_SESSION_WORKING_DIRECTORY,
     model: DEFAULT_SESSION_MODEL,
     thinkingEffort: normalizeThinkingEffort(DEFAULT_THINKING_EFFORT),

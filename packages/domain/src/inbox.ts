@@ -21,7 +21,6 @@ export interface InboxBindingRecord {
   channel: InboxChannel;
   externalChatId: string;
   activeSessionId: string | null;
-  userId: string;
   settings: InboxBindingSettings;
   lastUpdateId: number | null;
   createdAt: string;
