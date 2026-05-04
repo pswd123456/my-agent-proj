@@ -112,7 +112,7 @@ export interface ListModelsResult {
 export interface InterruptSessionResult {
   sessionId: string;
   accepted: true;
-  mode?: "interrupt_requested" | "force_stopped";
+  mode?: "interrupted";
   session: SessionSnapshot;
 }
 
@@ -537,9 +537,7 @@ export class ApiClient {
         body: JSON.stringify(payload)
       }
     );
-    return (await ensureOk(response).then((result) =>
-      result.json()
-    )) as {
+    return (await ensureOk(response).then((result) => result.json())) as {
       session: SessionSnapshot;
       traceRecords: TraceRecord[];
       forkTargets: SessionForkTarget[];
