@@ -62,6 +62,9 @@
 
 - `contracts.ts`：`SessionManager` 抽象
 - `postgres-session-manager.ts`：当前主链路实现
+- `message-codec.ts`：消息块与数据库消息行之间的序列化 / 反序列化
+- `session-row-mapper.ts`：session/checkpoint 行到 runtime snapshot 的映射
+- `execution-lease.ts`：execution lease 的时间与状态判断
 - `shared.ts`：snapshot 创建、克隆、归一化
 - `task-brief.ts`、`todo-state.ts`
 

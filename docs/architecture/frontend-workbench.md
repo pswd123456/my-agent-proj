@@ -58,6 +58,12 @@
 - 当前 session 正在发生什么
 - 对话区应该怎么把历史、流式、pending user、折叠流、inspector 事件和动画 key 拼起来
 
+settings 相关也有一条单独边界：
+
+- `session-workbench-state.ts`：settings form hydrate、normalization、payload builder
+- `session-workbench-settings-controller.ts`：settings 保存后的回拉与 session 同步编排
+- `session-workbench-settings.tsx`：settings 子页渲染
+
 ### 4. 展示组件层
 
 关键文件：
