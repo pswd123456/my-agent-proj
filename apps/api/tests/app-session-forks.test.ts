@@ -558,6 +558,48 @@ describe("session fork endpoints", () => {
     ).toEqual([1]);
   });
 
+  test("keeps current model and thinking effort when recovering a rewrite target", async () => {
+    const { app, sessionManager, settingsRepository, setTraceRecords } =
+      await createForkTestApp();
+    const { session, latestCheckpoint } = await seedRewriteScenario({
+      sessionManager,
+      settingsRepository,
+      setTraceRecords
+    });
+
+    const updateResponse = await app.request(
+      `/sessions/${session.sessionId}/settings`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "deepseek-v4-pro",
+          thinkingEffort: "max"
+        })
+      }
+    );
+    expect(updateResponse.status).toBe(200);
+
+    const response = await app.request(
+      `/sessions/${session.sessionId}/rewrite-target/recover`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          checkpointId: latestCheckpoint.id,
+          userMessageId: session.messages[2]?.id
+        })
+      }
+    );
+
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as {
+      session: SessionSnapshot;
+    };
+    expect(payload.session.model).toBe("deepseek-v4-pro");
+    expect(payload.session.context.thinkingEffort).toBe("max");
+  });
+
   test("rejects rewrites that do not target the latest rewriteable user message", async () => {
     const { app, sessionManager, settingsRepository, setTraceRecords } =
       await createForkTestApp();

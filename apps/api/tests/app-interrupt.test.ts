@@ -55,7 +55,7 @@ async function createTestApp(workspaceRoot: string) {
 }
 
 describe("session interrupt API", () => {
-  test("uses the stop endpoint to repair a paused session without an active run", async () => {
+  test("interrupt repairs a paused session without an active run", async () => {
     const workspaceRoot = await mkdtemp(
       path.join(os.tmpdir(), "api-interrupt-workspace-")
     );
@@ -95,10 +95,55 @@ describe("session interrupt API", () => {
       mode: string;
       session: SessionSnapshot;
     };
-    expect(payload.mode).toBe("force_stopped");
+    expect(payload.mode).toBe("interrupted");
     expect(payload.session.context.status).toBe("waiting_for_user_input");
     expect(payload.session.context.pendingPermissionRequest).toBeNull();
     expect(payload.session.sessionState.loopState).toBe("interrupted");
     expect(payload.session.sessionState.interruptRequested).toBe(false);
+  });
+
+  test("interrupt force-stops an active run and marks it cancelled", async () => {
+    const workspaceRoot = await mkdtemp(
+      path.join(os.tmpdir(), "api-interrupt-active-workspace-")
+    );
+    const { app, sessionManager } = await createTestApp(workspaceRoot);
+    const createResponse = await app.request("/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: "interrupt-user" })
+    });
+    expect(createResponse.status).toBe(201);
+    const createPayload = (await createResponse.json()) as {
+      session: SessionSnapshot;
+    };
+    const sessionId = createPayload.session.sessionId;
+    const runId = "api-interrupt-run-1";
+
+    const acquired = await sessionManager.acquireExecution(sessionId, {
+      runId
+    });
+    expect(acquired).not.toBeNull();
+    await sessionManager.setLoopState(sessionId, "running");
+
+    const interruptResponse = await app.request(
+      `/sessions/${sessionId}/interrupt`,
+      {
+        method: "POST"
+      }
+    );
+
+    expect(interruptResponse.status).toBe(200);
+    const payload = (await interruptResponse.json()) as {
+      mode: string;
+      session: SessionSnapshot;
+    };
+    expect(payload.mode).toBe("interrupted");
+    expect(payload.session.context.status).toBe("waiting_for_user_input");
+    expect(payload.session.sessionState.loopState).toBe("interrupted");
+    expect(payload.session.sessionState.interruptRequested).toBe(false);
+    expect(await sessionManager.isExecutionActive(sessionId)).toBe(false);
+    expect(await sessionManager.isInterruptRequested(sessionId, runId)).toBe(
+      true
+    );
   });
 });

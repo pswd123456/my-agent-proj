@@ -38,8 +38,7 @@ async function createTestApp() {
     component: "api"
   });
   const settingsPermissionToolOptions = listSettingsPermissionToolOptions({
-    workingDirectory: resolveApiWorkingDirectory(workspaceRoot),
-    routineRepository
+    workingDirectory: resolveApiWorkingDirectory(workspaceRoot)
   }).map((tool) => tool.name);
   const settingsRepository = createMemorySettingsRepository({
     settingsPermissionToolOptions

@@ -212,11 +212,7 @@ function buildSettingsPermissionMetadata(
   dependencies: ApiAppDependencies
 ): SettingsPermissionToolOption[] {
   return listSettingsPermissionToolOptions({
-    workingDirectory: dependencies.buildWorkingDirectory(),
-    routineRepository: dependencies.routineRepository,
-    ...(dependencies.cronJobRepository
-      ? { cronJobRepository: dependencies.cronJobRepository }
-      : {})
+    workingDirectory: dependencies.buildWorkingDirectory()
   });
 }
 
@@ -1577,17 +1573,6 @@ export function createApiApp(dependencies: ApiAppDependencies) {
   app.post("/sessions/:sessionId/interrupt", async (c) => {
     const requestId = getRequestId(c);
     const sessionId = c.req.param("sessionId");
-    const session =
-      await dependencies.sessionManager.requestInterrupt(sessionId);
-    if (session) {
-      return c.json({
-        sessionId,
-        accepted: true,
-        mode: "interrupt_requested",
-        session
-      });
-    }
-
     const stoppedSession =
       await dependencies.sessionManager.forceStop(sessionId);
     if (!stoppedSession) {
@@ -1597,14 +1582,14 @@ export function createApiApp(dependencies: ApiAppDependencies) {
     await logApiEvent({
       logger: dependencies.apiLogger,
       requestId,
-      event: "session_force_stopped_without_active_run",
+      event: "session_interrupted",
       sessionId
     });
 
     return c.json({
       sessionId,
       accepted: true,
-      mode: "force_stopped",
+      mode: "interrupted",
       session: stoppedSession
     });
   });
@@ -1627,7 +1612,7 @@ export function createApiApp(dependencies: ApiAppDependencies) {
     return c.json({
       sessionId,
       accepted: true,
-      mode: "force_stopped",
+      mode: "interrupted",
       session
     });
   });
