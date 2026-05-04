@@ -7,7 +7,11 @@ import {
   validatePathListInput,
   type GitCommandError
 } from "./git-shared.js";
-import { createToolResult, failureResult, successResult } from "./tool-result.js";
+import {
+  createToolResult,
+  failureResult,
+  successResult
+} from "./tool-result.js";
 import {
   buildToolDescription,
   describeObjectProperty
@@ -49,31 +53,31 @@ function mapGitDiffFailure(
   );
 }
 
-function createGitDiffTool(input: {
-  name: "git_diff" | "git_diff_cached";
-  cached: boolean;
-}): RuntimeTool {
+export function createGitDiffTool(): RuntimeTool {
   return {
-    name: input.name,
+    name: "git_diff",
     description: buildToolDescription({
       usageScenarios: [
-        input.cached
-          ? "Inspect staged git diff output."
-          : "Inspect unstaged git diff output.",
+        "Inspect unstaged or staged git diff output.",
         "Review changes for the whole workspace or for selected paths."
       ],
       usageInstructions: [
         "Optionally provide paths to scope the diff.",
         describeObjectProperty({
+          name: "cached",
+          type: "boolean",
+          description:
+            "Set true to inspect staged changes instead of unstaged changes."
+        }),
+        describeObjectProperty({
           name: "contextLines",
           type: "number",
-          description:
-            "Optional unified diff context line count."
+          description: "Optional unified diff context line count."
         })
       ],
       constraints: [
         "This is read-only and does not modify git state.",
-        "git_diff shows unstaged changes; git_diff_cached shows staged changes.",
+        "cached=false or omitted shows unstaged changes; cached=true shows staged changes.",
         "Fails outside a git repository."
       ],
       examples: [
@@ -100,6 +104,11 @@ function createGitDiffTool(input: {
         contextLines: {
           type: "number",
           description: "Optional unified diff context line count."
+        },
+        cached: {
+          type: "boolean",
+          description:
+            "Whether to show staged changes instead of unstaged changes."
         }
       },
       additionalProperties: false
@@ -138,6 +147,7 @@ function createGitDiffTool(input: {
       const contextLines =
         normalizeContextLines(toolInput.contextLines) ?? DEFAULT_CONTEXT_LINES;
       const rawPaths = normalizePathListInput(toolInput.paths) ?? undefined;
+      const cached = toolInput.cached === true;
 
       try {
         const normalizedPaths = normalizeGitPaths({
@@ -152,7 +162,7 @@ function createGitDiffTool(input: {
             "--no-color",
             "--no-ext-diff",
             `--unified=${contextLines}`,
-            ...(input.cached ? ["--cached"] : []),
+            ...(cached ? ["--cached"] : []),
             ...(normalizedPaths.relativePaths.length > 0
               ? ["--", ...normalizedPaths.relativePaths]
               : [])
@@ -171,7 +181,7 @@ function createGitDiffTool(input: {
             code: "GIT_DIFF_OK",
             message: "Git diff loaded successfully.",
             data: {
-              cached: input.cached,
+              cached,
               scopedPaths: normalizedPaths.relativePaths,
               contextLines,
               hasChanges: stdout.length > 0,
@@ -179,25 +189,11 @@ function createGitDiffTool(input: {
               truncated: diffOutput.truncated
             }
           }),
-          `[${input.name}] success\n- ${stdout.length > 0 ? "diff available" : "no changes"}`
+          `[git_diff] success\n- ${stdout.length > 0 ? "diff available" : "no changes"}`
         );
       } catch (error) {
-        return mapGitDiffFailure(input.name, error);
+        return mapGitDiffFailure("git_diff", error);
       }
     }
   };
-}
-
-export function createGitDiffToolUncached(): RuntimeTool {
-  return createGitDiffTool({
-    name: "git_diff",
-    cached: false
-  });
-}
-
-export function createGitDiffCachedTool(): RuntimeTool {
-  return createGitDiffTool({
-    name: "git_diff_cached",
-    cached: true
-  });
 }

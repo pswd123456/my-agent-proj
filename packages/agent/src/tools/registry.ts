@@ -1,6 +1,6 @@
 import type { AnthropicToolDefinition } from "../model.js";
 
-import type { RoutineRepository } from "@ai-app-template/db";
+import type { CronJobRepository, RoutineRepository } from "@ai-app-template/db";
 import {
   DEFAULT_CAPABILITY_PACKS,
   type CapabilityPackName,
@@ -13,40 +13,28 @@ import { createApplyPatchTool } from "./apply-patch.js";
 import { createAskForConfirmationTool } from "./ask-for-confirmation.js";
 import { createAskUserQuestionTool } from "./ask-user-question.js";
 import { createCreateDirectoryTool } from "./create-directory.js";
-import { createCreateRoutineTool } from "./create-routine.js";
 import { createDelegateAgentTool } from "./delegate-agent.js";
 import { createDeleteFileTool } from "./delete-file.js";
 import { createDeletePathTool } from "./delete-path.js";
-import { createDeleteRoutineTool } from "./delete-routine.js";
-import { createEditTaskBriefTool } from "./edit-task-brief.js";
-import { createEditRoutineTool } from "./edit-routine.js";
 import { createGetCurrentTimeTool } from "./get-current-time.js";
-import { createGetTodoListTool } from "./get-todo-list.js";
-import { createGetTaskBriefTool } from "./get-task-brief.js";
 import { createFindFilesTool } from "./find-files.js";
-import {
-  createGitDiffCachedTool,
-  createGitDiffToolUncached
-} from "./git-diff.js";
+import { createGitDiffTool } from "./git-diff.js";
 import { createGitStatusTool } from "./git-status.js";
-import { createListRoutineByDateTool } from "./list-routine-by-date.js";
-import { createListRoutineByWeekTool } from "./list-routine-by-week.js";
 import { createListDirectoryTool } from "./list-directory.js";
 import { createLoadSkillTool } from "./load-skill.js";
 import { createLspTools } from "./lsp.js";
 import { createManageCapabilityPacksTool } from "./manage-capability-packs.js";
+import { createManageCronJobsTool } from "./manage-cron-jobs.js";
+import { createManageRoutineTool } from "./manage-routine.js";
+import { createManageTaskBriefTool } from "./manage-task-brief.js";
+import { createManageTodoListTool } from "./manage-todo-list.js";
 import { createManagePathTool } from "./manage-path.js";
 import { createMakeHttpRequestTool } from "./make-http-request.js";
+import { createQueryRoutinesTool } from "./query-routines.js";
 import { createReadFileTool } from "./read-file.js";
-import { createReadTaskBriefTool } from "./read-task-brief.js";
-import { createReplaceTodoListTool } from "./replace-todo-list.js";
-import { createReplaceTaskBriefTool } from "./replace-task-brief.js";
 import { createRunShellCommandTool } from "./run-shell-command.js";
-import { createSearchRoutineByOclockTool } from "./search-routine-by-oclock.js";
 import { createSearchSkillTool } from "./search-skill.js";
-import { createSearchTaskBriefTool } from "./search-task-brief.js";
 import { createSearchTextTool } from "./search-text.js";
-import { createUpdateTodoItemsTool } from "./update-todo-items.js";
 import { createWriteFileTool } from "./write-file.js";
 import type { RuntimeTool } from "./runtime-tool.js";
 
@@ -147,16 +135,10 @@ export function createPlanningToolRegistry(): ToolRegistry {
   return registerTools(new ToolRegistry(), [
     createAskUserQuestionTool(),
     createDelegateAgentTool(),
-    createEditTaskBriefTool(),
     createGetCurrentTimeTool(),
-    createGetTaskBriefTool(),
-    createGetTodoListTool(),
     createManageCapabilityPacksTool(),
-    createReadTaskBriefTool(),
-    createReplaceTaskBriefTool(),
-    createReplaceTodoListTool(),
-    createSearchTaskBriefTool(),
-    createUpdateTodoItemsTool()
+    createManageTaskBriefTool(),
+    createManageTodoListTool()
   ]);
 }
 
@@ -176,8 +158,7 @@ export function createWorkspaceToolRegistry(options: {
     createDeletePathTool(options.workingDirectory),
     createManagePathTool(options.workingDirectory),
     createGitStatusTool(),
-    createGitDiffToolUncached(),
-    createGitDiffCachedTool(),
+    createGitDiffTool(),
     createRunShellCommandTool(),
     createMakeHttpRequestTool(),
     createSearchSkillTool(
@@ -193,15 +174,13 @@ export function createWorkspaceToolRegistry(options: {
 
 export function createScheduleToolRegistry(options: {
   routineRepository: RoutineRepository;
+  cronJobRepository?: CronJobRepository;
 }): ToolRegistry {
   void options;
   return registerTools(new ToolRegistry(), [
-    createCreateRoutineTool(),
-    createEditRoutineTool(),
-    createDeleteRoutineTool(),
-    createSearchRoutineByOclockTool(),
-    createListRoutineByWeekTool(),
-    createListRoutineByDateTool(),
+    createManageCronJobsTool(),
+    createManageRoutineTool(),
+    createQueryRoutinesTool(),
     createAskForConfirmationTool()
   ]);
 }
@@ -216,6 +195,7 @@ export function createLspToolRegistry(options: {
 export function createDefaultToolRegistry(options: {
   workingDirectory: string;
   routineRepository: RoutineRepository;
+  cronJobRepository?: CronJobRepository;
   lspServerManager?: LspServerManager;
   enabledCapabilityPacks?: readonly string[];
   workspaceSkillSettings?: readonly WorkspaceSkillSettingRecord[];
@@ -247,6 +227,7 @@ export function createDefaultToolRegistry(options: {
 export function listSettingsPermissionToolOptions(options: {
   workingDirectory: string;
   routineRepository: RoutineRepository;
+  cronJobRepository?: CronJobRepository;
 }): SettingsPermissionToolOption[] {
   const tools = new Map<string, SettingsPermissionToolOption>();
 

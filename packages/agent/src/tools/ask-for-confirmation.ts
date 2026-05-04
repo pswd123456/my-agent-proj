@@ -98,7 +98,7 @@ export function createAskForConfirmationTool(): RuntimeTool {
         "Routine creation that still overlaps an existing routine is rejected instead of entering confirmation."
       ],
       examples: [
-        '{"summary_text":"The new routine overlaps an existing one.","proposed_items":[{"preview_text":"Create 09:00-10:00 routine","tool_name":"create_routine","tool_input":{"name":"Study","date":"2026-05-03","start_time":"09:00","end_time":"10:00","source":"user_confirmed"}}],"conflict_items":[{"routine_id":"routine_1","preview_text":"Existing routine 09:30-10:30"}]}'
+        '{"summary_text":"The new routine overlaps an existing one.","proposed_items":[{"preview_text":"Create 09:00-10:00 routine","tool_name":"manage_routine","tool_input":{"action":"create","name":"Study","date":"2026-05-03","start_time":"09:00","end_time":"10:00","source":"user_confirmed"}}],"conflict_items":[{"routine_id":"routine_1","preview_text":"Existing routine 09:30-10:30"}]}'
       ]
     }),
     family: "schedule",
@@ -160,7 +160,10 @@ export function createAskForConfirmationTool(): RuntimeTool {
       }
 
       for (const item of parsed.data.proposed_items) {
-        if (item.tool_name !== "create_routine" || !item.tool_input) {
+        if (
+          item.tool_name !== "manage_routine" ||
+          item.tool_input?.action !== "create"
+        ) {
           continue;
         }
 

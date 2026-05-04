@@ -1,4 +1,4 @@
-import type { RoutineRepository } from "@ai-app-template/db";
+import type { CronJobRepository, RoutineRepository } from "@ai-app-template/db";
 import type {
   PermissionRuleLists,
   ToolResult,
@@ -41,6 +41,7 @@ export interface ToolExecutionContext {
   workingDirectory: string;
   abortSignal?: AbortSignal;
   routineRepository: RoutineRepository;
+  cronJobRepository?: CronJobRepository;
   sessionManager: SessionManager;
   delegateAgentService?: DelegateAgentService;
   backgroundTaskManager?: BackgroundTaskManager;
