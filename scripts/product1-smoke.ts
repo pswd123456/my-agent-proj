@@ -24,8 +24,9 @@ async function runCreateFlow(): Promise<void> {
               {
                 type: "tool_use",
                 id: "create-1",
-                name: "create_routine",
+                name: "manage_routine",
                 input: {
+                  action: "create",
                   name: "meeting",
                   date: "2026-04-21",
                   start_time: "10:00",
@@ -54,7 +55,7 @@ async function runCreateFlow(): Promise<void> {
     model: "MiniMax-M2.7",
     sessionManager,
     routineRepository,
-    toolRegistry: createScheduleToolRegistry({ routineRepository }),
+    toolRegistry: createScheduleToolRegistry(),
     promptBuilder: createPromptBuilder(),
     maxTurns: 4,
     maxTokens: 128
@@ -82,7 +83,7 @@ async function runCreateFlow(): Promise<void> {
   assert.equal(result.toolOutputs.length, 1);
   assert.match(
     result.toolOutputs[0]?.displayText ?? "",
-    /\[create_routine\] success/
+    /\[manage_routine\] success/
   );
   assert.equal(routines.length, 1);
 }
@@ -110,8 +111,9 @@ async function runConflictFlow(): Promise<void> {
               {
                 type: "tool_use",
                 id: "create-2",
-                name: "create_routine",
+                name: "manage_routine",
                 input: {
+                  action: "create",
                   name: "meeting",
                   date: "2026-04-21",
                   start_time: "14:00",
@@ -135,8 +137,9 @@ async function runConflictFlow(): Promise<void> {
                   proposed_items: [
                     {
                       preview_text: "2026-04-21 14:00-15:00 meeting",
-                      tool_name: "create_routine",
+                      tool_name: "manage_routine",
                       tool_input: {
+                        action: "create",
                         name: "meeting",
                         date: "2026-04-21",
                         start_time: "14:00",
@@ -174,7 +177,7 @@ async function runConflictFlow(): Promise<void> {
     model: "MiniMax-M2.7",
     sessionManager,
     routineRepository,
-    toolRegistry: createScheduleToolRegistry({ routineRepository }),
+    toolRegistry: createScheduleToolRegistry(),
     promptBuilder: createPromptBuilder(),
     maxTurns: 6,
     maxTokens: 128

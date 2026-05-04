@@ -44,9 +44,7 @@ const createdSessionIds: string[] = [];
 
 try {
   const conflictRepository = createMemoryRoutineRepository();
-  const conflictToolRegistry = createScheduleToolRegistry({
-    routineRepository: conflictRepository
-  });
+  const conflictToolRegistry = createScheduleToolRegistry();
 
   let conflictCallCount = 0;
   const conflictClient: AnthropicCompatibleClient = {
@@ -60,8 +58,9 @@ try {
               {
                 type: "tool_use",
                 id: "search-1",
-                name: "search_routine_by_oclock",
+                name: "query_routines",
                 input: {
+                  action: "by_time",
                   date: "2026-04-21",
                   time: "14:00"
                 }
@@ -81,8 +80,9 @@ try {
                 proposed_items: [
                   {
                     preview_text: "Move reading to 16:00-17:00",
-                    tool_name: "create_routine",
+                    tool_name: "manage_routine",
                     tool_input: {
+                      action: "create",
                       name: "读书",
                       date: "2026-04-21",
                       start_time: "16:00",
@@ -175,9 +175,7 @@ try {
     model: "MiniMax-M2.7",
     sessionManager,
     routineRepository: busyRepository,
-    toolRegistry: createScheduleToolRegistry({
-      routineRepository: busyRepository
-    }),
+    toolRegistry: createScheduleToolRegistry(),
     promptBuilder,
     maxTurns: 2
   });

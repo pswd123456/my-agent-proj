@@ -83,8 +83,8 @@ const toolRows = collectToolRows([
     createdAt: "2026-04-21T10:01:00.000Z",
     turnCount: 1,
     toolCallId: "call-1",
-    toolName: "create_routine",
-    input: { name: "meeting" }
+    toolName: "manage_routine",
+    input: { action: "create", name: "meeting" }
   },
   {
     kind: "tool_result",
@@ -92,13 +92,13 @@ const toolRows = collectToolRows([
     createdAt: "2026-04-21T10:01:10.000Z",
     turnCount: 1,
     toolCallId: "call-1",
-    toolName: "create_routine",
+    toolName: "manage_routine",
     output: '{"ok":true}',
-    displayText: "[create_routine] success",
+    displayText: "[manage_routine] success",
     isError: false
   }
 ]);
-assert.equal(toolRows[0]?.displayText, "[create_routine] success");
+assert.equal(toolRows[0]?.displayText, "[manage_routine] success");
 
 const grouped = groupRoutinesByDate([
   {

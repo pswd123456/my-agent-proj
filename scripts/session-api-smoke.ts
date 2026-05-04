@@ -103,8 +103,9 @@ function createFakeClient(session: SessionSnapshot): AnthropicCompatibleClient {
             {
               type: "tool_use",
               id: "conflict-create",
-              name: "create_routine",
+              name: "manage_routine",
               input: {
+                action: "create",
                 name: "conflict meeting",
                 date: "2026-04-21",
                 start_time: "14:00",
@@ -132,8 +133,9 @@ function createFakeClient(session: SessionSnapshot): AnthropicCompatibleClient {
           {
             type: "tool_use",
             id: "create-1",
-            name: "create_routine",
+            name: "manage_routine",
             input: {
+              action: "create",
               name: "meeting",
               date: "2026-04-21",
               start_time: "10:00",
@@ -249,18 +251,21 @@ const app = createApiApp({
   buildWorkingDirectory: (input) =>
     input ? path.resolve(process.cwd(), input) : defaultWorkspace,
   defaultModel: "MiniMax-M2.7",
-  runtimeFactory(session) {
-    return createAgentRuntime({
-      client: createFakeClient(session),
-      model: session.model,
-      sessionManager,
-      routineRepository,
-      toolRegistry: createScheduleToolRegistry({ routineRepository }),
-      traceManager,
-      promptBuilder,
-      maxTurns: 6,
-      maxTokens: 128
-    });
+  async runtimeFactory(session) {
+    return {
+      runtime: createAgentRuntime({
+        client: createFakeClient(session),
+        model: session.model,
+        sessionManager,
+        routineRepository,
+        toolRegistry: createScheduleToolRegistry(),
+        traceManager,
+        promptBuilder,
+        maxTurns: 6,
+        maxTokens: 128
+      }),
+      async dispose() {}
+    };
   }
 });
 
@@ -306,7 +311,7 @@ async function updateUserSettings(
 }
 
 await updateUserSettings("api-user", {
-  toolAllowList: ["create_routine"]
+  toolAllowList: ["manage_routine"]
 });
 
 await routineRepository.create({
@@ -358,7 +363,11 @@ const simpleResponse = await app.request(
   }
 );
 const simpleEvents = await readSse(simpleResponse);
-assert.equal(simpleEvents.at(-1)?.kind, "run_complete");
+assert.equal(
+  simpleEvents.at(-1)?.kind,
+  "run_complete",
+  JSON.stringify(simpleEvents, null, 2)
+);
 assert.equal(
   simpleEvents.filter((event) => event.kind === "assistant_text").length,
   1
@@ -444,7 +453,16 @@ const idleInterruptResponse = await app.request(
     method: "POST"
   }
 );
-assert.equal(idleInterruptResponse.status, 409);
+assert.equal(idleInterruptResponse.status, 200);
+const idleInterruptPayload = (await idleInterruptResponse.json()) as {
+  mode: string;
+  session: SessionSnapshot;
+};
+assert.equal(idleInterruptPayload.mode, "force_stopped");
+assert.equal(
+  idleInterruptPayload.session.sessionState.interruptRequested,
+  false
+);
 
 const conflictSession = await createSession();
 const conflictResponse = await app.request(
@@ -529,7 +547,7 @@ const busyDeleteRuntime = createAgentRuntime({
   model: busyDeleteSession.model,
   sessionManager,
   routineRepository,
-  toolRegistry: createScheduleToolRegistry({ routineRepository }),
+  toolRegistry: createScheduleToolRegistry(),
   traceManager,
   promptBuilder,
   maxTurns: 2,
@@ -541,7 +559,14 @@ const busyDeleteRunPromise = busyDeleteRuntime.run({
   message: "Hold this session open for delete."
 });
 
-await new Promise((resolve) => setTimeout(resolve, 0));
+for (
+  let attempts = 0;
+  attempts < 20 && !releaseBusyDeleteRun;
+  attempts += 1
+) {
+  await new Promise((resolve) => setTimeout(resolve, 5));
+}
+assert.ok(releaseBusyDeleteRun);
 
 const deleteWhileRunningResponse = await app.request(
   `/sessions/${busyDeleteSession.sessionId}`,

@@ -45,7 +45,7 @@ const runtime = createAgentRuntime({
   model: miniMaxRuntime.model,
   sessionManager,
   routineRepository,
-  toolRegistry: createScheduleToolRegistry({ routineRepository }),
+  toolRegistry: createScheduleToolRegistry(),
   traceManager,
   promptBuilder: createPromptBuilder(),
   maxTurns: 6,

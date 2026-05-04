@@ -36,8 +36,9 @@ const fakeClient: AnthropicCompatibleClient = {
             {
               type: "tool_use",
               id: "create-1",
-              name: "create_routine",
+              name: "manage_routine",
               input: {
+                action: "create",
                 name: "meeting",
                 date: "2026-04-21",
                 start_time: "10:00",
@@ -66,7 +67,7 @@ const runtime = createAgentRuntime({
   model: "MiniMax-M2.7",
   sessionManager,
   routineRepository,
-  toolRegistry: createScheduleToolRegistry({ routineRepository }),
+  toolRegistry: createScheduleToolRegistry(),
   promptBuilder: createPromptBuilder(),
   maxTurns: 4,
   maxTokens: 128
@@ -89,6 +90,7 @@ const result = await runtime.run({
 const eventKinds = emittedEvents.map((event) => event.kind);
 assert.deepEqual(eventKinds, [
   "skills_loaded",
+  "context_hooks_loaded",
   "workspace_instructions_loaded",
   "turn_start",
   "prompt",
@@ -99,6 +101,7 @@ assert.deepEqual(eventKinds, [
   "tool_result",
   "turn_end",
   "skills_loaded",
+  "context_hooks_loaded",
   "workspace_instructions_loaded",
   "turn_start",
   "prompt",
@@ -165,9 +168,7 @@ const busyRuntime = createAgentRuntime({
   model: "MiniMax-M2.7",
   sessionManager,
   routineRepository: busyRoutineRepository,
-  toolRegistry: createScheduleToolRegistry({
-    routineRepository: busyRoutineRepository
-  }),
+  toolRegistry: createScheduleToolRegistry(),
   promptBuilder: createPromptBuilder(),
   maxTurns: 2
 });
@@ -183,7 +184,10 @@ const runningPromise = busyRuntime.run({
   message: "Hold this run open."
 });
 
-await new Promise((resolve) => setTimeout(resolve, 0));
+for (let attempts = 0; attempts < 20 && !releaseBusyRun; attempts += 1) {
+  await new Promise((resolve) => setTimeout(resolve, 5));
+}
+assert.ok(releaseBusyRun);
 
 await assert.rejects(
   () =>
@@ -205,9 +209,7 @@ const confirmationSession = await confirmationSessionManager.createSession({
   model: "MiniMax-M2.7",
   userId: "runtime-smoke"
 });
-const confirmationToolRegistry = createScheduleToolRegistry({
-  routineRepository: confirmationRoutineRepository
-});
+const confirmationToolRegistry = createScheduleToolRegistry();
 
 await confirmationSessionManager.updateContext(confirmationSession.sessionId, {
   pendingConfirmationPayload: {
@@ -215,8 +217,9 @@ await confirmationSessionManager.updateContext(confirmationSession.sessionId, {
     proposedItems: [
       {
         previewText: "2026-04-21 10:00-11:00 confirmation item",
-        toolName: "create_routine",
+        toolName: "manage_routine",
         toolInput: {
+          action: "create",
           name: "confirmation item",
           date: "2026-04-21",
           start_time: "10:00",
@@ -252,8 +255,9 @@ await confirmationSessionManager.updateContext(confirmationSession.sessionId, {
     proposedItems: [
       {
         previewText: "2026-04-21 14:00-15:00 confirmation item 2",
-        toolName: "create_routine",
+        toolName: "manage_routine",
         toolInput: {
+          action: "create",
           name: "confirmation item 2",
           date: "2026-04-21",
           start_time: "14:00",

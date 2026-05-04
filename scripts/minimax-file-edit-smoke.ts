@@ -92,8 +92,7 @@ await ensureProductSchema(database);
 const routineRepository = createMemoryRoutineRepository();
 const sessionManager = createPostgresSessionManager(database);
 const settingsPermissionToolOptions = listSettingsPermissionToolOptions({
-  workingDirectory: workspaceRoot,
-  routineRepository
+  workingDirectory: workspaceRoot
 }).map((tool) => tool.name);
 const settingsRepository = createPostgresSettingsRepository(database, {
   settingsPermissionToolOptions
@@ -109,7 +108,6 @@ const runtime = createAgentRuntime({
   routineRepository,
   toolRegistry: createDefaultToolRegistry({
     workingDirectory: workspaceRoot,
-    routineRepository,
     enabledCapabilityPacks: ["workspace"]
   }),
   traceManager,
