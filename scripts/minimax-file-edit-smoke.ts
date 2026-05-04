@@ -8,6 +8,7 @@ import {
   createPostgresSessionManager,
   createAgentRuntime,
   createDefaultToolRegistry,
+  listSettingsPermissionToolOptions,
   createPromptBuilder,
   resolveSessionStateDirectory,
   resolveToolChoice
@@ -15,9 +16,11 @@ import {
 import {
   createMemoryRoutineRepository,
   createPostgresDatabase,
+  createPostgresSettingsRepository,
   ensureProductSchema,
   resolveDatabaseUrl
 } from "../packages/db/src/index.ts";
+import { DEFAULT_SESSION_SETTINGS_USER_ID } from "../packages/domain/src/index.ts";
 
 const miniMaxRuntime = createMiniMaxRuntime(process.env);
 if (!miniMaxRuntime) {
@@ -86,15 +89,27 @@ const stateDirectory = resolveSessionStateDirectory(workspaceRoot);
 const traceManager = createFileTraceManager(stateDirectory);
 const database = createPostgresDatabase(databaseUrl);
 await ensureProductSchema(database);
+const routineRepository = createMemoryRoutineRepository();
 const sessionManager = createPostgresSessionManager(database);
+const settingsPermissionToolOptions = listSettingsPermissionToolOptions({
+  workingDirectory: workspaceRoot,
+  routineRepository
+}).map((tool) => tool.name);
+const settingsRepository = createPostgresSettingsRepository(database, {
+  settingsPermissionToolOptions
+});
+const settingsUserId =
+  process.env.MINIMAX_FILE_EDIT_SMOKE_USER_ID?.trim() ||
+  DEFAULT_SESSION_SETTINGS_USER_ID;
+const userSettings = await settingsRepository.getOrCreate(settingsUserId);
 const runtime = createAgentRuntime({
   client: miniMaxRuntime.client,
   model: miniMaxRuntime.model,
   sessionManager,
-  routineRepository: createMemoryRoutineRepository(),
+  routineRepository,
   toolRegistry: createDefaultToolRegistry({
     workingDirectory: workspaceRoot,
-    routineRepository: createMemoryRoutineRepository(),
+    routineRepository,
     enabledCapabilityPacks: ["workspace"]
   }),
   traceManager,
@@ -110,7 +125,13 @@ const runtime = createAgentRuntime({
 const session = await runtime.createSession({
   workingDirectory: workspaceRoot,
   model: miniMaxRuntime.model,
-  userId: "minimax-file-edit-smoke",
+  userId: settingsUserId,
+  yoloMode: userSettings.yoloMode,
+  shellAllowPatterns: userSettings.shellAllowPatterns,
+  shellDenyPatterns: userSettings.shellDenyPatterns,
+  toolAllowList: userSettings.toolAllowList,
+  toolAskList: userSettings.toolAskList,
+  toolDenyList: userSettings.toolDenyList,
   enabledCapabilityPacks: ["workspace"]
 });
 const sessionId = session.sessionId;
@@ -215,6 +236,15 @@ console.log(
       workspaceRoot,
       stateDirectory,
       tracePath,
+      settingsUserId,
+      inheritedPermissionSettings: {
+        yoloMode: userSettings.yoloMode,
+        shellAllowPatterns: userSettings.shellAllowPatterns,
+        shellDenyPatterns: userSettings.shellDenyPatterns,
+        toolAllowList: userSettings.toolAllowList,
+        toolAskList: userSettings.toolAskList,
+        toolDenyList: userSettings.toolDenyList
+      },
       approvalCount,
       maxAutoApprovals,
       status: result.status,
