@@ -15,6 +15,7 @@ import type {
   WorkspaceMcpServerConfig
 } from "@ai-app-template/sdk";
 import {
+  buildSessionSettingsPatchFromRecord,
   findDuplicateWorkspaceMcpServerNames,
   normalizeWorkspaceMcpServerConfig,
   USER_CONTEXT_HOOK_TYPES,
@@ -1131,16 +1132,7 @@ export function buildChannelsPayloadFromState(state: SettingsChannelsState): {
 export function buildSessionSettingsPatchFromUserSettings(
   settings: SessionSettingsRecord
 ): UpdateSessionSettingsPayload {
-  return {
-    yoloMode: settings.yoloMode,
-    thinkingEffort: settings.thinkingEffort,
-    shellAllowPatterns: settings.shellAllowPatterns,
-    shellDenyPatterns: settings.shellDenyPatterns,
-    toolAllowList: settings.toolAllowList,
-    toolAskList: settings.toolAskList,
-    toolDenyList: settings.toolDenyList,
-    enabledCapabilityPacks: settings.enabledCapabilityPacks
-  };
+  return buildSessionSettingsPatchFromRecord(settings);
 }
 
 export function buildUserSettingsPayloadFromForm(

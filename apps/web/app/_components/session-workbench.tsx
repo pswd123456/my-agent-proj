@@ -28,8 +28,6 @@ import {
   buildWeekRange,
   buildChannelsPayloadFromState,
   buildMcpServersFromForm,
-  buildSessionSettingsPatchFromUserSettings,
-  buildUserSettingsPayloadFromForm,
   canInterruptSessionExecution,
   createEmptyMcpServerFormState,
   findReusableNewSessionSummary,
@@ -51,6 +49,12 @@ import {
   toSettingsChannelsState,
   toSettingsSkillsState
 } from "./session-workbench-state";
+import {
+  applyExtendedSettingsPayloads,
+  applyUserSettingsPayload,
+  refreshExtendedSettingsPayloads,
+  saveUserSettingsWithRefresh
+} from "./session-workbench-settings-controller";
 import {
   bootstrapSessions,
   applyStreamEventToSessionRegistry,
@@ -361,6 +365,17 @@ export function SessionWorkbench() {
   const [pendingPermissionToolName, setPendingPermissionToolName] = useState<
     string | null
   >(null);
+
+  const settingsControllerSync = {
+    setUserSettings,
+    setPermissionTools,
+    setSettingsForm,
+    setSettingsChannelsState,
+    setSettingsMcpForm,
+    setSettingsSkillsState,
+    setMcpSettingsErrorText,
+    setChannelsSettingsErrorText
+  };
   const { sessions, selectedSessionId } = sessionRegistry;
   const currentCronJobIdRef = useRef<string | null>(null);
   const [maxTurns, setMaxTurns] = useState(String(DEFAULT_MAX_TURNS));
@@ -787,9 +802,7 @@ export function SessionWorkbench() {
           setRoutines(routinesResult.value.routines);
         }
         if (settingsResult.status === "fulfilled") {
-          setUserSettings(settingsResult.value.settings);
-          setPermissionTools(settingsResult.value.permissionTools);
-          setSettingsForm(toSettingsFormState(settingsResult.value.settings));
+          applyUserSettingsPayload(settingsResult.value, settingsControllerSync);
         }
 
         const firstRejectedResult = [
@@ -835,19 +848,13 @@ export function SessionWorkbench() {
     setMcpSettingsErrorText(null);
     setChannelsSettingsErrorText(null);
 
-    void Promise.all([
-      apiClient.getUserSettingsChannels(),
-      apiClient.getUserSettingsMcp(),
-      apiClient.getUserSettingsSkills()
-    ])
-      .then(([channelsPayload, mcpPayload, skillsPayload]) => {
+    void refreshExtendedSettingsPayloads(apiClient)
+      .then((payloads) => {
         if (cancelled) {
           return;
         }
 
-        setSettingsChannelsState(toSettingsChannelsState(channelsPayload));
-        setSettingsMcpForm(toSettingsMcpFormState(mcpPayload));
-        setSettingsSkillsState(toSettingsSkillsState(skillsPayload));
+        applyExtendedSettingsPayloads(payloads, settingsControllerSync);
       })
       .catch((error) => {
         if (!cancelled) {
@@ -987,9 +994,7 @@ export function SessionWorkbench() {
       setTraceRecords(trace);
       setRoutines(routinesResult.routines);
       if (settingsPayload) {
-        setUserSettings(settingsPayload.settings);
-        setPermissionTools(settingsPayload.permissionTools);
-        setSettingsForm(toSettingsFormState(settingsPayload.settings));
+        applyUserSettingsPayload(settingsPayload, settingsControllerSync);
       }
       setMaxTurns(String(session.maxTurns));
       updateSelectedRunFileChanges((current) =>
@@ -1661,37 +1666,13 @@ export function SessionWorkbench() {
     setSettingsForm(normalizedForm);
 
     try {
-      const updatedPayload = await apiClient.updateUserSettingsPayload(
-        buildUserSettingsPayloadFromForm(normalizedForm)
-      );
-      const updated = updatedPayload.settings;
-      setUserSettings(updated);
-      setPermissionTools(updatedPayload.permissionTools);
-      setSettingsForm(toSettingsFormState(updated));
-      try {
-        const [channelsPayload, mcpPayload, skillsPayload] = await Promise.all([
-          apiClient.getUserSettingsChannels(),
-          apiClient.getUserSettingsMcp(),
-          apiClient.getUserSettingsSkills()
-        ]);
-        setSettingsChannelsState(toSettingsChannelsState(channelsPayload));
-        setSettingsMcpForm(toSettingsMcpFormState(mcpPayload));
-        setSettingsSkillsState(toSettingsSkillsState(skillsPayload));
-        setMcpSettingsErrorText(null);
-        setChannelsSettingsErrorText(null);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        setMcpSettingsErrorText(message);
-        setChannelsSettingsErrorText(message);
-      }
-
-      if (currentSession) {
-        const syncedSession = await apiClient.updateSessionSettings(
-          currentSession.sessionId,
-          buildSessionSettingsPatchFromUserSettings(updated)
-        );
-        hydrateCurrentSession(syncedSession);
-      }
+      await saveUserSettingsWithRefresh({
+        apiClient,
+        form: normalizedForm,
+        currentSession,
+        sync: settingsControllerSync,
+        hydrateCurrentSession
+      });
       return true;
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : String(error));
@@ -2436,9 +2417,7 @@ export function SessionWorkbench() {
           const settingsPayload = await apiClient.updateUserSettingsPayload(
             { model }
           );
-          setUserSettings(settingsPayload.settings);
-          setPermissionTools(settingsPayload.permissionTools);
-          setSettingsForm(toSettingsFormState(settingsPayload.settings));
+          applyUserSettingsPayload(settingsPayload, settingsControllerSync);
           return true;
         } catch (error) {
           setErrorText(error instanceof Error ? error.message : String(error));
@@ -2470,9 +2449,7 @@ export function SessionWorkbench() {
           const settingsPayload = await apiClient.updateUserSettingsPayload(
             { thinkingEffort: normalizedThinkingEffort }
           );
-          setUserSettings(settingsPayload.settings);
-          setPermissionTools(settingsPayload.permissionTools);
-          setSettingsForm(toSettingsFormState(settingsPayload.settings));
+          applyUserSettingsPayload(settingsPayload, settingsControllerSync);
           return true;
         } catch (error) {
           setErrorText(error instanceof Error ? error.message : String(error));
