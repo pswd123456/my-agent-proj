@@ -429,7 +429,9 @@ export function renderUserMessageBlock(
   return (
     <div key={block.id} className="flex flex-col items-end gap-1">
       <MessageRoleLabel role="user" timestamp={block.createdAt} />
-      <div className={`${getBubbleClass("user")} flex max-w-[88%] flex-col gap-3`}>
+      <div
+        className={`${getBubbleClass("user")} flex max-w-[88%] flex-col gap-3`}
+      >
         {isEditing ? (
           <textarea
             value={rewriteAction?.draft ?? ""}
@@ -461,8 +463,7 @@ export function renderUserMessageBlock(
               <button
                 type="button"
                 disabled={
-                  rewriteAction?.pending ||
-                  !rewriteAction?.draft.trim().length
+                  rewriteAction?.pending || !rewriteAction?.draft.trim().length
                 }
                 onClick={rewriteAction?.onSubmit}
                 className="rounded-[var(--app-radius-pill)] border border-[var(--app-border-accent)] px-3 py-1.5 text-[0.72rem] uppercase tracking-[0.12em] text-[var(--app-text-primary)] transition hover:border-[var(--app-status-success)] hover:text-[var(--app-status-success)] disabled:cursor-not-allowed disabled:opacity-50"
@@ -714,7 +715,9 @@ function AssistantTextBubble({
             <button
               type="button"
               disabled={!forkAction.target.canFork || forkAction.pending}
-              title={forkAction.target.disabledReason ?? "基于这条回复创建分支会话"}
+              title={
+                forkAction.target.disabledReason ?? "基于这条回复创建分支会话"
+              }
               onClick={() =>
                 forkAction.onCreateFork(forkAction.assistantMessageId)
               }
@@ -771,9 +774,82 @@ function renderAssistantThinkingBlock(
   );
 }
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function getShellCommandFromInput(
+  toolName: string,
+  input: Record<string, unknown>
+): string | null {
+  if (toolName !== "run_shell_command") {
+    return null;
+  }
+
+  return typeof input.command === "string" && input.command.trim()
+    ? input.command.trim()
+    : null;
+}
+
+function getShellCommandFromResult(input: {
+  toolName: string;
+  output: string;
+  details:
+    | Extract<
+        SessionSnapshot["messages"][number],
+        { kind: "tool result" }
+      >["details"]
+    | undefined;
+}): string | null {
+  if (input.toolName !== "run_shell_command") {
+    return null;
+  }
+
+  const rawDetails: unknown = input.details;
+  const details = isPlainRecord(rawDetails) ? rawDetails : null;
+  if (
+    details?.kind === "shell_command" &&
+    typeof details.command === "string" &&
+    details.command.trim()
+  ) {
+    return details.command.trim();
+  }
+
+  try {
+    const parsed = JSON.parse(input.output) as unknown;
+    if (!isPlainRecord(parsed) || !isPlainRecord(parsed.data)) {
+      return null;
+    }
+    return typeof parsed.data.command === "string" && parsed.data.command.trim()
+      ? parsed.data.command.trim()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function renderShellCommandDetail(command: string | null) {
+  if (!command) {
+    return null;
+  }
+
+  return (
+    <div className="mt-3">
+      <div className="font-mono text-[0.68rem] uppercase tracking-[0.16em] text-[var(--app-text-muted)]">
+        Command
+      </div>
+      <pre className={getDebugPreClass("surface").replace("mt-2 ", "mt-1 ")}>
+        {command}
+      </pre>
+    </div>
+  );
+}
+
 function renderToolCallBlock(
   block: Extract<SessionSnapshot["messages"][number], { kind: "tool call" }>
 ) {
+  const shellCommand = getShellCommandFromInput(block.toolName, block.input);
+
   return (
     <article key={block.id} className={getInspectorCardClass()}>
       <div className="flex items-center justify-between gap-3">
@@ -789,6 +865,7 @@ function renderToolCallBlock(
           {formatTimestamp(block.createdAt)}
         </div>
       </div>
+      {renderShellCommandDetail(shellCommand)}
       <pre className={getDebugPreClass("surface").replace("mt-2 ", "mt-3 ")}>
         {stringify(block.input)}
       </pre>
@@ -799,6 +876,12 @@ function renderToolCallBlock(
 function renderToolResultBlock(
   block: Extract<SessionSnapshot["messages"][number], { kind: "tool result" }>
 ) {
+  const shellCommand = getShellCommandFromResult({
+    toolName: block.toolName,
+    output: block.output,
+    details: block.details
+  });
+
   return (
     <article key={block.id} className={getInspectorCardClass()}>
       <div className="flex items-center justify-between gap-3">
@@ -820,6 +903,7 @@ function renderToolResultBlock(
           {block.isError ? "failed" : "ok"}
         </div>
       </div>
+      {renderShellCommandDetail(shellCommand)}
       <pre className={getDebugPreClass("surface").replace("mt-2 ", "mt-3 ")}>
         {block.output}
       </pre>
@@ -894,9 +978,7 @@ function renderExecutionEvent(
         itemKey={eventKey}
         content={event.text}
         animate={streaming || recentAssistantEventKeys.has(eventKey)}
-        labelTimestamp={
-          isFinalAssistantText ? event.createdAt : undefined
-        }
+        labelTimestamp={isFinalAssistantText ? event.createdAt : undefined}
         streaming={streaming}
         canCopy={isFinalAssistantText}
         forkAction={forkAction}
@@ -935,6 +1017,8 @@ function renderExecutionEvent(
   }
 
   if (event.kind === "tool_call") {
+    const shellCommand = getShellCommandFromInput(event.toolName, event.input);
+
     return (
       <article
         key={getTimelineEventKey(event)}
@@ -953,6 +1037,7 @@ function renderExecutionEvent(
             {formatTimestamp(event.createdAt)}
           </div>
         </div>
+        {renderShellCommandDetail(shellCommand)}
         <pre className={getDebugPreClass("surface").replace("mt-2 ", "mt-3 ")}>
           {stringify(event.input)}
         </pre>
@@ -1025,6 +1110,12 @@ function renderExecutionEvent(
   }
 
   if (event.kind === "tool_result") {
+    const shellCommand = getShellCommandFromResult({
+      toolName: event.toolName,
+      output: event.output,
+      details: event.details
+    });
+
     return (
       <article
         key={getTimelineEventKey(event)}
@@ -1049,6 +1140,7 @@ function renderExecutionEvent(
             {event.isError ? "failed" : "ok"}
           </div>
         </div>
+        {renderShellCommandDetail(shellCommand)}
         <pre className={getDebugPreClass("surface").replace("mt-2 ", "mt-3 ")}>
           {event.displayText ?? event.output}
         </pre>
@@ -3510,7 +3602,9 @@ export function SessionWorkbenchConversationPanel({
                     onKeyDown={handleComposerKeyDown}
                     rows={3}
                     placeholder={
-                      composerLocked ? "完成当前改写后再继续输入" : "输入你的请求"
+                      composerLocked
+                        ? "完成当前改写后再继续输入"
+                        : "输入你的请求"
                     }
                     className="relative z-10 w-full resize-none rounded-[var(--app-radius-lg)] border border-[color:color-mix(in_srgb,var(--app-border-subtle)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-canvas)_14%,var(--app-bg-surface)_86%)] px-4 pb-14 pt-3 text-sm leading-7 text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-muted)] focus:border-[var(--app-border-accent)] disabled:cursor-not-allowed disabled:opacity-60"
                   />

@@ -190,4 +190,71 @@ describe("session-conversation-view", () => {
       });
     }
   });
+
+  test("shows shell command as the compact tool target from call input and result details", () => {
+    const command = "printf ok";
+    const items = buildConversationViewItems({
+      mode: "compact",
+      timelineItems: [
+        toMessageItem(
+          userBlock("user-1", "跑一下命令", "2026-04-27T00:00:01.000Z")
+        ),
+        toEventItem(
+          toolCallEvent({
+            toolCallId: "tool-1",
+            toolName: "run_shell_command",
+            createdAt: "2026-04-27T00:00:02.000Z",
+            toolInput: {
+              action: "start",
+              command
+            }
+          })
+        ),
+        toEventItem(
+          toolResultEvent({
+            toolCallId: "tool-1",
+            toolName: "run_shell_command",
+            createdAt: "2026-04-27T00:00:03.000Z",
+            details: {
+              kind: "shell_command",
+              action: "start",
+              command,
+              executionMode: "inline"
+            }
+          })
+        )
+      ]
+    });
+
+    expect(items[1]?.type).toBe("compact-tool");
+    if (items[1]?.type === "compact-tool") {
+      expect(items[1].target).toBe(command);
+      expect(items[1].title).toBe(`已执行 ${command}`);
+    }
+
+    const resultOnlyItems = buildConversationViewItems({
+      mode: "compact",
+      timelineItems: [
+        toEventItem(
+          toolResultEvent({
+            toolCallId: "tool-2",
+            toolName: "run_shell_command",
+            createdAt: "2026-04-27T00:00:04.000Z",
+            details: {
+              kind: "shell_command",
+              action: "start",
+              command,
+              executionMode: "inline"
+            }
+          })
+        )
+      ]
+    });
+
+    expect(resultOnlyItems[0]?.type).toBe("compact-tool");
+    if (resultOnlyItems[0]?.type === "compact-tool") {
+      expect(resultOnlyItems[0].target).toBe(command);
+      expect(resultOnlyItems[0].title).toBe(`已执行 ${command}`);
+    }
+  });
 });

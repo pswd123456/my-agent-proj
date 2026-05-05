@@ -82,6 +82,7 @@ interface ToolGroup {
   toolName: string;
   createdAt: string;
   input: Record<string, unknown> | null;
+  resultCommand: string | null;
   status: CompactToolStatus;
   fileChanges: CompactToolViewItem["fileChanges"];
   taskBriefPreview: CompactToolViewItem["taskBriefPreview"];
@@ -126,6 +127,16 @@ function getToolVerb(input: {
   toolName: string;
   status: CompactToolStatus;
 }): string {
+  if (input.toolName === "run_shell_command") {
+    if (input.status === "failed") {
+      return "执行失败";
+    }
+    if (input.status === "rejected") {
+      return "已拒绝执行";
+    }
+    return input.status === "success" ? "已执行" : "正在执行";
+  }
+
   const action = getToolAction(input.toolName);
 
   if (input.status === "failed") {
@@ -164,12 +175,61 @@ function stringifyValue(value: unknown): string | null {
   return null;
 }
 
-function getToolTarget(
+function getShellCommandFromInput(
   toolName: string,
   input: Record<string, unknown> | null
+): string | null {
+  if (toolName !== "run_shell_command" || !input) {
+    return null;
+  }
+
+  return stringifyValue(input.command);
+}
+
+function getShellCommandFromResult(
+  source: ToolEvent | ToolMessageBlock
+): string | null {
+  if (source.kind !== "tool result" && source.kind !== "tool_result") {
+    return null;
+  }
+
+  const rawDetails: unknown = source.details;
+  const details = isPlainRecord(rawDetails) ? rawDetails : null;
+  if (
+    details?.kind === "shell_command" &&
+    typeof details.command === "string" &&
+    details.command.trim()
+  ) {
+    return details.command.trim();
+  }
+
+  try {
+    const parsed = JSON.parse(source.output) as unknown;
+    if (!isPlainRecord(parsed) || !isPlainRecord(parsed.data)) {
+      return null;
+    }
+    return stringifyValue(parsed.data.command);
+  } catch {
+    return null;
+  }
+}
+
+function getToolTarget(
+  toolName: string,
+  input: Record<string, unknown> | null,
+  resultCommand: string | null
 ): string {
   if (!input) {
-    return toolName;
+    return resultCommand ?? toolName;
+  }
+
+  if (toolName === "run_shell_command") {
+    const command = getShellCommandFromInput(toolName, input) ?? resultCommand;
+    if (command) {
+      return command;
+    }
+
+    return stringifyValue(input.task_id) ?? toolName;
   }
 
   if (toolName === "search_text") {
@@ -260,7 +320,11 @@ function getTaskBriefPreview(
 }
 
 function toCompactToolViewItem(group: ToolGroup): CompactToolViewItem {
-  const target = getToolTarget(group.toolName, group.input);
+  const target = getToolTarget(
+    group.toolName,
+    group.input,
+    group.resultCommand
+  );
   const title =
     group.status === "success" && group.fileChanges
       ? group.fileChanges.length === 1
@@ -305,6 +369,8 @@ function updateToolGroup(
     next.status = "running";
   } else if (source.kind === "tool result" || source.kind === "tool_result") {
     next.status = source.isError ? "failed" : "success";
+    next.resultCommand =
+      getShellCommandFromResult(source) ?? next.resultCommand;
     next.fileChanges = source.isError ? null : getFileChanges(source.details);
     next.taskBriefPreview = source.isError
       ? null
@@ -329,6 +395,7 @@ function createToolGroup(
       toolName: source.toolName,
       createdAt: source.createdAt,
       input: null,
+      resultCommand: null,
       status: "running",
       fileChanges: null,
       taskBriefPreview: null,
