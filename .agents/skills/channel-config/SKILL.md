@@ -1,15 +1,15 @@
 ---
 name: channel_config
-description: Configure workspace message channels in .agents/.config.toml, especially [channels.telegram] polling/webhook mode, preserving MCP servers and hooks, using env placeholders for secrets, validating with the channel config loader, and checking Telegram inbox status.
+description: Configure workspace message channels in .agents/config.toml, especially [channels.telegram] polling/webhook mode, preserving MCP servers and hooks, using env placeholders for secrets, validating with the channel config loader, and checking Telegram inbox status.
 ---
 
 # Channel Config
 
-Use this skill when the user asks to add, update, enable, disable, inspect, or debug workspace message channels configured in `.agents/.config.toml`.
+Use this skill when the user asks to add, update, enable, disable, inspect, or debug workspace message channels configured in `.agents/config.toml`.
 
 ## Boundaries
 
-- Channel config lives in `.agents/.config.toml` under `[channels.<name>]`.
+- Channel config lives in `.agents/config.toml` under `[channels.<name>]`.
 - The same file may also contain `[mcp_servers.<name>]` and `[hooks.<id>]`; preserve unrelated sections.
 - Channel config is a workspace runtime input. It is not copied into `agent_settings`, and changes apply when API/runtime code reads the current default working directory config.
 - Current implemented channel: `telegram`.
@@ -19,7 +19,7 @@ Use this skill when the user asks to add, update, enable, disable, inspect, or d
 ## Workflow
 
 1. Read `docs/architecture/workspace-agent-config.md` before changing the config shape.
-2. Inspect the current `.agents/.config.toml` and preserve unrelated MCP and hook sections.
+2. Inspect the current `.agents/config.toml` and preserve unrelated MCP and hook sections.
 3. Add or update only the relevant `[channels.<name>]` section.
 4. For Telegram, set `enabled`, `mode`, `bot_token`, optional `webhook_secret`, and optional `webhook_url`.
 5. Validate with the channel config loader.

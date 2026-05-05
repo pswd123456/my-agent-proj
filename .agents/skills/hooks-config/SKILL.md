@@ -1,15 +1,15 @@
 ---
 name: hooks_config
-description: Configure workspace hooks in .agents/.config.toml by editing [hooks.<id>] sections, preserving MCP servers, following event/behavior/wait_mode rules, validating with the workspace hook loader, and checking runtime diagnostics.
+description: Configure workspace hooks in .agents/config.toml by editing [hooks.<id>] sections, preserving MCP servers, following event/behavior/wait_mode rules, validating with the workspace hook loader, and checking runtime diagnostics.
 ---
 
 # Hooks Config
 
-Use this skill when the user asks to add, update, disable, remove, inspect, or debug workspace hooks configured in `.agents/.config.toml`.
+Use this skill when the user asks to add, update, disable, remove, inspect, or debug workspace hooks configured in `.agents/config.toml`.
 
 ## Boundaries
 
-- Workspace hooks live in `.agents/.config.toml` under `[hooks.<id>]`.
+- Workspace hooks live in `.agents/config.toml` under `[hooks.<id>]`.
 - The same file may also contain `[mcp_servers.<name>]`; preserve unrelated MCP servers and other non-hook sections.
 - Workspace hooks are per-run workspace inputs. They are not copied into `agent_settings`, and changes apply on the next runtime creation.
 - Workspace hooks are merged before user settings hooks and then normalized with the same `normalizeUserContextHooks(...)` rules.
@@ -18,7 +18,7 @@ Use this skill when the user asks to add, update, disable, remove, inspect, or d
 ## Workflow
 
 1. Read `docs/architecture/workspace-agent-config.md` before editing the config shape.
-2. Inspect the current `.agents/.config.toml` and preserve unrelated sections.
+2. Inspect the current `.agents/config.toml` and preserve unrelated sections.
 3. Choose a stable hook id for `[hooks.<id>]`; keep it short, lowercase, and responsibility-oriented.
 4. Set `event`, `behavior`, `content`, and optionally `title`, `enabled`, `wait_mode`, or `max_turns`.
 5. Prefer editing only the relevant hook section. Do not rewrite the whole config unless needed.

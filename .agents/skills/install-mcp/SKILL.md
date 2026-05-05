@@ -1,6 +1,6 @@
 ---
 name: install_mcp
-description: Install or update workspace MCP servers by editing .agents/.config.toml, preserving existing servers, using Codex-style [mcp_servers.<name>] stdio/http config, validating with the repo MCP loader, and checking mcp_loaded diagnostics on the next run.
+description: Install or update workspace MCP servers by editing .agents/config.toml, preserving existing servers, using Codex-style [mcp_servers.<name>] stdio/http config, validating with the repo MCP loader, and checking mcp_loaded diagnostics on the next run.
 ---
 
 # Install MCP
@@ -9,7 +9,7 @@ Use this skill when the user asks to install, add, configure, enable, disable, o
 
 ## Boundaries
 
-- Workspace MCP config lives at `.agents/.config.toml`; the same file may also contain non-MCP sections such as `[hooks.<id>]`.
+- Workspace MCP config lives at `.agents/config.toml`; the same file may also contain non-MCP sections such as `[hooks.<id>]`.
 - MCP is a per-run workspace tool layer, not a persisted plugin system or database setting.
 - Changes apply on the next runtime creation; do not assume tools hot-reload into the current run.
 - MCP tools are mounted as `mcp__<server>__<tool>` and default to approval-required execution.
@@ -18,7 +18,7 @@ Use this skill when the user asks to install, add, configure, enable, disable, o
 ## Workflow
 
 1. Read `docs/architecture/workspace-agent-config.md` and `docs/architecture/mcp-module.md` when the exact MCP contract matters.
-2. Inspect the current `.agents/.config.toml` before editing and preserve unrelated servers and non-MCP sections.
+2. Inspect the current `.agents/config.toml` before editing and preserve unrelated servers and non-MCP sections.
 3. Use official docs or the package README for the requested MCP server's exact command, args, URL, headers, env vars, and tool-disable names. Do not invent server-specific fields.
 4. Add or update only the relevant `[mcp_servers.<name>]` section.
 5. For `stdio`, use `command`, optional `args`, optional `env`, optional `disabled_tools`, and optional `enabled`.
@@ -27,7 +27,7 @@ Use this skill when the user asks to install, add, configure, enable, disable, o
 
 ## Validation
 
-After editing `.agents/.config.toml`, parse it with the repo loader:
+After editing `.agents/config.toml`, parse it with the repo loader:
 
 ```bash
 bun -e 'import { loadWorkspaceMcpConfig } from "./packages/agent/src/mcp/index.ts"; const result = await loadWorkspaceMcpConfig(process.cwd(), { resolveEnvironment: false }); console.log(JSON.stringify(result, null, 2)); if (result.diagnostics.length) process.exit(1);'
