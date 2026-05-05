@@ -32,7 +32,7 @@ const runCompleteWithFileChanges: Extract<
   toolOutputs: [
     {
       toolCallId: "tool-1",
-      toolName: "apply_patch",
+      toolName: "edit_file",
       content: "ok",
       displayText: "updated",
       isError: false,
@@ -182,7 +182,7 @@ describe("session-workbench run file changes", () => {
           id: "tool-result-1",
           kind: "tool result",
           toolCallId: "tool-1",
-          toolName: "apply_patch",
+          toolName: "edit_file",
           output: "ok",
           isError: false,
           state: "success",
@@ -255,7 +255,7 @@ describe("session-workbench run file changes", () => {
           id: "tool-result-1",
           kind: "tool result",
           toolCallId: "tool-1",
-          toolName: "apply_patch",
+          toolName: "edit_file",
           output: "ok",
           isError: false,
           state: "success",

@@ -1279,9 +1279,6 @@ export function SessionWorkbenchSettings({
                       className={`${insetSurfaceClassName} grid gap-3 px-4 py-3`}
                     >
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="font-mono text-xs text-[var(--app-text-primary)]">
-                          {binding.externalChatId}
-                        </div>
                         <span className="rounded-[var(--app-radius-pill)] border border-[color:color-mix(in_srgb,var(--app-border-accent)_42%,transparent)] px-2 py-0.5 text-[0.68rem] uppercase tracking-[0.12em] text-[var(--app-status-success)]">
                           Telegram
                         </span>
@@ -1289,7 +1286,7 @@ export function SessionWorkbenchSettings({
                       <div className="grid gap-2 text-xs leading-5 text-[var(--app-text-muted)] sm:grid-cols-2">
                         <div>
                           <div className={tertiaryHeadingClassName}>
-                            Telegram User ID
+                            Chat ID
                           </div>
                           <div className="mt-1 break-all font-mono text-[var(--app-text-primary)]">
                             {binding.externalChatId}

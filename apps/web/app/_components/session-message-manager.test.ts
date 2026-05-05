@@ -111,7 +111,9 @@ function compactKinds(
   });
 }
 
-function createAnimatedEvent(kind: "assistant_text" | "thinking"): RunStreamEvent {
+function createAnimatedEvent(
+  kind: "assistant_text" | "thinking"
+): RunStreamEvent {
   if (kind === "thinking") {
     return {
       kind,
@@ -160,7 +162,10 @@ describe("session-message-manager", () => {
         text: "hi"
       }
     });
-    state = appendMessageManagerEvent(state, createAnimatedEvent("assistant_text"));
+    state = appendMessageManagerEvent(
+      state,
+      createAnimatedEvent("assistant_text")
+    );
     state = appendMessageManagerEvent(state, createAnimatedEvent("thinking"));
 
     const keys = [...state.recentAssistantEventKeys];
@@ -186,7 +191,10 @@ describe("session-message-manager", () => {
         text: "hi"
       }
     });
-    state = appendMessageManagerEvent(state, createAnimatedEvent("assistant_text"));
+    state = appendMessageManagerEvent(
+      state,
+      createAnimatedEvent("assistant_text")
+    );
     state = registerMessageManagerCollapsedFlows(state, [
       "compact-collapsed-flow-assistant-1"
     ]);
@@ -385,7 +393,7 @@ describe("session-message-manager", () => {
       createdAt: "2026-04-27T00:00:02.000Z",
       turnCount: 1,
       toolCallId: "tool-1",
-      toolName: "apply_patch",
+      toolName: "edit_file",
       input: { path: "apps/web/app/page.tsx" }
     };
     state = appendMessageManagerEvent(state, toolCall);
@@ -395,10 +403,10 @@ describe("session-message-manager", () => {
       createdAt: "2026-04-27T00:00:03.000Z",
       turnCount: 1,
       toolCallId: "tool-1",
-      toolName: "apply_patch",
+      toolName: "edit_file",
       request: {
         toolCallId: "tool-1",
-        toolName: "apply_patch",
+        toolName: "edit_file",
         toolInput: { path: "apps/web/app/page.tsx" },
         family: "workspace-file",
         permissionProfile: "always-ask-user",
@@ -412,7 +420,7 @@ describe("session-message-manager", () => {
       createdAt: "2026-04-27T00:00:04.000Z",
       turnCount: 1,
       toolCallId: "tool-1",
-      toolName: "apply_patch",
+      toolName: "edit_file",
       output: "ok",
       displayText: "已更新文件",
       isError: false
