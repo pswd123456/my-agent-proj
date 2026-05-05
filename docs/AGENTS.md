@@ -13,7 +13,6 @@
 
 - `docs/architecture/` 放技术栈、架构边界、目录结构、工程决策
 - `docs/design-system/` 放 UI 一致性、tokens、组件策略、页面模板、设计工作流
-- `docs/template/` 放模板初始化、项目改名、目录裁剪与开发方式
 
 ## 维护约定
 

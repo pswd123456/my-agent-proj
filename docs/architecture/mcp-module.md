@@ -4,7 +4,7 @@
 
 `MCP` 在当前仓库里不是一个独立产品面，而是 `agent runtime` 的工作区级动态扩展层：
 
-- 配置来源是 `session.workingDirectory/.agents/.config.toml`
+- 配置来源是 `session.workingDirectory/.agents/config.toml`
 - 装配时机是每次 session runtime 创建前；`apps/api` 和 `apps/worker` 都会走这条链路
 - 暴露形态是挂进当前 `ToolRegistry` 的一组运行时工具
 - 生命周期只覆盖当前一次运行，不写入数据库，也不作为 session 持久状态保存
@@ -15,7 +15,7 @@
 
 当前 MCP 模块只负责四件事：
 
-1. 从工作区读取并校验 `.agents/.config.toml`
+1. 从工作区读取并校验 `.agents/config.toml`
 2. 连接 `stdio` / `http` MCP server，并拉取工具定义
 3. 把 MCP tool 适配成 runtime 内部统一的 `RuntimeTool`
 4. 在 trace 中记录加载结果，并在本轮执行结束后释放连接
@@ -49,7 +49,7 @@ packages/agent/src/trace.ts
 各文件职责如下：
 
 - `config-types.ts`：MCP 配置、诊断和加载结果类型
-- `config-loader.ts`：读取并解析 `.agents/.config.toml`
+- `config-loader.ts`：读取并解析 `.agents/config.toml`
 - `sdk-loader.ts`：动态加载 `@modelcontextprotocol/sdk` 运行时模块
 - `client-manager.ts`：连接 server、拉取 tool、汇总 server 级加载结果
 - `tool-adapter.ts`：把 MCP tool 转成统一 `RuntimeTool`
@@ -61,7 +61,7 @@ packages/agent/src/trace.ts
 flowchart TD
   A["API createRuntime(session)"] --> B["createDefaultToolRegistry()"]
   B --> C["loadWorkspaceMcpTools(workingDirectory)"]
-  C --> D["config-loader 读取 .agents/.config.toml"]
+  C --> D["config-loader 读取 .agents/config.toml"]
   D --> E["client-manager 逐个连接 MCP server"]
   E --> F["client.listTools()"]
   F --> G["tool-adapter 生成 RuntimeTool"]
@@ -87,7 +87,7 @@ flowchart TD
 ```text
 <workingDirectory>/
   .agents/
-    .config.toml
+    config.toml
 ```
 
 顶层协议是：

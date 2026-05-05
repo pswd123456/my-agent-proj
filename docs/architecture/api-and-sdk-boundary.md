@@ -100,7 +100,7 @@
 - `debugConversationView`
 - `userCustomPrompt`
 
-其中 `/settings/mcp` 和 `/settings/channels` 读写的是当前全局默认工作目录下的 `.agents/.config.toml`，`/settings/skills` 读取当前全局默认工作目录下的 `.agents/skills/`。
+其中 `/settings/mcp` 和 `/settings/channels` 读写的是当前全局默认工作目录下的 `.agents/config.toml`，`/settings/skills` 读取当前全局默认工作目录下的 `.agents/skills/`。
 
 ### 3. Session 生命周期与执行
 
@@ -183,7 +183,7 @@
   - 读取 effective settings
   - 创建 LSP manager
   - 创建默认 tool registry
-  - 读取统一 settings，其中 workspace `.agents/.config.toml` 覆盖 global `~/.agents/config.toml`
+  - 读取统一 settings，其中 workspace `.agents/config.toml` 覆盖 global `~/.agents/config.toml`
   - 如果 workspace config 包含 legacy `[hooks.<id>]`，先并入 workspace hooks，再和全局 hooks 统一归一化
   - 加载 workspace MCP tools
   - 组装 trace / prompt / permission / background task 依赖

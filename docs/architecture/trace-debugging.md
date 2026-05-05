@@ -70,6 +70,12 @@ bun run trace:inspect -- inspect --session <sessionId> --include tool-output,log
 - `logs`
 - `raw-errors`
 
+日志展开默认优先显示当前可见 runId 对应的记录；如果需要进一步收窄，可以加：
+
+- `--run-id <runId>`
+- `--request-id <requestId>`
+- `--event <logEvent>`
+
 ## 常见用法
 
 ### 只看最近一次
@@ -95,6 +101,8 @@ bun run trace:inspect -- inspect --session <sessionId> --tool delegate_agent --i
 ```bash
 bun run trace:inspect -- inspect --session <sessionId> --errors-only --include raw-errors,logs
 ```
+
+`--errors-only` 会自动展开失败的 `tool_result` 与拒绝/阻断类 permission 事件，即使没有显式加 `tool-output` 或 `permissions`。
 
 ### 检查 prompt 真正注入了什么
 

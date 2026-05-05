@@ -28,13 +28,13 @@
 - 工作区 runtime 上下文还会按次读取 `session.workingDirectory` 下的工作区输入：
   - `AGENTS.md` 提供工作区根指令，进入本轮 runtime context，不进入 cache key
   - `.agents/skills/` 提供 skill metadata
-  - `.agents/.config.toml` 提供 workspace 级 settings 覆盖、MCP server 配置、channels 和 legacy hook section
+  - `.agents/config.toml` 提供 workspace 级 settings 覆盖、MCP server 配置、channels 和 legacy hook section
   - `.agents/plans/` 承载 session 级 task brief artifact
   - 其中 `.agents/plans/` 是运行时产物与用户可编辑 artifact，其余是运行时输入
 - 公开 web 搜索、抓取和结构化抽取通过工作区 Firecrawl MCP 接入，不属于内建 capability pack
 - 单租户默认 settings 的真相源是两层 TOML：
   - 全局：`~/.agents/config.toml`
-  - 工作区：`<workingDirectory>/.agents/.config.toml`
+  - 工作区：`<workingDirectory>/.agents/config.toml`
   - merge 规则：workspace 只覆盖自己声明的字段，数组字段按“声明即替换”
 - 当前统一 settings 字段包括：
   - `model`
@@ -51,7 +51,7 @@
   - `debugConversationView`
   - `userCustomPrompt`
 
-legacy workspace hooks 仍可写在 `.agents/.config.toml` 的 `[hooks.<id>]` section；runtime 创建时它们会先并入统一 settings，再排在全局 hooks 前面统一归一化。
+legacy workspace hooks 仍可写在 `.agents/config.toml` 的 `[hooks.<id>]` section；runtime 创建时它们会先并入统一 settings，再排在全局 hooks 前面统一归一化。
 
 当前权限语义里，`yoloMode` 会自动放行除 `run_shell_command` / `make_http_request` 之外的所有工具；shell / network 不走用户级 tool allow/ask/deny 配置，仍然在运行时单独审批。
 
@@ -139,6 +139,6 @@ legacy workspace hooks 仍可写在 `.agents/.config.toml` 的 `[hooks.<id>]` se
 - 想确认 session/settings/background task 的持久化归属：读 `docs/architecture/persistence-and-session-state.md`
 - 想从产品层理解 `apps/web` 和 shared UI 层怎么协作：读 `docs/architecture/frontend-workbench.md`
 - 想确认目录职责和模块归属：读 `docs/architecture/workspace-structure.md`
-- 想确认工作区 `.agents/skills/` 和 `.agents/.config.toml` 的边界：读 `docs/architecture/workspace-agent-config.md`
+- 想确认工作区 `.agents/skills/` 和 `.agents/config.toml` 的边界：读 `docs/architecture/workspace-agent-config.md`
 - 想确认 plan mode、task brief artifact 和只读 planning 边界：读 `docs/architecture/context-management/plan-mode.md`
 - 想确认技术事实而不是计划：读 `docs/architecture/tech-stack.md`

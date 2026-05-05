@@ -47,7 +47,7 @@
 这一层负责单租户配置真相源：
 
 - 全局配置：`~/.agents/config.toml`
-- 工作区配置：`<workingDirectory>/.agents/.config.toml`
+- 工作区配置：`<workingDirectory>/.agents/config.toml`
 - 启动 seed：仅当全局配置不存在时，从旧 `agent_settings` 按默认 seed user 读一条记录写入全局 TOML
 
 它对外暴露 `SettingsConfigStore`，供 API、runtime、cron dispatcher 和 gateway 统一读取或更新 settings。
@@ -98,9 +98,9 @@
 其中：
 
 - `~/.agents/config.toml` 保存全局默认值
-- `<workingDirectory>/.agents/.config.toml` 只覆盖自己声明的字段
+- `<workingDirectory>/.agents/config.toml` 只覆盖自己声明的字段
 - 数组字段采用“声明即替换”
-- legacy `[hooks.<id>]` 仍可写在 workspace `.agents/.config.toml` 中，并在最终 merge 时排在全局 hooks 前面统一归一化
+- legacy `[hooks.<id>]` 仍可写在 workspace `.agents/config.toml` 中，并在最终 merge 时排在全局 hooks 前面统一归一化
 
 数据库里已经没有 `agent_settings` 表；它只在首次 seed 全局 TOML 时作为一次性迁移来源。
 
@@ -228,7 +228,7 @@
 这里的 `effective settings` 指：
 
 - 先取全局 `~/.agents/config.toml`
-- 再按当前 `workingDirectory` 读取 `<workingDirectory>/.agents/.config.toml`
+- 再按当前 `workingDirectory` 读取 `<workingDirectory>/.agents/config.toml`
 - 字段级 merge 后得到本次 runtime / session 默认值
 
 这意味着：

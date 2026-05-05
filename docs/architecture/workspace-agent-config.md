@@ -6,15 +6,15 @@
 
 - `AGENTS.md`：给本轮 prompt 提供工作区根指令
 - `.agents/skills/`：给 runtime 提供 workspace skill metadata，并作为 `search_skill` / `load_skill` 的只读来源
-- `.agents/.config.toml`：给 runtime 提供 workspace 级 settings 覆盖、MCP server、channels 和 legacy hook section
+- `.agents/config.toml`：给 runtime 提供 workspace 级 settings 覆盖、MCP server、channels 和 legacy hook section
 - `.agents/plans/`：承载 session 级 task brief artifact
 
-其中 `AGENTS.md`、`.agents/skills/` 和 `.agents/.config.toml` 是运行时输入；`.agents/plans/` 是运行时产物与用户可编辑 artifact。
+其中 `AGENTS.md`、`.agents/skills/` 和 `.agents/config.toml` 是运行时输入；`.agents/plans/` 是运行时产物与用户可编辑 artifact。
 
 配置与指令输入不会复制进数据库；`task brief` 绑定路径会进入 session state，但文件正文仍以工作区里的 markdown 为事实源。当前统一 settings 的真相源是：
 
 - 全局：`~/.agents/config.toml`
-- 工作区：`<workingDirectory>/.agents/.config.toml`
+- 工作区：`<workingDirectory>/.agents/config.toml`
 
 runtime 创建时先读全局，再读工作区，并按字段级 merge。workspace 里 legacy `[hooks.<id>]` 会先并入 workspace hooks，再排到全局 hooks 前面统一归一化。
 
@@ -47,14 +47,14 @@ runtime 创建时先读全局，再读工作区，并按字段级 merge。worksp
 - 这两类引用都会保留在用户消息正文里，runtime 仍然只接收普通文本消息
 - workbench 不会为这些引用额外创建隐藏消息元数据或预读附件上下文
 
-## `.agents/.config.toml`
+## `.agents/config.toml`
 
 第一版只认当前工作目录下这一个文件：
 
 ```text
 <workingDirectory>/
   .agents/
-    .config.toml
+    config.toml
 ```
 
 不做：
@@ -112,7 +112,7 @@ channel 字段：
 - `webhook_secret`：可选 webhook secret token，同样支持环境变量引用
 - `webhook_url`：仅 webhook 模式需要；调用设置 webhook 接口时可省略 URL
 
-这组配置由 Settings > Channels 页面读写，保存在当前全局默认工作目录下的 `.agents/.config.toml`，不复制进数据库。
+这组配置由 Settings > Channels 页面读写，保存在当前全局默认工作目录下的 `.agents/config.toml`，不复制进数据库。
 
 同一个文件也支持 `[hooks.<id>]`：
 
@@ -146,7 +146,7 @@ workspace hooks 使用同一套 `normalizeUserContextHooks(...)` 规则，因此
 
 ## 运行时装配
 
-- API 和 worker 在各自的 runtime 创建前读取 global `~/.agents/config.toml`，再读取 workspace `.agents/.config.toml`
+- API 和 worker 在各自的 runtime 创建前读取 global `~/.agents/config.toml`，再读取 workspace `.agents/config.toml`
 - 启用且连接成功的 MCP server 会把未禁用的子工具挂进本次 `ToolRegistry`
 - MCP tool 统一命名为 `mcp__<server>__<tool>`
 - MCP tool 默认走 `always-ask-user`

@@ -85,7 +85,7 @@
 - 可跨端复用的能力优先沉淀到 `packages/`
 - session settings 的解析顺序是 `explicit override > effective settings > repo default`；repo default 当前固定为 `agent-workspace/`，但 override 与 global/workspace settings 不再被限制在 repo 根目录内
 - 工作区 skills 统一放在 session workingDirectory 下的 `.agents/skills/`
-- 工作区 MCP 配置和 workspace hooks 统一放在 session workingDirectory 下的 `.agents/.config.toml`
+- 工作区 MCP 配置和 workspace hooks 统一放在 session workingDirectory 下的 `.agents/config.toml`
 - `.agents/` 配置只认当前 workingDirectory，不向父目录递归；MCP server 配置、channels 和 legacy hooks 都作为 workspace settings 覆盖参与统一 merge
 - 文档中应显式区分“当前已实现”和“后续预留”，避免模板期说法长期漂移
 - 构建产物和运行中间文件不应作为架构事实来源；源代码与文档才是长期权威

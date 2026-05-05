@@ -146,4 +146,4 @@ sequenceDiagram
 - `packages/ui-patterns`、`packages/ui` 和 `packages/tokens` 是 `apps/web` 的共享视觉与布局层
 - tool 执行前还有独立的 permission checker；待批准请求和业务确认流是分开建模的
 - `PostgreSQL` 保存 session、routine 与 background task 数据，`tmp/` 主要保存 trace 与 system logs
-- `SettingsConfigStore` 统一读取 `~/.agents/config.toml` 与 workspace `.agents/.config.toml`，提供单租户 session settings
+- `SettingsConfigStore` 统一读取 `~/.agents/config.toml` 与 workspace `.agents/config.toml`，提供单租户 session settings
