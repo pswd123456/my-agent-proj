@@ -12,11 +12,12 @@ import {
   normalizeThinkingEffort,
   type ThinkingEffort
 } from "./session-context.js";
-import { sessionSettingsFromUserSettingsFieldNames } from "./settings-field-groups.js";
-import type { UserContextHookRecord } from "./user-context-hooks.js";
 import {
-  type UpdateUserSettingsPayload
-} from "./settings-payload-schema.js";
+  pickDefinedSettingsFields,
+  sessionSettingsFromUserSettingsFieldNames
+} from "./settings-contract.js";
+import type { UserContextHookRecord } from "./user-context-hooks.js";
+import { type UpdateUserSettingsPayload } from "./settings-payload-schema.js";
 import type { UpdateSessionSettingsPayload } from "./settings-payload-schema.js";
 import type { WorkspaceSkillSettingRecord } from "./workspace-skills.js";
 
@@ -61,11 +62,9 @@ export interface SessionSettingsRecord {
 
 export type SessionSettingsInput = UpdateUserSettingsPayload;
 
-export function resolveSessionSettingsDefaults(
-  options?: {
-    settingsPermissionToolOptions?: readonly string[];
-  }
-): SessionSettingsRecord {
+export function resolveSessionSettingsDefaults(options?: {
+  settingsPermissionToolOptions?: readonly string[];
+}): SessionSettingsRecord {
   const timestamp = new Date().toISOString();
   const toolAskList = [
     ...new Set(
@@ -149,15 +148,8 @@ export function sanitizeSessionMaxTurns(value: number | undefined): number {
 export function buildSessionSettingsPatchFromRecord(
   settings: SessionSettingsRecord
 ): UpdateSessionSettingsPayload {
-  void sessionSettingsFromUserSettingsFieldNames;
-  return {
-    thinkingEffort: settings.thinkingEffort,
-    yoloMode: settings.yoloMode,
-    shellAllowPatterns: settings.shellAllowPatterns,
-    shellDenyPatterns: settings.shellDenyPatterns,
-    toolAllowList: settings.toolAllowList,
-    toolAskList: settings.toolAskList,
-    toolDenyList: settings.toolDenyList,
-    enabledCapabilityPacks: settings.enabledCapabilityPacks
-  };
+  return pickDefinedSettingsFields(
+    settings,
+    sessionSettingsFromUserSettingsFieldNames
+  ) as UpdateSessionSettingsPayload;
 }
