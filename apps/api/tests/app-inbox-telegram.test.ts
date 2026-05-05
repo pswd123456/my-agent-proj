@@ -33,14 +33,30 @@ interface TestTelegramMessage {
   text: string;
 }
 
+interface TestTelegramDocument {
+  chatId: string;
+  filename: string;
+  caption?: string;
+}
+
 function createTelegramClientSpy(): TelegramClient & {
   messages: TestTelegramMessage[];
+  documents: TestTelegramDocument[];
 } {
   const messages: TestTelegramMessage[] = [];
+  const documents: TestTelegramDocument[] = [];
   return {
     messages,
+    documents,
     async sendMessage(message) {
       messages.push(message);
+    },
+    async sendDocument(document) {
+      documents.push({
+        chatId: document.chatId,
+        filename: document.filename,
+        ...(document.caption ? { caption: document.caption } : {})
+      });
     },
     async setWebhook(input) {
       return { url: input.url };
