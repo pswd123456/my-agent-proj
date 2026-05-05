@@ -126,6 +126,14 @@ export {
   getWorkspaceFileChangeRows
 } from "./session-workbench-diff";
 
+export function getRunFileChangeFileKey(input: {
+  viewKey: string;
+  fileIndex: number;
+  path: string;
+}): string {
+  return `${input.viewKey}:file-${input.fileIndex}:${input.path}`;
+}
+
 interface SessionWorkbenchConversationPanelProps {
   currentSession: SessionSnapshot | null;
   modelCatalog: ModelCatalogEntry[];
@@ -1686,7 +1694,11 @@ function renderRunFileChangesPanel(input: {
       <div className="mt-3 grid divide-y divide-[color:color-mix(in_srgb,var(--app-border-subtle)_55%,transparent)]">
         {rows.map((file, index) => {
           const originalFile = view.files[index]!;
-          const fileKey = `${view.key}:${file.path}`;
+          const fileKey = getRunFileChangeFileKey({
+            viewKey: view.key,
+            fileIndex: index,
+            path: file.path
+          });
           const expanded = expandedFileKeys.has(fileKey);
           const checked = selectedIndexSet.has(index);
           const fileState = view.fileStates[index] ?? "applied";

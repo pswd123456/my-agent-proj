@@ -22,6 +22,7 @@ import {
   SessionGitStatusHeaderChips,
   getConfirmationKey,
   getUnifiedDiffLineTone,
+  getRunFileChangeFileKey,
   getWorkspaceFileChangeRows,
   createPermissionCardFeedback,
   getPermissionRequestKey,
@@ -607,6 +608,20 @@ describe("background notification messaging", () => {
 });
 
 describe("workspace file change rows", () => {
+  test("keeps duplicate path row keys unique within one run", () => {
+    const viewKey = "run-file-changes:session-1:user-1";
+    const path = "apps/web/app/_components/session-workbench-settings.tsx";
+
+    expect(
+      [0, 1].map((fileIndex) =>
+        getRunFileChangeFileKey({ viewKey, fileIndex, path })
+      )
+    ).toEqual([
+      "run-file-changes:session-1:user-1:file-0:apps/web/app/_components/session-workbench-settings.tsx",
+      "run-file-changes:session-1:user-1:file-1:apps/web/app/_components/session-workbench-settings.tsx"
+    ]);
+  });
+
   test("formats line deltas and preserves diff text", () => {
     expect(
       getWorkspaceFileChangeRows([
