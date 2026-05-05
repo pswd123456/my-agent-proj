@@ -128,7 +128,7 @@ function createUserSettingsPayload(): UserSettingsPayload {
 function createChannelsPayload(): UserSettingsChannelsPayload {
   return {
     workingDirectory: "/tmp/workspace",
-    configPath: "/tmp/workspace/.agents/.config.toml",
+    configPath: "/tmp/workspace/.agents/config.toml",
     foundConfig: true,
     telegram: {
       channel: "telegram",
@@ -147,7 +147,7 @@ function createChannelsPayload(): UserSettingsChannelsPayload {
 function createMcpPayload(): UserSettingsMcpPayload {
   return {
     workingDirectory: "/tmp/workspace",
-    configPath: "/tmp/workspace/.agents/.config.toml",
+    configPath: "/tmp/workspace/.agents/config.toml",
     foundConfig: true,
     diagnostics: [],
     servers: [],

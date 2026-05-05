@@ -95,7 +95,7 @@ function createSettingsSkillsState(): SettingsSkillsState {
 function createSettingsMcpFormState(): SettingsMcpFormState {
   return {
     workingDirectory: "/tmp/workspace",
-    configPath: "/tmp/workspace/.agents/.config.toml",
+    configPath: "/tmp/workspace/.agents/config.toml",
     foundConfig: true,
     diagnostics: [],
     servers: []
@@ -105,7 +105,7 @@ function createSettingsMcpFormState(): SettingsMcpFormState {
 function createSettingsChannelsState(): SettingsChannelsState {
   return {
     workingDirectory: "/tmp/workspace",
-    configPath: "/tmp/workspace/.agents/.config.toml",
+    configPath: "/tmp/workspace/.agents/config.toml",
     foundConfig: true,
     telegram: {
       channel: "telegram",

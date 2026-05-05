@@ -1,0 +1,12 @@
+[mcp_servers.firecrawl]
+command = "npx"
+args = [ "-y", "firecrawl-mcp" ]
+disabled_tools = [ "firecrawl_browser_create", "firecrawl_browser_execute", "firecrawl_browser_delete", "firecrawl_browser_list" ]
+
+[mcp_servers.firecrawl.env]
+FIRECRAWL_API_KEY = "$FIRECRAWL_API_KEY"
+
+[channels.telegram]
+enabled = true
+mode = "polling"
+bot_token = "$TELEGRAM_BOT_TOKEN"
