@@ -81,7 +81,7 @@ const BUILTIN_TOOL_CATALOG: readonly BuiltinToolCatalogEntry[] = [
     visibleInSettings: true
   },
   {
-    name: "apply_patch",
+    name: "edit_file",
     action: "edit",
     visibleInSettings: true
   },
