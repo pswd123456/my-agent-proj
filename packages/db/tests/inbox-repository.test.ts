@@ -51,6 +51,8 @@ describe("MemoryInboxBindingRepository", () => {
 
     const processed = await repository.markUpdateProcessed(binding.id, 10);
     expect(processed?.lastUpdateId).toBe(10);
+    const bindings = await repository.listByChannel("telegram");
+    expect(bindings.map((item) => item.externalChatId)).toEqual(["123"]);
     await expect(
       repository.markUpdateProcessed(binding.id, 10)
     ).resolves.toBeNull();
@@ -91,6 +93,10 @@ describePostgres("PostgresInboxBindingRepository", () => {
     expect(processed?.activeSessionId).toBe("session-456");
     expect(processed?.settings.responseOutputMode).toBe("all");
     expect(processed?.lastUpdateId).toBe(42);
+    const bindings = await repository.listByChannel("telegram");
+    expect(
+      bindings.some((item) => item.externalChatId === `${chatIdPrefix}-456`)
+    ).toBe(true);
     await expect(
       repository.markUpdateProcessed(binding.id, 42)
     ).resolves.toBeNull();

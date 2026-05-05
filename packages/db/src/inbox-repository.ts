@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 
 import type {
   InboxBindingRecord,
@@ -21,6 +21,7 @@ export interface CreateInboxBindingInput {
 }
 
 export interface InboxBindingRepository {
+  listByChannel(channel: InboxChannel): Promise<InboxBindingRecord[]>;
   getByChannelExternalChat(
     channel: InboxChannel,
     externalChatId: string
@@ -133,6 +134,14 @@ export function createPostgresInboxBindingRepository(
   }
 
   return {
+    async listByChannel(channel) {
+      const rows = await db
+        .select()
+        .from(inboxBindings)
+        .where(eq(inboxBindings.channel, channel))
+        .orderBy(desc(inboxBindings.updatedAt));
+      return rows.map(mapInboxBindingRow);
+    },
     getByChannelExternalChat,
     async getOrCreate(input) {
       const existing = await getByChannelExternalChat(
@@ -226,6 +235,12 @@ export function createMemoryInboxBindingRepository(): InboxBindingRepository {
   }
 
   return {
+    async listByChannel(channel) {
+      return Array.from(bindingsById.values())
+        .filter((binding) => binding.channel === channel)
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+        .map(clone);
+    },
     async getByChannelExternalChat(channel, externalChatId) {
       const binding = findByChannelExternalChat(channel, externalChatId);
       return binding ? clone(binding) : null;
