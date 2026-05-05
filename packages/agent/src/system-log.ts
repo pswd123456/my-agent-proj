@@ -30,6 +30,7 @@ export interface SystemLogQuery {
   sessionId?: string;
   level?: SystemLogLevel;
   component?: SystemLogComponent;
+  event?: string;
   runId?: string;
   requestId?: string;
   limit?: number;
@@ -71,21 +72,43 @@ const LEVEL_WEIGHT: Record<SystemLogLevel, number> = {
 const ACTIVE_LOG_FILENAME = "system.log.jsonl";
 const DETAIL_MAX_STRING_LENGTH = 400;
 const DETAIL_TRUNCATED_STRING_EDGE_LENGTH = 180;
+const DIAGNOSTIC_DETAIL_MAX_STRING_LENGTH = 8_000;
 const DETAIL_MAX_ARRAY_LENGTH = 20;
 const DETAIL_MAX_OBJECT_KEYS = 20;
 const DEFAULT_QUERY_LIMIT = 100;
 const MAX_QUERY_LIMIT = 500;
 
-function truncateStringForLog(value: string): string {
-  if (value.length <= DETAIL_MAX_STRING_LENGTH) {
+const DIAGNOSTIC_DETAIL_KEYS = new Set([
+  "cause",
+  "query",
+  "stack",
+  "stderr",
+  "stdout"
+]);
+
+function stringLimitForLogKey(key: string | undefined): number {
+  return key && DIAGNOSTIC_DETAIL_KEYS.has(key)
+    ? DIAGNOSTIC_DETAIL_MAX_STRING_LENGTH
+    : DETAIL_MAX_STRING_LENGTH;
+}
+
+function truncateStringForLog(value: string, maxLength: number): string {
+  if (value.length <= maxLength) {
     return value;
   }
 
-  const omittedCount = value.length - DETAIL_TRUNCATED_STRING_EDGE_LENGTH * 2;
+  const edgeLength =
+    maxLength === DETAIL_MAX_STRING_LENGTH
+      ? DETAIL_TRUNCATED_STRING_EDGE_LENGTH
+      : Math.max(
+          DETAIL_TRUNCATED_STRING_EDGE_LENGTH,
+          Math.floor(maxLength / 2) - 80
+        );
+  const omittedCount = value.length - edgeLength * 2;
   return [
-    value.slice(0, DETAIL_TRUNCATED_STRING_EDGE_LENGTH),
+    value.slice(0, edgeLength),
     `...[truncated ${omittedCount} chars]...`,
-    value.slice(-DETAIL_TRUNCATED_STRING_EDGE_LENGTH)
+    value.slice(-edgeLength)
   ].join("\n");
 }
 
@@ -102,7 +125,11 @@ function limitArrayEntries<T>(entries: readonly T[], maxEntries: number): T[] {
   ];
 }
 
-function sanitizeValue(value: JsonValue | undefined, depth = 0): JsonValue {
+function sanitizeValue(
+  value: JsonValue | undefined,
+  depth = 0,
+  key?: string
+): JsonValue {
   if (typeof value === "undefined") {
     return null;
   }
@@ -116,7 +143,7 @@ function sanitizeValue(value: JsonValue | undefined, depth = 0): JsonValue {
   }
 
   if (typeof value === "string") {
-    return truncateStringForLog(value);
+    return truncateStringForLog(value, stringLimitForLogKey(key));
   }
 
   if (Array.isArray(value)) {
@@ -125,7 +152,7 @@ function sanitizeValue(value: JsonValue | undefined, depth = 0): JsonValue {
     }
 
     const limited = limitArrayEntries(value, DETAIL_MAX_ARRAY_LENGTH).map(
-      (entry) => sanitizeValue(entry, depth + 1)
+      (entry) => sanitizeValue(entry, depth + 1, key)
     );
     if (value.length > DETAIL_MAX_ARRAY_LENGTH) {
       limited.splice(
@@ -147,7 +174,7 @@ function sanitizeValue(value: JsonValue | undefined, depth = 0): JsonValue {
   );
   const sanitized: Record<string, JsonValue> = {};
   for (const [key, entry] of entries) {
-    sanitized[key] = sanitizeValue(entry as JsonValue, depth + 1);
+    sanitized[key] = sanitizeValue(entry as JsonValue, depth + 1, key);
   }
   if (Object.keys(value).length > DETAIL_MAX_OBJECT_KEYS) {
     sanitized.__truncated__ = `[truncated ${Object.keys(value).length - DETAIL_MAX_OBJECT_KEYS} keys]`;
@@ -157,7 +184,11 @@ function sanitizeValue(value: JsonValue | undefined, depth = 0): JsonValue {
 
 function parseLevel(input: string | undefined): SystemLogLevel {
   const normalized = input?.trim().toLowerCase();
-  if (normalized === "info" || normalized === "warn" || normalized === "error") {
+  if (
+    normalized === "info" ||
+    normalized === "warn" ||
+    normalized === "error"
+  ) {
     return normalized;
   }
   return "debug";
@@ -290,7 +321,10 @@ export class FileSystemLogManager implements SystemLogManager {
     const startIndex = decodeCursor(input.cursor) ?? 0;
     const filenames = [
       ACTIVE_LOG_FILENAME,
-      ...Array.from({ length: this.maxFiles }, (_, index) => `${ACTIVE_LOG_FILENAME}.${index + 1}`)
+      ...Array.from(
+        { length: this.maxFiles },
+        (_, index) => `${ACTIVE_LOG_FILENAME}.${index + 1}`
+      )
     ];
 
     const records: SystemLogRecord[] = [];
@@ -318,15 +352,25 @@ export class FileSystemLogManager implements SystemLogManager {
     }
 
     const filtered = records
-      .filter((record) => (input.sessionId ? record.sessionId === input.sessionId : true))
+      .filter((record) =>
+        input.sessionId ? record.sessionId === input.sessionId : true
+      )
       .filter((record) => (input.level ? record.level === input.level : true))
-      .filter((record) => (input.component ? record.component === input.component : true))
+      .filter((record) =>
+        input.component ? record.component === input.component : true
+      )
+      .filter((record) => (input.event ? record.event === input.event : true))
       .filter((record) => (input.runId ? record.runId === input.runId : true))
-      .filter((record) => (input.requestId ? record.requestId === input.requestId : true))
+      .filter((record) =>
+        input.requestId ? record.requestId === input.requestId : true
+      )
       .sort((left, right) => right.timestamp.localeCompare(left.timestamp));
 
     const page = filtered.slice(startIndex, startIndex + limit);
-    const nextCursor = startIndex + limit < filtered.length ? encodeCursor(startIndex + limit) : null;
+    const nextCursor =
+      startIndex + limit < filtered.length
+        ? encodeCursor(startIndex + limit)
+        : null;
     return { records: page, nextCursor };
   }
 }

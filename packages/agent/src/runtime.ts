@@ -552,7 +552,7 @@ export class AgentRuntime {
       throw new Error(`Unknown session: ${input.sessionId}`);
     }
 
-    const runId = randomUUID();
+    const runId = input.runId ?? randomUUID();
     const traceManager = createRunScopedTraceManager(
       this.options.traceManager,
       runId

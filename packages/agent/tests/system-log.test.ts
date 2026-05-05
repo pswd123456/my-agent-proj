@@ -3,15 +3,15 @@ import { mkdtemp, readFile, readdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import {
-  FileSystemLogManager,
-  createLogger
-} from "../src/system-log.js";
+import { FileSystemLogManager, createLogger } from "../src/system-log.js";
 
 describe("system log manager", () => {
   test("writes structured records and preserves both ends of truncated details", async () => {
     const baseDir = await mkdtemp(path.join(os.tmpdir(), "agent-log-"));
-    const manager = new FileSystemLogManager(baseDir, { maxBytes: 4096, maxFiles: 2 });
+    const manager = new FileSystemLogManager(baseDir, {
+      maxBytes: 4096,
+      maxFiles: 2
+    });
     const logger = createLogger({
       manager,
       component: "runtime",
@@ -30,7 +30,10 @@ describe("system log manager", () => {
       nested: { ok: true }
     });
 
-    const raw = await readFile(path.join(baseDir, "logs", "system.log.jsonl"), "utf8");
+    const raw = await readFile(
+      path.join(baseDir, "logs", "system.log.jsonl"),
+      "utf8"
+    );
     const record = JSON.parse(raw.trim());
     expect(record.component).toBe("runtime");
     expect(record.sessionId).toBe("session-1");
@@ -65,9 +68,38 @@ describe("system log manager", () => {
     ]);
   });
 
+  test("keeps longer diagnostic fields before truncating", async () => {
+    const baseDir = await mkdtemp(path.join(os.tmpdir(), "agent-log-"));
+    const manager = new FileSystemLogManager(baseDir, {
+      maxBytes: 20_000,
+      maxFiles: 2
+    });
+    const logger = createLogger({ manager, component: "api" });
+    const query = `select ${"column_name, ".repeat(500)} from agent_settings`;
+    const stack = `Error: failed\n${"    at frame (/tmp/file.ts:1:1)\n".repeat(500)}`;
+
+    await logger.error("request_failed", {
+      query,
+      stack,
+      message: "x".repeat(1000)
+    });
+
+    const raw = await readFile(
+      path.join(baseDir, "logs", "system.log.jsonl"),
+      "utf8"
+    );
+    const record = JSON.parse(raw.trim());
+    expect(String(record.details.query).length).toBeGreaterThan(1000);
+    expect(String(record.details.stack).length).toBeGreaterThan(1000);
+    expect(String(record.details.message).length).toBeLessThan(500);
+  });
+
   test("rotates log files when max bytes exceeded", async () => {
     const baseDir = await mkdtemp(path.join(os.tmpdir(), "agent-log-"));
-    const manager = new FileSystemLogManager(baseDir, { maxBytes: 300, maxFiles: 2 });
+    const manager = new FileSystemLogManager(baseDir, {
+      maxBytes: 300,
+      maxFiles: 2
+    });
     const logger = createLogger({ manager, component: "runtime" });
 
     for (let index = 0; index < 10; index += 1) {
@@ -83,7 +115,10 @@ describe("system log manager", () => {
 
   test("queries latest records with filters and cursor", async () => {
     const baseDir = await mkdtemp(path.join(os.tmpdir(), "agent-log-"));
-    const manager = new FileSystemLogManager(baseDir, { maxBytes: 4096, maxFiles: 2 });
+    const manager = new FileSystemLogManager(baseDir, {
+      maxBytes: 4096,
+      maxFiles: 2
+    });
     await manager.append({
       timestamp: "2026-05-02T00:00:00.000Z",
       level: "info",
@@ -127,6 +162,7 @@ describe("system log manager", () => {
 
     const firstPage = await manager.query({
       component: "worker",
+      event: "w2",
       runId: "run-b",
       requestId: "req-c",
       limit: 1
@@ -134,14 +170,24 @@ describe("system log manager", () => {
     expect(firstPage.records).toHaveLength(1);
     expect(firstPage.records[0]?.component).toBe("worker");
     expect(firstPage.records[0]?.event).toBe("w2");
-    expect(firstPage.nextCursor).not.toBeNull();
+    expect(firstPage.nextCursor).toBeNull();
+
+    const pagedFirst = await manager.query({
+      component: "worker",
+      runId: "run-b",
+      requestId: "req-c",
+      limit: 1
+    });
+    expect(pagedFirst.records).toHaveLength(1);
+    expect(pagedFirst.records[0]?.event).toBe("w2");
+    expect(pagedFirst.nextCursor).not.toBeNull();
 
     const secondPage = await manager.query({
       component: "worker",
       runId: "run-b",
       requestId: "req-c",
       limit: 1,
-      cursor: firstPage.nextCursor ?? undefined
+      cursor: pagedFirst.nextCursor ?? undefined
     });
     expect(secondPage.records).toHaveLength(1);
     expect(secondPage.records[0]?.event).toBe("w1");

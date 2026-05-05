@@ -5,11 +5,15 @@ import type {
   BackgroundTaskState,
   BackgroundTaskExecutor,
   BackgroundTaskWaitMode,
-  CapabilityPackName,
+  CapabilityPackName
 } from "@ai-app-template/domain";
 import type { BackgroundTaskRepository } from "@ai-app-template/db";
 
-import type { CreateSessionInput, JsonValue, SessionSnapshot } from "../types.js";
+import type {
+  CreateSessionInput,
+  JsonValue,
+  SessionSnapshot
+} from "../types.js";
 
 export interface EnqueueBackgroundTaskInput {
   kind: BackgroundTaskKind;
@@ -51,8 +55,7 @@ type BackgroundTaskRepositoryManagerMethods = Pick<
   | "requeueStaleClaims"
 >;
 
-export interface BackgroundTaskManager
-  extends BackgroundTaskRepositoryManagerMethods {
+export interface BackgroundTaskManager extends BackgroundTaskRepositoryManagerMethods {
   enqueueTask(input: EnqueueBackgroundTaskInput): Promise<BackgroundTaskRecord>;
   listTasksByParentSession(
     parentSessionId: string
@@ -63,6 +66,7 @@ export interface BackgroundTaskRuntimeHandle {
   runtime: {
     run(input: {
       sessionId: string;
+      runId?: string;
       message?: string;
       maxTurns?: number;
       permissionReply?: boolean;

@@ -40,7 +40,7 @@ describe("loadWorkspaceMcpTools cleanup", () => {
 
     mock.module("../src/mcp/config-loader.js", () => ({
       loadWorkspaceMcpConfig: async () => ({
-        configPath: "/tmp/.agents/.config.toml",
+        configPath: "/tmp/.agents/config.toml",
         foundConfig: true,
         diagnostics: [],
         servers: [

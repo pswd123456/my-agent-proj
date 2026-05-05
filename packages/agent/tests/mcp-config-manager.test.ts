@@ -19,7 +19,7 @@ async function writeConfig(
 ): Promise<void> {
   const agentDirectory = path.join(workspaceRoot, ".agents");
   await mkdir(agentDirectory, { recursive: true });
-  await writeFile(path.join(agentDirectory, ".config.toml"), content, "utf8");
+  await writeFile(path.join(agentDirectory, "config.toml"), content, "utf8");
 }
 
 describe("replaceWorkspaceMcpConfigServers", () => {
@@ -56,7 +56,7 @@ args = ["old.js"]
       const hookResult = await loadWorkspaceHookConfig(workspaceRoot);
       const manageable = await readManageableWorkspaceMcpConfig(workspaceRoot);
       const rawConfig = await readFile(
-        path.join(workspaceRoot, ".agents", ".config.toml"),
+        path.join(workspaceRoot, ".agents", "config.toml"),
         "utf8"
       );
 

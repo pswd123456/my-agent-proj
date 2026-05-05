@@ -699,7 +699,8 @@ export async function runBackgroundTask(
     if (runtimeHandle.preRunTraceEvent && input.traceManager) {
       await input.traceManager.appendEvent(
         childSessionId,
-        runtimeHandle.preRunTraceEvent
+        runtimeHandle.preRunTraceEvent,
+        { runId: claim.run.runId }
       );
     }
 
@@ -744,6 +745,7 @@ export async function runBackgroundTask(
 
     const resultInput = {
       sessionId: childSessionId,
+      runId: claim.run.runId,
       maxTurns: sessionPayload.maxTurns,
       ...(sessionPayload.message.trim().length > 0
         ? { message: sessionPayload.message }

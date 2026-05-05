@@ -181,6 +181,7 @@ export interface CreateSessionInput {
 
 export interface RunSessionInput {
   sessionId: string;
+  runId?: string;
   message?: string;
   maxTurns?: number;
   permissionReply?: boolean;
