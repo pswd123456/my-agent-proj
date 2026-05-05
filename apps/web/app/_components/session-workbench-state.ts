@@ -18,6 +18,8 @@ import {
   buildSessionSettingsPatchFromRecord,
   findDuplicateWorkspaceMcpServerNames,
   normalizeWorkspaceMcpServerConfig,
+  pickDefinedSettingsFields,
+  updateUserSettingsFieldNames,
   USER_CONTEXT_HOOK_TYPES,
   getUserContextHookTypeKey
 } from "@ai-app-template/sdk";
@@ -1141,24 +1143,17 @@ export function buildUserSettingsPayloadFromForm(
 ): UpdateUserSettingsPayload {
   const normalizedForm = normalizeSettingsFormState(form);
 
-  return {
-    workingDirectory: normalizedForm.workingDirectory,
-    model: normalizedForm.model,
-    thinkingEffort: normalizedForm.thinkingEffort === "max" ? "max" : "high",
-    yoloMode: normalizedForm.yoloMode,
-    contextWindow: normalizeContextWindow(normalizedForm.contextWindow),
-    maxTurns: normalizeMaxTurns(normalizedForm.maxTurns),
-    shellAllowPatterns: splitPatternLines(normalizedForm.shellAllowPatterns),
-    shellDenyPatterns: splitPatternLines(normalizedForm.shellDenyPatterns),
-    toolAllowList: normalizedForm.toolAllowList,
-    toolAskList: normalizedForm.toolAskList,
-    toolDenyList: normalizedForm.toolDenyList,
-    enabledCapabilityPacks: normalizedForm.enabledCapabilityPacks,
-    workspaceSkillSettings: normalizedForm.workspaceSkillSettings,
-    userContextHooks: normalizedForm.userContextHooks,
-    debugConversationView: normalizedForm.debugConversationView,
-    userCustomPrompt: normalizedForm.userCustomPrompt
-  };
+  return pickDefinedSettingsFields(
+    {
+      ...normalizedForm,
+      thinkingEffort: normalizedForm.thinkingEffort === "max" ? "max" : "high",
+      contextWindow: normalizeContextWindow(normalizedForm.contextWindow),
+      maxTurns: normalizeMaxTurns(normalizedForm.maxTurns),
+      shellAllowPatterns: splitPatternLines(normalizedForm.shellAllowPatterns),
+      shellDenyPatterns: splitPatternLines(normalizedForm.shellDenyPatterns)
+    },
+    updateUserSettingsFieldNames
+  ) as UpdateUserSettingsPayload;
 }
 
 function normalizeWorkspaceSkillSettings(

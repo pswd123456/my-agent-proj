@@ -20,6 +20,7 @@ import {
   type WorkspaceMcpConfigDiagnostic,
   type WorkspaceMcpToolLoadSummary
 } from "@ai-app-template/sdk";
+import type { UpdateUserSettingsPayload } from "@ai-app-template/sdk";
 
 export const inspectorTabs = [
   { id: "prompt", label: "Prompt" },
@@ -117,7 +118,18 @@ export interface TurnUsageSummary {
   cacheCreationInputTokens: number;
 }
 
-export interface SettingsFormState {
+type SettingsFormPayloadFields = Required<
+  Omit<
+    UpdateUserSettingsPayload,
+    | "contextWindow"
+    | "maxTurns"
+    | "shellAllowPatterns"
+    | "shellDenyPatterns"
+    | "thinkingEffort"
+  >
+>;
+
+export interface SettingsFormState extends SettingsFormPayloadFields {
   workingDirectory: string;
   model: string;
   thinkingEffort: string;

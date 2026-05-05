@@ -2628,7 +2628,7 @@ export function SessionWorkbench() {
     : savingSettings
       ? "autosaving"
       : userSettings
-        ? "single tenant"
+        ? "已加载"
         : "--";
 
   const settingsStatusText = savingSettings

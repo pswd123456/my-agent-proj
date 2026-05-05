@@ -219,6 +219,7 @@ function createStateRecorder() {
 describe("session workbench settings controller", () => {
   test("saves user settings, refreshes extended settings, and syncs the current session", async () => {
     const settingsPayload = createUserSettingsPayload();
+    settingsPayload.settings.workingDirectory = "/tmp/updated-workspace";
     const channelsPayload = createChannelsPayload();
     const mcpPayload = createMcpPayload();
     const skillsPayload = createSkillsPayload();
@@ -249,6 +250,12 @@ describe("session workbench settings controller", () => {
     expect(apiClient.getUserSettingsMcp).toHaveBeenCalledTimes(1);
     expect(apiClient.getUserSettingsSkills).toHaveBeenCalledTimes(1);
     expect(apiClient.updateSessionSettings).toHaveBeenCalledTimes(1);
+    expect(apiClient.updateSessionSettings).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({
+        workingDirectory: "/tmp/updated-workspace"
+      })
+    );
     expect(hydrateCurrentSession).toHaveBeenCalledWith(updatedSession);
     expect(recorder.userSettings).toEqual(settingsPayload.settings);
     expect(recorder.permissionTools).toEqual(settingsPayload.permissionTools);
