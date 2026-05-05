@@ -8,13 +8,13 @@ import {
 } from "@ai-app-template/domain";
 
 import type { LspServerManager } from "../lsp/index.js";
-import { createApplyPatchTool } from "./apply-patch.js";
 import { createAskForConfirmationTool } from "./ask-for-confirmation.js";
 import { createAskUserQuestionTool } from "./ask-user-question.js";
 import { createCreateDirectoryTool } from "./create-directory.js";
 import { createDelegateAgentTool } from "./delegate-agent.js";
 import { createDeleteFileTool } from "./delete-file.js";
 import { createDeletePathTool } from "./delete-path.js";
+import { createEditFileTool } from "./edit-file.js";
 import { createGetCurrentTimeTool } from "./get-current-time.js";
 import { createFindFilesTool } from "./find-files.js";
 import { createGitDiffTool } from "./git-diff.js";
@@ -150,11 +150,11 @@ export function createWorkspaceToolRegistry(options: {
   workspaceSkillSettings?: readonly WorkspaceSkillSettingRecord[];
 }): ToolRegistry {
   return registerTools(new ToolRegistry(), [
-    createApplyPatchTool(options.workingDirectory),
     createReadFileTool(options.workingDirectory),
     createListDirectoryTool(options.workingDirectory),
     createFindFilesTool(options.workingDirectory),
     createSearchTextTool(options.workingDirectory),
+    createEditFileTool(options.workingDirectory),
     createWriteFileTool(options.workingDirectory),
     createCreateDirectoryTool(options.workingDirectory),
     createDeleteFileTool(options.workingDirectory),

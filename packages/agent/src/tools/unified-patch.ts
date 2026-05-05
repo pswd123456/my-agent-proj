@@ -54,7 +54,10 @@ export interface PatchApplicationSummary {
       };
 }
 
-type PatchChangeSummary = Omit<PatchApplicationSummary, "fileState">;
+export type UnifiedFileChangeSummary = Omit<
+  PatchApplicationSummary,
+  "fileState"
+>;
 
 type PatchParseResult =
   | { ok: true; value: ParsedUnifiedPatch }
@@ -291,6 +294,158 @@ function renderFileContent(input: {
 
   const joined = input.lines.join(input.newline);
   return input.hasFinalNewline ? `${joined}${input.newline}` : joined;
+}
+
+function splitDiffLines(content: string): string[] {
+  if (content.length === 0) {
+    return [];
+  }
+
+  return content.replace(/\r\n/g, "\n").replace(/\n$/, "").split("\n");
+}
+
+function createContentChangeHunk(input: {
+  oldLines: string[];
+  newLines: string[];
+  contextLineCount: number;
+}): UnifiedPatchHunk {
+  let prefixCount = 0;
+  while (
+    prefixCount < input.oldLines.length &&
+    prefixCount < input.newLines.length &&
+    input.oldLines[prefixCount] === input.newLines[prefixCount]
+  ) {
+    prefixCount += 1;
+  }
+
+  let suffixCount = 0;
+  while (
+    suffixCount < input.oldLines.length - prefixCount &&
+    suffixCount < input.newLines.length - prefixCount &&
+    input.oldLines[input.oldLines.length - 1 - suffixCount] ===
+      input.newLines[input.newLines.length - 1 - suffixCount]
+  ) {
+    suffixCount += 1;
+  }
+
+  const oldChangeEnd = input.oldLines.length - suffixCount;
+  const newChangeEnd = input.newLines.length - suffixCount;
+  if (prefixCount === oldChangeEnd && prefixCount === newChangeEnd) {
+    return {
+      oldStart: 0,
+      oldCount: 0,
+      newStart: 0,
+      newCount: 0,
+      lines: []
+    };
+  }
+
+  const contextBefore = Math.min(input.contextLineCount, prefixCount);
+  const contextAfter = Math.min(
+    input.contextLineCount,
+    input.oldLines.length - oldChangeEnd
+  );
+  const oldStartIndex = prefixCount - contextBefore;
+  const oldEndIndex = oldChangeEnd + contextAfter;
+  const newEndIndex = newChangeEnd + contextAfter;
+  const lines: UnifiedPatchLine[] = [];
+
+  for (const line of input.oldLines.slice(oldStartIndex, prefixCount)) {
+    lines.push({ kind: "context", text: line });
+  }
+  for (const line of input.oldLines.slice(prefixCount, oldChangeEnd)) {
+    lines.push({ kind: "delete", text: line });
+  }
+  for (const line of input.newLines.slice(prefixCount, newChangeEnd)) {
+    lines.push({ kind: "add", text: line });
+  }
+  for (const line of input.oldLines.slice(oldChangeEnd, oldEndIndex)) {
+    lines.push({ kind: "context", text: line });
+  }
+
+  const oldCount = oldEndIndex - oldStartIndex;
+  const newStartIndex = prefixCount - contextBefore;
+  const newCount = newEndIndex - newStartIndex;
+
+  return {
+    oldStart: oldCount === 0 ? oldStartIndex : oldStartIndex + 1,
+    oldCount,
+    newStart: newCount === 0 ? newStartIndex : newStartIndex + 1,
+    newCount,
+    lines
+  };
+}
+
+export function buildUnifiedFilePatchFromContents(input: {
+  path: string;
+  originalContent: string | null;
+  nextContent: string | null;
+  contextLineCount?: number;
+}): UnifiedFilePatch {
+  if (input.originalContent === null && input.nextContent === null) {
+    throw new Error("A file diff requires originalContent or nextContent.");
+  }
+
+  if (input.originalContent === null) {
+    const nextLines = splitDiffLines(input.nextContent ?? "");
+    return {
+      action: "create",
+      oldPath: null,
+      newPath: input.path,
+      targetPath: input.path,
+      hunks: [
+        {
+          oldStart: 0,
+          oldCount: 0,
+          newStart: nextLines.length === 0 ? 0 : 1,
+          newCount: nextLines.length,
+          lines: nextLines.map((line) => ({ kind: "add", text: line }))
+        }
+      ]
+    };
+  }
+
+  if (input.nextContent === null) {
+    const oldLines = splitDiffLines(input.originalContent);
+    return {
+      action: "delete",
+      oldPath: input.path,
+      newPath: null,
+      targetPath: input.path,
+      hunks: [
+        {
+          oldStart: oldLines.length === 0 ? 0 : 1,
+          oldCount: oldLines.length,
+          newStart: 0,
+          newCount: 0,
+          lines: oldLines.map((line) => ({ kind: "delete", text: line }))
+        }
+      ]
+    };
+  }
+
+  return {
+    action: "modify",
+    oldPath: input.path,
+    newPath: input.path,
+    targetPath: input.path,
+    hunks: [
+      createContentChangeHunk({
+        oldLines: splitDiffLines(input.originalContent),
+        newLines: splitDiffLines(input.nextContent),
+        contextLineCount: input.contextLineCount ?? 3
+      })
+    ]
+  };
+}
+
+export function buildUnifiedFileChangeFromContents(input: {
+  path: string;
+  originalContent: string | null;
+  nextContent: string | null;
+  contextLineCount?: number;
+}): UnifiedFileChangeSummary {
+  return summarizeUnifiedFilePatch(buildUnifiedFilePatchFromContents(input));
 }
 
 function shouldGuardPatchedSyntax(targetPath: string): boolean {
@@ -631,7 +786,9 @@ function applyFilePatchToLines(input: {
   };
 }
 
-function summarizeFilePatch(filePatch: UnifiedFilePatch): PatchChangeSummary {
+export function summarizeUnifiedFilePatch(
+  filePatch: UnifiedFilePatch
+): UnifiedFileChangeSummary {
   const addedLineCount = filePatch.hunks.reduce(
     (count, hunk) =>
       count + hunk.lines.filter((line) => line.kind === "add").length,
@@ -805,7 +962,9 @@ export function parseUnifiedPatch(patchText: string): PatchParseResult {
         throw new Error("Patch file section must target at least one path.");
       }
       if (oldPath && newPath && oldPath !== newPath) {
-        throw new Error("Renaming paths via apply_patch is not supported.");
+        throw new Error(
+          "Renaming paths in unified file patches is not supported."
+        );
       }
 
       const action: UnifiedPatchAction =
@@ -976,7 +1135,7 @@ export async function applyUnifiedPatch(input: {
     }
 
     summaries.push({
-      ...summarizeFilePatch(effectiveFilePatch),
+      ...summarizeUnifiedFilePatch(effectiveFilePatch),
       path: toRelativeWorkspacePath(input.workingDirectory, absoluteTargetPath),
       fileState:
         effectiveFilePatch.action === "delete"

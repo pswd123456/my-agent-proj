@@ -44,19 +44,27 @@ await mkdir(appDir, { recursive: true });
 
 const repoAgentsPath = path.join(process.cwd(), "AGENTS.md");
 const rootAgentsContent = await readFile(repoAgentsPath, "utf8");
-await writeFile(path.join(workspaceRoot, "AGENTS.md"), rootAgentsContent, "utf8");
+await writeFile(
+  path.join(workspaceRoot, "AGENTS.md"),
+  rootAgentsContent,
+  "utf8"
+);
 const repoAppsAgentsPath = path.join(process.cwd(), "apps/AGENTS.md");
 const appsAgentsContent = await readFile(repoAppsAgentsPath, "utf8");
-await writeFile(path.join(workspaceRoot, "apps/AGENTS.md"), appsAgentsContent, "utf8");
+await writeFile(
+  path.join(workspaceRoot, "apps/AGENTS.md"),
+  appsAgentsContent,
+  "utf8"
+);
 
 const targetPath = path.join(appDir, "session-workbench-conversation.tsx");
 const initialContent = [
-  'export function SessionWorkbenchConversation() {',
+  "export function SessionWorkbenchConversation() {",
   "  return (",
   "    <div>",
   "      {true ? null : (",
   "        <div",
-  '          className={getSoftBlockClass(',
+  "          className={getSoftBlockClass(",
   '            "py-6 text-sm text-[var(--app-text-muted)]"',
   "          )}",
   "        >",
@@ -69,12 +77,12 @@ const initialContent = [
 ].join("\n");
 await writeFile(targetPath, `${initialContent}\n`, "utf8");
 const expectedContent = [
-  'export function SessionWorkbenchConversation() {',
+  "export function SessionWorkbenchConversation() {",
   "  return (",
   "    <div>",
   "      {true ? null : (",
   "        <div",
-  '          className={getSoftBlockClass(',
+  "          className={getSoftBlockClass(",
   '            "py-6 text-sm text-[var(--app-text-muted)]"',
   "          )}",
   "        >",
@@ -133,7 +141,8 @@ const session = await runtime.createSession({
   enabledCapabilityPacks: ["workspace"]
 });
 const sessionId = session.sessionId;
-const userMessage = "发送请求后，这里会显示当前会话的对话和执行记录。\n这句话去掉";
+const userMessage =
+  "发送请求后，这里会显示当前会话的对话和执行记录。\n这句话去掉";
 const resumeMessage = "批准";
 const maxAutoApprovals = 12;
 const runResults = [];
@@ -186,11 +195,11 @@ const readOutputs = allToolOutputs.filter(
 const readErrors = allToolOutputs.filter(
   (output) => output.toolName === "read_file" && output.isError
 );
-const patchOutputs = allToolOutputs.filter(
-  (output) => output.toolName === "apply_patch" && !output.isError
+const editOutputs = allToolOutputs.filter(
+  (output) => output.toolName === "edit_file" && !output.isError
 );
-const patchErrors = allToolOutputs.filter(
-  (output) => output.toolName === "apply_patch" && output.isError
+const editErrors = allToolOutputs.filter(
+  (output) => output.toolName === "edit_file" && output.isError
 );
 const shellOutputs = allToolOutputs.filter(
   (output) => output.toolName === "run_shell_command"
@@ -198,12 +207,12 @@ const shellOutputs = allToolOutputs.filter(
 const writeOutputs = allToolOutputs.filter(
   (output) => output.toolName === "write_file"
 );
-const patchDetails = patchOutputs[0]?.details;
+const editDetails = editOutputs[0]?.details;
 const singleLineRemovalOnly =
-  patchDetails?.kind === "workspace_file_changes" &&
-  patchDetails.files.length === 1 &&
-  patchDetails.files[0]?.addedLineCount === 0 &&
-  patchDetails.files[0]?.removedLineCount === 1;
+  editDetails?.kind === "workspace_file_changes" &&
+  editDetails.files.length === 1 &&
+  editDetails.files[0]?.addedLineCount === 0 &&
+  editDetails.files[0]?.removedLineCount === 1;
 const tracePath = path.join(
   stateDirectory,
   "sessions",
@@ -220,8 +229,8 @@ const ok =
   searchErrors.length === 0 &&
   readOutputs.length === 1 &&
   readErrors.length === 0 &&
-  patchOutputs.length === 1 &&
-  patchErrors.length === 0 &&
+  editOutputs.length === 1 &&
+  editErrors.length === 0 &&
   shellOutputs.length === 0 &&
   writeOutputs.length === 0 &&
   singleLineRemovalOnly === true;
@@ -286,8 +295,8 @@ assert.equal(searchOutputs.length >= 1, true);
 assert.equal(searchErrors.length, 0);
 assert.equal(readOutputs.length, 1);
 assert.equal(readErrors.length, 0);
-assert.equal(patchOutputs.length, 1);
-assert.equal(patchErrors.length, 0);
+assert.equal(editOutputs.length, 1);
+assert.equal(editErrors.length, 0);
 assert.equal(shellOutputs.length, 0);
 assert.equal(writeOutputs.length, 0);
 assert.equal(singleLineRemovalOnly, true);

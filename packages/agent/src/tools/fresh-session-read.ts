@@ -112,7 +112,7 @@ function findLatestSessionFileStateForPath(input: {
 
     if (
       block.toolName !== "write_file" &&
-      block.toolName !== "apply_patch" &&
+      block.toolName !== "edit_file" &&
       block.toolName !== "delete_file"
     ) {
       continue;

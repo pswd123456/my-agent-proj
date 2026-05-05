@@ -21,6 +21,7 @@ import {
   failureResult,
   successResult
 } from "./tool-result.js";
+import { buildUnifiedFileChangeFromContents } from "./unified-patch.js";
 import {
   buildToolDescription,
   describeObjectProperty
@@ -32,44 +33,6 @@ function normalizeDiffLines(content: string): string[] {
   }
 
   return content.replace(/\r\n/g, "\n").replace(/\n$/, "").split("\n");
-}
-
-function buildWholeFileDiff(input: {
-  path: string;
-  originalContent: string | null;
-  nextContent: string;
-}): {
-  action: "create" | "modify";
-  addedLineCount: number;
-  removedLineCount: number;
-  diff: string;
-} {
-  const originalLines = normalizeDiffLines(input.originalContent ?? "");
-  const nextLines = normalizeDiffLines(input.nextContent);
-  const action = input.originalContent === null ? "create" : "modify";
-  const oldPath = action === "create" ? "/dev/null" : `a/${input.path}`;
-  const newPath = `b/${input.path}`;
-  const oldCount = originalLines.length;
-  const newCount = nextLines.length;
-  const oldStart = oldCount === 0 ? 0 : 1;
-  const newStart = newCount === 0 ? 0 : 1;
-
-  return {
-    action,
-    addedLineCount: nextCount(nextLines),
-    removedLineCount: nextCount(originalLines),
-    diff: [
-      `--- ${oldPath}`,
-      `+++ ${newPath}`,
-      `@@ -${oldStart},${oldCount} +${newStart},${newCount} @@`,
-      ...originalLines.map((line) => `-${line}`),
-      ...nextLines.map((line) => `+${line}`)
-    ].join("\n")
-  };
-}
-
-function nextCount(lines: string[]): number {
-  return lines.length;
 }
 
 function detectLocalizedExistingFileEdit(input: {
@@ -115,9 +78,7 @@ function detectLocalizedExistingFileEdit(input: {
 
   return {
     isLocalized:
-      changedLineBudget > 0 &&
-      changedLineBudget <= 8 &&
-      preservedEdgeLines > 0,
+      changedLineBudget > 0 && changedLineBudget <= 8 && preservedEdgeLines > 0,
     oldChangedLineCount,
     newChangedLineCount
   };
@@ -141,15 +102,15 @@ export function createWriteFileTool(workingDirectory: string): RuntimeTool {
           description: "Full file content to write."
         }),
         "Step 2: if the target file already exists, read it with read_file in this session before writing.",
-        "Step 3: use apply_patch instead of write_file for line-level edits.",
-        "Step 4: if you only need to remove or change one sentence, one string literal, or a few nearby lines in an existing file, stay on apply_patch.",
+        "Step 3: use edit_file instead of write_file for line-level edits.",
+        "Step 4: if you only need to remove or change one sentence, one string literal, or a few nearby lines in an existing file, stay on edit_file.",
         "Step 5: even if you can describe the whole next file content, do not switch to write_file for a one-line text removal task."
       ],
       constraints: [
         "Existing files MUST be read with read_file in this session before writing.",
         "write_file only supports full-file writes; line edits are rejected.",
-        "Do not use write_file for localized edits to an existing file just because apply_patch needs a smaller or more exact hunk.",
-        "Do not use write_file for a one-line sentence or string removal in an existing file after apply_patch fails; reread and retry a smaller patch instead.",
+        "Do not use write_file for localized edits to an existing file; use edit_file with oldString and newString.",
+        "Do not use write_file for a one-line sentence or string removal in an existing file; reread and use edit_file instead.",
         "Do not use write_file to simplify, normalize, or rewrite unchanged surrounding structure during a local content removal.",
         "The parent directory must already exist.",
         "Directory targets are rejected."
@@ -226,7 +187,7 @@ export function createWriteFileTool(workingDirectory: string): RuntimeTool {
         issues.push({
           field: "input",
           issue:
-            "write_file only supports full-file writes. Use apply_patch for line edits."
+            "write_file only supports full-file writes. Use edit_file for line edits."
         });
       }
 
@@ -294,7 +255,11 @@ export function createWriteFileTool(workingDirectory: string): RuntimeTool {
         const originalContent = existed
           ? await fs.readFile(absolutePath, "utf8")
           : null;
-        if (existed && originalContent !== null && originalContent !== content) {
+        if (
+          existed &&
+          originalContent !== null &&
+          originalContent !== content
+        ) {
           const localizedEdit = detectLocalizedExistingFileEdit({
             originalContent,
             nextContent: content
@@ -305,13 +270,13 @@ export function createWriteFileTool(workingDirectory: string): RuntimeTool {
                 ok: false,
                 code: "WRITE_FILE_LOCALIZED_EDIT",
                 message:
-                  "This existing-file write only changes a small local range. Use apply_patch so unchanged surrounding structure and behavior stay exact."
+                  "This existing-file write only changes a small local range. Use edit_file so unchanged surrounding structure and behavior stay exact."
               }),
               [
                 "[write_file] failed",
-                "- localized existing-file edit detected; use apply_patch instead",
+                "- localized existing-file edit detected; use edit_file instead",
                 `- changed old lines: ${localizedEdit.oldChangedLineCount}, changed new lines: ${localizedEdit.newChangedLineCount}`,
-                "- recovery: reread the narrow range, keep unchanged surrounding lines exact, and change only the target content"
+                "- recovery: reread the narrow range, set oldString to the exact current text, and set newString to the desired replacement"
               ].join("\n")
             );
           }
@@ -347,7 +312,7 @@ export function createWriteFileTool(workingDirectory: string): RuntimeTool {
           }
         }
 
-        const fileChange = buildWholeFileDiff({
+        const fileChange = buildUnifiedFileChangeFromContents({
           path: relativePath,
           originalContent,
           nextContent: content
