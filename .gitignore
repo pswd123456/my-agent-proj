@@ -43,3 +43,6 @@ tmp/
 # Python helpers
 __pycache__/
 *.pyc
+
+# Next.js auto-generated types (recreated on dev)
+apps/web/next-env.d.ts
