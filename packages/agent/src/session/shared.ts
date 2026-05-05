@@ -497,6 +497,21 @@ function isToolResultDetails(value: unknown): value is ToolResultDetails {
     );
   }
 
+  if (value.kind === "shell_command") {
+    return (
+      (value.action === "start" ||
+        value.action === "get" ||
+        value.action === "cancel") &&
+      (typeof value.command === "string" ||
+        typeof value.command === "undefined") &&
+      (value.executionMode === "inline" ||
+        value.executionMode === "background" ||
+        typeof value.executionMode === "undefined") &&
+      (typeof value.taskId === "string" ||
+        typeof value.taskId === "undefined")
+    );
+  }
+
   return false;
 }
 

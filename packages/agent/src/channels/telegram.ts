@@ -19,6 +19,13 @@ export interface TelegramSendMessageInput {
   text: string;
 }
 
+export interface TelegramSendDocumentInput {
+  chatId: string;
+  file: Blob;
+  filename: string;
+  caption?: string;
+}
+
 export interface TelegramSetWebhookInput {
   url: string;
   secretToken?: string;
@@ -40,6 +47,7 @@ export type TelegramUpdate = z.infer<typeof telegramUpdateSchema>;
 
 export interface TelegramClient {
   sendMessage(input: TelegramSendMessageInput): Promise<void>;
+  sendDocument(input: TelegramSendDocumentInput): Promise<void>;
   setWebhook(input: TelegramSetWebhookInput): Promise<unknown>;
   deleteWebhook(input?: TelegramDeleteWebhookInput): Promise<unknown>;
   getUpdates(input?: TelegramGetUpdatesInput): Promise<TelegramUpdate[]>;
@@ -114,7 +122,9 @@ function createTimeoutSignal(
 } {
   const controller = new AbortController();
   const timeout = setTimeout(() => {
-    controller.abort(new Error(`Telegram request timed out after ${timeoutMs}ms.`));
+    controller.abort(
+      new Error(`Telegram request timed out after ${timeoutMs}ms.`)
+    );
   }, timeoutMs);
   const abortFromParent = () => {
     controller.abort(parentSignal?.reason);
@@ -147,10 +157,13 @@ export function createTelegramClient(
       init.signal ?? undefined
     );
     try {
-      const response = await fetchImpl(buildTelegramApiUrl(input.botToken, method), {
-        ...init,
-        signal: timeoutSignal.signal
-      });
+      const response = await fetchImpl(
+        buildTelegramApiUrl(input.botToken, method),
+        {
+          ...init,
+          signal: timeoutSignal.signal
+        }
+      );
       return parseTelegramResponse(response);
     } finally {
       timeoutSignal.dispose();
@@ -169,6 +182,19 @@ export function createTelegramClient(
           })
         });
       }
+    },
+    async sendDocument(document) {
+      const form = new FormData();
+      form.set("chat_id", document.chatId);
+      form.set("document", document.file, document.filename);
+      if (document.caption?.trim()) {
+        form.set("caption", document.caption.trim());
+      }
+
+      await request("sendDocument", {
+        method: "POST",
+        body: form
+      });
     },
     async setWebhook(webhook) {
       return request("setWebhook", {
@@ -197,18 +223,22 @@ export function createTelegramClient(
     },
     async getUpdates(updateRequest = {}) {
       const timeoutSeconds = updateRequest.timeoutSeconds ?? 25;
-      const result = await request("getUpdates", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        ...(updateRequest.signal ? { signal: updateRequest.signal } : {}),
-        body: JSON.stringify({
-          ...(typeof updateRequest.offset === "number"
-            ? { offset: updateRequest.offset }
-            : {}),
-          timeout: timeoutSeconds,
-          allowed_updates: ["message"]
-        })
-      }, timeoutSeconds * 1_000 + DEFAULT_TELEGRAM_LONG_POLL_EXTRA_TIMEOUT_MS);
+      const result = await request(
+        "getUpdates",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          ...(updateRequest.signal ? { signal: updateRequest.signal } : {}),
+          body: JSON.stringify({
+            ...(typeof updateRequest.offset === "number"
+              ? { offset: updateRequest.offset }
+              : {}),
+            timeout: timeoutSeconds,
+            allowed_updates: ["message"]
+          })
+        },
+        timeoutSeconds * 1_000 + DEFAULT_TELEGRAM_LONG_POLL_EXTRA_TIMEOUT_MS
+      );
       return parseTelegramUpdates(result);
     }
   };

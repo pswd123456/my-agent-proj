@@ -115,7 +115,11 @@ export function createRuntimeHandleFactory(input: {
         lspServerManager,
         enabledCapabilityPacks: session.context.enabledCapabilityPacks,
         workspaceSkillSettings: settings.workspaceSkillSettings,
-        env: environment.env
+        env: environment.env,
+        telegramChatTool: {
+          inboxBindingRepository: environment.inboxBindingRepository,
+          env: environment.env
+        }
       });
       mcpLoadResult = await loadWorkspaceMcpTools(session.workingDirectory);
       for (const tool of mcpLoadResult.tools) {
