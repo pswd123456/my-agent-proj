@@ -50,7 +50,9 @@ export {
   USER_CONTEXT_HOOK_EVENT_OPTIONS,
   USER_CONTEXT_HOOK_WAIT_MODE_OPTIONS,
   USER_CONTEXT_HOOK_TYPES,
-  getUserContextHookTypeKey
+  getUserContextHookTypeKey,
+  pickDefinedSettingsFields,
+  updateUserSettingsFieldNames
 } from "@ai-app-template/domain";
 export type {
   CreateCronJobPayload,
