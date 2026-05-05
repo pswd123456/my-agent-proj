@@ -308,7 +308,10 @@ function shouldGuardPatchedSyntax(targetPath: string): boolean {
   ].includes(extension);
 }
 
-function formatJsonSyntaxErrorMessage(targetPath: string, error: unknown): string {
+function formatJsonSyntaxErrorMessage(
+  targetPath: string,
+  error: unknown
+): string {
   const detail = error instanceof Error ? error.message : String(error);
   return `Patch would leave ${targetPath} syntactically invalid. ${detail}`;
 }
@@ -391,11 +394,151 @@ async function validatePatchedSyntax(input: {
   };
 }
 
-function createPatchPositionHint(): string {
-  return [
-    "Check the @@ header oldStart and leading context lines:",
-    "oldStart must point at the first hunk body line in the current file, including unchanged blank lines."
-  ].join(" ");
+function countHunkBodyLines(hunk: UnifiedPatchHunk): {
+  consumedOldLines: number;
+  producedNewLines: number;
+} {
+  return hunk.lines.reduce(
+    (counts, line) => ({
+      consumedOldLines: counts.consumedOldLines + (line.kind === "add" ? 0 : 1),
+      producedNewLines:
+        counts.producedNewLines + (line.kind === "delete" ? 0 : 1)
+    }),
+    {
+      consumedOldLines: 0,
+      producedNewLines: 0
+    }
+  );
+}
+
+function getHunkOldSideLines(hunk: UnifiedPatchHunk): string[] {
+  return hunk.lines
+    .filter((line) => line.kind !== "add")
+    .map((line) => line.text);
+}
+
+function getPreferredHunkIndex(input: {
+  hunk: UnifiedPatchHunk;
+  originalLineCount: number;
+}): number {
+  const targetIndex =
+    input.hunk.oldCount === 0 ? input.hunk.oldStart : input.hunk.oldStart - 1;
+  return Math.max(0, Math.min(input.originalLineCount, targetIndex));
+}
+
+function oldSideLinesMatchAt(input: {
+  originalLines: string[];
+  oldSideLines: string[];
+  index: number;
+}): boolean {
+  if (input.index < 0) {
+    return false;
+  }
+  if (input.index + input.oldSideLines.length > input.originalLines.length) {
+    return false;
+  }
+
+  return input.oldSideLines.every(
+    (line, offset) => input.originalLines[input.index + offset] === line
+  );
+}
+
+function findOldSideLineMatches(input: {
+  originalLines: string[];
+  oldSideLines: string[];
+  startIndex: number;
+}): number[] {
+  const matches: number[] = [];
+  const maxStart = input.originalLines.length - input.oldSideLines.length;
+  for (
+    let index = Math.max(0, input.startIndex);
+    index <= maxStart;
+    index += 1
+  ) {
+    if (
+      oldSideLinesMatchAt({
+        originalLines: input.originalLines,
+        oldSideLines: input.oldSideLines,
+        index
+      })
+    ) {
+      matches.push(index);
+    }
+  }
+
+  return matches;
+}
+
+function resolveHunkTargetIndex(input: {
+  filePatch: UnifiedFilePatch;
+  hunk: UnifiedPatchHunk;
+  originalLines: string[];
+  cursor: number;
+}): number {
+  const oldSideLines = getHunkOldSideLines(input.hunk);
+  const preferredIndex = getPreferredHunkIndex({
+    hunk: input.hunk,
+    originalLineCount: input.originalLines.length
+  });
+
+  if (oldSideLines.length === 0) {
+    if (preferredIndex < input.cursor) {
+      throw new Error(`Patch hunks overlap in ${input.filePatch.targetPath}.`);
+    }
+    return preferredIndex;
+  }
+
+  if (
+    preferredIndex >= input.cursor &&
+    oldSideLinesMatchAt({
+      originalLines: input.originalLines,
+      oldSideLines,
+      index: preferredIndex
+    })
+  ) {
+    return preferredIndex;
+  }
+
+  const laterMatches = findOldSideLineMatches({
+    originalLines: input.originalLines,
+    oldSideLines,
+    startIndex: input.cursor
+  });
+  if (laterMatches.length === 1) {
+    return laterMatches[0] ?? input.cursor;
+  }
+  if (laterMatches.length > 1) {
+    throw new Error(
+      [
+        `Patch hunk is ambiguous in ${input.filePatch.targetPath} near line ${Math.max(
+          1,
+          input.hunk.oldStart
+        )}.`,
+        `The unchanged/deleted hunk lines match ${laterMatches.length} places in the current file.`,
+        "Add more surrounding context or reread the target range and retry a unique hunk."
+      ].join(" ")
+    );
+  }
+
+  const earlierMatches = findOldSideLineMatches({
+    originalLines: input.originalLines,
+    oldSideLines,
+    startIndex: 0
+  }).filter((index) => index < input.cursor);
+  if (earlierMatches.length > 0) {
+    throw new Error(`Patch hunks overlap in ${input.filePatch.targetPath}.`);
+  }
+
+  throw new Error(
+    [
+      `Patch context not found in ${input.filePatch.targetPath} near line ${Math.max(
+        1,
+        input.hunk.oldStart
+      )}.`,
+      "The unchanged/deleted hunk lines do not match the current file.",
+      "Reread the target range and retry with exact current context."
+    ].join(" ")
+  );
 }
 
 function applyFilePatchToLines(input: {
@@ -410,60 +553,7 @@ function applyFilePatchToLines(input: {
   let cursor = 0;
 
   for (const hunk of input.filePatch.hunks) {
-    const targetIndex = Math.max(0, hunk.oldStart - 1);
-    if (targetIndex < cursor) {
-      throw new Error(
-        `Patch hunks overlap in ${input.filePatch.targetPath}.`
-      );
-    }
-
-    nextLines.push(...input.originalLines.slice(cursor, targetIndex));
-    cursor = targetIndex;
-
-    let consumedOldLines = 0;
-    let producedNewLines = 0;
-
-    for (const line of hunk.lines) {
-      if (line.kind === "context") {
-        if (input.originalLines[cursor] !== line.text) {
-          throw new Error(
-            [
-              `Patch context mismatch in ${input.filePatch.targetPath} near line ${Math.max(
-                1,
-                hunk.oldStart
-              )}.`,
-              createPatchPositionHint()
-            ].join(" ")
-          );
-        }
-        nextLines.push(line.text);
-        cursor += 1;
-        consumedOldLines += 1;
-        producedNewLines += 1;
-        continue;
-      }
-
-      if (line.kind === "delete") {
-        if (input.originalLines[cursor] !== line.text) {
-          throw new Error(
-            [
-              `Patch deletion mismatch in ${input.filePatch.targetPath} near line ${Math.max(
-                1,
-                hunk.oldStart
-              )}.`,
-              createPatchPositionHint()
-            ].join(" ")
-          );
-        }
-        cursor += 1;
-        consumedOldLines += 1;
-        continue;
-      }
-
-      nextLines.push(line.text);
-      producedNewLines += 1;
-    }
-
+    const { consumedOldLines, producedNewLines } = countHunkBodyLines(hunk);
     if (
       consumedOldLines !== hunk.oldCount ||
       producedNewLines !== hunk.newCount
@@ -475,6 +565,56 @@ function applyFilePatchToLines(input: {
           "Fix the @@ header counts or remove extra hunk body lines."
         ].join(" ")
       );
+    }
+
+    const targetIndex = resolveHunkTargetIndex({
+      filePatch: input.filePatch,
+      hunk,
+      originalLines: input.originalLines,
+      cursor
+    });
+    if (targetIndex < cursor) {
+      throw new Error(`Patch hunks overlap in ${input.filePatch.targetPath}.`);
+    }
+
+    nextLines.push(...input.originalLines.slice(cursor, targetIndex));
+    cursor = targetIndex;
+
+    for (const line of hunk.lines) {
+      if (line.kind === "context") {
+        if (input.originalLines[cursor] !== line.text) {
+          throw new Error(
+            [
+              `Patch context not found in ${input.filePatch.targetPath} near line ${Math.max(
+                1,
+                hunk.oldStart
+              )}.`,
+              "The unchanged hunk line does not match the current file."
+            ].join(" ")
+          );
+        }
+        nextLines.push(line.text);
+        cursor += 1;
+        continue;
+      }
+
+      if (line.kind === "delete") {
+        if (input.originalLines[cursor] !== line.text) {
+          throw new Error(
+            [
+              `Patch context not found in ${input.filePatch.targetPath} near line ${Math.max(
+                1,
+                hunk.oldStart
+              )}.`,
+              "The deleted hunk line does not match the current file."
+            ].join(" ")
+          );
+        }
+        cursor += 1;
+        continue;
+      }
+
+      nextLines.push(line.text);
     }
   }
 
@@ -493,7 +633,8 @@ function applyFilePatchToLines(input: {
 
 function summarizeFilePatch(filePatch: UnifiedFilePatch): PatchChangeSummary {
   const addedLineCount = filePatch.hunks.reduce(
-    (count, hunk) => count + hunk.lines.filter((line) => line.kind === "add").length,
+    (count, hunk) =>
+      count + hunk.lines.filter((line) => line.kind === "add").length,
     0
   );
   const removedLineCount = filePatch.hunks.reduce(
@@ -513,8 +654,10 @@ function summarizeFilePatch(filePatch: UnifiedFilePatch): PatchChangeSummary {
 }
 
 export function serializeUnifiedFilePatch(filePatch: UnifiedFilePatch): string {
-  const oldPath = filePatch.oldPath === null ? "/dev/null" : `a/${filePatch.oldPath}`;
-  const newPath = filePatch.newPath === null ? "/dev/null" : `b/${filePatch.newPath}`;
+  const oldPath =
+    filePatch.oldPath === null ? "/dev/null" : `a/${filePatch.oldPath}`;
+  const newPath =
+    filePatch.newPath === null ? "/dev/null" : `b/${filePatch.newPath}`;
   const lines = [`--- ${oldPath}`, `+++ ${newPath}`];
 
   for (const hunk of filePatch.hunks) {
@@ -613,7 +756,9 @@ export function listPatchTargets(patchText: string): string[] {
     return [];
   }
 
-  return [...new Set(parsed.value.files.map((filePatch) => filePatch.targetPath))];
+  return [
+    ...new Set(parsed.value.files.map((filePatch) => filePatch.targetPath))
+  ];
 }
 
 export function parseUnifiedPatch(patchText: string): PatchParseResult {
@@ -636,7 +781,10 @@ export function parseUnifiedPatch(patchText: string): PatchParseResult {
         index += 1;
         continue;
       }
-      if (currentLine.startsWith("Binary files ") || currentLine === "GIT binary patch") {
+      if (
+        currentLine.startsWith("Binary files ") ||
+        currentLine === "GIT binary patch"
+      ) {
         throw new Error("Binary patches are not supported.");
       }
       if (!currentLine.startsWith("--- ")) {
@@ -705,11 +853,7 @@ export function parseUnifiedPatch(patchText: string): PatchParseResult {
           }
           hunk.lines.push({
             kind:
-              prefix === " "
-                ? "context"
-                : prefix === "+"
-                  ? "add"
-                  : "delete",
+              prefix === " " ? "context" : prefix === "+" ? "add" : "delete",
             text: hunkLine.slice(1)
           });
           index += 1;
@@ -770,7 +914,9 @@ export async function applyUnifiedPatch(input: {
 
     if (filePatch.action === "create") {
       if (existingKind !== "missing") {
-        throw new Error(`Patch target already exists: ${filePatch.targetPath}.`);
+        throw new Error(
+          `Patch target already exists: ${filePatch.targetPath}.`
+        );
       }
       if ((await getPathKind(parentPath)) !== "directory") {
         throw new Error(

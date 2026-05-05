@@ -215,13 +215,13 @@ describe("find_files", () => {
 });
 
 describe("apply_patch", () => {
-  test("schema explains exact hunk counts and patch examples", () => {
+  test("schema explains hunk counts, context matching, and patch examples", () => {
     const tool = createApplyPatchTool("/tmp/workspace");
     expect(tool.description).toContain("Read before edit");
-    expect(tool.description).toContain("smallest exact hunk");
+    expect(tool.description).toContain("smallest exact current-context hunk");
     expect(tool.description).toContain("hunk counts");
     expect(tool.description).toContain("blank lines");
-    expect(tool.description).toContain("oldStart is the 1-based line");
+    expect(tool.description).toContain("oldStart is a 1-based placement hint");
     expect(tool.description).toContain(
       "Header counts must include every unchanged context line shown in the hunk body"
     );
@@ -250,9 +250,7 @@ describe("apply_patch", () => {
     expect(patchSchema.description).toContain(
       "@@ -oldStart,oldCount +newStart,newCount @@"
     );
-    expect(patchSchema.description).toContain(
-      "oldStart is the 1-based line number"
-    );
+    expect(patchSchema.description).toContain("oldStart is a placement hint");
     expect(patchSchema.description).toContain(
       "oldCount = context + deleted lines"
     );
@@ -480,12 +478,10 @@ describe("apply_patch", () => {
     );
   });
 
-  test("explains context mismatch with oldStart guidance", async () => {
+  test("applies a hunk when oldStart is offset but context is unique", async () => {
     const workspace = await createWorkspace();
-    await writeFile(
-      path.join(workspace, "alpha.md"),
-      "\nline A\nline B\nold line\n\nheading\n"
-    );
+    const targetPath = path.join(workspace, "alpha.md");
+    await writeFile(targetPath, "\nline A\nline B\nold line\n\nheading\n");
     const sessionMessages = await createReadMessages({
       workspace,
       toolCallId: "read-alpha",
@@ -509,17 +505,103 @@ describe("apply_patch", () => {
       createContext(workspace, { sessionMessages })
     );
 
+    expect(result.state).toBe("success");
+    expect(result.result.code).toBe("PATCH_APPLIED");
+    await expect(readFile(targetPath, "utf8")).resolves.toBe(
+      "\nline A\nline B\n\nheading\n"
+    );
+  });
+
+  test("applies trace-style gitignore patch when line numbers drift", async () => {
+    const workspace = await createWorkspace();
+    const targetPath = path.join(workspace, ".gitignore");
+    await writeFile(
+      targetPath,
+      [
+        "# macOS",
+        ".DS_Store",
+        "",
+        "# Dependencies and package-manager state",
+        "node_modules/",
+        ".npm/",
+        ".yarn/",
+        "",
+        "# Build output",
+        "dist/",
+        "build/",
+        "coverage/",
+        ".next/",
+        ".turbo/",
+        "storybook-static/",
+        "*.tsbuildinfo",
+        "",
+        "# Local environment files",
+        ".env",
+        ".env.*",
+        "!.env.example",
+        ".direnv/",
+        ""
+      ].join("\n")
+    );
+    const sessionMessages = await createReadMessages({
+      workspace,
+      toolCallId: "read-gitignore",
+      path: ".gitignore"
+    });
+
+    const result = await createApplyPatchTool(workspace).execute(
+      {
+        patch: [
+          "--- a/.gitignore",
+          "+++ b/.gitignore",
+          "@@ -24,6 +24,7 @@ storybook-static/",
+          " ",
+          " # Local environment files",
+          " .env",
+          "+apps/web/next-env.d.ts",
+          " .env.*",
+          " !.env.example",
+          " .direnv/"
+        ].join("\n")
+      },
+      createContext(workspace, { sessionMessages })
+    );
+
+    expect(result.state).toBe("success");
+    expect(result.result.code).toBe("PATCH_APPLIED");
+    await expect(readFile(targetPath, "utf8")).resolves.toContain(
+      ".env\napps/web/next-env.d.ts\n.env.*"
+    );
+  });
+
+  test("rejects an offset hunk when the context is ambiguous", async () => {
+    const workspace = await createWorkspace();
+    const targetPath = path.join(workspace, "alpha.txt");
+    await writeFile(targetPath, "same\nother\nsame\nother\n");
+    const sessionMessages = await createReadMessages({
+      workspace,
+      toolCallId: "read-alpha",
+      path: "alpha.txt"
+    });
+
+    const result = await createApplyPatchTool(workspace).execute(
+      {
+        patch: [
+          "--- a/alpha.txt",
+          "+++ b/alpha.txt",
+          "@@ -99,1 +99,2 @@",
+          " same",
+          "+new"
+        ].join("\n")
+      },
+      createContext(workspace, { sessionMessages })
+    );
+
     expect(result.state).toBe("failed");
     expect(result.result.code).toBe("PATCH_APPLY_FAILED");
-    expect(result.content).toContain(
-      "oldStart must point at the first hunk body line"
-    );
-    expect(result.content).toContain("including unchanged blank lines");
-    expect(result.content).toContain(
-      "Keep unchanged surrounding lines as space-prefixed context lines"
-    );
-    expect(result.content).toContain(
-      "Do not switch to write_file for this localized edit."
+    expect(result.content).toContain("Patch hunk is ambiguous");
+    await expect(readFile(targetPath, "utf8")).resolves.toBe(
+      "same\nother\nsame\nother\n"
     );
   });
 

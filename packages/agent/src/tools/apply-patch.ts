@@ -34,8 +34,8 @@ const APPLY_PATCH_DESCRIPTION = buildToolDescription({
     "Step 2: provide one complete unified diff string in patch.",
     "Step 3: use --- a/path and +++ b/path for existing files, or --- /dev/null and +++ b/path for file creation.",
     "Step 4: each hunk header must use @@ -oldStart,oldCount +newStart,newCount @@, and the counts must cover the full hunk body.",
-    "Step 5: oldStart must point at the first line shown in the hunk body, not the edited line.",
-    "Step 6: for simple edits, prefer the smallest exact hunk around the target line instead of rewriting surrounding code.",
+    "Step 5: oldStart is a placement hint; the unchanged and deleted hunk lines are used to locate the edit in the current file.",
+    "Step 6: for simple edits, prefer the smallest exact current-context hunk around the target line instead of rewriting surrounding code.",
     "Step 7: if the task is to remove one visible product sentence or one string literal, delete only the target content and keep surrounding formatting, structure, data flow, and control flow unchanged.",
     "Step 8: leave already-correct containers, wrappers, branches, delimiters, and closing lines untouched when the requested change is only local content removal.",
     "Step 9: in a removal hunk, the removed content itself must be a - line, while unchanged surrounding lines stay as context lines with a leading space.",
@@ -44,8 +44,8 @@ const APPLY_PATCH_DESCRIPTION = buildToolDescription({
   ],
   constraints: [
     "Read before edit: search_text, load_skill, or prior conversation do not satisfy the write precondition for existing files.",
-    "Patch hunks must match the current file exactly, including unchanged blank lines.",
-    "oldStart is the 1-based line number of the first hunk body line in the current file.",
+    "Patch hunk context and deletion lines must match the current file exactly, including unchanged blank lines.",
+    "oldStart is a 1-based placement hint for the first old-side hunk line; if the unique context is elsewhere, apply_patch can still locate it.",
     "hunk counts must equal context+deleted lines for old and context+added lines for new.",
     "Header counts must include every unchanged context line shown in the hunk body, not only the changed lines.",
     "Do not rewrite nearby identifiers, strings, indentation, unrelated lines, containers, or surrounding behavior when the requested change is only one visible sentence or one string literal.",
@@ -63,7 +63,7 @@ const APPLY_PATCH_DESCRIPTION = buildToolDescription({
 });
 
 const PATCH_INPUT_DESCRIPTION = [
-  "Complete unified diff text. Use --- a/path and +++ b/path, then @@ -oldStart,oldCount +newStart,newCount @@. oldStart is the 1-based line number of the first hunk body line in the current file, not the changed line.",
+  "Complete unified diff text. Use --- a/path and +++ b/path, then @@ -oldStart,oldCount +newStart,newCount @@. oldStart is a placement hint; exact unchanged and deleted hunk lines locate the edit.",
   "Each hunk body line starts with exactly one prefix: space for unchanged context, - for deletion, + for addition. An unchanged blank line is a single leading space followed by nothing.",
   "Counts: oldCount = context + deleted lines; newCount = context + added lines. Include unchanged blank lines and every other context line in both counts.",
   "If the hunk body contains 4 context lines plus 1 deleted line and 1 added line, the header counts are old=5 and new=5.",
@@ -80,8 +80,8 @@ const PATCH_INPUT_DESCRIPTION = [
 
 function addPatchRecoveryHint(message: string): string {
   if (
-    message.includes("Patch context mismatch") ||
-    message.includes("Patch deletion mismatch") ||
+    message.includes("Patch context not found") ||
+    message.includes("Patch hunk is ambiguous") ||
     message.includes("Patch hunk counts did not match")
   ) {
     return [
