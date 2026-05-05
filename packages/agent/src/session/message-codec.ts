@@ -112,6 +112,34 @@ function readToolResultDetails(
     };
   }
 
+  if (details.kind === "shell_command") {
+    if (
+      details.action !== "start" &&
+      details.action !== "get" &&
+      details.action !== "cancel"
+    ) {
+      return undefined;
+    }
+
+    const command =
+      typeof details.command === "string" ? details.command : undefined;
+    const executionMode =
+      details.executionMode === "inline" ||
+      details.executionMode === "background"
+        ? details.executionMode
+        : undefined;
+    const taskId =
+      typeof details.taskId === "string" ? details.taskId : undefined;
+
+    return {
+      kind: "shell_command",
+      action: details.action,
+      ...(command ? { command } : {}),
+      ...(executionMode ? { executionMode } : {}),
+      ...(taskId ? { taskId } : {})
+    };
+  }
+
   if (
     details.kind !== "workspace_file_changes" ||
     !Array.isArray(details.files)

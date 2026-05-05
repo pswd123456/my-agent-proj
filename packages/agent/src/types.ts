@@ -63,9 +63,18 @@ export interface TaskBriefToolResultDetails {
   endLine?: number;
 }
 
+export interface ShellCommandToolResultDetails {
+  kind: "shell_command";
+  action: "start" | "get" | "cancel";
+  command?: string;
+  executionMode?: "inline" | "background";
+  taskId?: string;
+}
+
 export type ToolResultDetails =
   | WorkspaceFileChangesToolResultDetails
-  | TaskBriefToolResultDetails;
+  | TaskBriefToolResultDetails
+  | ShellCommandToolResultDetails;
 
 export interface BaseConversationBlock {
   id: string;

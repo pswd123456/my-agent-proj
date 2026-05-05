@@ -81,6 +81,12 @@ describe("run_shell_command", () => {
       stdout: "ok",
       termination_reason: "completed"
     });
+    expect(result.details).toEqual({
+      kind: "shell_command",
+      action: "start",
+      command: "printf ok",
+      executionMode: "inline"
+    });
   });
 
   test("loads a queued background shell task via action=get", async () => {
@@ -113,6 +119,13 @@ describe("run_shell_command", () => {
       command: "sleep 1",
       timeout_ms: 50,
       wait_mode: "unblocking"
+    });
+    expect(loaded.details).toEqual({
+      kind: "shell_command",
+      action: "get",
+      command: "sleep 1",
+      executionMode: "background",
+      taskId
     });
   });
 

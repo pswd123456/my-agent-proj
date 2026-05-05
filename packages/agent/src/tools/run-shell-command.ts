@@ -15,6 +15,7 @@ import type {
 
 import { incrementSessionBackgroundTaskCount } from "../background-tasks/notifications.js";
 import { buildBackgroundTaskHandle } from "../background-tasks/task-handle.js";
+import type { ShellCommandToolResultDetails } from "../types.js";
 import type { RuntimeTool } from "./runtime-tool.js";
 import {
   createToolResult,
@@ -56,7 +57,9 @@ function resolveWaitMode(input: RunShellCommandInput): BackgroundTaskWaitMode {
   return input.wait_mode === "unblocking" ? "unblocking" : "blocking";
 }
 
-function resolveExecutionMode(input: RunShellCommandInput): "inline" | "background" {
+function resolveExecutionMode(
+  input: RunShellCommandInput
+): "inline" | "background" {
   return input.execution_mode === "background" ? "background" : "inline";
 }
 
@@ -151,7 +154,9 @@ function toTaskOutput(task: BackgroundTaskRecord): {
   const waitMode = taskState?.waitMode ?? "blocking";
   const timeoutMs =
     taskState?.timeoutMs ??
-    (task.payload.executor === "shell_command" ? task.payload.timeoutMs : DEFAULT_TIMEOUT_MS);
+    (task.payload.executor === "shell_command"
+      ? task.payload.timeoutMs
+      : DEFAULT_TIMEOUT_MS);
   const command =
     taskState?.command ??
     (task.payload.executor === "shell_command" ? task.payload.command : "");
@@ -213,6 +218,21 @@ function createShellCommandResult(input: {
   };
 }
 
+function shellCommandDetails(input: {
+  action: "start" | "get" | "cancel";
+  command?: string;
+  executionMode?: "inline" | "background";
+  taskId?: string;
+}): ShellCommandToolResultDetails {
+  return {
+    kind: "shell_command",
+    action: input.action,
+    ...(input.command ? { command: input.command } : {}),
+    ...(input.executionMode ? { executionMode: input.executionMode } : {}),
+    ...(input.taskId ? { taskId: input.taskId } : {})
+  };
+}
+
 function toInlineShellResultData(
   result: ShellCommandResultEnvelope
 ): Record<string, DomainJsonValue> {
@@ -242,7 +262,9 @@ async function executeInlineShellCommand(input: {
   if (input.context.abortSignal?.aborted) {
     abortController.abort();
   } else {
-    input.context.abortSignal?.addEventListener("abort", onAbort, { once: true });
+    input.context.abortSignal?.addEventListener("abort", onAbort, {
+      once: true
+    });
   }
 
   try {
@@ -268,7 +290,12 @@ async function executeInlineShellCommand(input: {
         message: "Shell command completed inline.",
         data: toInlineShellResultData(result)
       }),
-      `[run_shell_command] success\n- inline\n- ${input.command}`
+      `[run_shell_command] success\n- inline\n- ${input.command}`,
+      shellCommandDetails({
+        action: "start",
+        command: input.command,
+        executionMode: "inline"
+      })
     );
   } catch (error) {
     const shellError = error as NodeJS.ErrnoException & {
@@ -319,7 +346,12 @@ async function executeInlineShellCommand(input: {
         message,
         data: toInlineShellResultData(result)
       }),
-      `[run_shell_command] failed\n- inline ${terminationReason}\n- ${input.command}`
+      `[run_shell_command] failed\n- inline ${terminationReason}\n- ${input.command}`,
+      shellCommandDetails({
+        action: "start",
+        command: input.command,
+        executionMode: "inline"
+      })
     );
   } finally {
     input.context.abortSignal?.removeEventListener("abort", onAbort);
@@ -339,7 +371,8 @@ export function createRunShellCommandTool(): RuntimeTool {
           name: "action",
           type: '"start" | "get" | "cancel"',
           required: true,
-          description: "Choose whether to start a command, inspect a background task, or cancel one."
+          description:
+            "Choose whether to start a command, inspect a background task, or cancel one."
         }),
         "For action=start, provide command. execution_mode defaults to inline.",
         "Use execution_mode=background to create a detached task.",
@@ -498,6 +531,7 @@ export function createRunShellCommandTool(): RuntimeTool {
           );
         }
 
+        const taskState = readShellTaskState(task);
         return successResult(
           createToolResult({
             ok: true,
@@ -505,7 +539,13 @@ export function createRunShellCommandTool(): RuntimeTool {
             message: "Loaded background shell task.",
             data: toTaskOutput(task)
           }),
-          `[run_shell_command] success\n- task: ${task.taskId}\n- status: ${task.status}`
+          `[run_shell_command] success\n- task: ${task.taskId}\n- status: ${task.status}`,
+          shellCommandDetails({
+            action: "get",
+            ...(taskState?.command ? { command: taskState.command } : {}),
+            executionMode: "background",
+            taskId: task.taskId
+          })
         );
       }
 
@@ -536,6 +576,7 @@ export function createRunShellCommandTool(): RuntimeTool {
           );
         }
 
+        const taskState = readShellTaskState(task);
         const cancelled = await taskManager.requestCancel(task.taskId);
         return successResult(
           createToolResult({
@@ -547,11 +588,19 @@ export function createRunShellCommandTool(): RuntimeTool {
               status: cancelled?.status ?? task.status
             }
           }),
-          `[run_shell_command] success\n- cancel requested: ${task.taskId}`
+          `[run_shell_command] success\n- cancel requested: ${task.taskId}`,
+          shellCommandDetails({
+            action: "cancel",
+            ...(taskState?.command ? { command: taskState.command } : {}),
+            executionMode: "background",
+            taskId: task.taskId
+          })
         );
       }
 
-      const session = await context.sessionManager.getSession(context.sessionId);
+      const session = await context.sessionManager.getSession(
+        context.sessionId
+      );
       if (!session) {
         return failureResult(
           createToolResult({
@@ -634,7 +683,13 @@ export function createRunShellCommandTool(): RuntimeTool {
             background_task: renderHandle(handle)
           }
         }),
-        `[run_shell_command] success\n- task: ${task.taskId}\n- ${command}`
+        `[run_shell_command] success\n- task: ${task.taskId}\n- ${command}`,
+        shellCommandDetails({
+          action: "start",
+          command,
+          executionMode: "background",
+          taskId: task.taskId
+        })
       );
     }
   };
