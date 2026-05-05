@@ -14,6 +14,7 @@ import {
   DEFAULT_MINIMAX_MODEL,
   FileSystemLogManager,
   createLogger,
+  userSettingsChannelsPayloadSchema,
   type TelegramClient
 } from "@ai-app-template/agent";
 import {
@@ -321,6 +322,28 @@ describe("Telegram inbox adapter", () => {
       "123"
     );
     expect(binding?.activeSessionId).toBeTruthy();
+    const channelsResponse = await app.request("/settings/channels");
+    expect(channelsResponse.status).toBe(200);
+    const channelsPayload = userSettingsChannelsPayloadSchema.parse(
+      await channelsResponse.json()
+    );
+    expect(channelsPayload.telegramBindings).toEqual([
+      expect.objectContaining({
+        channel: "telegram",
+        externalChatId: "123",
+        activeSessionId: binding?.activeSessionId,
+        responseOutputMode: "final",
+        lastUpdateId: 1
+      })
+    ]);
+    const sessionsResponse = await app.request("/sessions");
+    expect(sessionsResponse.status).toBe(200);
+    const sessionsPayload = (await sessionsResponse.json()) as {
+      sessions: Array<SessionSnapshot & { channels?: unknown[] }>;
+    };
+    expect(sessionsPayload.sessions[0]?.channels).toEqual([
+      { channel: "telegram", externalChatId: "123" }
+    ]);
   });
 
   test("ignores normal messages while the active session is running", async () => {
@@ -447,8 +470,10 @@ describe("Telegram inbox adapter", () => {
   });
 
   test("routes Telegram approve commands through permission replies", async () => {
-    const runs: Array<{ message: string | undefined; permissionReply?: boolean }> =
-      [];
+    const runs: Array<{
+      message: string | undefined;
+      permissionReply?: boolean;
+    }> = [];
     const { app, inboxBindingRepository, sessionManager, telegramClient } =
       await createTestApp({
         runtimeFactory: createRuntimeFactory({

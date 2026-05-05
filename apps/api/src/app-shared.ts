@@ -37,7 +37,11 @@ import {
   sanitizeSessionMaxTurns,
   type SettingsPermissionToolOption
 } from "@ai-app-template/domain";
-import type { SessionSettingsRecord, WorkspaceSkillSettingRecord } from "@ai-app-template/domain";
+import type { InboxBindingRepository } from "@ai-app-template/db";
+import type {
+  SessionSettingsRecord,
+  WorkspaceSkillSettingRecord
+} from "@ai-app-template/domain";
 
 import type { ApiAppDependencies } from "./app-context.js";
 
@@ -112,13 +116,26 @@ export async function buildUserSettingsMcpPayload(
 }
 
 export async function buildUserSettingsChannelsPayload(
-  workingDirectory: string
+  workingDirectory: string,
+  inboxBindingRepository?: InboxBindingRepository
 ): Promise<UserSettingsChannelsPayload> {
   const config = await readManageableWorkspaceChannelConfig(workingDirectory);
+  const telegramBindings = inboxBindingRepository
+    ? await inboxBindingRepository.listByChannel("telegram")
+    : [];
 
   return userSettingsChannelsPayloadSchema.parse({
     workingDirectory,
-    ...config
+    ...config,
+    telegramBindings: telegramBindings.map((binding) => ({
+      channel: binding.channel,
+      externalChatId: binding.externalChatId,
+      activeSessionId: binding.activeSessionId,
+      responseOutputMode: binding.settings.responseOutputMode,
+      lastUpdateId: binding.lastUpdateId,
+      createdAt: binding.createdAt,
+      updatedAt: binding.updatedAt
+    }))
   });
 }
 
@@ -268,7 +285,9 @@ export function enqueueRunErrorEvent(
   controller: ReadableStreamDefaultController<Uint8Array>,
   input: {
     sessionId: string;
-    session: Awaited<ReturnType<ApiAppDependencies["sessionManager"]["getSession"]>>;
+    session: Awaited<
+      ReturnType<ApiAppDependencies["sessionManager"]["getSession"]>
+    >;
     error: string;
     toolCallCount: number;
     toolResultCount: number;

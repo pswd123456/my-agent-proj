@@ -21,7 +21,11 @@ import {
   normalizeSettingsPermissionRules,
   normalizeThinkingEffort
 } from "@ai-app-template/domain";
-import type { RunEventSink, RunSessionResult } from "@ai-app-template/agent";
+import type {
+  RunEventSink,
+  RunSessionResult,
+  SessionSnapshot
+} from "@ai-app-template/agent";
 
 import type { ApiApp, ApiAppDependencies } from "./app-context.js";
 import {
@@ -53,6 +57,40 @@ import {
 } from "./session-route-helpers.js";
 import { getSessionWorkspaceGitStatus } from "./session-git-status.js";
 
+interface SessionChannelSummary {
+  channel: "telegram";
+  externalChatId: string;
+}
+
+async function enrichSessionSnapshotsWithInboxChannels(input: {
+  sessions: SessionSnapshot[];
+  dependencies: ApiAppDependencies;
+}): Promise<Array<SessionSnapshot & { channels?: SessionChannelSummary[] }>> {
+  const repository = input.dependencies.inboxBindingRepository;
+  if (!repository || input.sessions.length === 0) {
+    return input.sessions;
+  }
+
+  const channelsBySessionId = new Map<string, SessionChannelSummary[]>();
+  const telegramBindings = await repository.listByChannel("telegram");
+  for (const binding of telegramBindings) {
+    if (!binding.activeSessionId) {
+      continue;
+    }
+    const channels = channelsBySessionId.get(binding.activeSessionId) ?? [];
+    channels.push({
+      channel: "telegram",
+      externalChatId: binding.externalChatId
+    });
+    channelsBySessionId.set(binding.activeSessionId, channels);
+  }
+
+  return input.sessions.map((session) => {
+    const channels = channelsBySessionId.get(session.sessionId);
+    return channels && channels.length > 0 ? { ...session, channels } : session;
+  });
+}
+
 export function registerSessionRoutes(input: {
   app: ApiApp;
   dependencies: ApiAppDependencies;
@@ -66,7 +104,12 @@ export function registerSessionRoutes(input: {
       sessions,
       backgroundTaskRepository: dependencies.backgroundTaskRepository
     });
-    return c.json({ sessions: enrichedSessions });
+    return c.json({
+      sessions: await enrichSessionSnapshotsWithInboxChannels({
+        sessions: enrichedSessions,
+        dependencies
+      })
+    });
   });
 
   app.get("/sessions/search", async (c) => {
@@ -80,7 +123,12 @@ export function registerSessionRoutes(input: {
       sessions: matchedSessions,
       backgroundTaskRepository: dependencies.backgroundTaskRepository
     });
-    return c.json({ sessions: enrichedSessions });
+    return c.json({
+      sessions: await enrichSessionSnapshotsWithInboxChannels({
+        sessions: enrichedSessions,
+        dependencies
+      })
+    });
   });
 
   app.post("/sessions", async (c) => {
@@ -135,7 +183,13 @@ export function registerSessionRoutes(input: {
         backgroundTaskRepository: dependencies.backgroundTaskRepository
       })
     )[0];
-    return c.json({ session: enrichedSession ?? session });
+    const channelSession = (
+      await enrichSessionSnapshotsWithInboxChannels({
+        sessions: [enrichedSession ?? session],
+        dependencies
+      })
+    )[0];
+    return c.json({ session: channelSession ?? enrichedSession ?? session });
   });
 
   app.get("/sessions/:sessionId/fork-targets", async (c) => {
@@ -148,9 +202,10 @@ export function registerSessionRoutes(input: {
     const checkpoints =
       await dependencies.sessionManager.listForkCheckpoints(sessionId);
     const forkableCheckpoints = listForkableCheckpoints(checkpoints);
-    const settings = await dependencies.settingsConfigStore.getEffectiveSettings(
-      session.workingDirectory
-    );
+    const settings =
+      await dependencies.settingsConfigStore.getEffectiveSettings(
+        session.workingDirectory
+      );
     const rewriteTarget = resolveLatestRewriteTarget({
       session,
       checkpoints,
@@ -266,9 +321,10 @@ export function registerSessionRoutes(input: {
     const body = recoverRewriteTargetBodySchema.parse(await c.req.json());
     const checkpoints =
       await dependencies.sessionManager.listForkCheckpoints(sessionId);
-    const settings = await dependencies.settingsConfigStore.getEffectiveSettings(
-      session.workingDirectory
-    );
+    const settings =
+      await dependencies.settingsConfigStore.getEffectiveSettings(
+        session.workingDirectory
+      );
     const rewriteTarget = resolveLatestRewriteTarget({
       session,
       checkpoints,

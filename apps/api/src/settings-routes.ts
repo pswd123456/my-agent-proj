@@ -35,7 +35,10 @@ export function registerSettingsRoutes(input: {
   app.get("/settings/channels", async (c) => {
     const settings = await dependencies.settingsConfigStore.getGlobalSettings();
     return c.json(
-      await buildUserSettingsChannelsPayload(settings.workingDirectory)
+      await buildUserSettingsChannelsPayload(
+        settings.workingDirectory,
+        dependencies.inboxBindingRepository
+      )
     );
   });
 
@@ -55,7 +58,10 @@ export function registerSettingsRoutes(input: {
       }
     );
     return c.json(
-      await buildUserSettingsChannelsPayload(settings.workingDirectory)
+      await buildUserSettingsChannelsPayload(
+        settings.workingDirectory,
+        dependencies.inboxBindingRepository
+      )
     );
   });
 
@@ -95,56 +101,59 @@ export function registerSettingsRoutes(input: {
   app.patch("/settings", async (c) => {
     const body = updateUserSettingsPayloadSchema.parse(await c.req.json());
     const requestedModel = resolveRequestedModel(dependencies, body.model);
-    const settings = await dependencies.settingsConfigStore.updateGlobalSettings({
-      ...(typeof body.workingDirectory === "string"
-        ? {
-            workingDirectory: dependencies.buildWorkingDirectory(
-              body.workingDirectory
-            )
-          }
-        : {}),
-      ...(requestedModel.model ? { model: requestedModel.model } : {}),
-      ...(typeof body.thinkingEffort === "string"
-        ? { thinkingEffort: normalizeThinkingEffort(body.thinkingEffort) }
-        : {}),
-      ...(typeof body.yoloMode === "boolean"
-        ? { yoloMode: body.yoloMode }
-        : {}),
-      ...(typeof body.contextWindow === "number"
-        ? { contextWindow: body.contextWindow }
-        : {}),
-      ...(typeof body.maxTurns === "number" ? { maxTurns: body.maxTurns } : {}),
-      ...(Array.isArray(body.shellAllowPatterns)
-        ? { shellAllowPatterns: body.shellAllowPatterns }
-        : {}),
-      ...(Array.isArray(body.shellDenyPatterns)
-        ? { shellDenyPatterns: body.shellDenyPatterns }
-        : {}),
-      ...(Array.isArray(body.toolAllowList)
-        ? { toolAllowList: body.toolAllowList }
-        : {}),
-      ...(Array.isArray(body.toolAskList)
-        ? { toolAskList: body.toolAskList }
-        : {}),
-      ...(Array.isArray(body.toolDenyList)
-        ? { toolDenyList: body.toolDenyList }
-        : {}),
-      ...(Array.isArray(body.enabledCapabilityPacks)
-        ? { enabledCapabilityPacks: body.enabledCapabilityPacks }
-        : {}),
-      ...(Array.isArray(body.workspaceSkillSettings)
-        ? { workspaceSkillSettings: body.workspaceSkillSettings }
-        : {}),
-      ...(Array.isArray(body.userContextHooks)
-        ? { userContextHooks: body.userContextHooks }
-        : {}),
-      ...(typeof body.debugConversationView === "boolean"
-        ? { debugConversationView: body.debugConversationView }
-        : {}),
-      ...(typeof body.userCustomPrompt === "string"
-        ? { userCustomPrompt: body.userCustomPrompt }
-        : {})
-    });
+    const settings =
+      await dependencies.settingsConfigStore.updateGlobalSettings({
+        ...(typeof body.workingDirectory === "string"
+          ? {
+              workingDirectory: dependencies.buildWorkingDirectory(
+                body.workingDirectory
+              )
+            }
+          : {}),
+        ...(requestedModel.model ? { model: requestedModel.model } : {}),
+        ...(typeof body.thinkingEffort === "string"
+          ? { thinkingEffort: normalizeThinkingEffort(body.thinkingEffort) }
+          : {}),
+        ...(typeof body.yoloMode === "boolean"
+          ? { yoloMode: body.yoloMode }
+          : {}),
+        ...(typeof body.contextWindow === "number"
+          ? { contextWindow: body.contextWindow }
+          : {}),
+        ...(typeof body.maxTurns === "number"
+          ? { maxTurns: body.maxTurns }
+          : {}),
+        ...(Array.isArray(body.shellAllowPatterns)
+          ? { shellAllowPatterns: body.shellAllowPatterns }
+          : {}),
+        ...(Array.isArray(body.shellDenyPatterns)
+          ? { shellDenyPatterns: body.shellDenyPatterns }
+          : {}),
+        ...(Array.isArray(body.toolAllowList)
+          ? { toolAllowList: body.toolAllowList }
+          : {}),
+        ...(Array.isArray(body.toolAskList)
+          ? { toolAskList: body.toolAskList }
+          : {}),
+        ...(Array.isArray(body.toolDenyList)
+          ? { toolDenyList: body.toolDenyList }
+          : {}),
+        ...(Array.isArray(body.enabledCapabilityPacks)
+          ? { enabledCapabilityPacks: body.enabledCapabilityPacks }
+          : {}),
+        ...(Array.isArray(body.workspaceSkillSettings)
+          ? { workspaceSkillSettings: body.workspaceSkillSettings }
+          : {}),
+        ...(Array.isArray(body.userContextHooks)
+          ? { userContextHooks: body.userContextHooks }
+          : {}),
+        ...(typeof body.debugConversationView === "boolean"
+          ? { debugConversationView: body.debugConversationView }
+          : {}),
+        ...(typeof body.userCustomPrompt === "string"
+          ? { userCustomPrompt: body.userCustomPrompt }
+          : {})
+      });
     return c.json({ settings, permissionTools: settingsPermissionTools });
   });
 }
