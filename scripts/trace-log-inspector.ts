@@ -31,6 +31,9 @@ interface CliOptions {
   errorsOnly: boolean;
   maxChars: number;
   logLimit: number;
+  runId?: string;
+  requestId?: string;
+  logEvent?: string;
   stateDir?: string;
 }
 
@@ -117,6 +120,7 @@ Usage:
       [--turn 3 --turn 4] [--tool TOOL_NAME]
       [--include prompt,tool-output,logs]
       [--errors-only] [--max-chars 1200] [--log-limit 50]
+      [--run-id RUN_ID] [--request-id REQUEST_ID] [--event LOG_EVENT]
   bun run trace:inspect -- inspect --latest --include logs
 
 Behavior:
@@ -258,6 +262,30 @@ function parseArgs(argv: string[]): CliOptions {
           fail("Missing value for --log-limit");
         }
         options.logLimit = parseNumber(value, "--log-limit");
+        break;
+      }
+      case "--run-id": {
+        const value = args.shift();
+        if (!value) {
+          fail("Missing value for --run-id");
+        }
+        options.runId = value;
+        break;
+      }
+      case "--request-id": {
+        const value = args.shift();
+        if (!value) {
+          fail("Missing value for --request-id");
+        }
+        options.requestId = value;
+        break;
+      }
+      case "--event": {
+        const value = args.shift();
+        if (!value) {
+          fail("Missing value for --event");
+        }
+        options.logEvent = value;
         break;
       }
       case "--state-dir": {
@@ -505,9 +533,7 @@ export function buildTurnSummaries(records: TraceRecord[]): TurnSummary[] {
       (!shouldMergeIntoCurrentTurn && event.kind === "turn_start") ||
       (event.turnCount !== currentTurn.turnCount &&
         currentTurn.endedAt !== undefined);
-    const turn = shouldStartNewTurn
-      ? createTurn(event.turnCount)
-      : currentTurn;
+    const turn = shouldStartNewTurn ? createTurn(event.turnCount) : currentTurn;
     currentTurn = turn;
     turn.observedTurnCounts.add(event.turnCount);
     turn.records.push(record);
@@ -675,7 +701,9 @@ export function buildRunSummaries(records: TraceRecord[]): RunSummary[] {
 
 async function readSystemLogs(
   stateDirectory: string,
-  sessionId: string
+  sessionId: string,
+  options: CliOptions,
+  defaultRunIds: string[]
 ): Promise<SystemLogRecord[]> {
   const logsDirectory = path.join(stateDirectory, "logs");
   try {
@@ -690,12 +718,55 @@ async function readSystemLogs(
         files.map((filePath) => readJsonLines<SystemLogRecord>(filePath))
       )
     ).flat();
+    const requestedRunIds =
+      typeof options.runId === "string" ? [options.runId] : defaultRunIds;
+    const filtered = records
+      .filter((record) => record.sessionId === sessionId)
+      .filter((record) =>
+        requestedRunIds.length > 0
+          ? requestedRunIds.includes(record.runId ?? "")
+          : true
+      )
+      .filter((record) =>
+        options.requestId ? record.requestId === options.requestId : true
+      )
+      .filter((record) =>
+        options.logEvent ? record.event === options.logEvent : true
+      )
+      .sort((left, right) => right.timestamp.localeCompare(left.timestamp));
+    if (filtered.length > 0 || requestedRunIds.length === 0 || options.runId) {
+      return filtered;
+    }
     return records
       .filter((record) => record.sessionId === sessionId)
+      .filter((record) =>
+        options.requestId ? record.requestId === options.requestId : true
+      )
+      .filter((record) =>
+        options.logEvent ? record.event === options.logEvent : true
+      )
       .sort((left, right) => right.timestamp.localeCompare(left.timestamp));
   } catch {
     return [];
   }
+}
+
+function getDefaultLogRunIds(
+  runs: RunSummary[],
+  options: CliOptions
+): string[] {
+  if (options.runId) {
+    return [options.runId];
+  }
+
+  return [
+    ...new Set(
+      runs
+        .filter((run) => getVisibleTurns(run, options).length > 0)
+        .map((run) => run.runId)
+        .filter((runId): runId is string => typeof runId === "string")
+    )
+  ];
 }
 
 async function commandList(options: CliOptions): Promise<void> {
@@ -886,7 +957,10 @@ function printTimeline(runs: RunSummary[], options: CliOptions): void {
   }
 }
 
-function isSelectedTurnSummary(turn: TurnSummary, options: CliOptions): boolean {
+function isSelectedTurnSummary(
+  turn: TurnSummary,
+  options: CliOptions
+): boolean {
   if (
     options.turns.size > 0 &&
     !Array.from(turn.observedTurnCounts).some((turnCount) =>
@@ -927,7 +1001,8 @@ function printDetailedEvents(runs: RunSummary[], options: CliOptions): void {
         );
       case "tool_result":
         return (
-          options.include.has("tool-output") &&
+          (options.include.has("tool-output") ||
+            (options.errorsOnly && record.event.isError)) &&
           isSelectedTool(record.event.toolName, options)
         );
       case "permission_request":
@@ -935,7 +1010,12 @@ function printDetailedEvents(runs: RunSummary[], options: CliOptions): void {
       case "permission_rejected":
       case "permission_blocked":
       case "user_question_request":
-        return options.include.has("permissions");
+        return (
+          options.include.has("permissions") ||
+          (options.errorsOnly &&
+            (record.event.kind === "permission_rejected" ||
+              record.event.kind === "permission_blocked"))
+        );
       case "background_notification":
       case "background_notification_consumed":
         return options.include.has("background");
@@ -1086,8 +1166,9 @@ function printLogs(logs: SystemLogRecord[], options: CliOptions): void {
     const turnText =
       typeof record.turnCount === "number" ? ` turn=${record.turnCount}` : "";
     const runText = record.runId ? ` run=${record.runId}` : "";
+    const requestText = record.requestId ? ` request=${record.requestId}` : "";
     console.log(
-      `  ${formatTime(record.timestamp)} [${record.level}] ${record.component}.${record.event}${turnText}${runText}`
+      `  ${formatTime(record.timestamp)} [${record.level}] ${record.component}.${record.event}${turnText}${runText}${requestText}`
     );
     console.log(indentBlock(jsonText(record.details, options.maxChars), 4));
   }
@@ -1104,7 +1185,12 @@ async function commandInspect(options: CliOptions): Promise<void> {
   const runs = buildRunSummaries(records);
   const sessionId =
     records[0]?.sessionId ?? path.basename(traceFile, ".trace.jsonl");
-  const logs = await readSystemLogs(stateDirectory, sessionId);
+  const logs = await readSystemLogs(
+    stateDirectory,
+    sessionId,
+    options,
+    getDefaultLogRunIds(runs, options)
+  );
 
   printOverview(records, runs, traceFile, stateDirectory);
   printTimeline(runs, options);

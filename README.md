@@ -63,17 +63,11 @@ cp .env.example .env
 - 可选：`TELEGRAM_BOT_TOKEN`（启用 Telegram polling inbox）
 - 可选：`TELEGRAM_WEBHOOK_SECRET`（仅 webhook 模式需要，校验 Telegram webhook secret header）
 
-另外，`web` 和 `lsp` 这两组能力的外部依赖是：
+另外，公开 web 能力和 `lsp` 的外部依赖是：
 
-- `web`：需要自建或本地启动的 SearXNG 服务，默认基址是 `http://127.0.0.1:8888`
+- 公开网页搜索、抓取、站点 map、crawl 和结构化抽取：通过工作区 Firecrawl MCP 接入，启用时需要 `FIRECRAWL_API_KEY`
 - `lsp`：不需要单独配置 URL，运行时会从 `packages/agent` 依赖里本地拉起 `typescript-language-server`
 - `NEXT_PUBLIC_API_BASE_URL`：可选，Web 前端如果不是通过同源 `/api` 访问 API，就显式填成 `http://127.0.0.1:3001`
-
-如果要启用 `web_search`，先启动 SearXNG：
-
-```bash
-bun run searxng:up
-```
 
 ### 3. 启动开发环境
 

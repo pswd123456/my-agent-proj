@@ -85,3 +85,8 @@
 {"timestamp":"2026-05-05T15:04:15.415Z","level":"info","component":"gateway","event":"gateway_ready","details":{"apiBaseUrl":"http://localhost:3001","telegramEnabled":true,"telegramMode":"polling"}}
 {"timestamp":"2026-05-05T15:19:22.237Z","level":"info","component":"gateway","event":"gateway_ready","details":{"apiBaseUrl":"http://localhost:3001","telegramEnabled":true,"telegramMode":"polling"}}
 {"timestamp":"2026-05-05T15:19:23.599Z","level":"info","component":"gateway","event":"gateway_ready","details":{"apiBaseUrl":"http://localhost:3001","telegramEnabled":true,"telegramMode":"polling"}}
+{"timestamp":"2026-05-05T16:37:32.995Z","level":"info","component":"gateway","event":"gateway_ready","details":{"apiBaseUrl":"http://localhost:3001","telegramEnabled":true,"telegramMode":"polling"}}
+{"timestamp":"2026-05-05T16:38:27.608Z","level":"info","component":"gateway","event":"gateway_ready","details":{"apiBaseUrl":"http://localhost:3001","telegramEnabled":true,"telegramMode":"polling"}}
+{"timestamp":"2026-05-05T16:38:50.251Z","level":"info","component":"gateway","event":"gateway_ready","details":{"apiBaseUrl":"http://localhost:3001","telegramEnabled":true,"telegramMode":"polling"}}
+{"timestamp":"2026-05-05T16:40:38.882Z","level":"info","component":"gateway","event":"gateway_ready","details":{"apiBaseUrl":"http://localhost:3001","telegramEnabled":true,"telegramMode":"polling"}}
+{"timestamp":"2026-05-05T16:43:16.312Z","level":"info","component":"gateway","event":"gateway_ready","details":{"apiBaseUrl":"http://localhost:3001","telegramEnabled":true,"telegramMode":"polling"}}
