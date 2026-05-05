@@ -166,12 +166,17 @@ async function createTestApp(input?: {
 function createRuntimeFactory(input?: {
   finalAnswer?: string;
   includeProgress?: boolean;
-  onRun?: (message: string | undefined) => void;
+  includePermissionRequest?: boolean;
+  onRun?: (message: string | undefined, permissionReply?: boolean) => void;
 }) {
   return async (session: SessionSnapshot) => {
     const runtime = {
-      async run(runInput: { message?: string; eventSink?: RunEventSink }) {
-        input?.onRun?.(runInput.message);
+      async run(runInput: {
+        message?: string;
+        permissionReply?: boolean;
+        eventSink?: RunEventSink;
+      }) {
+        input?.onRun?.(runInput.message, runInput.permissionReply);
         if (input?.includeProgress) {
           await runInput.eventSink?.({
             kind: "assistant_text",
@@ -200,6 +205,25 @@ function createRuntimeFactory(input?: {
             toolName: "read_file",
             output: "ok",
             isError: false
+          });
+        }
+        if (input?.includePermissionRequest) {
+          await runInput.eventSink?.({
+            kind: "permission_request",
+            sessionId: session.sessionId,
+            createdAt: new Date().toISOString(),
+            turnCount: 1,
+            toolCallId: "tool-1",
+            toolName: "run_shell_command",
+            request: {
+              toolCallId: "tool-1",
+              toolName: "run_shell_command",
+              toolInput: { command: "date" },
+              family: "workspace-shell",
+              permissionProfile: "always-ask-user",
+              summaryText: "Run shell command: date",
+              createdAt: new Date().toISOString()
+            }
           });
         }
 
@@ -397,6 +421,78 @@ describe("Telegram inbox adapter", () => {
       "Tool completed: read_file",
       "done"
     ]);
+  });
+
+  test("sends permission prompts with Telegram approval instructions", async () => {
+    const { app, telegramClient } = await createTestApp({
+      runtimeFactory: createRuntimeFactory({
+        finalAnswer: "",
+        includePermissionRequest: true
+      })
+    });
+
+    await postTelegramWebhook(
+      app,
+      telegramUpdate({ updateId: 1, text: "please work" })
+    );
+
+    expect(telegramClient.messages.map((message) => message.text)).toEqual([
+      [
+        "Permission required: Run shell command: date",
+        "Tool: run_shell_command",
+        'Reply "确认" or send /approve to approve.',
+        'Reply "取消" or send /deny to deny.'
+      ].join("\n")
+    ]);
+  });
+
+  test("routes Telegram approve commands through permission replies", async () => {
+    const runs: Array<{ message: string | undefined; permissionReply?: boolean }> =
+      [];
+    const { app, inboxBindingRepository, sessionManager, telegramClient } =
+      await createTestApp({
+        runtimeFactory: createRuntimeFactory({
+          finalAnswer: "approved",
+          onRun(message, permissionReply) {
+            runs.push({
+              message,
+              ...(typeof permissionReply === "boolean"
+                ? { permissionReply }
+                : {})
+            });
+          }
+        })
+      });
+
+    await postTelegramWebhook(
+      app,
+      telegramUpdate({ updateId: 1, text: "/new" })
+    );
+    const binding = await inboxBindingRepository.getByChannelExternalChat(
+      "telegram",
+      "123"
+    );
+    expect(binding?.activeSessionId).toBeTruthy();
+    await sessionManager.updateContext(binding!.activeSessionId!, {
+      status: "waiting_for_permission",
+      pendingPermissionRequest: {
+        toolCallId: "tool-1",
+        toolName: "run_shell_command",
+        toolInput: { command: "date" },
+        family: "workspace-shell",
+        permissionProfile: "always-ask-user",
+        summaryText: "Run shell command: date",
+        createdAt: "2026-05-05T00:00:00.000Z"
+      }
+    });
+
+    await postTelegramWebhook(
+      app,
+      telegramUpdate({ updateId: 2, text: "/approve" })
+    );
+
+    expect(runs).toEqual([{ message: "确认", permissionReply: true }]);
+    expect(telegramClient.messages.at(-1)?.text).toBe("approved");
   });
 
   test("ignores duplicate update ids", async () => {

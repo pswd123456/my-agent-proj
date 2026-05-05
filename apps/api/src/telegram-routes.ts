@@ -125,7 +125,9 @@ function formatTelegramHelp(): string {
     "/thinking [high|max] - list or switch thinking effort",
     "/output <final|all> - switch response output mode",
     "/settings - show chatbot settings",
-    "/interrupt - interrupt the active run"
+    "/interrupt - interrupt the active run",
+    "/approve - approve the pending permission request",
+    "/deny - deny the pending permission request"
   ].join("\n");
 }
 
@@ -386,6 +388,48 @@ async function handleTelegramCommand(input: {
     return input.binding;
   }
 
+  if (
+    command.kind === "approve_permission" ||
+    command.kind === "deny_permission"
+  ) {
+    if (!input.binding.activeSessionId) {
+      await sendTelegramText({
+        dependencies: input.dependencies,
+        chatId: input.chatId,
+        text: "No pending permission request."
+      });
+      return input.binding;
+    }
+
+    const activeSession = await input.dependencies.sessionManager.getSession(
+      input.binding.activeSessionId
+    );
+    if (!activeSession) {
+      await sendTelegramText({
+        dependencies: input.dependencies,
+        chatId: input.chatId,
+        text: "Active session not found."
+      });
+      return input.binding;
+    }
+    if (!activeSession.context.pendingPermissionRequest) {
+      await sendTelegramText({
+        dependencies: input.dependencies,
+        chatId: input.chatId,
+        text: "No pending permission request."
+      });
+      return input.binding;
+    }
+
+    return runTelegramMessage({
+      dependencies: input.dependencies,
+      binding: input.binding,
+      chatId: input.chatId,
+      message: command.kind === "approve_permission" ? "确认" : "取消",
+      permissionReply: true
+    });
+  }
+
   const { binding, session } = await ensureTelegramActiveSession({
     dependencies: input.dependencies,
     binding: input.binding
@@ -501,6 +545,21 @@ function createTelegramRunEventSink(input: {
       return;
     }
 
+    if (event.kind === "permission_request") {
+      await flushAssistantText();
+      await sendTelegramText({
+        dependencies: input.dependencies,
+        chatId: input.chatId,
+        text: [
+          `Permission required: ${event.request.summaryText}`,
+          `Tool: ${event.toolName}`,
+          'Reply "确认" or send /approve to approve.',
+          'Reply "取消" or send /deny to deny.'
+        ].join("\n")
+      });
+      return;
+    }
+
     if (input.outputMode === "all") {
       if (event.kind === "thinking" && !thinkingTurns.has(event.turnCount)) {
         thinkingTurns.add(event.turnCount);
@@ -565,6 +624,7 @@ async function runTelegramMessage(input: {
   binding: InboxBindingRecord;
   chatId: string;
   message: string;
+  permissionReply?: boolean;
 }): Promise<InboxBindingRecord> {
   if (!input.dependencies.runtimeFactory) {
     await sendTelegramText({
@@ -619,6 +679,9 @@ async function runTelegramMessage(input: {
     await runtimeHandle.runtime.run({
       sessionId: session.sessionId,
       message: input.message,
+      ...(typeof input.permissionReply === "boolean"
+        ? { permissionReply: input.permissionReply }
+        : {}),
       eventSink: terminalAwareEventSink
     });
   } catch (error) {
