@@ -8,7 +8,8 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "set -a && . ./.env && set +a && turbo run dev --parallel --filter=@ai-app-template/api --filter=@ai-app-template/web --filter=@ai-app-template/gateway",
+    "dev": "set -a && . ./.env && set +a && bun scripts/ensure-dev-database.ts && turbo run dev --concurrency=12 --filter='./packages/*' --filter=@ai-app-template/api --filter=@ai-app-template/web --filter=@ai-app-template/gateway --filter=@ai-app-template/worker",
+    "dev:db": "set -a && . ./.env && set +a && bun scripts/ensure-dev-database.ts",
     "dev:gateway": "set -a && . ./.env && set +a && bun --filter @ai-app-template/gateway dev",
     "dev:worker": "set -a && . ./.env && set +a && bun --filter @ai-app-template/worker dev",
     "dev:packages": "turbo run dev --parallel --filter='./packages/*'",

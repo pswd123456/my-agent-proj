@@ -83,11 +83,14 @@ bun run searxng:up
 bun dev
 ```
 
+`bun dev` 会先检查 `DATABASE_URL` 指向的 PostgreSQL；如果是本地地址且服务未启动，会使用 `tmp/postgres-local/data` 自动初始化并拉起本地数据库服务。
+
 当前根命令会并行启动：
 
 - `apps/api`：默认 `http://localhost:3001`
 - `apps/web`：默认 `http://localhost:3000`
 - `apps/gateway`：Telegram polling 与后续外部常驻接入
+- `apps/worker`：后台任务、cron job 与 detached task 执行
 
 如果只想单独启动某一端，可以分别运行：
 
@@ -103,7 +106,7 @@ cd apps/web && bun dev
 bun dev:gateway
 ```
 
-后台任务 worker 单独启动：
+后台任务 worker 也可以单独启动：
 
 ```bash
 bun dev:worker
