@@ -25,6 +25,10 @@ import { createLspTools } from "./lsp.js";
 import { createManageCapabilityPacksTool } from "./manage-capability-packs.js";
 import { createManageCronJobsTool } from "./manage-cron-jobs.js";
 import { createManageRoutineTool } from "./manage-routine.js";
+import {
+  createManageTelegramChatTool,
+  type CreateManageTelegramChatToolOptions
+} from "./manage-telegram-chat.js";
 import { createManageTaskBriefTool } from "./manage-task-brief.js";
 import { createManageTodoListTool } from "./manage-todo-list.js";
 import { createManagePathTool } from "./manage-path.js";
@@ -193,10 +197,18 @@ export function createDefaultToolRegistry(options: {
   enabledCapabilityPacks?: readonly string[];
   workspaceSkillSettings?: readonly WorkspaceSkillSettingRecord[];
   env?: NodeJS.ProcessEnv;
+  telegramChatTool?: CreateManageTelegramChatToolOptions;
 }): ToolRegistry {
   const registry = createPlanningToolRegistry();
   const enabled = new Set(
     options.enabledCapabilityPacks ?? DEFAULT_CAPABILITY_PACKS
+  );
+
+  registry.register(
+    createManageTelegramChatTool({
+      ...(options.env ? { env: options.env } : {}),
+      ...options.telegramChatTool
+    })
   );
 
   if (enabled.has("workspace")) {
@@ -227,6 +239,14 @@ export function listSettingsPermissionToolOptions(options: {
     if (option) {
       tools.set(option.name, option);
     }
+  }
+
+  const telegramOption = toSettingsPermissionToolOption(
+    createManageTelegramChatTool(),
+    null
+  );
+  if (telegramOption) {
+    tools.set(telegramOption.name, telegramOption);
   }
 
   for (const tool of createWorkspaceToolRegistry(options).list()) {

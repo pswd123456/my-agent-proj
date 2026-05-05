@@ -22,6 +22,7 @@ export type RuntimeToolFamily =
   | "mcp"
   | "delegation"
   | "planning"
+  | "channel"
   | "schedule"
   | "lsp";
 

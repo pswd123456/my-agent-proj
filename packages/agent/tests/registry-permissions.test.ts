@@ -48,6 +48,7 @@ describe("ToolRegistry stage4 metadata contract", () => {
       "get_current_time",
       "manage_capability_packs",
       "manage_task_brief",
+      "manage_telegram_chat",
       "manage_todo_list"
     ]);
   });
@@ -70,6 +71,7 @@ describe("ToolRegistry stage4 metadata contract", () => {
       "lsp_workspace_symbols",
       "manage_capability_packs",
       "manage_task_brief",
+      "manage_telegram_chat",
       "manage_todo_list"
     ]);
 

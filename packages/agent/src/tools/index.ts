@@ -16,6 +16,7 @@ export * from "./manage-capability-packs.js";
 export * from "./manage-cron-jobs.js";
 export * from "./manage-path.js";
 export * from "./manage-routine.js";
+export * from "./manage-telegram-chat.js";
 export * from "./manage-task-brief.js";
 export * from "./manage-todo-list.js";
 export * from "./make-http-request.js";
