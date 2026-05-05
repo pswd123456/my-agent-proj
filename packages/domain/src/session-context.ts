@@ -29,6 +29,7 @@ export type SessionToolFamily =
   | "mcp"
   | "delegation"
   | "planning"
+  | "channel"
   | "schedule"
   | "lsp";
 

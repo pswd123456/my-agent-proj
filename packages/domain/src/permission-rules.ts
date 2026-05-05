@@ -65,6 +65,12 @@ const BUILTIN_TOOL_CATALOG: readonly BuiltinToolCatalogEntry[] = [
     visibleInSettings: true
   },
   {
+    name: "manage_telegram_chat",
+    action: "call",
+    visibleInSettings: true,
+    defaultToolAskRank: 35
+  },
+  {
     name: "load_skill",
     action: "call",
     visibleInSettings: true

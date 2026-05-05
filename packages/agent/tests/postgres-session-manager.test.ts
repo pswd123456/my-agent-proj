@@ -11,7 +11,11 @@ import {
   type SessionMessageRow
 } from "../src/session/message-codec.js";
 import { toSessionContext } from "../src/session/session-row-mapper.js";
-import { createSnapshot, isConversationBlock } from "../src/session/shared.js";
+import {
+  createSnapshot,
+  isConversationBlock,
+  isSessionSnapshot
+} from "../src/session/shared.js";
 import { DEFAULT_EXECUTION_LEASE_TIMEOUT_MS } from "../src/session/contracts.js";
 
 describe("toIsoString", () => {
@@ -154,6 +158,36 @@ describe("toIsoString", () => {
       },
       createdAt: "2026-04-26T00:00:00.000Z"
     });
+  });
+
+  test("accepts shell command tool result details in session snapshots", () => {
+    const toolResult = {
+      id: "tool-result-shell-1",
+      kind: "tool result",
+      toolCallId: "call-shell-1",
+      toolName: "run_shell_command",
+      output: '{"ok":true}',
+      isError: false,
+      state: "success",
+      details: {
+        kind: "shell_command",
+        action: "start",
+        command: "git status --short",
+        executionMode: "inline"
+      },
+      createdAt: "2026-05-05T00:00:00.000Z"
+    } as const;
+    const snapshot = createSnapshot({
+      sessionId: "session-shell-1",
+      workingDirectory: "/tmp/workspace",
+      model: "MiniMax-M2.7",
+      userId: "user-shell-1"
+    });
+
+    snapshot.messages = [toolResult];
+
+    expect(isConversationBlock(toolResult)).toBe(true);
+    expect(isSessionSnapshot(snapshot)).toBe(true);
   });
 
   test("serializes and restores hook user metadata", () => {
