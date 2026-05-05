@@ -43,6 +43,10 @@ describe("parseInboxCommand", () => {
       kind: "settings_status"
     });
     expect(parseInboxCommand("/interrupt")).toEqual({ kind: "interrupt" });
+    expect(parseInboxCommand("/approve")).toEqual({
+      kind: "approve_permission"
+    });
+    expect(parseInboxCommand("/deny")).toEqual({ kind: "deny_permission" });
   });
 
   test("returns regular messages and structured validation errors", () => {

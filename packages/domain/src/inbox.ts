@@ -46,6 +46,8 @@ export type ParsedInboxCommand =
   | { kind: "set_output_mode"; outputMode: InboxResponseOutputMode }
   | { kind: "settings_status" }
   | { kind: "interrupt" }
+  | { kind: "approve_permission" }
+  | { kind: "deny_permission" }
   | { kind: "invalid"; message: string };
 
 const thinkingEffortValues = new Set<string>(THINKING_EFFORT_OPTIONS);
@@ -191,6 +193,10 @@ export function parseInboxCommand(text: string): ParsedInboxCommand {
       return { kind: "settings_status" };
     case "/interrupt":
       return { kind: "interrupt" };
+    case "/approve":
+      return { kind: "approve_permission" };
+    case "/deny":
+      return { kind: "deny_permission" };
     default:
       return {
         kind: "invalid",
