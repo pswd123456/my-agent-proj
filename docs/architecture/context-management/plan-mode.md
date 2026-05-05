@@ -218,5 +218,5 @@
 - planning tools：`packages/agent/src/tools/registry.ts`
 - pending question resume：`packages/agent/src/runtime/user-question.ts`
 - task brief helper：`packages/agent/src/session/task-brief.ts`
-- API：`apps/api/src/app.ts`
+- API：`apps/api/src/sessions-routes.ts`、`apps/api/src/app.ts`
 - workbench：`apps/web/app/_components/session-workbench-conversation.tsx`

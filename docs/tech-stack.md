@@ -15,7 +15,7 @@
 ## 判断现状时看哪里
 
 - API 装配：`apps/api/src/index.ts`
-- API 契约：`apps/api/src/app.ts`
+- API 契约：`apps/api/src/app.ts` 与 `apps/api/src/*-routes.ts`
 - 外部接入入口：`apps/gateway/src/index.ts`
 - runtime/provider：`packages/agent/src/`
 - 模型目录与默认模型：`packages/agent/src/models/service.ts`

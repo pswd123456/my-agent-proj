@@ -4,14 +4,14 @@
 
 这一层负责把浏览器侧的 workbench 操作，转换成稳定的 HTTP / SSE 契约，再把 runtime、session、settings、trace、workspace 辅助能力装配成可调用服务。
 
-当前边界分三层：
+当前边界分四层：
 
 - `apps/api`：服务端入口与运行时装配
 - `apps/gateway`：常驻外部接入入口，主动拉取或订阅外部事件后转交 API
 - `packages/sdk`：给 Web 用的类型化客户端与少量展示友好投影
 - `apps/web`：通过 SDK 调 API，不直接操作数据库或 runtime
 
-这份文档关注“契约边界”和“模块职责”，不替代具体接口代码。判断真实接口时，仍以 `apps/api/src/app.ts` 和 `packages/sdk/src/client.ts` 为准。
+这份文档关注“契约边界”和“模块职责”，不替代具体接口代码。判断真实接口时，仍以 `apps/api/src/app.ts`、它注册的 `apps/api/src/*-routes.ts` 和 `packages/sdk/src/client.ts` 为准。
 
 ## 模块分层
 
@@ -27,7 +27,11 @@
 关键文件：
 
 - `apps/api/src/index.ts`：API 进程入口
-- `apps/api/src/app.ts`：路由与请求体验证
+- `apps/api/src/app.ts`：Hono app 创建、公共 middleware、错误映射与路由注册
+- `apps/api/src/sessions-routes.ts`：session 生命周期、执行、fork / rewrite、workspace helper
+- `apps/api/src/settings-routes.ts`：全局 settings、workspace MCP / channels / skills 配置视图
+- `apps/api/src/telegram-routes.ts`：Telegram inbox / webhook adapter
+- `apps/api/src/observability-routes.ts`：trace、system log、routine inspect / reset
 - `apps/api/src/working-directory.ts`：默认工作目录解析
 - `apps/api/src/directory-picker.ts`：系统目录选择器桥接
 - `apps/api/src/session-relations.ts`：子会话父子关系补全
@@ -49,7 +53,7 @@
 
 ## 当前接口族
 
-从职责上看，`apps/api/src/app.ts` 当前接口可以分成五组：
+从职责上看，`apps/api` 当前接口可以分成六组：
 
 ### 1. 目录与模型元信息
 
@@ -176,7 +180,7 @@
 - 创建 `createBackgroundTaskManager()`
 - 创建 `createModelService(process.env)`
 - 每次创建 runtime 时：
-- 读取 effective settings
+  - 读取 effective settings
   - 创建 LSP manager
   - 创建默认 tool registry
   - 读取统一 settings，其中 workspace `.agents/.config.toml` 覆盖 global `~/.agents/config.toml`
@@ -239,7 +243,11 @@ fork / rewrite 的更细模块边界见 [Session Fork 与 Rewrite](./session-for
 
 ## 推荐事实源
 
-- 路由与 schema：`apps/api/src/app.ts`
+- app 壳层与路由注册：`apps/api/src/app.ts`
+- session 路由与 schema：`apps/api/src/sessions-routes.ts`
+- settings 路由与 schema：`apps/api/src/settings-routes.ts`
+- Telegram 路由与 schema：`apps/api/src/telegram-routes.ts`
+- observability 路由：`apps/api/src/observability-routes.ts`
 - runtime 装配：`packages/agent/src/runtime/assembly.ts`
 - API 进程入口：`apps/api/src/index.ts`
 - working directory 解析：`apps/api/src/working-directory.ts`

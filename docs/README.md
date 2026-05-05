@@ -56,7 +56,7 @@
 
 ## 当前推荐事实源
 
-- API 路由、请求体和返回结构以 `apps/api/src/app.ts` 为准
+- API 路由、请求体和返回结构以 `apps/api/src/app.ts` 及其注册的 `apps/api/src/*-routes.ts` 为准
 - session 默认值、capability pack 默认装配和 `maxTurns`/`contextWindow` 上限以 `packages/domain/src/session-settings.ts` 为准
 - runtime 实际装配方式以 `packages/agent/src/runtime/assembly.ts` 为准，`apps/api/src/index.ts` 与 `apps/worker/src/index.ts` 负责把它接到各自进程入口
 - 外部常驻 channel / gateway 入口以 `apps/gateway/src/index.ts` 为准，当前负责 Telegram polling 并转发到 API webhook

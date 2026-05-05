@@ -138,7 +138,7 @@ rewrite 交互不是“直接替换消息文本”，而是：
 
 ## 相关模块
 
-- API / SDK 边界：`apps/api/src/app.ts`、`packages/sdk/src/client.ts`
+- API / SDK 边界：`apps/api/src/sessions-routes.ts`、`apps/api/src/app.ts`、`packages/sdk/src/client.ts`
 - runtime checkpoint 与 replay：`packages/agent/src/runtime/run-loop.ts`
 - session fork / rewind helper：`packages/agent/src/session/checkpoint.ts`
 - session 持久化：`packages/agent/src/session/postgres-session-manager.ts`
@@ -151,6 +151,7 @@ rewrite 交互不是“直接替换消息文本”，而是：
 
 - `apps/api/tests/app-session-forks.test.ts`
 - `packages/agent/tests/session-fork.test.ts`
+- `apps/api/src/sessions-routes.ts`
 - `apps/api/src/app.ts`
 - `packages/agent/src/runtime/run-loop.ts`
 - `packages/agent/src/session/checkpoint.ts`

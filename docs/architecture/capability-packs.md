@@ -24,6 +24,7 @@
 - `planning` 工具面，包括 `ask_user_question`、task brief 读写、todo 交互和 `get_current_time`
 - `manage_capability_packs`，也就是读取和切换 session capability pack 的 core/planning 工具
 - `delegation`，也就是主 agent 发起和回收 delegated subagent
+- `manage_telegram_chat`，也就是当前 Telegram inbox binding 与输出模式管理工具
 - `MCP`，也就是工作区级按次装配的动态工具挂载
 
 ### 2. Capability pack

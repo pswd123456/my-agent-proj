@@ -44,7 +44,7 @@
 - 做后台任务、子代理执行或 worker 轮询链路时，读 [后台任务与 delegation](./background-tasks-and-delegation.md)
 - 做 cron job 定义、调度触发或它和 background task 的关系时，先读 [后台任务与 delegation](./background-tasks-and-delegation.md) 与 [持久化与 Session 状态模型](./persistence-and-session-state.md)
 - 做 trace / system log 排查、session 级定位或 prompt/tool/permission 链路诊断时，读 [Trace / Log 排查](./trace-debugging.md)
-- 做 session 搜索、fork、interrupt、settings MCP/skills 或 git-status 这类 workbench 辅助接口时，读 [API 与 SDK 边界](./api-and-sdk-boundary.md)，再对照 `apps/api/src/app.ts` 与 `packages/sdk/src/client.ts`
+- 做 session 搜索、fork、interrupt、settings MCP/skills 或 git-status 这类 workbench 辅助接口时，读 [API 与 SDK 边界](./api-and-sdk-boundary.md)，再对照 `apps/api/src/app.ts`、`apps/api/src/*-routes.ts` 与 `packages/sdk/src/client.ts`
 
 ## 使用边界
 

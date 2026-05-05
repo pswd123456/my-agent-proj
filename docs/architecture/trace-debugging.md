@@ -156,5 +156,7 @@ timeline 每一轮优先看这几列：
 - `packages/agent/src/system-log.ts`
 - `packages/agent/src/runtime/`
 - `apps/api/src/app.ts`
+- `apps/api/src/observability-routes.ts`
+- `apps/api/src/sessions-routes.ts`
 - `apps/api/src/index.ts`
 - `scripts/trace-log-inspector.ts`

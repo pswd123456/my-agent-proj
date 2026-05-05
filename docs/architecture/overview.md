@@ -46,6 +46,7 @@
   - `shellAllowPatterns` / `shellDenyPatterns`
   - `toolAllowList` / `toolAskList` / `toolDenyList`
   - `enabledCapabilityPacks`
+  - `workspaceSkillSettings`
   - `userContextHooks`
   - `debugConversationView`
   - `userCustomPrompt`
@@ -95,7 +96,7 @@ legacy workspace hooks 仍可写在 `.agents/.config.toml` 的 `[hooks.<id>]` se
 - `GET /sessions/:sessionId/routines`
 - `POST /sessions/:sessionId/routines/reset`
 
-文档描述这些接口时，应优先以 `apps/api/src/app.ts` 当前实现为准。
+文档描述这些接口时，应优先以 `apps/api/src/app.ts` 及其注册的 `apps/api/src/*-routes.ts` 当前实现为准。
 
 ## 后台任务现状
 
@@ -120,7 +121,7 @@ legacy workspace hooks 仍可写在 `.agents/.config.toml` 的 `[hooks.<id>]` se
 - background task：`packages/agent/src/background-tasks/`
 - cron dispatch：`packages/agent/src/cron/dispatcher.ts`
 - delegation：`packages/agent/src/delegation/`
-- API 路由：`apps/api/src/app.ts`
+- API 路由：`apps/api/src/app.ts`、`apps/api/src/*-routes.ts`
 - Web SDK：`packages/sdk/src/client.ts`
 - 工作区 `.agents/` 配置：`docs/architecture/workspace-agent-config.md`
 - workspace instructions：`packages/agent/src/workspace-instructions/`

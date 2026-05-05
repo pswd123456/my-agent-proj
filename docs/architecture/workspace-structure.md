@@ -45,7 +45,7 @@
 
 - 放跨应用复用的共享能力
 - `agent` 放 runtime、prompt、provider 适配、session 抽象、skills、MCP、background tasks、delegation、tools 和 trace
-- `db` 放数据库连接、schema 初始化、settings repository、session 持久化配套、routine repository、inbox binding repository 和 background task repository
+- `db` 放数据库连接、schema 初始化、legacy settings seed stub、session 持久化配套、routine repository、cron repository、inbox binding repository 和 background task repository
 - `domain` 放日程、session context、session settings、background task 和权限规则等纯领域模型
 - `sdk` 放 API client、会话摘要转换和跨层类型导出
 - `tokens` 放设计 token 与语义 token
