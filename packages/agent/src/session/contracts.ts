@@ -71,6 +71,10 @@ export interface SessionManager {
     sessionId: string,
     lastError: string | null
   ): Promise<SessionSnapshot>;
+  setWorkingDirectory(
+    sessionId: string,
+    workingDirectory: string
+  ): Promise<SessionSnapshot>;
   setModel(sessionId: string, model: string): Promise<SessionSnapshot>;
   updateContext(
     sessionId: string,

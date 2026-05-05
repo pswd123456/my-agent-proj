@@ -18,6 +18,7 @@ import type {
 } from "../types.js";
 import type { SessionManager } from "./contracts.js";
 import { cloneSnapshot, forceStopSnapshot, isSessionSnapshot } from "./shared.js";
+import { resolveTaskBriefPathForSession } from "./task-brief.js";
 import {
   hasActiveExecutionLease,
   resolveExecutionLeaseStaleBefore,
@@ -475,6 +476,25 @@ export class PostgresSessionManager implements SessionManager {
       sessionState: {
         ...snapshot.sessionState,
         lastError
+      }
+    }));
+  }
+
+  async setWorkingDirectory(
+    sessionId: string,
+    workingDirectory: string
+  ): Promise<SessionSnapshot> {
+    return this.updateSession(sessionId, (snapshot) => ({
+      ...snapshot,
+      workingDirectory,
+      context: {
+        ...snapshot.context,
+        taskBriefPath: resolveTaskBriefPathForSession({
+          workingDirectory,
+          sessionId,
+          planModeEnabled: snapshot.context.planModeEnabled,
+          taskBriefPath: snapshot.context.taskBriefPath
+        })
       }
     }));
   }

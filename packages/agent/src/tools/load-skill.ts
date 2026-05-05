@@ -6,9 +6,11 @@ import type { WorkspaceSkillSettingRecord } from "@ai-app-template/domain";
 
 import type { SkillDescriptor } from "../skills/index.js";
 import {
-  discoverWorkspaceSkills,
-  filterWorkspaceSkills
-} from "../skills/index.js";
+  discoverVisibleWorkspaceSkills,
+  toSkillDiagnosticJson,
+  toSkillJson,
+  toSkillSummaryJson
+} from "./skill-tool-shared.js";
 import { normalizeWorkspacePath } from "./workspace.js";
 import {
   createToolResult,
@@ -58,26 +60,6 @@ const schema = z
 interface ReadWindowRequest {
   startLine: number;
   endLine: number | null;
-}
-
-function toSkillJson(skill: SkillDescriptor): Record<string, string> {
-  return {
-    name: skill.name,
-    description: skill.description,
-    relativePath: skill.relativePath
-  };
-}
-
-function toDiagnosticJson(diagnostic: {
-  relativePath: string;
-  reason: string;
-  message: string;
-}): Record<string, string> {
-  return {
-    relativePath: diagnostic.relativePath,
-    reason: diagnostic.reason,
-    message: diagnostic.message
-  };
 }
 
 function normalizeReadWindowRequest(
@@ -286,9 +268,8 @@ export function createLoadSkillTool(
     },
     async execute(input, context) {
       const parsed = schema.parse(input);
-      const discovery = await discoverWorkspaceSkills(workingDirectory);
-      const visibleSkills = filterWorkspaceSkills(
-        discovery.skills,
+      const { discovery, visibleSkills } = await discoverVisibleWorkspaceSkills(
+        workingDirectory,
         workspaceSkillSettings
       );
       const skill = resolveRequestedSkill(visibleSkills, parsed);
@@ -303,11 +284,8 @@ export function createLoadSkillTool(
             data: {
               requestedSkillName: parsed.skillName ?? null,
               requestedPath: parsed.path ?? null,
-              availableSkills: visibleSkills.map((item) => ({
-                name: item.name,
-                relativePath: item.relativePath
-              })),
-              diagnostics: discovery.diagnostics.map(toDiagnosticJson)
+              availableSkills: visibleSkills.map(toSkillSummaryJson),
+              diagnostics: discovery.diagnostics.map(toSkillDiagnosticJson)
             }
           }),
           formatFailureDisplayText({

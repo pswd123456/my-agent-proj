@@ -16,10 +16,12 @@ import {
   normalizeSettingsPermissionRules,
   normalizeUserContextHooks,
   normalizeWorkspaceSkillSettings,
+  pickTomlSettingsFields,
   resolveSessionSettingsDefaults,
   sanitizeContextWindow,
   sanitizeSessionMaxTurns,
-  sanitizeUserCustomPrompt
+  sanitizeUserCustomPrompt,
+  toTomlSettingsFields
 } from "@ai-app-template/domain";
 import { parse, stringify } from "smol-toml";
 
@@ -58,7 +60,11 @@ function isRecord(value: unknown): value is TomlObject {
 }
 
 function toGlobalAgentConfigPath(homeDir = os.homedir()): string {
-  return path.join(homeDir, GLOBAL_AGENT_DIRECTORY, GLOBAL_AGENT_CONFIG_FILE_NAME);
+  return path.join(
+    homeDir,
+    GLOBAL_AGENT_DIRECTORY,
+    GLOBAL_AGENT_CONFIG_FILE_NAME
+  );
 }
 
 function toWorkspaceAgentConfigPath(workingDirectory: string): string {
@@ -100,63 +106,75 @@ function normalizeTomlSettings(
   value: TomlObject,
   base: SessionSettingsRecord
 ): Partial<SettingsConfigRecord> {
+  const settingsFields = pickTomlSettingsFields(value);
   const permissionRules = normalizeSettingsPermissionRules(
     {
-      shellAllowPatterns: toStringArray(value.shell_allow_patterns),
-      shellDenyPatterns: toStringArray(value.shell_deny_patterns),
-      toolAllowList: toStringArray(value.tool_allow_list),
-      toolAskList: toStringArray(value.tool_ask_list),
-      toolDenyList: toStringArray(value.tool_deny_list)
+      shellAllowPatterns: toStringArray(settingsFields.shellAllowPatterns),
+      shellDenyPatterns: toStringArray(settingsFields.shellDenyPatterns),
+      toolAllowList: toStringArray(settingsFields.toolAllowList),
+      toolAskList: toStringArray(settingsFields.toolAskList),
+      toolDenyList: toStringArray(settingsFields.toolDenyList)
     },
     SETTINGS_PERMISSION_TOOL_OPTIONS
   );
 
   const next: Partial<SettingsConfigRecord> = {
-    ...(typeof value.working_directory === "string"
-      ? { workingDirectory: value.working_directory.trim() || base.workingDirectory }
+    ...(typeof settingsFields.workingDirectory === "string"
+      ? {
+          workingDirectory:
+            settingsFields.workingDirectory.trim() || base.workingDirectory
+        }
       : {}),
-    ...(typeof value.model === "string"
-      ? { model: value.model.trim() || base.model }
+    ...(typeof settingsFields.model === "string"
+      ? { model: settingsFields.model.trim() || base.model }
       : {}),
-    ...(typeof value.thinking_effort !== "undefined"
-      ? { thinkingEffort: normalizeThinkingEffort(value.thinking_effort) }
+    ...(typeof settingsFields.thinkingEffort !== "undefined"
+      ? {
+          thinkingEffort: normalizeThinkingEffort(settingsFields.thinkingEffort)
+        }
       : {}),
-    ...(typeof value.yolo_mode === "boolean" ? { yoloMode: value.yolo_mode } : {}),
-    ...(typeof value.context_window === "number"
-      ? { contextWindow: sanitizeContextWindow(value.context_window) }
+    ...(typeof settingsFields.yoloMode === "boolean"
+      ? { yoloMode: settingsFields.yoloMode }
       : {}),
-    ...(typeof value.max_turns === "number"
-      ? { maxTurns: sanitizeSessionMaxTurns(value.max_turns) }
+    ...(typeof settingsFields.contextWindow === "number"
+      ? { contextWindow: sanitizeContextWindow(settingsFields.contextWindow) }
       : {}),
-    ...(typeof value.debug_conversation_view === "boolean"
-      ? { debugConversationView: value.debug_conversation_view }
+    ...(typeof settingsFields.maxTurns === "number"
+      ? { maxTurns: sanitizeSessionMaxTurns(settingsFields.maxTurns) }
       : {}),
-    ...(typeof value.user_custom_prompt === "string"
-      ? { userCustomPrompt: sanitizeUserCustomPrompt(value.user_custom_prompt) }
+    ...(typeof settingsFields.debugConversationView === "boolean"
+      ? { debugConversationView: settingsFields.debugConversationView }
+      : {}),
+    ...(typeof settingsFields.userCustomPrompt === "string"
+      ? {
+          userCustomPrompt: sanitizeUserCustomPrompt(
+            settingsFields.userCustomPrompt
+          )
+        }
       : {}),
     shellAllowPatterns: permissionRules.shellAllowPatterns,
     shellDenyPatterns: permissionRules.shellDenyPatterns,
     toolAllowList: permissionRules.toolAllowList,
     toolAskList: permissionRules.toolAskList,
     toolDenyList: permissionRules.toolDenyList,
-    ...(typeof value.enabled_capability_packs !== "undefined"
+    ...(typeof settingsFields.enabledCapabilityPacks !== "undefined"
       ? {
           enabledCapabilityPacks: normalizeCapabilityPacks(
-            toStringArray(value.enabled_capability_packs)
+            toStringArray(settingsFields.enabledCapabilityPacks)
           )
         }
       : {}),
-    ...(typeof value.workspace_skill_settings !== "undefined"
+    ...(typeof settingsFields.workspaceSkillSettings !== "undefined"
       ? {
           workspaceSkillSettings: normalizeWorkspaceSkillSettings(
-            parseJsonValue(value.workspace_skill_settings)
+            parseJsonValue(settingsFields.workspaceSkillSettings)
           )
         }
       : {}),
-    ...(typeof value.user_context_hooks !== "undefined"
+    ...(typeof settingsFields.userContextHooks !== "undefined"
       ? {
           userContextHooks: normalizeUserContextHooks(
-            parseJsonValue(value.user_context_hooks)
+            parseJsonValue(settingsFields.userContextHooks)
           )
         }
       : {})
@@ -169,7 +187,9 @@ function normalizeTomlSettings(
     if (telegram) {
       next.channels = {
         telegram: {
-          ...(typeof telegram.enabled === "boolean" ? { enabled: telegram.enabled } : {}),
+          ...(typeof telegram.enabled === "boolean"
+            ? { enabled: telegram.enabled }
+            : {}),
           ...(telegram.mode === "polling" || telegram.mode === "webhook"
             ? { mode: telegram.mode }
             : {}),
@@ -200,22 +220,7 @@ function toTomlConfig(
 ): string {
   const next: TomlObject = {
     ...existingRoot,
-    working_directory: settings.workingDirectory,
-    model: settings.model,
-    thinking_effort: settings.thinkingEffort,
-    yolo_mode: settings.yoloMode,
-    context_window: settings.contextWindow,
-    max_turns: settings.maxTurns,
-    shell_allow_patterns: settings.shellAllowPatterns,
-    shell_deny_patterns: settings.shellDenyPatterns,
-    tool_allow_list: settings.toolAllowList,
-    tool_ask_list: settings.toolAskList,
-    tool_deny_list: settings.toolDenyList,
-    enabled_capability_packs: settings.enabledCapabilityPacks,
-    workspace_skill_settings: settings.workspaceSkillSettings,
-    user_context_hooks: settings.userContextHooks,
-    debug_conversation_view: settings.debugConversationView,
-    user_custom_prompt: settings.userCustomPrompt
+    ...toTomlSettingsFields(settings)
   };
   return `${stringify(next)}\n`;
 }
@@ -302,7 +307,9 @@ export interface SettingsConfigStore {
   getWorkspacePath(workingDirectory: string): string;
   getGlobalSettings(): Promise<SessionSettingsRecord>;
   getEffectiveSettings(workingDirectory: string): Promise<SettingsConfigRecord>;
-  updateGlobalSettings(patch: SessionSettingsInput): Promise<SessionSettingsRecord>;
+  updateGlobalSettings(
+    patch: SessionSettingsInput
+  ): Promise<SessionSettingsRecord>;
   updateWorkspaceChannels(
     workingDirectory: string,
     telegram: {
@@ -366,8 +373,11 @@ export function createSettingsConfigStore(input?: {
     },
     async getEffectiveSettings(workingDirectory: string) {
       const global = await ensureGlobalConfig();
-      const workspaceRoot = await readTomlRoot(toWorkspaceAgentConfigPath(workingDirectory));
-      const workspaceHookConfig = await loadWorkspaceHookConfig(workingDirectory);
+      const workspaceRoot = await readTomlRoot(
+        toWorkspaceAgentConfigPath(workingDirectory)
+      );
+      const workspaceHookConfig =
+        await loadWorkspaceHookConfig(workingDirectory);
       const merged = mergeSettingsConfigRecords({
         global,
         workspace: normalizeTomlSettings(workspaceRoot, global)
@@ -387,8 +397,10 @@ export function createSettingsConfigStore(input?: {
       const current = await ensureGlobalConfig();
       const permissionRules = normalizeSettingsPermissionRules(
         {
-          shellAllowPatterns: patch.shellAllowPatterns ?? current.shellAllowPatterns,
-          shellDenyPatterns: patch.shellDenyPatterns ?? current.shellDenyPatterns,
+          shellAllowPatterns:
+            patch.shellAllowPatterns ?? current.shellAllowPatterns,
+          shellDenyPatterns:
+            patch.shellDenyPatterns ?? current.shellDenyPatterns,
           toolAllowList: patch.toolAllowList ?? current.toolAllowList,
           toolAskList: patch.toolAskList ?? current.toolAskList,
           toolDenyList: patch.toolDenyList ?? current.toolDenyList
@@ -398,7 +410,10 @@ export function createSettingsConfigStore(input?: {
       const next: SessionSettingsRecord = {
         ...current,
         ...(typeof patch.workingDirectory === "string"
-          ? { workingDirectory: patch.workingDirectory.trim() || current.workingDirectory }
+          ? {
+              workingDirectory:
+                patch.workingDirectory.trim() || current.workingDirectory
+            }
           : {}),
         ...(typeof patch.model === "string"
           ? { model: patch.model.trim() || current.model }
@@ -406,7 +421,9 @@ export function createSettingsConfigStore(input?: {
         ...(patch.thinkingEffort
           ? { thinkingEffort: normalizeThinkingEffort(patch.thinkingEffort) }
           : {}),
-        ...(typeof patch.yoloMode === "boolean" ? { yoloMode: patch.yoloMode } : {}),
+        ...(typeof patch.yoloMode === "boolean"
+          ? { yoloMode: patch.yoloMode }
+          : {}),
         ...(typeof patch.contextWindow === "number"
           ? { contextWindow: sanitizeContextWindow(patch.contextWindow) }
           : {}),
@@ -433,13 +450,19 @@ export function createSettingsConfigStore(input?: {
           ? { debugConversationView: patch.debugConversationView }
           : {}),
         ...(typeof patch.userCustomPrompt === "string"
-          ? { userCustomPrompt: sanitizeUserCustomPrompt(patch.userCustomPrompt) }
+          ? {
+              userCustomPrompt: sanitizeUserCustomPrompt(patch.userCustomPrompt)
+            }
           : {}),
         updatedAt: new Date().toISOString()
       };
       const existingRoot = await readTomlRoot(globalConfigPath);
       await fs.mkdir(path.dirname(globalConfigPath), { recursive: true });
-      await fs.writeFile(globalConfigPath, toTomlConfig(next, existingRoot), "utf8");
+      await fs.writeFile(
+        globalConfigPath,
+        toTomlConfig(next, existingRoot),
+        "utf8"
+      );
       return next;
     },
     async updateWorkspaceChannels(workingDirectory, telegram) {
@@ -454,7 +477,9 @@ export function createSettingsConfigStore(input?: {
             enabled: telegram.enabled,
             mode: telegram.mode,
             bot_token: telegram.botToken,
-            ...(telegram.webhookSecret ? { webhook_secret: telegram.webhookSecret } : {}),
+            ...(telegram.webhookSecret
+              ? { webhook_secret: telegram.webhookSecret }
+              : {}),
             ...(telegram.webhookUrl ? { webhook_url: telegram.webhookUrl } : {})
           }
         }

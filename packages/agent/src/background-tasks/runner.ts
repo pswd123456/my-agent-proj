@@ -31,7 +31,7 @@ import type {
   BackgroundTaskManager,
   BackgroundTaskRuntimeHandle
 } from "./contracts.js";
-import { enqueueBackgroundNotification } from "./notifications.js";
+import { enqueueBackgroundTaskLifecycleNotification } from "./notifications.js";
 import {
   buildBackgroundTaskPollMetadata,
   parseBackgroundTaskPollMetadata
@@ -273,7 +273,7 @@ async function maybeHandleBackgroundTaskPollWakeup(input: {
   return true;
 }
 
-async function notifySubagentParent(input: {
+async function notifyTaskParent(input: {
   sessionManager: SessionManager;
   traceManager?: TraceManager | undefined;
   taskManager: BackgroundTaskManager;
@@ -281,125 +281,19 @@ async function notifySubagentParent(input: {
   kind: BackgroundNotificationKind;
   fallbackSummary: string;
   fallbackContent: string;
-}): Promise<void> {
-  const taskState =
-    input.task.taskState?.kind === "delegate" ? input.task.taskState : null;
-  const latestResponse = taskState?.latestResponse;
-  await enqueueBackgroundNotification({
-    sessionManager: input.sessionManager,
-    traceManager: input.traceManager,
-    taskManager: input.taskManager,
-    task: input.task,
-    kind: input.kind,
-    summary: latestResponse?.summary ?? input.fallbackSummary,
-    content: latestResponse?.content ?? input.fallbackContent,
-    expectedParentReply: taskState?.expectedParentReply ?? "none",
-    request: latestResponse?.request ?? null,
-    result: latestResponse
-      ? {
-          type: "delegate",
-          summary: latestResponse.summary,
-          content: latestResponse.content,
-          responseKind: latestResponse.kind,
-          expectedParentReply: taskState?.expectedParentReply ?? "none",
-          ...(latestResponse.request ? { request: latestResponse.request } : {})
-        }
-      : null,
-    decrementActiveTaskCount: true
-  });
-}
-
-async function notifyHookSubagentParent(input: {
-  sessionManager: SessionManager;
-  traceManager?: TraceManager | undefined;
-  taskManager: BackgroundTaskManager;
-  task: BackgroundTaskRecord;
-  kind: BackgroundNotificationKind;
-  summary: string;
-  content: string;
-  result?: HookSubagentBackgroundTaskResultEnvelope | null;
+  result?: BackgroundTaskResultEnvelope | null;
   autoWake?: boolean;
 }): Promise<void> {
-  const payload = requireAgentSessionPayload(input.task);
-  const wakeupMessage =
-    typeof payload.metadata.resumeMessage === "string"
-      ? payload.metadata.resumeMessage
-      : undefined;
-  const wakeupMetadata =
-    wakeupMessage && payload.metadata.skipSubagentHooks === true
-      ? { skipSubagentHooks: true as const }
-      : undefined;
-
-  await enqueueBackgroundNotification({
+  await enqueueBackgroundTaskLifecycleNotification({
     sessionManager: input.sessionManager,
     traceManager: input.traceManager,
     taskManager: input.taskManager,
     task: input.task,
     kind: input.kind,
-    title:
-      input.task.taskState?.kind === "hook_subagent"
-        ? input.task.taskState.title
-        : "预运行 Hook",
-    summary: input.summary,
-    content: input.content,
-    expectedParentReply: "none",
-    result: input.result ?? null,
-    decrementActiveTaskCount: true,
-    ...(typeof input.autoWake === "boolean"
-      ? { autoWake: input.autoWake }
-      : {}),
-    ...(wakeupMessage ? { wakeupMessage } : {}),
-    ...(wakeupMetadata ? { wakeupMetadata } : {})
-  });
-}
-
-async function notifyShellTaskParent(input: {
-  sessionManager: SessionManager;
-  traceManager?: TraceManager | undefined;
-  taskManager: BackgroundTaskManager;
-  task: BackgroundTaskRecord;
-  kind: BackgroundNotificationKind;
-  fallbackSummary: string;
-  fallbackContent: string;
-}): Promise<void> {
-  const result =
-    input.task.taskState?.kind === "shell_command"
-      ? input.task.taskState.latestResult
-      : null;
-  await enqueueBackgroundNotification({
-    sessionManager: input.sessionManager,
-    traceManager: input.traceManager,
-    taskManager: input.taskManager,
-    task: input.task,
-    kind: input.kind,
-    summary: input.fallbackSummary,
-    content: input.fallbackContent,
-    expectedParentReply: "none",
-    result,
-    decrementActiveTaskCount: true
-  });
-}
-
-async function notifyWakeupSession(input: {
-  sessionManager: SessionManager;
-  traceManager?: TraceManager | undefined;
-  taskManager: BackgroundTaskManager;
-  task: BackgroundTaskRecord;
-  kind: BackgroundNotificationKind;
-  summary: string;
-  content: string;
-}): Promise<void> {
-  await enqueueBackgroundNotification({
-    sessionManager: input.sessionManager,
-    traceManager: input.traceManager,
-    taskManager: input.taskManager,
-    task: input.task,
-    kind: input.kind,
-    title: "主会话后台续跑",
-    summary: input.summary,
-    content: input.content,
-    expectedParentReply: "none",
-    autoWake: false
+    fallbackSummary: input.fallbackSummary,
+    fallbackContent: input.fallbackContent,
+    ...(typeof input.result !== "undefined" ? { result: input.result } : {}),
+    ...(typeof input.autoWake === "boolean" ? { autoWake: input.autoWake } : {})
   });
 }
 
@@ -521,7 +415,7 @@ async function runShellCommandTask(
       resultSummary: `${payload.command} (completed)`,
       ...(taskState ? { taskState } : {})
     });
-    await notifyShellTaskParent({
+    await notifyTaskParent({
       sessionManager: input.sessionManager,
       traceManager: input.traceManager,
       taskManager: input.taskManager,
@@ -561,7 +455,7 @@ async function runShellCommandTask(
           resultSummary: `${payload.command} (timeout)`,
           ...(taskState ? { taskState } : {})
         });
-        await notifyShellTaskParent({
+        await notifyTaskParent({
           sessionManager: input.sessionManager,
           traceManager: input.traceManager,
           taskManager: input.taskManager,
@@ -578,7 +472,7 @@ async function runShellCommandTask(
           resultSummary: `${payload.command} (cancelled)`,
           ...(taskState ? { taskState } : {})
         });
-        await notifyShellTaskParent({
+        await notifyTaskParent({
           sessionManager: input.sessionManager,
           traceManager: input.traceManager,
           taskManager: input.taskManager,
@@ -612,7 +506,7 @@ async function runShellCommandTask(
       resultSummary: `${payload.command} (${latestResult.terminationReason})`,
       ...(taskState ? { taskState } : {})
     });
-    await notifyShellTaskParent({
+    await notifyTaskParent({
       sessionManager: input.sessionManager,
       traceManager: input.traceManager,
       taskManager: input.taskManager,
@@ -668,7 +562,7 @@ export async function runBackgroundTask(
         "Child session is required for agent_session background tasks."
     });
     if (isDelegateTask) {
-      await notifySubagentParent({
+      await notifyTaskParent({
         sessionManager: input.sessionManager,
         traceManager: input.traceManager,
         taskManager: input.taskManager,
@@ -679,14 +573,14 @@ export async function runBackgroundTask(
           "Child session is required for agent_session background tasks."
       });
     } else if (isHookSubagentTask) {
-      await notifyHookSubagentParent({
+      await notifyTaskParent({
         sessionManager: input.sessionManager,
         traceManager: input.traceManager,
         taskManager: input.taskManager,
         task: failedClaim.task,
         kind: "task_failed",
-        summary: "预运行 Hook 失败。",
-        content:
+        fallbackSummary: "预运行 Hook 失败。",
+        fallbackContent:
           "Child session is required for agent_session background tasks.",
         autoWake: hookShouldAutoWake
       });
@@ -704,7 +598,7 @@ export async function runBackgroundTask(
       errorSummary: `Child session not found: ${claim.task.childSessionId}`
     });
     if (isDelegateTask) {
-      await notifySubagentParent({
+      await notifyTaskParent({
         sessionManager: input.sessionManager,
         traceManager: input.traceManager,
         taskManager: input.taskManager,
@@ -714,14 +608,14 @@ export async function runBackgroundTask(
         fallbackContent: `Child session not found: ${claim.task.childSessionId}`
       });
     } else if (isHookSubagentTask) {
-      await notifyHookSubagentParent({
+      await notifyTaskParent({
         sessionManager: input.sessionManager,
         traceManager: input.traceManager,
         taskManager: input.taskManager,
         task: failedClaim.task,
         kind: "task_failed",
-        summary: "预运行 Hook 失败。",
-        content: `Child session not found: ${claim.task.childSessionId}`,
+        fallbackSummary: "预运行 Hook 失败。",
+        fallbackContent: `Child session not found: ${claim.task.childSessionId}`,
         autoWake: hookShouldAutoWake
       });
     }
@@ -758,7 +652,7 @@ export async function runBackgroundTask(
         "Background task exceeded its deadline before execution started."
     });
     if (isDelegateTask) {
-      await notifySubagentParent({
+      await notifyTaskParent({
         sessionManager: input.sessionManager,
         traceManager: input.traceManager,
         taskManager: input.taskManager,
@@ -769,26 +663,26 @@ export async function runBackgroundTask(
           "Background task exceeded its deadline before execution started."
       });
     } else if (isHookSubagentTask) {
-      await notifyHookSubagentParent({
+      await notifyTaskParent({
         sessionManager: input.sessionManager,
         traceManager: input.traceManager,
         taskManager: input.taskManager,
         task: timedOutClaim.task,
         kind: "task_timeout",
-        summary: "预运行 Hook 超时。",
-        content:
+        fallbackSummary: "预运行 Hook 超时。",
+        fallbackContent:
           "Background task exceeded its deadline before execution started.",
         autoWake: hookShouldAutoWake
       });
     } else if (claim.task.kind === "session_wakeup") {
-      await notifyWakeupSession({
+      await notifyTaskParent({
         sessionManager: input.sessionManager,
         traceManager: input.traceManager,
         taskManager: input.taskManager,
         task: timedOutClaim.task,
         kind: "task_timeout",
-        summary: "主会话后台续跑超时。",
-        content:
+        fallbackSummary: "主会话后台续跑超时。",
+        fallbackContent:
           "Background task exceeded its deadline before execution started."
       });
     }
@@ -874,7 +768,7 @@ export async function runBackgroundTask(
         errorSummary: "Background task exceeded its deadline."
       });
       if (isDelegateTask) {
-        await notifySubagentParent({
+        await notifyTaskParent({
           sessionManager: input.sessionManager,
           traceManager: input.traceManager,
           taskManager: input.taskManager,
@@ -884,25 +778,25 @@ export async function runBackgroundTask(
           fallbackContent: "Background task exceeded its deadline."
         });
       } else if (isHookSubagentTask) {
-        await notifyHookSubagentParent({
+        await notifyTaskParent({
           sessionManager: input.sessionManager,
           traceManager: input.traceManager,
           taskManager: input.taskManager,
           task: timedOutClaim.task,
           kind: "task_timeout",
-          summary: "预运行 Hook 超时。",
-          content: "Background task exceeded its deadline.",
+          fallbackSummary: "预运行 Hook 超时。",
+          fallbackContent: "Background task exceeded its deadline.",
           autoWake: hookShouldAutoWake
         });
       } else if (claim.task.kind === "session_wakeup") {
-        await notifyWakeupSession({
+        await notifyTaskParent({
           sessionManager: input.sessionManager,
           traceManager: input.traceManager,
           taskManager: input.taskManager,
           task: timedOutClaim.task,
           kind: "task_timeout",
-          summary: "主会话后台续跑超时。",
-          content: "Background task exceeded its deadline."
+          fallbackSummary: "主会话后台续跑超时。",
+          fallbackContent: "Background task exceeded its deadline."
         });
       }
       return;
@@ -933,7 +827,7 @@ export async function runBackgroundTask(
         ...(taskState ? { taskState } : {})
       });
       if (isDelegateTask) {
-        await notifySubagentParent({
+        await notifyTaskParent({
           sessionManager: input.sessionManager,
           traceManager: input.traceManager,
           taskManager: input.taskManager,
@@ -943,14 +837,14 @@ export async function runBackgroundTask(
           fallbackContent: resultSummary ?? "Delegate cancelled."
         });
       } else if (isHookSubagentTask) {
-        await notifyHookSubagentParent({
+        await notifyTaskParent({
           sessionManager: input.sessionManager,
           traceManager: input.traceManager,
           taskManager: input.taskManager,
           task: cancelledClaim.task,
           kind: "task_cancelled",
-          summary: "预运行 Hook 已取消。",
-          content: resultSummary ?? "Hook subagent cancelled.",
+          fallbackSummary: "预运行 Hook 已取消。",
+          fallbackContent: resultSummary ?? "Hook subagent cancelled.",
           autoWake: hookShouldAutoWake
         });
       }
@@ -980,7 +874,7 @@ export async function runBackgroundTask(
             resultSummary: taskState?.latestResponse?.summary ?? resultSummary,
             ...(taskState ? { taskState } : {})
           });
-        await notifySubagentParent({
+        await notifyTaskParent({
           sessionManager: input.sessionManager,
           traceManager: input.traceManager,
           taskManager: input.taskManager,
@@ -1004,14 +898,14 @@ export async function runBackgroundTask(
             ? { taskState: updateHookSubagentTaskState(claim, null)! }
             : {})
         });
-        await notifyHookSubagentParent({
+        await notifyTaskParent({
           sessionManager: input.sessionManager,
           traceManager: input.traceManager,
           taskManager: input.taskManager,
           task: failedClaim.task,
           kind: "task_failed",
-          summary: "预运行 Hook 失败。",
-          content:
+          fallbackSummary: "预运行 Hook 失败。",
+          fallbackContent:
             "Hook subagent must finish with a final response and cannot pause for human input.",
           autoWake: hookShouldAutoWake
         });
@@ -1059,7 +953,7 @@ export async function runBackgroundTask(
         ...(taskState ? { taskState } : {})
       });
       if (isDelegateTask) {
-        await notifySubagentParent({
+        await notifyTaskParent({
           sessionManager: input.sessionManager,
           traceManager: input.traceManager,
           taskManager: input.taskManager,
@@ -1073,14 +967,14 @@ export async function runBackgroundTask(
             "Delegate failed."
         });
       } else if (isHookSubagentTask) {
-        await notifyHookSubagentParent({
+        await notifyTaskParent({
           sessionManager: input.sessionManager,
           traceManager: input.traceManager,
           taskManager: input.taskManager,
           task: failedClaim.task,
           kind: "task_failed",
-          summary: "预运行 Hook 失败。",
-          content:
+          fallbackSummary: "预运行 Hook 失败。",
+          fallbackContent:
             result.finalAnswer ??
             result.session.sessionState.lastError ??
             result.stopReason ??
@@ -1088,14 +982,14 @@ export async function runBackgroundTask(
           autoWake: hookShouldAutoWake
         });
       } else if (claim.task.kind === "session_wakeup") {
-        await notifyWakeupSession({
+        await notifyTaskParent({
           sessionManager: input.sessionManager,
           traceManager: input.traceManager,
           taskManager: input.taskManager,
           task: failedClaim.task,
           kind: "task_failed",
-          summary: "主会话后台续跑失败。",
-          content:
+          fallbackSummary: "主会话后台续跑失败。",
+          fallbackContent:
             result.finalAnswer ??
             result.session.sessionState.lastError ??
             result.stopReason ??
@@ -1116,14 +1010,14 @@ export async function runBackgroundTask(
           ? { taskState: updateHookSubagentTaskState(claim, null)! }
           : {})
       });
-      await notifyHookSubagentParent({
+      await notifyTaskParent({
         sessionManager: input.sessionManager,
         traceManager: input.traceManager,
         taskManager: input.taskManager,
         task: failedClaim.task,
         kind: "task_failed",
-        summary: "预运行 Hook 失败。",
-        content: "Hook subagent completed without a final response.",
+        fallbackSummary: "预运行 Hook 失败。",
+        fallbackContent: "Hook subagent completed without a final response.",
         autoWake: hookShouldAutoWake
       });
       return;
@@ -1179,7 +1073,7 @@ export async function runBackgroundTask(
           : {})
     });
     if (isDelegateTask) {
-      await notifySubagentParent({
+      await notifyTaskParent({
         sessionManager: input.sessionManager,
         traceManager: input.traceManager,
         taskManager: input.taskManager,
@@ -1190,14 +1084,16 @@ export async function runBackgroundTask(
           result.finalAnswer ?? resultSummary ?? "Delegate completed."
       });
     } else if (isHookSubagentTask) {
-      await notifyHookSubagentParent({
+      await notifyTaskParent({
         sessionManager: input.sessionManager,
         traceManager: input.traceManager,
         taskManager: input.taskManager,
         task: completedClaim.task,
         kind: "task_completed",
-        summary: hookTaskState?.latestResult?.title ?? "预运行 Hook 已完成。",
-        content: result.finalAnswer ?? resultSummary ?? "Hook completed.",
+        fallbackSummary:
+          hookTaskState?.latestResult?.title ?? "预运行 Hook 已完成。",
+        fallbackContent:
+          result.finalAnswer ?? resultSummary ?? "Hook completed.",
         result: hookTaskState?.latestResult ?? null,
         autoWake: hookShouldAutoWake
       });
@@ -1225,7 +1121,7 @@ export async function runBackgroundTask(
       ...(taskState ? { taskState } : {})
     });
     if (isDelegateTask) {
-      await notifySubagentParent({
+      await notifyTaskParent({
         sessionManager: input.sessionManager,
         traceManager: input.traceManager,
         taskManager: input.taskManager,
@@ -1235,25 +1131,25 @@ export async function runBackgroundTask(
         fallbackContent: error instanceof Error ? error.message : String(error)
       });
     } else if (isHookSubagentTask) {
-      await notifyHookSubagentParent({
+      await notifyTaskParent({
         sessionManager: input.sessionManager,
         traceManager: input.traceManager,
         taskManager: input.taskManager,
         task: failedClaim.task,
         kind: "task_failed",
-        summary: "预运行 Hook 失败。",
-        content: error instanceof Error ? error.message : String(error),
+        fallbackSummary: "预运行 Hook 失败。",
+        fallbackContent: error instanceof Error ? error.message : String(error),
         autoWake: hookShouldAutoWake
       });
     } else if (claim.task.kind === "session_wakeup") {
-      await notifyWakeupSession({
+      await notifyTaskParent({
         sessionManager: input.sessionManager,
         traceManager: input.traceManager,
         taskManager: input.taskManager,
         task: failedClaim.task,
         kind: "task_failed",
-        summary: "主会话后台续跑失败。",
-        content: error instanceof Error ? error.message : String(error)
+        fallbackSummary: "主会话后台续跑失败。",
+        fallbackContent: error instanceof Error ? error.message : String(error)
       });
     }
   } finally {

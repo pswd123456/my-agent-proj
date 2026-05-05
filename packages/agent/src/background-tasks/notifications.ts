@@ -18,6 +18,12 @@ import type { TraceManager } from "../trace.js";
 
 import type { BackgroundTaskManager } from "./contracts.js";
 import { emitTraceEvent } from "../runtime/run-events.js";
+import {
+  buildBackgroundTaskLifecycleNotificationEnvelope,
+  resolveBackgroundTaskNotificationTitle,
+  resolveHookSubagentWakeupOptions,
+  shouldDecrementActiveTaskCountOnNotification
+} from "./lifecycle.js";
 
 function canAutoWakeSession(context: ScheduleSessionContext): boolean {
   return (
@@ -37,24 +43,16 @@ function createNotification(input: {
   request?: BackgroundNotificationRequest | null;
   result?: BackgroundTaskResultEnvelope | null;
 }): SessionBackgroundNotification {
-  const delegateTitle =
-    input.task.taskState?.kind === "delegate"
-      ? input.task.taskState.title
-      : null;
   return {
     id: randomUUID(),
     kind: input.kind,
     taskId: input.task.taskId,
     taskKind: input.task.kind,
     childSessionId: input.task.childSessionId,
-    title:
-      input.title ??
-      delegateTitle ??
-      (input.task.kind === "session_wakeup"
-        ? "主会话后台续跑"
-        : input.task.kind === "shell_command"
-          ? "后台任务"
-          : "后台子任务"),
+    title: resolveBackgroundTaskNotificationTitle({
+      task: input.task,
+      ...(input.title ? { title: input.title } : {})
+    }),
     summary: input.summary,
     content: input.content,
     createdAt: new Date().toISOString(),
@@ -242,6 +240,62 @@ export async function enqueueBackgroundNotification(input: {
   });
 
   return notification;
+}
+
+export async function enqueueBackgroundTaskLifecycleNotification(input: {
+  sessionManager: SessionManager;
+  traceManager?: TraceManager | undefined;
+  taskManager: BackgroundTaskManager;
+  task: BackgroundTaskRecord;
+  kind: BackgroundNotificationKind;
+  title?: string;
+  fallbackSummary: string;
+  fallbackContent: string;
+  result?: BackgroundTaskResultEnvelope | null;
+  decrementActiveTaskCount?: boolean;
+  autoWake?: boolean;
+  wakeupMessage?: string;
+  wakeupMetadata?: Record<string, DomainJsonValue>;
+}): Promise<SessionBackgroundNotification | null> {
+  const envelope = buildBackgroundTaskLifecycleNotificationEnvelope({
+    task: input.task,
+    kind: input.kind,
+    fallbackSummary: input.fallbackSummary,
+    fallbackContent: input.fallbackContent,
+    ...(input.title ? { title: input.title } : {}),
+    ...(typeof input.result !== "undefined" ? { result: input.result } : {})
+  });
+  const hookWakeupOptions = resolveHookSubagentWakeupOptions(input.task);
+
+  return enqueueBackgroundNotification({
+    sessionManager: input.sessionManager,
+    traceManager: input.traceManager,
+    taskManager: input.taskManager,
+    task: input.task,
+    kind: input.kind,
+    title: envelope.title,
+    summary: envelope.summary,
+    content: envelope.content,
+    expectedParentReply: envelope.expectedParentReply,
+    request: envelope.request ?? null,
+    result: envelope.result ?? null,
+    decrementActiveTaskCount:
+      input.decrementActiveTaskCount ??
+      shouldDecrementActiveTaskCountOnNotification(input.task),
+    ...(typeof input.autoWake === "boolean"
+      ? { autoWake: input.autoWake }
+      : {}),
+    ...(input.wakeupMessage
+      ? { wakeupMessage: input.wakeupMessage }
+      : hookWakeupOptions.wakeupMessage
+        ? { wakeupMessage: hookWakeupOptions.wakeupMessage }
+        : {}),
+    ...(input.wakeupMetadata
+      ? { wakeupMetadata: input.wakeupMetadata }
+      : hookWakeupOptions.wakeupMetadata
+        ? { wakeupMetadata: hookWakeupOptions.wakeupMetadata }
+        : {})
+  });
 }
 
 export async function consumeBackgroundNotifications(input: {

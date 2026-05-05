@@ -1,39 +1,20 @@
 import type { WorkspaceSkillSettingRecord } from "@ai-app-template/domain";
 
-import type { SkillDescriptor } from "../skills/index.js";
-import {
-  discoverWorkspaceSkills,
-  filterWorkspaceSkills,
-  type SkillDiscoveryDiagnostic
-} from "../skills/index.js";
+import type { SkillDiscoveryDiagnostic } from "../skills/index.js";
 import { searchWorkspaceSkills } from "../skills/search.js";
+import {
+  defaultSkillMaxResults,
+  discoverVisibleWorkspaceSkills,
+  normalizeSkillMaxResults,
+  toSkillDiagnosticJson,
+  toSkillJson
+} from "./skill-tool-shared.js";
 import { createToolResult, successResult } from "./tool-result.js";
 import type { RuntimeTool } from "./runtime-tool.js";
 import {
   buildToolDescription,
   describeObjectProperty
 } from "./tool-description.js";
-
-const DEFAULT_MAX_RESULTS = 8;
-const MAX_RESULTS_LIMIT = 50;
-
-function toSkillJson(skill: SkillDescriptor): Record<string, string> {
-  return {
-    name: skill.name,
-    description: skill.description,
-    relativePath: skill.relativePath
-  };
-}
-
-function toDiagnosticJson(
-  diagnostic: SkillDiscoveryDiagnostic
-): Record<string, string> {
-  return {
-    relativePath: diagnostic.relativePath,
-    reason: diagnostic.reason,
-    message: diagnostic.message
-  };
-}
 
 function normalizeQuery(value: unknown): string | null {
   if (typeof value !== "string") {
@@ -42,17 +23,6 @@ function normalizeQuery(value: unknown): string | null {
 
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
-}
-
-function normalizeMaxResults(value: unknown): number | null {
-  if (value === undefined) {
-    return DEFAULT_MAX_RESULTS;
-  }
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
-    return null;
-  }
-
-  return Math.min(Math.floor(value), MAX_RESULTS_LIMIT);
 }
 
 function formatDisplayText(input: {
@@ -138,7 +108,7 @@ export function createSearchSkillTool(
           issue: "query must be a non-empty string."
         });
       }
-      if (normalizeMaxResults(input.maxResults) === null) {
+      if (normalizeSkillMaxResults(input.maxResults) === null) {
         issues.push({
           field: "maxResults",
           issue: "maxResults must be a positive number."
@@ -160,10 +130,9 @@ export function createSearchSkillTool(
     async execute(input) {
       const query = normalizeQuery(input.query) ?? "";
       const maxResults =
-        normalizeMaxResults(input.maxResults) ?? DEFAULT_MAX_RESULTS;
-      const discovery = await discoverWorkspaceSkills(workingDirectory);
-      const visibleSkills = filterWorkspaceSkills(
-        discovery.skills,
+        normalizeSkillMaxResults(input.maxResults) ?? defaultSkillMaxResults();
+      const { discovery, visibleSkills } = await discoverVisibleWorkspaceSkills(
+        workingDirectory,
         workspaceSkillSettings
       );
       const searchResult = searchWorkspaceSkills({
@@ -191,7 +160,7 @@ export function createSearchSkillTool(
               score: skill.score,
               matchedFields: [...skill.matchedFields]
             })),
-            diagnostics: discovery.diagnostics.map(toDiagnosticJson)
+            diagnostics: discovery.diagnostics.map(toSkillDiagnosticJson)
           }
         }),
         formatDisplayText({

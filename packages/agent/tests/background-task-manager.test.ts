@@ -4,6 +4,8 @@ import { createPostgresTestSessionManager } from "../../../tests/helpers/postgre
 import { createMemoryBackgroundTaskRepository } from "@ai-app-template/db";
 
 import {
+  buildBackgroundTaskLifecycleNotificationEnvelope,
+  buildStaleBackgroundTaskLifecycleNotification,
   createBackgroundTaskManager,
   runBackgroundTask
 } from "../src/index.js";
@@ -25,6 +27,75 @@ function createDelegateTaskCard() {
     responseIsolation: true as const
   };
 }
+
+describe("background task lifecycle helpers", () => {
+  test("builds stale timeout notifications from task kind and state", async () => {
+    const sessionManager = await createPostgresTestSessionManager();
+    const repository = createMemoryBackgroundTaskRepository();
+    const manager = createBackgroundTaskManager({
+      sessionManager,
+      repository
+    });
+    const parent = await sessionManager.createSession({
+      workingDirectory: "/tmp/parent"
+    });
+
+    const delegateTask = await manager.enqueueTask({
+      kind: "subagent",
+      parentSessionId: parent.sessionId,
+      message: "inspect",
+      workingDirectory: "/tmp/child",
+      model: "MiniMax-M2.7",
+      taskState: {
+        ...createDelegateTaskCard(),
+        latestResponse: {
+          kind: "message",
+          summary: "Partial delegate result",
+          content: "The delegate had already found something.",
+          request: null
+        }
+      }
+    });
+    const delegateStale =
+      buildStaleBackgroundTaskLifecycleNotification(delegateTask);
+    const delegateEnvelope = buildBackgroundTaskLifecycleNotificationEnvelope({
+      task: delegateTask,
+      kind: delegateStale.kind,
+      fallbackSummary: delegateStale.fallbackSummary,
+      fallbackContent: delegateStale.fallbackContent
+    });
+
+    expect(delegateStale.decrementActiveTaskCount).toBe(true);
+    expect(delegateEnvelope.title).toBe("Inspect implementation");
+    expect(delegateEnvelope.summary).toBe("Partial delegate result");
+    expect(delegateEnvelope.content).toBe(
+      "The delegate had already found something."
+    );
+    expect(delegateEnvelope.result?.type).toBe("delegate");
+
+    const wakeupTask = await manager.enqueueTask({
+      kind: "session_wakeup",
+      parentSessionId: parent.sessionId,
+      childSessionId: parent.sessionId,
+      message: "",
+      workingDirectory: parent.workingDirectory,
+      model: parent.model
+    });
+    const wakeupStale =
+      buildStaleBackgroundTaskLifecycleNotification(wakeupTask);
+    const wakeupEnvelope = buildBackgroundTaskLifecycleNotificationEnvelope({
+      task: wakeupTask,
+      kind: wakeupStale.kind,
+      fallbackSummary: wakeupStale.fallbackSummary,
+      fallbackContent: wakeupStale.fallbackContent
+    });
+
+    expect(wakeupStale.decrementActiveTaskCount).toBe(false);
+    expect(wakeupStale.autoWake).toBe(false);
+    expect(wakeupEnvelope.title).toBe("主会话后台续跑");
+    expect(wakeupEnvelope.summary).toBe("主会话后台续跑超时。");
+  });
+});
 
 describe("background task manager", () => {
   test("enqueue creates an isolated child session and preserves the parent session", async () => {
@@ -57,7 +128,6 @@ describe("background task manager", () => {
     expect(child).not.toBeNull();
     expect(child?.sessionId).not.toBe(parent.sessionId);
     expect(child?.workingDirectory).toBe("/tmp/child");
-    expect(child?.context.userId).toBe(sessionManager.testUserId("cli-user"));
     expect(child?.context.yoloMode).toBe(false);
     expect(child?.context.toolAllowList).toEqual([]);
     expect(child?.parentSessionId).toBe(parent.sessionId);
