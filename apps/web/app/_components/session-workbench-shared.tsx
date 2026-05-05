@@ -485,6 +485,8 @@ export function getPermissionFamilyLabel(family: string): string {
       return "mcp";
     case "planning":
       return "planning";
+    case "channel":
+      return "channel";
     case "schedule":
       return "schedule";
     default:

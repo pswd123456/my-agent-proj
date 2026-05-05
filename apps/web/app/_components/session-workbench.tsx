@@ -33,7 +33,6 @@ import {
   findReusableNewSessionSummary,
   groupRoutinesByDate,
   appendPatternLine,
-  normalizeContextWindow,
   normalizeMaxTurns,
   normalizeSettingsFormState,
   patchSettingsForm,
@@ -43,7 +42,6 @@ import {
   resolveSelectedModelId,
   resolveSelectedThinkingEffort,
   shouldPersistUserContextHookMutation,
-  splitPatternLines,
   toSettingsMcpFormState,
   toSettingsFormState,
   toSettingsChannelsState,
@@ -235,6 +233,38 @@ export function shouldApplySelectedSessionResponse(input: {
   );
 }
 
+export function buildSessionRouteHref(
+  sessionId: string | null,
+  currentHref: string
+): string {
+  try {
+    const url = new URL(currentHref);
+    url.pathname = "/";
+    url.search = "";
+    if (sessionId) {
+      url.searchParams.set("sessionId", sessionId);
+    }
+    return `${url.pathname}${url.search}`;
+  } catch {
+    return sessionId ? `/?sessionId=${encodeURIComponent(sessionId)}` : "/";
+  }
+}
+
+export interface SessionRouteRouter {
+  replace(href: string, options?: { scroll?: boolean }): void;
+}
+
+export function replaceSessionRouteUsingRouter(input: {
+  router: SessionRouteRouter;
+  sessionId: string | null;
+  currentHref: string;
+}) {
+  input.router.replace(
+    buildSessionRouteHref(input.sessionId, input.currentHref),
+    { scroll: false }
+  );
+}
+
 function extractShellApprovalPattern(reply: string): string | null {
   const prefix = "本会话允许 shell:";
   if (!reply.startsWith(prefix)) {
@@ -289,7 +319,7 @@ export function SessionWorkbench() {
     useState("");
   const [activeTab, setActiveTab] = useState<InspectorTabId>("prompt");
   const [loading, setLoading] = useState(true);
-  const [loadingSession, setLoadingSession] = useState(false);
+  const [, setLoadingSession] = useState(false);
   const [activeSidebarPanel, setActiveSidebarPanel] =
     useState<SidebarPanelId | null>(null);
   const [activeSettingsPage, setActiveSettingsPage] =
@@ -426,8 +456,14 @@ export function SessionWorkbench() {
   }
 
   function replaceSessionRoute(sessionId: string | null) {
-    router.replace(sessionId ? `/?sessionId=${sessionId}` : "/", {
-      scroll: false
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    replaceSessionRouteUsingRouter({
+      router,
+      sessionId,
+      currentHref: window.location.href
     });
   }
 

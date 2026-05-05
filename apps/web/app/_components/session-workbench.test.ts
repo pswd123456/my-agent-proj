@@ -1,14 +1,16 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
 import type { RunStreamEvent } from "@ai-app-template/sdk";
 
 import {
+  buildSessionRouteHref,
   buildRunFileChangesState,
   buildRunFileChangesStatesFromSession,
   collectWorkspaceFileChangesFromRun,
   getRunFileChangesAggregateState,
   getSelectedWorkspaceFileChanges,
   mergeRunFileChangesStates,
+  replaceSessionRouteUsingRouter,
   shouldBootstrapFromRequestedSession,
   shouldLoadExtendedSettingsForPanel,
   shouldApplySelectedSessionResponse,
@@ -389,6 +391,46 @@ describe("session-workbench route bootstrap guard", () => {
         selectedSessionId: "session-2"
       })
     ).toBe(true);
+  });
+});
+
+describe("session-workbench session route href", () => {
+  test("builds the selected session URL without preserving stale query params", () => {
+    expect(
+      buildSessionRouteHref(
+        "session 1",
+        "http://localhost:3000/?sessionId=old&debug=true"
+      )
+    ).toBe("/?sessionId=session+1");
+  });
+
+  test("builds the root URL when no session is selected", () => {
+    expect(
+      buildSessionRouteHref(
+        null,
+        "http://localhost:3000/?sessionId=old&debug=true"
+      )
+    ).toBe("/");
+  });
+
+  test("falls back to an encoded root URL for malformed current hrefs", () => {
+    expect(buildSessionRouteHref("session/1", "not a url")).toBe(
+      "/?sessionId=session%2F1"
+    );
+  });
+
+  test("syncs selection through the Next router so search params update", () => {
+    const replace = mock(() => {});
+
+    replaceSessionRouteUsingRouter({
+      router: { replace },
+      sessionId: "session-2",
+      currentHref: "http://localhost:3000/?sessionId=session-1&debug=true"
+    });
+
+    expect(replace).toHaveBeenCalledWith("/?sessionId=session-2", {
+      scroll: false
+    });
   });
 });
 
