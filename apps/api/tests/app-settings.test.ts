@@ -586,6 +586,40 @@ describe("createApiApp settings bootstrap", () => {
     expect(payload.session.model).toBe(DEFAULT_DEEPSEEK_MODEL);
   });
 
+  test("updates the current session working directory through session settings", async () => {
+    const { app } = await createTestApp();
+
+    const session = await createSession(app, {
+      planModeEnabled: true
+    });
+    const workingDirectory = await mkdtemp(
+      path.join(os.tmpdir(), "api-session-cwd-")
+    );
+
+    try {
+      const response = await app.request(
+        `/sessions/${session.sessionId}/settings`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            workingDirectory
+          })
+        }
+      );
+
+      expect(response.status).toBe(200);
+      const payload = (await response.json()) as {
+        session: SessionSnapshot;
+      };
+
+      expect(payload.session.workingDirectory).toBe(workingDirectory);
+      expect(payload.session.context.taskBriefPath).toBeNull();
+    } finally {
+      await rm(workingDirectory, { recursive: true, force: true });
+    }
+  });
+
   test("updates the current session thinking effort through session settings", async () => {
     const { app } = await createTestApp();
 

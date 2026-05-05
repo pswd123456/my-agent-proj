@@ -8,6 +8,8 @@ import {
 } from "@ai-app-template/agent";
 import {
   normalizeThinkingEffort,
+  pickDefinedSettingsFields,
+  updateUserSettingsFieldNames,
   updateUserSettingsPayloadSchema
 } from "@ai-app-template/domain";
 
@@ -101,59 +103,22 @@ export function registerSettingsRoutes(input: {
   app.patch("/settings", async (c) => {
     const body = updateUserSettingsPayloadSchema.parse(await c.req.json());
     const requestedModel = resolveRequestedModel(dependencies, body.model);
+    const patch = pickDefinedSettingsFields(body, updateUserSettingsFieldNames);
+    if (typeof body.workingDirectory === "string") {
+      patch.workingDirectory = dependencies.buildWorkingDirectory(
+        body.workingDirectory
+      );
+    }
+    if (requestedModel.model) {
+      patch.model = requestedModel.model;
+    } else {
+      delete patch.model;
+    }
+    if (typeof body.thinkingEffort === "string") {
+      patch.thinkingEffort = normalizeThinkingEffort(body.thinkingEffort);
+    }
     const settings =
-      await dependencies.settingsConfigStore.updateGlobalSettings({
-        ...(typeof body.workingDirectory === "string"
-          ? {
-              workingDirectory: dependencies.buildWorkingDirectory(
-                body.workingDirectory
-              )
-            }
-          : {}),
-        ...(requestedModel.model ? { model: requestedModel.model } : {}),
-        ...(typeof body.thinkingEffort === "string"
-          ? { thinkingEffort: normalizeThinkingEffort(body.thinkingEffort) }
-          : {}),
-        ...(typeof body.yoloMode === "boolean"
-          ? { yoloMode: body.yoloMode }
-          : {}),
-        ...(typeof body.contextWindow === "number"
-          ? { contextWindow: body.contextWindow }
-          : {}),
-        ...(typeof body.maxTurns === "number"
-          ? { maxTurns: body.maxTurns }
-          : {}),
-        ...(Array.isArray(body.shellAllowPatterns)
-          ? { shellAllowPatterns: body.shellAllowPatterns }
-          : {}),
-        ...(Array.isArray(body.shellDenyPatterns)
-          ? { shellDenyPatterns: body.shellDenyPatterns }
-          : {}),
-        ...(Array.isArray(body.toolAllowList)
-          ? { toolAllowList: body.toolAllowList }
-          : {}),
-        ...(Array.isArray(body.toolAskList)
-          ? { toolAskList: body.toolAskList }
-          : {}),
-        ...(Array.isArray(body.toolDenyList)
-          ? { toolDenyList: body.toolDenyList }
-          : {}),
-        ...(Array.isArray(body.enabledCapabilityPacks)
-          ? { enabledCapabilityPacks: body.enabledCapabilityPacks }
-          : {}),
-        ...(Array.isArray(body.workspaceSkillSettings)
-          ? { workspaceSkillSettings: body.workspaceSkillSettings }
-          : {}),
-        ...(Array.isArray(body.userContextHooks)
-          ? { userContextHooks: body.userContextHooks }
-          : {}),
-        ...(typeof body.debugConversationView === "boolean"
-          ? { debugConversationView: body.debugConversationView }
-          : {}),
-        ...(typeof body.userCustomPrompt === "string"
-          ? { userCustomPrompt: body.userCustomPrompt }
-          : {})
-      });
+      await dependencies.settingsConfigStore.updateGlobalSettings(patch);
     return c.json({ settings, permissionTools: settingsPermissionTools });
   });
 }

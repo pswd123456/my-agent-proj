@@ -412,6 +412,10 @@ export function registerSessionRoutes(input: {
     }
 
     const body = updateSessionSettingsPayloadSchema.parse(await c.req.json());
+    const requestedWorkingDirectory =
+      typeof body.workingDirectory === "string"
+        ? dependencies.buildWorkingDirectory(body.workingDirectory)
+        : undefined;
     const requestedModel = resolveRequestedModel(dependencies, body.model);
     const permissionRules = normalizeSettingsPermissionRules(
       {
@@ -448,6 +452,12 @@ export function registerSessionRoutes(input: {
           }
         : {})
     });
+    if (requestedWorkingDirectory) {
+      updated = await dependencies.sessionManager.setWorkingDirectory(
+        sessionId,
+        requestedWorkingDirectory
+      );
+    }
     if (requestedModel.model) {
       updated = await dependencies.sessionManager.setModel(
         sessionId,
