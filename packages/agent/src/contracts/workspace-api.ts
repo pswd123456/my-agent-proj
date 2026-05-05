@@ -116,6 +116,19 @@ export const userSettingsChannelsPayloadSchema = z.object({
   configPath: z.string(),
   foundConfig: z.boolean(),
   telegram: workspaceTelegramChannelConfigSchema,
+  telegramBindings: z
+    .array(
+      z.object({
+        channel: z.literal("telegram"),
+        externalChatId: z.string(),
+        activeSessionId: z.string().nullable(),
+        responseOutputMode: z.enum(["final", "all"]),
+        lastUpdateId: z.number().int().nullable(),
+        createdAt: z.string(),
+        updatedAt: z.string()
+      })
+    )
+    .default([]),
   diagnostics: z.array(workspaceChannelConfigDiagnosticSchema)
 });
 
