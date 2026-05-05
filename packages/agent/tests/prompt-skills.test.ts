@@ -639,12 +639,12 @@ describe("PromptBuilder skill context", () => {
     const promptEnvelope = promptBuilder.build(session, new ToolRegistry());
 
     expect(promptEnvelope.system).toContain("Read before edit");
-    expect(promptEnvelope.system).toContain("smallest exact hunk");
+    expect(promptEnvelope.system).toContain("exact current text");
     expect(promptEnvelope.system).toContain(
-      "Do not escalate a small edit into write_file"
+      "instead of escalating a small edit into write_file"
     );
     expect(promptEnvelope.system).toContain(
-      "preferred sequence is: search_text -> read_file with startLine/endLine around the hit -> apply_patch"
+      "preferred sequence is: search_text -> read_file with startLine/endLine around the hit -> edit_file"
     );
     expect(promptEnvelope.system).toContain(
       "call read_file for that exact path"
@@ -663,10 +663,10 @@ describe("PromptBuilder skill context", () => {
       "keep surrounding containers, branch boundaries, and closing lines unchanged"
     );
     expect(promptEnvelope.system).toContain(
-      "the removed content line itself should be the - line"
+      "make oldString/newString cover only the target content"
     );
     expect(promptEnvelope.system).toContain("Concrete local-content example");
-    expect(promptEnvelope.system).toContain("do not switch to write_file");
+    expect(promptEnvelope.system).toContain("instead of escalating");
     expect(promptEnvelope.system).toContain(
       "Do not pivot to shell inspection first"
     );

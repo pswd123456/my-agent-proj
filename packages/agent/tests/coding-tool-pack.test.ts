@@ -6,7 +6,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import type { ToolExecutionContext } from "../src/tools/runtime-tool.js";
-import { createApplyPatchTool } from "../src/tools/apply-patch.js";
+import { createEditFileTool } from "../src/tools/edit-file.js";
 import { createFindFilesTool } from "../src/tools/find-files.js";
 import { createGitDiffTool } from "../src/tools/git-diff.js";
 import { createGitStatusTool } from "../src/tools/git-status.js";
@@ -214,151 +214,61 @@ describe("find_files", () => {
   });
 });
 
-describe("apply_patch", () => {
-  test("schema explains hunk counts, context matching, and patch examples", () => {
-    const tool = createApplyPatchTool("/tmp/workspace");
+describe("edit_file", () => {
+  test("schema explains string replacement, read-before-edit, uniqueness, and replaceAll", () => {
+    const tool = createEditFileTool("/tmp/workspace");
     expect(tool.description).toContain("Read before edit");
-    expect(tool.description).toContain("smallest exact current-context hunk");
-    expect(tool.description).toContain("hunk counts");
-    expect(tool.description).toContain("blank lines");
-    expect(tool.description).toContain("oldStart is a 1-based placement hint");
+    expect(tool.description).toContain("oldString");
+    expect(tool.description).toContain("newString");
+    expect(tool.description).toContain("replaceAll");
     expect(tool.description).toContain(
-      "Header counts must include every unchanged context line shown in the hunk body"
-    );
-    expect(tool.description).toContain("Do not rewrite nearby identifiers");
-    expect(tool.description).toContain(
-      "do not change conditions, branches, wrappers"
-    );
-    expect(tool.description).toContain("Do not invert control flow");
-    expect(tool.description).toContain(
-      "the deleted content line must appear with a - prefix"
+      "oldString must identify one occurrence"
     );
     expect(tool.description).toContain(
-      "do not normalize or simplify surrounding code, markup, configuration, or prose structure"
+      "do not write unified diff syntax; edit_file generates the diff itself"
     );
+    expect(tool.description).not.toContain("@@ -oldStart");
 
-    const patchSchema = tool.inputSchema.properties?.patch;
+    const oldStringSchema = tool.inputSchema.properties?.oldString;
     if (
-      !patchSchema ||
-      typeof patchSchema !== "object" ||
-      !("description" in patchSchema) ||
-      typeof patchSchema.description !== "string"
+      !oldStringSchema ||
+      typeof oldStringSchema !== "object" ||
+      !("description" in oldStringSchema) ||
+      typeof oldStringSchema.description !== "string"
     ) {
-      throw new Error("Expected patch schema description");
+      throw new Error("Expected oldString schema description");
     }
 
-    expect(patchSchema.description).toContain(
-      "@@ -oldStart,oldCount +newStart,newCount @@"
+    expect(oldStringSchema.description).toContain("Exact current text");
+    expect(oldStringSchema.description).toContain(
+      "unique unless replaceAll is true"
     );
-    expect(patchSchema.description).toContain("oldStart is a placement hint");
-    expect(patchSchema.description).toContain(
-      "oldCount = context + deleted lines"
-    );
-    expect(patchSchema.description).toContain(
-      "If the hunk body contains 4 context lines plus 1 deleted line and 1 added line, the header counts are old=5 and new=5."
-    );
-    expect(patchSchema.description).toContain(
-      "delete only the target content and keep adjacent identifiers"
-    );
-    expect(patchSchema.description).toContain(
-      "keep the surrounding container, branch, key, delimiter, and wrapper lines exactly as they are"
-    );
-    expect(patchSchema.description).toContain(
-      "Do not invert control flow, collapse wrappers, rename keys"
-    );
-    expect(patchSchema.description).toContain(
-      "Keep unchanged surrounding lines as space-prefixed context lines"
-    );
-    expect(patchSchema.description).toContain(
-      "Concrete local content removal example"
-    );
-    expect(patchSchema.description).toContain("Example modify");
-    expect(patchSchema.description).toContain("Example remove one line");
-    expect(patchSchema.description).toContain(
-      "Example delete with leading blank context"
-    );
-    expect(patchSchema.description).toContain("Example create");
-    expect(patchSchema.description).toContain("single leading space");
   });
 
-  test("applies a multi-file unified diff patch", async () => {
+  test("applies a localized edit and returns workspace file changes", async () => {
     const workspace = await createWorkspace();
-    await mkdir(path.join(workspace, "nested"), { recursive: true });
-    await writeFile(path.join(workspace, "alpha.txt"), "one\ntwo\n");
-    await writeFile(
-      path.join(workspace, "nested", "beta.txt"),
-      "beta\ngamma\n"
-    );
-    const alphaReadMessages = await createReadMessages({
+    const targetPath = path.join(workspace, "alpha.txt");
+    await writeFile(targetPath, "one\ntwo\n");
+    const sessionMessages = await createReadMessages({
       workspace,
       toolCallId: "read-alpha",
       path: "alpha.txt"
     });
-    const betaReadMessages = await createReadMessages({
-      workspace,
-      toolCallId: "read-beta",
-      path: "nested/beta.txt"
-    });
 
-    const patch = [
-      "--- a/alpha.txt",
-      "+++ b/alpha.txt",
-      "@@ -1,2 +1,2 @@",
-      " one",
-      "-two",
-      "+TWO",
-      "--- a/nested/beta.txt",
-      "+++ b/nested/beta.txt",
-      "@@ -1,2 +1,3 @@",
-      " beta",
-      " gamma",
-      "+delta"
-    ].join("\n");
-
-    const result = await createApplyPatchTool(workspace).execute(
+    const result = await createEditFileTool(workspace).execute(
       {
-        patch
+        path: "alpha.txt",
+        oldString: "two",
+        newString: "TWO"
       },
-      createContext(workspace, {
-        sessionMessages: [...alphaReadMessages, ...betaReadMessages]
-      })
+      createContext(workspace, { sessionMessages })
     );
 
     expect(result.state).toBe("success");
     expect(result.result.data).toMatchObject({
-      fileCount: 2,
-      files: [
-        {
-          path: "alpha.txt",
-          action: "modify",
-          hunkCount: 1,
-          addedLineCount: 1,
-          removedLineCount: 1,
-          diff: [
-            "--- a/alpha.txt",
-            "+++ b/alpha.txt",
-            "@@ -1,2 +1,2 @@",
-            " one",
-            "-two",
-            "+TWO"
-          ].join("\n")
-        },
-        {
-          path: "nested/beta.txt",
-          action: "modify",
-          hunkCount: 1,
-          addedLineCount: 1,
-          removedLineCount: 0,
-          diff: [
-            "--- a/nested/beta.txt",
-            "+++ b/nested/beta.txt",
-            "@@ -1,2 +1,3 @@",
-            " beta",
-            " gamma",
-            "+delta"
-          ].join("\n")
-        }
-      ]
+      path: "alpha.txt",
+      replacementCount: 1,
+      replaceAll: false
     });
     expect(result.details).toEqual({
       kind: "workspace_file_changes",
@@ -376,60 +286,81 @@ describe("apply_patch", () => {
             "-two",
             "+TWO"
           ].join("\n")
-        },
+        }
+      ]
+    });
+    await expect(readFile(targetPath, "utf8")).resolves.toBe("one\nTWO\n");
+  });
+
+  test("deletes local content by using an empty newString", async () => {
+    const workspace = await createWorkspace();
+    const targetPath = path.join(workspace, "alpha.txt");
+    await writeFile(targetPath, "one\ntwo\nthree\n");
+    const sessionMessages = await createReadMessages({
+      workspace,
+      toolCallId: "read-alpha",
+      path: "alpha.txt"
+    });
+
+    const result = await createEditFileTool(workspace).execute(
+      {
+        path: "alpha.txt",
+        oldString: "two",
+        newString: ""
+      },
+      createContext(workspace, { sessionMessages })
+    );
+
+    expect(result.state).toBe("success");
+    expect(result.details).toEqual({
+      kind: "workspace_file_changes",
+      files: [
         {
-          path: "nested/beta.txt",
+          path: "alpha.txt",
           action: "modify",
-          addedLineCount: 1,
-          removedLineCount: 0,
+          addedLineCount: 0,
+          removedLineCount: 1,
           diff: [
-            "--- a/nested/beta.txt",
-            "+++ b/nested/beta.txt",
-            "@@ -1,2 +1,3 @@",
-            " beta",
-            " gamma",
-            "+delta"
+            "--- a/alpha.txt",
+            "+++ b/alpha.txt",
+            "@@ -1,3 +1,2 @@",
+            " one",
+            "-two",
+            " three"
           ].join("\n")
         }
       ]
     });
-    await expect(
-      readFile(path.join(workspace, "alpha.txt"), "utf8")
-    ).resolves.toBe("one\nTWO\n");
-    await expect(
-      readFile(path.join(workspace, "nested", "beta.txt"), "utf8")
-    ).resolves.toBe("beta\ngamma\ndelta\n");
+    await expect(readFile(targetPath, "utf8")).resolves.toBe("one\nthree\n");
   });
 
-  test("rejects malformed patch input", async () => {
+  test("rejects malformed edit input", async () => {
     const workspace = await createWorkspace();
 
-    const result = await createApplyPatchTool(workspace).execute(
+    const result = await createEditFileTool(workspace).execute(
       {
-        patch: "not a unified diff"
+        path: "alpha.txt",
+        patch: "not accepted"
       },
       createContext(workspace)
     );
 
     expect(result.state).toBe("failed");
-    expect(result.result.code).toBe("INVALID_PATCH");
+    expect(result.result.code).toBe("INVALID_TOOL_INPUT");
+    expect(result.content).toContain("oldString must be a non-empty string");
+    expect(result.content).toContain("Do not pass patch");
   });
 
-  test("fails when modifying an existing file without a session read", async () => {
+  test("fails when editing an existing file without a session read", async () => {
     const workspace = await createWorkspace();
     const targetPath = path.join(workspace, "alpha.txt");
     await writeFile(targetPath, "one\ntwo\n");
 
-    const result = await createApplyPatchTool(workspace).execute(
+    const result = await createEditFileTool(workspace).execute(
       {
-        patch: [
-          "--- a/alpha.txt",
-          "+++ b/alpha.txt",
-          "@@ -1,2 +1,2 @@",
-          " one",
-          "-two",
-          "+TWO"
-        ].join("\n")
+        path: "alpha.txt",
+        oldString: "two",
+        newString: "TWO"
       },
       createContext(workspace)
     );
@@ -439,173 +370,7 @@ describe("apply_patch", () => {
     await expect(readFile(targetPath, "utf8")).resolves.toBe("one\ntwo\n");
   });
 
-  test("explains mismatched hunk counts with header and body counts", async () => {
-    const workspace = await createWorkspace();
-    await writeFile(path.join(workspace, "alpha.txt"), "one\ntwo\nthree\n");
-    const sessionMessages = await createReadMessages({
-      workspace,
-      toolCallId: "read-alpha",
-      path: "alpha.txt"
-    });
-
-    const result = await createApplyPatchTool(workspace).execute(
-      {
-        patch: [
-          "--- a/alpha.txt",
-          "+++ b/alpha.txt",
-          "@@ -1,2 +1,1 @@",
-          " one",
-          "-two",
-          " three"
-        ].join("\n")
-      },
-      createContext(workspace, { sessionMessages })
-    );
-
-    expect(result.state).toBe("failed");
-    expect(result.result.code).toBe("PATCH_APPLY_FAILED");
-    expect(result.content).toContain(
-      "Header says old=2, new=1; hunk body consumes old=3, produces new=2."
-    );
-    expect(result.content).toContain(
-      "Fix the @@ header counts or remove extra hunk body lines."
-    );
-    expect(result.content).toContain(
-      "Keep unchanged surrounding lines as space-prefixed context lines"
-    );
-    expect(result.content).toContain(
-      "Do not switch to write_file for this localized edit."
-    );
-  });
-
-  test("applies a hunk when oldStart is offset but context is unique", async () => {
-    const workspace = await createWorkspace();
-    const targetPath = path.join(workspace, "alpha.md");
-    await writeFile(targetPath, "\nline A\nline B\nold line\n\nheading\n");
-    const sessionMessages = await createReadMessages({
-      workspace,
-      toolCallId: "read-alpha",
-      path: "alpha.md"
-    });
-
-    const result = await createApplyPatchTool(workspace).execute(
-      {
-        patch: [
-          "--- a/alpha.md",
-          "+++ b/alpha.md",
-          "@@ -2,6 +2,5 @@",
-          " ",
-          " line A",
-          " line B",
-          "-old line",
-          " ",
-          " heading"
-        ].join("\n")
-      },
-      createContext(workspace, { sessionMessages })
-    );
-
-    expect(result.state).toBe("success");
-    expect(result.result.code).toBe("PATCH_APPLIED");
-    await expect(readFile(targetPath, "utf8")).resolves.toBe(
-      "\nline A\nline B\n\nheading\n"
-    );
-  });
-
-  test("applies trace-style gitignore patch when line numbers drift", async () => {
-    const workspace = await createWorkspace();
-    const targetPath = path.join(workspace, ".gitignore");
-    await writeFile(
-      targetPath,
-      [
-        "# macOS",
-        ".DS_Store",
-        "",
-        "# Dependencies and package-manager state",
-        "node_modules/",
-        ".npm/",
-        ".yarn/",
-        "",
-        "# Build output",
-        "dist/",
-        "build/",
-        "coverage/",
-        ".next/",
-        ".turbo/",
-        "storybook-static/",
-        "*.tsbuildinfo",
-        "",
-        "# Local environment files",
-        ".env",
-        ".env.*",
-        "!.env.example",
-        ".direnv/",
-        ""
-      ].join("\n")
-    );
-    const sessionMessages = await createReadMessages({
-      workspace,
-      toolCallId: "read-gitignore",
-      path: ".gitignore"
-    });
-
-    const result = await createApplyPatchTool(workspace).execute(
-      {
-        patch: [
-          "--- a/.gitignore",
-          "+++ b/.gitignore",
-          "@@ -24,6 +24,7 @@ storybook-static/",
-          " ",
-          " # Local environment files",
-          " .env",
-          "+apps/web/next-env.d.ts",
-          " .env.*",
-          " !.env.example",
-          " .direnv/"
-        ].join("\n")
-      },
-      createContext(workspace, { sessionMessages })
-    );
-
-    expect(result.state).toBe("success");
-    expect(result.result.code).toBe("PATCH_APPLIED");
-    await expect(readFile(targetPath, "utf8")).resolves.toContain(
-      ".env\napps/web/next-env.d.ts\n.env.*"
-    );
-  });
-
-  test("rejects an offset hunk when the context is ambiguous", async () => {
-    const workspace = await createWorkspace();
-    const targetPath = path.join(workspace, "alpha.txt");
-    await writeFile(targetPath, "same\nother\nsame\nother\n");
-    const sessionMessages = await createReadMessages({
-      workspace,
-      toolCallId: "read-alpha",
-      path: "alpha.txt"
-    });
-
-    const result = await createApplyPatchTool(workspace).execute(
-      {
-        patch: [
-          "--- a/alpha.txt",
-          "+++ b/alpha.txt",
-          "@@ -99,1 +99,2 @@",
-          " same",
-          "+new"
-        ].join("\n")
-      },
-      createContext(workspace, { sessionMessages })
-    );
-
-    expect(result.state).toBe("failed");
-    expect(result.result.code).toBe("PATCH_APPLY_FAILED");
-    expect(result.content).toContain("Patch hunk is ambiguous");
-    await expect(readFile(targetPath, "utf8")).resolves.toBe(
-      "same\nother\nsame\nother\n"
-    );
-  });
-
-  test("fails when a patched file changed after the previous session read", async () => {
+  test("fails when the file changed after the previous session read", async () => {
     const workspace = await createWorkspace();
     const targetPath = path.join(workspace, "alpha.txt");
     await writeFile(targetPath, "one\ntwo\n");
@@ -616,16 +381,11 @@ describe("apply_patch", () => {
     });
     await writeFile(targetPath, "one\nchanged\n");
 
-    const result = await createApplyPatchTool(workspace).execute(
+    const result = await createEditFileTool(workspace).execute(
       {
-        patch: [
-          "--- a/alpha.txt",
-          "+++ b/alpha.txt",
-          "@@ -1,2 +1,2 @@",
-          " one",
-          "-two",
-          "+TWO"
-        ].join("\n")
+        path: "alpha.txt",
+        oldString: "two",
+        newString: "TWO"
       },
       createContext(workspace, { sessionMessages })
     );
@@ -635,7 +395,7 @@ describe("apply_patch", () => {
     await expect(readFile(targetPath, "utf8")).resolves.toBe("one\nchanged\n");
   });
 
-  test("allows consecutive patches after the current session patches the file", async () => {
+  test("allows consecutive edits after this session edits the file", async () => {
     const workspace = await createWorkspace();
     const targetPath = path.join(workspace, "alpha.txt");
     await writeFile(targetPath, "one\ntwo\n");
@@ -645,43 +405,33 @@ describe("apply_patch", () => {
       path: "alpha.txt"
     });
     const firstInput = {
-      patch: [
-        "--- a/alpha.txt",
-        "+++ b/alpha.txt",
-        "@@ -1,2 +1,2 @@",
-        " one",
-        "-two",
-        "+TWO"
-      ].join("\n")
+      path: "alpha.txt",
+      oldString: "two",
+      newString: "TWO"
     };
-    const firstResult = await createApplyPatchTool(workspace).execute(
+    const firstResult = await createEditFileTool(workspace).execute(
       firstInput,
       createContext(workspace, { sessionMessages })
     );
     expect(firstResult.state).toBe("success");
 
-    const secondResult = await createApplyPatchTool(workspace).execute(
+    const secondResult = await createEditFileTool(workspace).execute(
       {
-        patch: [
-          "--- a/alpha.txt",
-          "+++ b/alpha.txt",
-          "@@ -1,2 +1,2 @@",
-          " one",
-          "-TWO",
-          "+THREE"
-        ].join("\n")
+        path: "alpha.txt",
+        oldString: "TWO",
+        newString: "THREE"
       },
       createContext(workspace, {
         sessionMessages: [
           ...sessionMessages,
           createToolCallBlock({
-            toolName: "apply_patch",
-            toolCallId: "first-patch",
+            toolName: "edit_file",
+            toolCallId: "first-edit",
             toolInput: firstInput
           }),
           createToolResultBlock({
-            toolName: "apply_patch",
-            toolCallId: "first-patch",
+            toolName: "edit_file",
+            toolCallId: "first-edit",
             output: firstResult.content
           })
         ]
@@ -692,7 +442,7 @@ describe("apply_patch", () => {
     await expect(readFile(targetPath, "utf8")).resolves.toBe("one\nTHREE\n");
   });
 
-  test("requires a new read when another writer changes a file after this session patches it", async () => {
+  test("requires a new read when another writer changes a file after this session edits it", async () => {
     const workspace = await createWorkspace();
     const targetPath = path.join(workspace, "alpha.txt");
     await writeFile(targetPath, "one\ntwo\n");
@@ -702,44 +452,34 @@ describe("apply_patch", () => {
       path: "alpha.txt"
     });
     const firstInput = {
-      patch: [
-        "--- a/alpha.txt",
-        "+++ b/alpha.txt",
-        "@@ -1,2 +1,2 @@",
-        " one",
-        "-two",
-        "+TWO"
-      ].join("\n")
+      path: "alpha.txt",
+      oldString: "two",
+      newString: "TWO"
     };
-    const firstResult = await createApplyPatchTool(workspace).execute(
+    const firstResult = await createEditFileTool(workspace).execute(
       firstInput,
       createContext(workspace, { sessionMessages })
     );
     expect(firstResult.state).toBe("success");
     await writeFile(targetPath, "one\nexternal change\n");
 
-    const staleResult = await createApplyPatchTool(workspace).execute(
+    const staleResult = await createEditFileTool(workspace).execute(
       {
-        patch: [
-          "--- a/alpha.txt",
-          "+++ b/alpha.txt",
-          "@@ -1,2 +1,2 @@",
-          " one",
-          "-TWO",
-          "+THREE"
-        ].join("\n")
+        path: "alpha.txt",
+        oldString: "TWO",
+        newString: "THREE"
       },
       createContext(workspace, {
         sessionMessages: [
           ...sessionMessages,
           createToolCallBlock({
-            toolName: "apply_patch",
-            toolCallId: "first-patch",
+            toolName: "edit_file",
+            toolCallId: "first-edit",
             toolInput: firstInput
           }),
           createToolResultBlock({
-            toolName: "apply_patch",
-            toolCallId: "first-patch",
+            toolName: "edit_file",
+            toolCallId: "first-edit",
             output: firstResult.content
           })
         ]
@@ -753,176 +493,116 @@ describe("apply_patch", () => {
     );
   });
 
-  test("creates a new file without a session read", async () => {
+  test("rejects ambiguous oldString unless replaceAll is true", async () => {
     const workspace = await createWorkspace();
-
-    const result = await createApplyPatchTool(workspace).execute(
-      {
-        patch: [
-          "--- /dev/null",
-          "+++ b/created.txt",
-          "@@ -0,0 +1,2 @@",
-          "+one",
-          "+two"
-        ].join("\n")
-      },
-      createContext(workspace)
-    );
-
-    expect(result.state).toBe("success");
-    expect(result.result.code).toBe("PATCH_APPLIED");
-    await expect(
-      readFile(path.join(workspace, "created.txt"), "utf8")
-    ).resolves.toBe("one\ntwo\n");
-  });
-
-  test("canonicalizes a malformed localized text deletion patch", async () => {
-    const workspace = await createWorkspace();
-    const targetPath = path.join(workspace, "component.tsx");
-    await writeFile(
-      targetPath,
-      [
-        "export function Demo() {",
-        "  return (",
-        "    <div>",
-        "      {true ? null : (",
-        "        <div",
-        "          className={getSoftBlockClass(",
-        '            "py-6 text-sm text-[var(--app-text-muted)]"',
-        "          )}",
-        "        >",
-        "          发送请求后，这里会显示当前会话的对话和执行记录。",
-        "        </div>",
-        "      )}",
-        "    </div>",
-        "  );",
-        "}"
-      ].join("\n")
-    );
+    const targetPath = path.join(workspace, "alpha.txt");
+    await writeFile(targetPath, "same\nother\nsame\n");
     const sessionMessages = await createReadMessages({
       workspace,
-      toolCallId: "read-component",
-      path: "component.tsx"
+      toolCallId: "read-alpha",
+      path: "alpha.txt"
     });
 
-    const result = await createApplyPatchTool(workspace).execute(
+    const result = await createEditFileTool(workspace).execute(
       {
-        patch: [
-          "--- a/component.tsx",
-          "+++ b/component.tsx",
-          "@@ -7,7 +7,6 @@",
-          "          className={getSoftBlockClass(",
-          '            "py-6 text-sm text-[var(--app-text-muted)]"',
-          "          )}",
-          "-        >",
-          "-          发送请求后，这里会显示当前会话的对话和执行记录。",
-          "-        </div>",
-          "+        />"
-        ].join("\n")
-      },
-      createContext(workspace, { sessionMessages })
-    );
-
-    expect(result.state).toBe("success");
-    expect(result.details).toEqual({
-      kind: "workspace_file_changes",
-      files: [
-        {
-          path: "component.tsx",
-          action: "modify",
-          addedLineCount: 0,
-          removedLineCount: 1,
-          diff: [
-            "--- a/component.tsx",
-            "+++ b/component.tsx",
-            "@@ -9,3 +9,2 @@",
-            "         >",
-            "-          发送请求后，这里会显示当前会话的对话和执行记录。",
-            "         </div>"
-          ].join("\n")
-        }
-      ]
-    });
-    await expect(readFile(targetPath, "utf8")).resolves.toBe(
-      [
-        "export function Demo() {",
-        "  return (",
-        "    <div>",
-        "      {true ? null : (",
-        "        <div",
-        "          className={getSoftBlockClass(",
-        '            "py-6 text-sm text-[var(--app-text-muted)]"',
-        "          )}",
-        "        >",
-        "        </div>",
-        "      )}",
-        "    </div>",
-        "  );",
-        "}"
-      ].join("\n")
-    );
-  });
-
-  test("rejects a tsx patch that would remove structural closing lines", async () => {
-    const workspace = await createWorkspace();
-    const targetPath = path.join(workspace, "component.tsx");
-    await writeFile(
-      targetPath,
-      [
-        "export function Demo() {",
-        "  return (",
-        "    <div>",
-        "      {true ? null : (",
-        "        <div>",
-        "          hello",
-        "        </div>",
-        "      )}",
-        "    </div>",
-        "  );",
-        "}"
-      ].join("\n")
-    );
-    const sessionMessages = await createReadMessages({
-      workspace,
-      toolCallId: "read-component",
-      path: "component.tsx"
-    });
-
-    const result = await createApplyPatchTool(workspace).execute(
-      {
-        patch: [
-          "--- a/component.tsx",
-          "+++ b/component.tsx",
-          "@@ -5,3 +5,2 @@",
-          "         <div>",
-          "           hello",
-          "-        </div>"
-        ].join("\n")
+        path: "alpha.txt",
+        oldString: "same",
+        newString: "changed"
       },
       createContext(workspace, { sessionMessages })
     );
 
     expect(result.state).toBe("failed");
-    expect(result.result.code).toBe("PATCH_APPLY_FAILED");
-    expect(result.content).toContain(
-      "Patch would leave component.tsx syntactically invalid."
-    );
-    expect(result.content).toContain(
-      "Keep unchanged structural lines, braces, parentheses"
-    );
+    expect(result.result.code).toBe("STRING_NOT_UNIQUE");
+    expect(result.result.data).toMatchObject({ matchCount: 2 });
+    expect(result.displayText).toContain("oldString matched 2 locations");
     await expect(readFile(targetPath, "utf8")).resolves.toBe(
+      "same\nother\nsame\n"
+    );
+  });
+
+  test("replaceAll replaces every exact match", async () => {
+    const workspace = await createWorkspace();
+    const targetPath = path.join(workspace, "alpha.txt");
+    await writeFile(targetPath, "same\nother\nsame\n");
+    const sessionMessages = await createReadMessages({
+      workspace,
+      toolCallId: "read-alpha",
+      path: "alpha.txt"
+    });
+
+    const result = await createEditFileTool(workspace).execute(
+      {
+        path: "alpha.txt",
+        oldString: "same",
+        newString: "changed",
+        replaceAll: true
+      },
+      createContext(workspace, { sessionMessages })
+    );
+
+    expect(result.state).toBe("success");
+    expect(result.result.data).toMatchObject({
+      replacementCount: 2,
+      replaceAll: true
+    });
+    await expect(readFile(targetPath, "utf8")).resolves.toBe(
+      "changed\nother\nchanged\n"
+    );
+  });
+
+  test("removes trace-style adjacent block without touching later similar fields", async () => {
+    const workspace = await createWorkspace();
+    const targetPath = path.join(workspace, "settings.tsx");
+    await writeFile(
+      targetPath,
       [
-        "export function Demo() {",
+        "export function ActiveChats({ binding }: { binding: { externalChatId: string } }) {",
         "  return (",
-        "    <div>",
-        "      {true ? null : (",
-        "        <div>",
-        "          hello",
+        '    <section aria-label="Active Telegram Chats">',
+        '      <div className="chat-row">',
+        '        <div className="font-mono text-xs text-[var(--app-text-primary)]">',
+        "          {binding.externalChatId}",
         "        </div>",
-        "      )}",
-        "    </div>",
+        '        <div className="text-xs">Telegram User ID</div>',
+        '        <div className="font-mono text-xs">',
+        "          {binding.externalChatId}",
+        "        </div>",
+        "      </div>",
+        "    </section>",
         "  );",
         "}"
+      ].join("\n")
+    );
+    const sessionMessages = await createReadMessages({
+      workspace,
+      toolCallId: "read-settings",
+      path: "settings.tsx"
+    });
+
+    const result = await createEditFileTool(workspace).execute(
+      {
+        path: "settings.tsx",
+        oldString: [
+          '        <div className="font-mono text-xs text-[var(--app-text-primary)]">',
+          "          {binding.externalChatId}",
+          "        </div>",
+          ""
+        ].join("\n"),
+        newString: ""
+      },
+      createContext(workspace, { sessionMessages })
+    );
+
+    expect(result.state).toBe("success");
+    const nextContent = await readFile(targetPath, "utf8");
+    expect(nextContent).not.toContain("text-[var(--app-text-primary)]");
+    expect(nextContent).toContain("Telegram User ID");
+    expect(nextContent).toContain(
+      [
+        '        <div className="font-mono text-xs">',
+        "          {binding.externalChatId}",
+        "        </div>"
       ].join("\n")
     );
   });

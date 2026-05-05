@@ -17,10 +17,10 @@ describe("ToolRegistry stage4 metadata contract", () => {
     });
 
     expect(registry.list().map((tool) => tool.name)).toEqual([
-      "apply_patch",
       "create_directory",
       "delete_file",
       "delete_path",
+      "edit_file",
       "find_files",
       "git_diff",
       "git_status",

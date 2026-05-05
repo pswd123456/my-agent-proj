@@ -557,7 +557,7 @@ describe("write_file", () => {
 });
 
 describe("write_file", () => {
-  test("description keeps localized edits on apply_patch", () => {
+  test("description keeps localized edits on edit_file", () => {
     const tool = createWriteFileTool("/tmp/workspace");
 
     expect(tool.description).toContain(
@@ -584,7 +584,7 @@ describe("write_file", () => {
 
     expect(result.state).toBe("failed");
     expect(result.result.code).toBe("INVALID_TOOL_INPUT");
-    expect(result.content).toContain("Use apply_patch for line edits.");
+    expect(result.content).toContain("Use edit_file for line edits.");
   });
 
   test("declares a destructive permission request for existing files", async () => {
@@ -700,8 +700,10 @@ describe("write_file", () => {
 
     expect(result.state).toBe("failed");
     expect(result.result.code).toBe("WRITE_FILE_LOCALIZED_EDIT");
-    expect(result.displayText).toContain("localized existing-file edit detected");
-    expect(result.displayText).toContain("use apply_patch instead");
+    expect(result.displayText).toContain(
+      "localized existing-file edit detected"
+    );
+    expect(result.displayText).toContain("use edit_file instead");
   });
 
   test("allows consecutive overwrites after the current session writes the file", async () => {
