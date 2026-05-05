@@ -1,8 +1,9 @@
 import { fileURLToPath } from "node:url";
 
 import {
-  enqueueBackgroundNotification,
+  buildStaleBackgroundTaskLifecycleNotification,
   createLogger,
+  enqueueBackgroundTaskLifecycleNotification,
   runBackgroundTask
 } from "@ai-app-template/agent";
 import {
@@ -43,75 +44,20 @@ async function reconcileStaleTasks(): Promise<void> {
       continue;
     }
 
-    if (task.kind === "subagent") {
-      const delegateState =
-        task.taskState?.kind === "delegate" ? task.taskState : null;
-      const latestResponse = delegateState?.latestResponse;
-      await enqueueBackgroundNotification({
-        sessionManager: runtimeEnvironment.sessionManager,
-        traceManager: runtimeEnvironment.traceManager,
-        taskManager: runtimeEnvironment.backgroundTaskManager,
-        task,
-        kind: "task_timeout",
-        summary:
-          latestResponse?.summary ?? task.resultSummary ?? "后台子任务超时。",
-        content:
-          latestResponse?.content ??
-          task.lastError ??
-          "Worker claim expired before completion.",
-        expectedParentReply: delegateState?.expectedParentReply ?? "none",
-        request: latestResponse?.request ?? null,
-        result: latestResponse
-          ? {
-              type: "delegate",
-              summary: latestResponse.summary,
-              content: latestResponse.content,
-              responseKind: latestResponse.kind,
-              expectedParentReply: delegateState?.expectedParentReply ?? "none",
-              ...(latestResponse.request
-                ? { request: latestResponse.request }
-                : {})
-            }
-          : null,
-        decrementActiveTaskCount: true
-      });
-      continue;
-    }
-
-    if (task.kind === "shell_command") {
-      const latestResult =
-        task.taskState?.kind === "shell_command"
-          ? task.taskState.latestResult
-          : null;
-      await enqueueBackgroundNotification({
-        sessionManager: runtimeEnvironment.sessionManager,
-        traceManager: runtimeEnvironment.traceManager,
-        taskManager: runtimeEnvironment.backgroundTaskManager,
-        task,
-        kind: "task_timeout",
-        summary: task.resultSummary ?? "后台任务超时。",
-        content: task.lastError ?? "Worker claim expired before completion.",
-        expectedParentReply: "none",
-        result: latestResult,
-        decrementActiveTaskCount: true
-      });
-      continue;
-    }
-
-    if (task.kind === "session_wakeup") {
-      await enqueueBackgroundNotification({
-        sessionManager: runtimeEnvironment.sessionManager,
-        traceManager: runtimeEnvironment.traceManager,
-        taskManager: runtimeEnvironment.backgroundTaskManager,
-        task,
-        kind: "task_timeout",
-        title: "主会话后台续跑",
-        summary: "主会话后台续跑超时。",
-        content: task.lastError ?? "Worker claim expired before completion.",
-        expectedParentReply: "none",
-        autoWake: false
-      });
-    }
+    const notification = buildStaleBackgroundTaskLifecycleNotification(task);
+    await enqueueBackgroundTaskLifecycleNotification({
+      sessionManager: runtimeEnvironment.sessionManager,
+      traceManager: runtimeEnvironment.traceManager,
+      taskManager: runtimeEnvironment.backgroundTaskManager,
+      task,
+      kind: notification.kind,
+      fallbackSummary: notification.fallbackSummary,
+      fallbackContent: notification.fallbackContent,
+      decrementActiveTaskCount: notification.decrementActiveTaskCount,
+      ...(typeof notification.autoWake === "boolean"
+        ? { autoWake: notification.autoWake }
+        : {})
+    });
   }
 }
 
