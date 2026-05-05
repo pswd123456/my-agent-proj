@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 
 import {
@@ -10,17 +11,16 @@ import {
   createDefaultToolRegistry,
   listSettingsPermissionToolOptions,
   createPromptBuilder,
+  createSettingsConfigStore,
   resolveSessionStateDirectory,
   resolveToolChoice
 } from "../packages/agent/src/index.ts";
 import {
   createMemoryRoutineRepository,
   createPostgresDatabase,
-  createPostgresSettingsRepository,
   ensureProductSchema,
   resolveDatabaseUrl
 } from "../packages/db/src/index.ts";
-import { DEFAULT_SESSION_SETTINGS_USER_ID } from "../packages/domain/src/index.ts";
 
 const miniMaxRuntime = createMiniMaxRuntime(process.env);
 if (!miniMaxRuntime) {
@@ -38,6 +38,9 @@ const smokeRoot = path.join(process.cwd(), "tmp");
 await mkdir(smokeRoot, { recursive: true });
 const workspaceRoot = await mkdtemp(
   path.join(smokeRoot, "minimax-file-edit-smoke-")
+);
+const homeDir = await mkdtemp(
+  path.join(smokeRoot, "minimax-file-edit-smoke-home-")
 );
 const appDir = path.join(workspaceRoot, "apps/web/app/_components");
 await mkdir(appDir, { recursive: true });
@@ -99,16 +102,18 @@ const database = createPostgresDatabase(databaseUrl);
 await ensureProductSchema(database);
 const routineRepository = createMemoryRoutineRepository();
 const sessionManager = createPostgresSessionManager(database);
+const settingsUserId =
+  process.env.MINIMAX_FILE_EDIT_SMOKE_USER_ID?.trim() || "cli-user";
 const settingsPermissionToolOptions = listSettingsPermissionToolOptions({
   workingDirectory: workspaceRoot
 }).map((tool) => tool.name);
-const settingsRepository = createPostgresSettingsRepository(database, {
+const settingsConfigStore = createSettingsConfigStore({
+  db: database,
+  seedUserId: settingsUserId,
+  homeDir,
   settingsPermissionToolOptions
 });
-const settingsUserId =
-  process.env.MINIMAX_FILE_EDIT_SMOKE_USER_ID?.trim() ||
-  DEFAULT_SESSION_SETTINGS_USER_ID;
-const userSettings = await settingsRepository.getOrCreate(settingsUserId);
+const userSettings = await settingsConfigStore.getGlobalSettings();
 const runtime = createAgentRuntime({
   client: miniMaxRuntime.client,
   model: miniMaxRuntime.model,
@@ -142,7 +147,7 @@ const session = await runtime.createSession({
 });
 const sessionId = session.sessionId;
 const userMessage =
-  "发送请求后，这里会显示当前会话的对话和执行记录。\n这句话去掉";
+  "请修改 apps/web/app/_components/session-workbench-conversation.tsx。\n只删除这一整行：发送请求后，这里会显示当前会话的对话和执行记录。\n其他结构保持不变，不要空改。";
 const resumeMessage = "批准";
 const maxAutoApprovals = 12;
 const runResults = [];
