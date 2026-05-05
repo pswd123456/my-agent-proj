@@ -28,27 +28,26 @@
 
 ## 当前落地结果
 
-- `apply_patch` 已作为补丁型修改工具注册到 `workspace` pack，支持统一 diff、多文件修改、新建文件，以及已有文件修改前的 session 内 `read_file` / stale check
+- `edit_file` 已作为唯一局部编辑工具注册到 `workspace` pack，采用 `path` + `oldString` + `newString` + `replaceAll` 契约；内部仍生成统一 diff，用于 review、undo 与 reapply
 - `git_status`、`git_diff`、`git_diff_cached` 已作为只读 git 工具注册到 `workspace` pack
 - `find_files` 已作为路径发现工具注册到 `workspace` pack，用于先按路径模式找文件，再进入 `read_file` / `search_text`
-- `write_file` 当前保留为新建文件与整文件替换入口；行级与多文件修改优先走 `apply_patch`
+- `write_file` 当前保留为新建文件与整文件替换入口；局部修改优先走 `edit_file`
 - `PERMISSION_TOOL_OPTIONS`、settings permission tool options 与 registry 测试已覆盖这些工具
 
 ## 本次决策
 
-### 1. 补一个补丁型修改工具
+### 1. 收敛为字符串替换型编辑工具
 
-已新增 `apply_patch`，承接行级和多文件修改；`write_file` 保留为新建文件与整文件替换入口。
+当前已改为 `edit_file`，承接局部修改；`write_file` 保留为新建文件与整文件替换入口。模型侧不再直接编写 unified diff，diff 由工具内部统一生成。
 
 建议能力：
 
-- 支持统一 diff / patch 输入
-- 支持精确到文件块的修改
-- 支持多文件连续修改
+- 支持精确字符串或相邻文本块替换
+- 支持通过 `replaceAll` 替换单文件内全部匹配
 - 修改或删除已有文件前，要求本 session 内先用 `read_file` 读取过目标文件且文件未变化
-- 返回结构化的改动摘要
+- 返回结构化的改动摘要和可 undo / reapply 的统一 diff
 
-目标不是做大而全的 patch 引擎，而是让 agent 在重构和多文件编辑时，不必总是靠行号替换。
+目标不是让模型手写 patch，而是让 agent 做局部文件编辑时，不必依赖脆弱的行号或整文件重写。
 
 ### 2. 补只读 git 工具
 
@@ -115,15 +114,15 @@
 
 如果后续要做写 git 动作，必须单独写新文档。
 
-### patch 工具约束
+### edit_file 工具约束
 
-补丁工具只负责“把修改表达得更稳”，不负责自动判断业务正确性。
+`edit_file` 只负责“把局部修改表达得更稳”，不负责自动判断业务正确性。
 
 它应该：
 
-- 让变更更接近 patch 语义
+- 让模型用 `oldString` / `newString` 表达精确替换
 - 减少手工行号编辑的脆弱性
-- 保留可审计的 diff 结果
+- 保留可审计、可 undo / reapply 的 diff 结果
 
 它不应该：
 
@@ -134,7 +133,7 @@
 
 完成后应满足：
 
-1. agent 能用补丁型工具完成比行号替换更稳的多文件修改
+1. agent 能用 `edit_file` 完成比行号替换更稳的局部文件修改
 2. agent 能直接通过 git 只读工具查看当前工作树状态与改动范围
 3. agent 能先按文件路径模式找文件，再进入内容搜索
 4. 这些工具能被注册进 `ToolRegistry`，并在测试里覆盖基础行为
@@ -142,8 +141,8 @@
 
 ## 建议的测试最小集
 
-- patch 工具的成功修改路径
-- patch 工具的失败输入路径
+- `edit_file` 的成功修改路径
+- `edit_file` 的失败输入路径
 - git status / diff 的只读输出
 - glob / find 的路径匹配
 - registry 注册与 capability pack 可见性

@@ -143,7 +143,7 @@
 - `write_file`
 - `manage_path`
 - `delete_path`
-- `apply_patch`
+- `edit_file`
 - `manage_todo_list`
 
 当前 prompt 不会向模型暴露以上这些普通文件写工具；权限层继续保留 block，作为兜底约束，避免旧消息回放或异常 tool call 绕过 plan mode。`ask_user_question` 不属于这类限制，它作为普通工具保持可见。

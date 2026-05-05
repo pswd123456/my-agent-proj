@@ -37,7 +37,7 @@
 
 当前仓库里，真正按 pack 装配的是下面几组：
 
-- `workspace`：`apply_patch`、`read_file`、`list_directory`、`find_files`、`search_text`、`write_file`、`create_directory`、`delete_file`、`delete_path`、`manage_path`、`git_status`、`git_diff`（`cached: true` 读取 staged diff）、`run_shell_command`、`make_http_request`、`search_skill`、`load_skill`
+- `workspace`：`edit_file`、`read_file`、`list_directory`、`find_files`、`search_text`、`write_file`、`create_directory`、`delete_file`、`delete_path`、`manage_path`、`git_status`、`git_diff`（`cached: true` 读取 staged diff）、`run_shell_command`、`make_http_request`、`search_skill`、`load_skill`
 - `schedule`：`manage_routine` / `query_routines` / `manage_cron_jobs` / `ask_for_confirmation`
 - `lsp`：`lsp_hover` / `lsp_go_to_definition` / `lsp_find_references` / `lsp_document_symbols` / `lsp_workspace_symbols` / `lsp_diagnostics`，用于 TS/JS 语义查询；细节见 [内建 LSP Capability Pack](./lsp-capability-pack.md)
 
