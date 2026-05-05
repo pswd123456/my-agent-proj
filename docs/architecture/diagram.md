@@ -15,6 +15,8 @@ flowchart LR
     Hono API"]
     worker["apps/worker
     background task worker"]
+    gateway["apps/gateway
+    external channel gateway"]
   end
 
   subgraph packages["packages"]
@@ -50,6 +52,8 @@ flowchart LR
   sdk --> api
   api --> agent
   api --> db
+  gateway --> api
+  gateway --> db
   worker --> agent
   worker --> db
   agent --> domain
@@ -137,6 +141,7 @@ sequenceDiagram
 
 - `apps/api` 是当前运行主入口，负责把各层装配起来
 - `apps/worker` 负责 detached background task 的轮询、认领和执行
+- `apps/gateway` 负责 Telegram polling 这类常驻外部接入，再把 update 转发给 API
 - `packages/agent` 是执行核心，既包含 runtime loop，也包含 prompt、session、skills、tools 和 trace
 - `packages/ui-patterns`、`packages/ui` 和 `packages/tokens` 是 `apps/web` 的共享视觉与布局层
 - tool 执行前还有独立的 permission checker；待批准请求和业务确认流是分开建模的

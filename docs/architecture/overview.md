@@ -10,6 +10,7 @@
 - `apps/api` 是当前运行主入口，负责 session 生命周期、设置读取、SSE 输出、trace 查询与恢复接口，并通过共享 runtime assembly 装配执行依赖
 - `apps/web` 是当前唯一产品层前端，主要承载 workbench、会话可视化、trace 与调试观察
 - `apps/worker` 是后台执行入口，负责轮询 `background_tasks`、认领 detached task，并用独立 child session 或 detached shell process 驱动长任务
+- `apps/gateway` 是常驻外部接入入口，当前负责 Telegram polling，并把 update 转交 API webhook
 - `packages/agent` 提供 runtime loop、prompt、provider 适配、统一模型服务、permission checker、session manager、runtime assembly、tool registry、skills、MCP、background tasks orchestration、delegation、trace 与 system log
 - `packages/db` 提供 PostgreSQL 访问、schema 初始化、routine repository、cron repository、inbox repository 与 background task repository
 - `packages/domain` 提供 session settings、session context、权限规则、background task 载荷与 routine 领域模型
@@ -111,6 +112,7 @@ legacy workspace hooks 仍可写在 `.agents/.config.toml` 的 `[hooks.<id>]` se
 - runtime 装配：`packages/agent/src/runtime/assembly.ts`
 - API 进程入口：`apps/api/src/index.ts`
 - worker 进程入口：`apps/worker/src/index.ts`
+- gateway 进程入口：`apps/gateway/src/index.ts`
 - 模型目录与默认模型：`packages/agent/src/models/service.ts`
 - session 默认值：`packages/domain/src/session-settings.ts`
 - tool surface：`packages/agent/src/tools/registry.ts`
