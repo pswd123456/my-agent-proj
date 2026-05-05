@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { randomUUID } from "node:crypto";
 
 import {
   createTelegramClient,
@@ -70,9 +71,7 @@ async function resolveWorkspaceTelegramChannelConfig(
   dependencies: ApiAppDependencies
 ): Promise<ResolvedTelegramChannelConfig> {
   const settings = await dependencies.settingsConfigStore.getGlobalSettings();
-  const config = await loadWorkspaceChannelConfig(
-    settings.workingDirectory
-  );
+  const config = await loadWorkspaceChannelConfig(settings.workingDirectory);
   const telegram = config.telegram;
   if (telegram.configuredInFile) {
     const botToken = telegram.botToken || resolveTelegramBotToken(dependencies);
@@ -186,7 +185,8 @@ async function createInboxSession(input: {
   model?: string;
   thinkingEffort?: string;
 }): Promise<SessionSnapshot> {
-  const settings = await input.dependencies.settingsConfigStore.getGlobalSettings();
+  const settings =
+    await input.dependencies.settingsConfigStore.getGlobalSettings();
   const requestedModel = resolveRequestedModel(input.dependencies, input.model);
   const createInput = toCreateSessionInput({
     settings,
@@ -670,14 +670,17 @@ async function runTelegramMessage(input: {
   };
 
   try {
+    const runId = randomUUID();
     await emitPreRunTraceEvent({
       traceManager: input.dependencies.traceManager,
       sessionId: session.sessionId,
+      runId,
       event: runtimeHandle.preRunTraceEvent,
       eventSink: terminalAwareEventSink
     });
     await runtimeHandle.runtime.run({
       sessionId: session.sessionId,
+      runId,
       message: input.message,
       ...(typeof input.permissionReply === "boolean"
         ? { permissionReply: input.permissionReply }

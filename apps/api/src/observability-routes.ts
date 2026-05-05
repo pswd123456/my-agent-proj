@@ -1,7 +1,13 @@
 import type { SessionSnapshot } from "@ai-app-template/agent";
 
 import type { ApiApp, ApiAppDependencies } from "./app-context.js";
-import { getRequestId, listRoutinesQuerySchema, logApiEvent, recoverSessionBodySchema, systemLogsQuerySchema } from "./app-shared.js";
+import {
+  getRequestId,
+  listRoutinesQuerySchema,
+  logApiEvent,
+  recoverSessionBodySchema,
+  systemLogsQuerySchema
+} from "./app-shared.js";
 
 export function registerObservabilityRoutes(input: {
   app: ApiApp;
@@ -16,6 +22,7 @@ export function registerObservabilityRoutes(input: {
       ...(query.sessionId ? { sessionId: query.sessionId } : {}),
       ...(query.level ? { level: query.level } : {}),
       ...(query.component ? { component: query.component } : {}),
+      ...(query.event ? { event: query.event } : {}),
       ...(query.runId ? { runId: query.runId } : {}),
       ...(query.requestId ? { requestId: query.requestId } : {}),
       ...(typeof query.limit === "number" ? { limit: query.limit } : {}),
@@ -29,6 +36,7 @@ export function registerObservabilityRoutes(input: {
         sessionId: query.sessionId ?? null,
         level: query.level ?? null,
         component: query.component ?? null,
+        event: query.event ?? null,
         runId: query.runId ?? null,
         recordRequestId: query.requestId ?? null,
         returned: result.records.length

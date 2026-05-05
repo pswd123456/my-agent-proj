@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { createPostgresTestSessionManager } from "../../../tests/helpers/postgres-session-manager.js";
 
-import type { AgentRuntime, RunEventSink, SessionSnapshot } from "@ai-app-template/agent";
-import {
-  FileSystemLogManager,
-  createLogger
+import type {
+  AgentRuntime,
+  RunEventSink,
+  SessionSnapshot
 } from "@ai-app-template/agent";
+import { FileSystemLogManager, createLogger } from "@ai-app-template/agent";
 import { createMemoryRoutineRepository } from "@ai-app-template/db";
 
 import { mkdtemp } from "node:fs/promises";
@@ -25,7 +26,11 @@ async function createRuntimeTestApp(options?: {
   const sessionManager = await createPostgresTestSessionManager();
   const routineRepository = createMemoryRoutineRepository();
   const { settingsConfigStore } = await createTestSettingsConfigStore();
-  const traceEvents: Array<{ sessionId: string; event: unknown }> = [];
+  const traceEvents: Array<{
+    sessionId: string;
+    event: unknown;
+    options?: { runId?: string };
+  }> = [];
   const logDir = await mkdtemp(path.join(os.tmpdir(), "api-mcp-log-"));
   const systemLogManager = new FileSystemLogManager(logDir, {
     maxBytes: 4096,
@@ -41,8 +46,8 @@ async function createRuntimeTestApp(options?: {
   const traceManager =
     options?.traceManager ??
     ({
-      async appendEvent(sessionId, event) {
-        traceEvents.push({ sessionId, event });
+      async appendEvent(sessionId, event, options) {
+        traceEvents.push({ sessionId, event, options });
       },
       async readEvents() {
         return [];
@@ -55,10 +60,7 @@ async function createRuntimeTestApp(options?: {
     (async (session) => {
       return {
         runtime: {
-          async run(input: {
-            sessionId: string;
-            eventSink?: RunEventSink;
-          }) {
+          async run(input: { sessionId: string; eventSink?: RunEventSink }) {
             runtimeCalls.push(input.sessionId);
             await input.eventSink?.({
               kind: "run_complete",
@@ -89,7 +91,10 @@ async function createRuntimeTestApp(options?: {
         preRunTraceEvent: {
           kind: "mcp_loaded",
           turnCount: 1,
-          configPath: path.join(session.workingDirectory, ".agents/.config.toml"),
+          configPath: path.join(
+            session.workingDirectory,
+            ".agents/config.toml"
+          ),
           foundConfig: true,
           diagnostics: [],
           servers: []
@@ -140,11 +145,14 @@ describe("createApiApp MCP runtime assembly", () => {
       await createRuntimeTestApp();
     const session = await createSession(app);
 
-    const response = await app.request(`/sessions/${session.sessionId}/execute`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: "run" })
-    });
+    const response = await app.request(
+      `/sessions/${session.sessionId}/execute`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: "run" })
+      }
+    );
 
     expect(response.status).toBe(200);
     expect(runtimeCalls).toEqual([session.sessionId]);
@@ -152,6 +160,9 @@ describe("createApiApp MCP runtime assembly", () => {
     expect(traceEvents).toEqual([
       expect.objectContaining({
         sessionId: session.sessionId,
+        options: expect.objectContaining({
+          runId: expect.any(String)
+        }),
         event: expect.objectContaining({
           kind: "mcp_loaded",
           foundConfig: true
@@ -181,8 +192,8 @@ describe("createApiApp MCP runtime assembly", () => {
   });
 
   test("reports pre-run SSE failures as run_error before runtime starts", async () => {
-    const { app, runtimeCalls, disposedSessionIds } = await createRuntimeTestApp(
-      {
+    const { app, runtimeCalls, disposedSessionIds } =
+      await createRuntimeTestApp({
         traceManager: {
           async appendEvent() {
             throw new Error("pre-run trace failed");
@@ -193,8 +204,7 @@ describe("createApiApp MCP runtime assembly", () => {
           async deleteEvents() {},
           async truncateEventsAfterTurn() {}
         }
-      }
-    );
+      });
     const session = await createSession(app);
 
     const response = await app.request(
@@ -215,8 +225,8 @@ describe("createApiApp MCP runtime assembly", () => {
   });
 
   test("reports runtime crashes as run_error when no terminal event was emitted", async () => {
-    const { app, runtimeCalls, disposedSessionIds } = await createRuntimeTestApp(
-      {
+    const { app, runtimeCalls, disposedSessionIds } =
+      await createRuntimeTestApp({
         runtimeFactory: async (session) => {
           return {
             runtime: {
@@ -236,7 +246,7 @@ describe("createApiApp MCP runtime assembly", () => {
               turnCount: 1,
               configPath: path.join(
                 session.workingDirectory,
-                ".agents/.config.toml"
+                ".agents/config.toml"
               ),
               foundConfig: true,
               diagnostics: [],
@@ -244,8 +254,7 @@ describe("createApiApp MCP runtime assembly", () => {
             }
           };
         }
-      }
-    );
+      });
     const session = await createSession(app);
 
     const response = await app.request(
@@ -272,10 +281,7 @@ describe("createApiApp MCP runtime assembly", () => {
       runtimeFactory: async (session) => {
         return {
           runtime: {
-            async run(input: {
-              sessionId: string;
-              eventSink?: RunEventSink;
-            }) {
+            async run(input: { sessionId: string; eventSink?: RunEventSink }) {
               runtimeCalls.push(input.sessionId);
               await input.eventSink?.({
                 kind: "run_complete",
@@ -309,7 +315,7 @@ describe("createApiApp MCP runtime assembly", () => {
             turnCount: 1,
             configPath: path.join(
               session.workingDirectory,
-              ".agents/.config.toml"
+              ".agents/config.toml"
             ),
             foundConfig: true,
             diagnostics: [],

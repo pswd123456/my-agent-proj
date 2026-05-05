@@ -164,42 +164,39 @@ describe("createApiApp settings bootstrap", () => {
   test("uses updated user settings for the next newly created session", async () => {
     const { app } = await createTestApp();
 
-    const updateResponse = await app.request(
-      "/settings",
-      {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          workingDirectory: "apps/web",
-          model: DEFAULT_DEEPSEEK_MODEL,
-          thinkingEffort: "max",
-          yoloMode: true,
-          contextWindow: 123_456,
-          maxTurns: 77,
-          userContextHooks: [
-            {
-              id: "hook-1",
-              event: "run_started",
-              title: "Profile",
-              content: "先看用户偏好。",
-              enabled: true
-            },
-            {
-              id: "hook-subagent",
-              event: "run_started",
-              behavior: "subagent",
-              waitMode: "unblocking",
-              maxTurns: 123,
-              title: "Background",
-              content: "先整理背景。",
-              enabled: true
-            }
-          ],
-          debugConversationView: true,
-          userCustomPrompt: "先确认用户上下文，再回答。"
-        })
-      }
-    );
+    const updateResponse = await app.request("/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        workingDirectory: "apps/web",
+        model: DEFAULT_DEEPSEEK_MODEL,
+        thinkingEffort: "max",
+        yoloMode: true,
+        contextWindow: 123_456,
+        maxTurns: 77,
+        userContextHooks: [
+          {
+            id: "hook-1",
+            event: "run_started",
+            title: "Profile",
+            content: "先看用户偏好。",
+            enabled: true
+          },
+          {
+            id: "hook-subagent",
+            event: "run_started",
+            behavior: "subagent",
+            waitMode: "unblocking",
+            maxTurns: 123,
+            title: "Background",
+            content: "先整理背景。",
+            enabled: true
+          }
+        ],
+        debugConversationView: true,
+        userCustomPrompt: "先确认用户上下文，再回答。"
+      })
+    });
 
     expect(updateResponse.status).toBe(200);
     const updatePayload = (await updateResponse.json()) as {
@@ -239,32 +236,26 @@ describe("createApiApp settings bootstrap", () => {
     );
 
     try {
-      const settingsResponse = await app.request(
-        "/settings",
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ workingDirectory })
-        }
-      );
+      const settingsResponse = await app.request("/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workingDirectory })
+      });
       expect(settingsResponse.status).toBe(200);
 
-      const updateResponse = await app.request(
-        "/settings/channels",
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            telegram: {
-              enabled: true,
-              mode: "polling",
-              botToken: "$TELEGRAM_BOT_TOKEN",
-              webhookSecret: "$TELEGRAM_WEBHOOK_SECRET",
-              webhookUrl: "https://example.com/api/inbox/telegram/webhook"
-            }
-          })
-        }
-      );
+      const updateResponse = await app.request("/settings/channels", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          telegram: {
+            enabled: true,
+            mode: "polling",
+            botToken: "$TELEGRAM_BOT_TOKEN",
+            webhookSecret: "$TELEGRAM_WEBHOOK_SECRET",
+            webhookUrl: "https://example.com/api/inbox/telegram/webhook"
+          }
+        })
+      });
       expect(updateResponse.status).toBe(200);
       const updatePayload = userSettingsChannelsPayloadSchema.parse(
         await updateResponse.json()
@@ -277,9 +268,7 @@ describe("createApiApp settings bootstrap", () => {
         webhookSecret: "$TELEGRAM_WEBHOOK_SECRET"
       });
 
-      const readResponse = await app.request(
-        "/settings/channels"
-      );
+      const readResponse = await app.request("/settings/channels");
       expect(readResponse.status).toBe(200);
       const readPayload = userSettingsChannelsPayloadSchema.parse(
         await readResponse.json()
@@ -336,16 +325,13 @@ describe("createApiApp settings bootstrap", () => {
     const { app } = await createTestApp();
     const externalDirectory = "/tmp/my-agent-proj-external-workspace";
 
-    const updateResponse = await app.request(
-      "/settings",
-      {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          workingDirectory: externalDirectory
-        })
-      }
-    );
+    const updateResponse = await app.request("/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        workingDirectory: externalDirectory
+      })
+    });
 
     expect(updateResponse.status).toBe(200);
     const updatePayload = (await updateResponse.json()) as {
@@ -363,16 +349,13 @@ describe("createApiApp settings bootstrap", () => {
 
     const session = await createSession(app, {});
 
-    const updateResponse = await app.request(
-      "/settings",
-      {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: DEFAULT_DEEPSEEK_MODEL
-        })
-      }
-    );
+    const updateResponse = await app.request("/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: DEFAULT_DEEPSEEK_MODEL
+      })
+    });
 
     expect(updateResponse.status).toBe(200);
 
@@ -455,35 +438,29 @@ describe("createApiApp settings bootstrap", () => {
     );
 
     try {
-      const settingsResponse = await app.request(
-        "/settings",
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ workingDirectory })
-        }
-      );
+      const settingsResponse = await app.request("/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workingDirectory })
+      });
       expect(settingsResponse.status).toBe(200);
 
-      const updateResponse = await app.request(
-        "/settings/mcp",
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            servers: [
-              {
-                name: "local_echo",
-                transport: "stdio",
-                enabled: true,
-                disabledTools: ["echo"],
-                command: process.execPath,
-                args: [fixtureScript]
-              }
-            ]
-          })
-        }
-      );
+      const updateResponse = await app.request("/settings/mcp", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          servers: [
+            {
+              name: "local_echo",
+              transport: "stdio",
+              enabled: true,
+              disabledTools: ["echo"],
+              command: process.execPath,
+              args: [fixtureScript]
+            }
+          ]
+        })
+      });
       expect(updateResponse.status).toBe(200);
       const payload = userSettingsMcpPayloadSchema.parse(
         await updateResponse.json()
@@ -508,34 +485,28 @@ describe("createApiApp settings bootstrap", () => {
     );
 
     try {
-      const settingsResponse = await app.request(
-        "/settings",
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ workingDirectory })
-        }
-      );
+      const settingsResponse = await app.request("/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workingDirectory })
+      });
       expect(settingsResponse.status).toBe(200);
 
-      const updateResponse = await app.request(
-        "/settings/mcp",
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            servers: [
-              {
-                name: " local_echo ",
-                transport: "stdio",
-                enabled: false,
-                disabledTools: [" echo ", "", "echo"],
-                command: " node "
-              }
-            ]
-          })
-        }
-      );
+      const updateResponse = await app.request("/settings/mcp", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          servers: [
+            {
+              name: " local_echo ",
+              transport: "stdio",
+              enabled: false,
+              disabledTools: [" echo ", "", "echo"],
+              command: " node "
+            }
+          ]
+        })
+      });
       expect(updateResponse.status).toBe(200);
       const payload = userSettingsMcpPayloadSchema.parse(
         await updateResponse.json()
@@ -678,16 +649,13 @@ describe("createApiApp settings bootstrap", () => {
   test("clamps persisted max turns to the shared session limit", async () => {
     const { app } = await createTestApp();
 
-    const updateResponse = await app.request(
-      "/settings",
-      {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          maxTurns: SESSION_MAX_TURNS_LIMIT + 100
-        })
-      }
-    );
+    const updateResponse = await app.request("/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        maxTurns: SESSION_MAX_TURNS_LIMIT + 100
+      })
+    });
 
     expect(updateResponse.status).toBe(200);
     const updatePayload = (await updateResponse.json()) as {
@@ -734,7 +702,7 @@ describe("createApiApp settings bootstrap", () => {
     });
 
     const response = await app.request(
-      "/system-logs?sessionId=session-x&component=worker&runId=run-x&requestId=req-1&limit=10"
+      "/system-logs?sessionId=session-x&component=worker&event=seeded&runId=run-x&requestId=req-1&limit=10"
     );
     expect(response.status).toBe(200);
     const payload = await response.json();
@@ -765,7 +733,7 @@ describe("createApiApp settings bootstrap", () => {
     ).toBe(true);
   });
 
-  test("reads a session without logging an interrupt request", async () => {
+  test("reads a session without writing noisy polling logs", async () => {
     const { app, systemLogManager } = await createTestApp();
     const session = await createSession(app, {});
 
@@ -785,7 +753,7 @@ describe("createApiApp settings bootstrap", () => {
 
     expect(
       payload.records.some((record) => record.event === "session_read")
-    ).toBe(true);
+    ).toBe(false);
     expect(
       payload.records.some(
         (record) => record.event === "session_interrupt_requested"

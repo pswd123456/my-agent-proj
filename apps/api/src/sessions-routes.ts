@@ -26,6 +26,7 @@ import type {
   RunSessionResult,
   SessionSnapshot
 } from "@ai-app-template/agent";
+import { randomUUID } from "node:crypto";
 
 import type { ApiApp, ApiAppDependencies } from "./app-context.js";
 import {
@@ -167,16 +168,16 @@ export function registerSessionRoutes(input: {
     const sessionId = c.req.param("sessionId");
     const session = await dependencies.sessionManager.getSession(sessionId);
     if (!session) {
+      await logApiEvent({
+        logger: dependencies.apiLogger,
+        requestId,
+        event: "session_read_missing",
+        level: "warn",
+        sessionId
+      });
       return c.json({ error: "Session not found." }, 404);
     }
 
-    await logApiEvent({
-      logger: dependencies.apiLogger,
-      requestId,
-      event: "session_read",
-      sessionId,
-      details: { found: Boolean(session) }
-    });
     const enrichedSession = (
       await enrichSessionSnapshotsWithParentRelation({
         sessions: [session],
@@ -734,14 +735,17 @@ export function registerSessionRoutes(input: {
     }
 
     const runtimeHandle = await dependencies.runtimeFactory(currentSession);
+    const runId = randomUUID();
     try {
       await emitPreRunTraceEvent({
         traceManager: dependencies.traceManager,
         sessionId,
+        runId,
         event: runtimeHandle.preRunTraceEvent
       });
       const result = await runtimeHandle.runtime.run({
         sessionId,
+        runId,
         message: body.message,
         ...(typeof body.maxTurns === "number"
           ? { maxTurns: body.maxTurns }
@@ -787,6 +791,7 @@ export function registerSessionRoutes(input: {
     }
 
     const runtimeHandle = await dependencies.runtimeFactory(currentSession);
+    const runId = randomUUID();
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
         controller.enqueue(new TextEncoder().encode(": stream-start\n\n"));
@@ -805,6 +810,7 @@ export function registerSessionRoutes(input: {
             await emitPreRunTraceEvent({
               traceManager: dependencies.traceManager,
               sessionId,
+              runId,
               event: runtimeHandle.preRunTraceEvent,
               eventSink(event) {
                 controller.enqueue(encodeSseEvent(event));
@@ -812,6 +818,7 @@ export function registerSessionRoutes(input: {
             });
             runtimeResult = await runtimeHandle.runtime.run({
               sessionId,
+              runId,
               message: body.message,
               ...(typeof body.maxTurns === "number"
                 ? { maxTurns: body.maxTurns }

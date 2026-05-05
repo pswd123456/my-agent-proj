@@ -80,6 +80,7 @@ export const systemLogsQuerySchema = z.object({
     .optional(),
   runId: z.string().optional(),
   requestId: z.string().optional(),
+  event: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(500).optional(),
   cursor: z.string().optional()
 });
@@ -503,13 +504,16 @@ export async function emitPreRunTraceEvent(input: {
   traceManager: TraceManager;
   eventSink?: RunEventSink;
   sessionId: string;
+  runId?: string;
   event: TraceEvent | undefined;
 }) {
   if (!input.event) {
     return;
   }
 
-  await input.traceManager.appendEvent(input.sessionId, input.event);
+  await input.traceManager.appendEvent(input.sessionId, input.event, {
+    ...(input.runId ? { runId: input.runId } : {})
+  });
   if (!input.eventSink) {
     return;
   }
