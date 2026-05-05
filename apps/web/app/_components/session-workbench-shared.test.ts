@@ -140,6 +140,28 @@ describe("session sidebar prompt preview", () => {
     expect(markup).not.toContain("yolo on");
   });
 
+  test("shows the channel badge in the sidebar row", () => {
+    const markup = renderToStaticMarkup(
+      createElement(
+        SessionWorkbenchSidebar,
+        createSidebarProps([
+          {
+            ...createSessionSummary("来自 Telegram 的消息"),
+            channels: [
+              {
+                channel: "telegram",
+                externalChatId: "123456"
+              }
+            ]
+          }
+        ])
+      )
+    );
+
+    expect(markup).toContain("Telegram");
+    expect(markup).toContain("Telegram User ID 123456");
+  });
+
   test("renders a search input in the sidebar header", () => {
     const markup = renderToStaticMarkup(
       createElement(
@@ -195,7 +217,7 @@ describe("session sidebar prompt preview", () => {
 
     expect(markup).not.toContain("侧边面板");
     expect(markup).not.toContain(
-      "<span>新建定时任务</span><span class=\"font-mono text-[0.72rem] uppercase tracking-[0.14em] text-[var(--app-text-muted)]\">view</span>"
+      '<span>新建定时任务</span><span class="font-mono text-[0.72rem] uppercase tracking-[0.14em] text-[var(--app-text-muted)]">view</span>'
     );
     expect(markup).toContain("设置");
     expect(markup).toContain("定时任务");
@@ -204,15 +226,12 @@ describe("session sidebar prompt preview", () => {
 
   test("hides debug details panel when debug conversation view is off", () => {
     const markup = renderToStaticMarkup(
-      createElement(
-        SessionWorkbenchSidebar,
-        {
-          ...createSidebarProps([
-            createSessionSummary("请帮我检查 runtime 的循环退出条件")
-          ]),
-          debugConversationView: false
-        }
-      )
+      createElement(SessionWorkbenchSidebar, {
+        ...createSidebarProps([
+          createSessionSummary("请帮我检查 runtime 的循环退出条件")
+        ]),
+        debugConversationView: false
+      })
     );
 
     expect(markup).toContain("设置");

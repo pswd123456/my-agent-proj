@@ -3679,8 +3679,19 @@ export function SessionWorkbenchConversationPanel({
                 </div>
 
                 {errorText ? (
-                  <div className="rounded-[var(--app-radius-lg)] border border-[color:color-mix(in_srgb,var(--app-status-danger)_35%,var(--app-border-subtle)_65%)] bg-[color:color-mix(in_srgb,var(--app-status-danger)_10%,var(--app-bg-surface)_90%)] px-4 py-3 text-sm text-[var(--app-status-danger)]">
-                    {errorText}
+                  <div className="flex items-start justify-between gap-3 rounded-[var(--app-radius-lg)] border border-[color:color-mix(in_srgb,var(--app-status-danger)_35%,var(--app-border-subtle)_65%)] bg-[color:color-mix(in_srgb,var(--app-status-danger)_10%,var(--app-bg-surface)_90%)] px-4 py-3 text-sm text-[var(--app-status-danger)]">
+                    <span className="min-w-0 flex-1 break-words">
+                      {errorText}
+                    </span>
+                    <CopyTextButton
+                      text={errorText}
+                      label="复制"
+                      copiedLabel="已复制"
+                      failedLabel="复制失败"
+                      title="复制报错"
+                      ariaLabel="复制报错"
+                      className="shrink-0 border-[color:color-mix(in_srgb,var(--app-status-danger)_32%,var(--app-border-subtle)_68%)] text-[var(--app-status-danger)] hover:border-[var(--app-status-danger)] hover:text-[var(--app-status-danger)]"
+                    />
                   </div>
                 ) : null}
               </div>

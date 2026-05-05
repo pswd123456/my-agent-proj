@@ -171,6 +171,7 @@ export interface SettingsChannelsState {
   configPath: string;
   foundConfig: boolean;
   telegram: UserSettingsChannelsPayload["telegram"];
+  telegramBindings: UserSettingsChannelsPayload["telegramBindings"];
   diagnostics: UserSettingsChannelsPayload["diagnostics"];
 }
 

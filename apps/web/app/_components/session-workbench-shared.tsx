@@ -48,7 +48,9 @@ interface CreateSessionDialogProps {
   onCreate: () => void;
   onCreateCronJob?: () => void;
   onCronFormChange?: (patch: Partial<CronJobFormState>) => void;
-  onSaveCronJob?: (payload: CreateCronJobPayload | UpdateCronJobPayload) => void;
+  onSaveCronJob?: (
+    payload: CreateCronJobPayload | UpdateCronJobPayload
+  ) => void;
   onChooseCronWorkingDirectory?: () => void;
 }
 
@@ -235,6 +237,10 @@ function normalizeSessionPromptPreview(value: string | null): string | null {
 
   const normalized = value.replace(/\s+/g, " ").trim();
   return normalized.length > 0 ? normalized : null;
+}
+
+function formatSessionChannelLabel(channel: string): string {
+  return channel === "telegram" ? "Telegram" : channel;
 }
 
 function truncateSessionPromptPreview(value: string | null): string | null {
@@ -693,8 +699,8 @@ export function CreateSessionDialog({
       <>
         <div className="mt-6 rounded-[var(--app-radius-lg)] border border-[var(--app-border-subtle)] bg-[color:color-mix(in_srgb,var(--app-bg-muted)_72%,transparent)] px-4 py-4">
           <p className="text-sm leading-6 text-[var(--app-text-secondary)]">
-            会话会继承当前 user settings 的默认 cwd、YOLO、context window 和
-            max turns。
+            会话会继承当前 user settings 的默认 cwd、YOLO、context window 和 max
+            turns。
           </p>
         </div>
 
@@ -1072,6 +1078,16 @@ export function SessionWorkbenchSidebar({
               const hasCronBadge =
                 typeof session.cronJobId === "string" &&
                 session.cronJobId.trim().length > 0;
+              const channelBadges = session.channels ?? [];
+              const channelTitle =
+                channelBadges.length > 0
+                  ? channelBadges
+                      .map(
+                        (channel) =>
+                          `${formatSessionChannelLabel(channel.channel)} ${channel.externalChatId}`
+                      )
+                      .join(" · ")
+                  : null;
               const relationToneClass =
                 depth > 0
                   ? session.parentRelationKind === "fork"
@@ -1087,7 +1103,7 @@ export function SessionWorkbenchSidebar({
                   <button
                     key={session.sessionId}
                     type="button"
-                    title={`${hasCronBadge ? "定时任务 · " : ""}${relationLabel ? `${relationLabel} · ` : ""}${session.sessionId.slice(0, 8)} · ${displayState.label}`}
+                    title={`${channelTitle ? `${channelTitle} · ` : ""}${hasCronBadge ? "定时任务 · " : ""}${relationLabel ? `${relationLabel} · ` : ""}${session.sessionId.slice(0, 8)} · ${displayState.label}`}
                     aria-label={`切换到会话 ${session.sessionId.slice(0, 8)}`}
                     onClick={() => onSelectSession(session.sessionId)}
                     className={`grid h-14 w-full place-items-center rounded-[var(--app-radius-lg)] border text-center transition ${
@@ -1154,6 +1170,15 @@ export function SessionWorkbenchSidebar({
                             定时任务
                           </span>
                         ) : null}
+                        {channelBadges.map((channel) => (
+                          <span
+                            key={`${channel.channel}-${channel.externalChatId}`}
+                            title={`Telegram User ID ${channel.externalChatId}`}
+                            className="inline-flex items-center rounded-[var(--app-radius-pill)] border border-[color:color-mix(in_srgb,var(--app-border-accent)_42%,transparent)] bg-[color:color-mix(in_srgb,var(--app-bg-elevated)_78%,transparent)] px-2 py-0.5 text-[0.68rem] uppercase tracking-[0.12em] text-[var(--app-status-success)]"
+                          >
+                            {formatSessionChannelLabel(channel.channel)}
+                          </span>
+                        ))}
                         {relationLabel ? (
                           <span
                             className={`text-[0.72rem] ${relationToneClass}`}

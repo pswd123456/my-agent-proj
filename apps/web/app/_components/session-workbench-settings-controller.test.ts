@@ -139,6 +139,7 @@ function createChannelsPayload(): UserSettingsChannelsPayload {
       webhookSecret: "$TELEGRAM_WEBHOOK_SECRET",
       webhookUrl: "https://example.com/webhook"
     },
+    telegramBindings: [],
     diagnostics: []
   };
 }

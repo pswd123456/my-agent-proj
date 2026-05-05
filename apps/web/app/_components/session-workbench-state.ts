@@ -1007,6 +1007,7 @@ export function toSettingsChannelsState(
       webhookSecret: "",
       webhookUrl: ""
     },
+    telegramBindings: payload?.telegramBindings ?? [],
     diagnostics: payload?.diagnostics ?? []
   };
 }

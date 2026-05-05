@@ -116,6 +116,17 @@ function createSettingsChannelsState(): SettingsChannelsState {
       webhookSecret: "$TELEGRAM_WEBHOOK_SECRET",
       webhookUrl: "https://example.com/api/inbox/telegram/webhook"
     },
+    telegramBindings: [
+      {
+        channel: "telegram",
+        externalChatId: "123456",
+        activeSessionId: "session-telegram",
+        responseOutputMode: "final",
+        lastUpdateId: 42,
+        createdAt: "2026-05-05T02:00:00.000Z",
+        updatedAt: "2026-05-05T02:10:00.000Z"
+      }
+    ],
     diagnostics: []
   };
 }
@@ -243,6 +254,10 @@ describe("session-workbench settings mode", () => {
     expect(markup).toContain("Bot Token");
     expect(markup).toContain("$TELEGRAM_BOT_TOKEN");
     expect(markup).toContain("Webhook URL");
+    expect(markup).toContain("Telegram User ID");
+    expect(markup).toContain("123456");
+    expect(markup).toContain("Active Chatbot");
+    expect(markup).toContain("session-telegram");
   });
 
   test("renders saved shell allow patterns on the permissions page", () => {

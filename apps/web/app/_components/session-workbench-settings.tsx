@@ -142,6 +142,14 @@ function formatMcpToolDescription(
   return text.slice(0, firstPeriodIndex + 1);
 }
 
+function formatChannelTimestamp(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleString();
+}
+
 function formatUserContextHookEventLabel(
   event: UserContextHookRecord["event"]
 ): string {
@@ -1221,6 +1229,7 @@ export function SessionWorkbenchSettings({
 
   function renderChannelsPage() {
     const telegram = settingsChannelsState.telegram;
+    const telegramBindings = settingsChannelsState.telegramBindings;
     return (
       <div className="grid gap-5">
         <SettingsSection
@@ -1257,6 +1266,79 @@ export function SessionWorkbenchSettings({
                 ))}
               </div>
             ) : null}
+
+            <div className="grid gap-2">
+              <div className={tertiaryHeadingClassName}>
+                Active Telegram Chats
+              </div>
+              {telegramBindings.length > 0 ? (
+                <div className="grid gap-2">
+                  {telegramBindings.map((binding) => (
+                    <div
+                      key={`${binding.channel}-${binding.externalChatId}`}
+                      className={`${insetSurfaceClassName} grid gap-3 px-4 py-3`}
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="font-mono text-xs text-[var(--app-text-primary)]">
+                          {binding.externalChatId}
+                        </div>
+                        <span className="rounded-[var(--app-radius-pill)] border border-[color:color-mix(in_srgb,var(--app-border-accent)_42%,transparent)] px-2 py-0.5 text-[0.68rem] uppercase tracking-[0.12em] text-[var(--app-status-success)]">
+                          Telegram
+                        </span>
+                      </div>
+                      <div className="grid gap-2 text-xs leading-5 text-[var(--app-text-muted)] sm:grid-cols-2">
+                        <div>
+                          <div className={tertiaryHeadingClassName}>
+                            Telegram User ID
+                          </div>
+                          <div className="mt-1 break-all font-mono text-[var(--app-text-primary)]">
+                            {binding.externalChatId}
+                          </div>
+                        </div>
+                        <div>
+                          <div className={tertiaryHeadingClassName}>
+                            Active Chatbot
+                          </div>
+                          <div className="mt-1 break-all font-mono text-[var(--app-text-primary)]">
+                            {binding.activeSessionId ?? "--"}
+                          </div>
+                        </div>
+                        <div>
+                          <div className={tertiaryHeadingClassName}>
+                            Output Mode
+                          </div>
+                          <div className="mt-1 text-[var(--app-text-primary)]">
+                            {binding.responseOutputMode}
+                          </div>
+                        </div>
+                        <div>
+                          <div className={tertiaryHeadingClassName}>
+                            Last Update
+                          </div>
+                          <div className="mt-1 text-[var(--app-text-primary)]">
+                            {binding.lastUpdateId ?? "--"}
+                          </div>
+                        </div>
+                        <div className="sm:col-span-2">
+                          <div className={tertiaryHeadingClassName}>
+                            Updated
+                          </div>
+                          <div className="mt-1 text-[var(--app-text-primary)]">
+                            {formatChannelTimestamp(binding.updatedAt)}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div
+                  className={`${insetSurfaceClassName} px-4 py-3 text-xs leading-5 text-[var(--app-text-muted)]`}
+                >
+                  还没有 Telegram chat 绑定。
+                </div>
+              )}
+            </div>
 
             <label
               className={`flex items-center justify-between gap-3 px-4 py-3 text-sm text-[var(--app-text-secondary)] ${insetSurfaceClassName}`}
