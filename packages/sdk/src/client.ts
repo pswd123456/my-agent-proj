@@ -46,6 +46,7 @@ export type {
 
 export type SessionSnapshot = AgentSessionSnapshot & {
   cronJobId?: string | null;
+  channels?: SessionChannelSummary[];
   context: AgentSessionSnapshot["context"] & {
     cronJobId?: string | null;
   };
@@ -74,6 +75,7 @@ interface ApiErrorPayload {
 export interface SessionSummary {
   sessionId: string;
   cronJobId?: string | null;
+  channels?: SessionChannelSummary[];
   parentSessionId?: string | null;
   parentRelationKind?: SessionSnapshot["parentRelationKind"];
   parentSessionTaskKind?: SessionSnapshot["parentSessionTaskKind"];
@@ -93,6 +95,11 @@ export interface SessionSummary {
   status: SessionSnapshot["context"]["status"];
   firstUserMessage: string | null;
   lastUserMessage: string | null;
+}
+
+export interface SessionChannelSummary {
+  channel: "telegram";
+  externalChatId: string;
 }
 
 export interface ModelCatalogEntry {
@@ -305,10 +312,21 @@ function getFirstUserMessage(session: SessionSnapshot): string | null {
   return firstUserBlock?.content ?? null;
 }
 
+function getSessionChannels(session: SessionSnapshot): SessionChannelSummary[] {
+  const channels = Array.isArray(session.channels) ? session.channels : [];
+  return channels.filter(
+    (channel): channel is SessionChannelSummary =>
+      channel.channel === "telegram" &&
+      typeof channel.externalChatId === "string" &&
+      channel.externalChatId.trim().length > 0
+  );
+}
+
 function toSessionSummary(session: SessionSnapshot): SessionSummary {
   return {
     sessionId: session.sessionId,
     cronJobId: extractCronJobId(session),
+    channels: getSessionChannels(session),
     parentSessionId: session.parentSessionId ?? null,
     parentRelationKind: session.parentRelationKind ?? null,
     parentSessionTaskKind: session.parentSessionTaskKind ?? null,
@@ -745,14 +763,11 @@ export class ApiClient {
   async updateUserSettingsPayload(
     input: UpdateUserSettingsPayload
   ): Promise<UserSettingsPayload> {
-    const response = await this.fetchImpl(
-      buildUrl(this.baseUrl, "/settings"),
-      {
-        method: "PATCH",
-        headers: toJsonHeaders(),
-        body: JSON.stringify(input)
-      }
-    );
+    const response = await this.fetchImpl(buildUrl(this.baseUrl, "/settings"), {
+      method: "PATCH",
+      headers: toJsonHeaders(),
+      body: JSON.stringify(input)
+    });
     return (await ensureOk(response).then((result) =>
       result.json()
     )) as UserSettingsPayload;

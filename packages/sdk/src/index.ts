@@ -75,6 +75,7 @@ export type {
   ChooseDirectoryInput,
   ChooseDirectoryResult,
   RunSessionResult,
+  SessionChannelSummary,
   SessionSnapshot,
   CreateSessionForkPayload,
   CreateSessionPayload,
