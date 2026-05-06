@@ -8,6 +8,7 @@ import type {
 } from "@ai-app-template/domain";
 
 import { backgroundTaskRuns, backgroundTasks } from "./schema.js";
+import { toIsoString } from "./row-utils.js";
 
 export type BackgroundTaskRow = typeof backgroundTasks.$inferSelect;
 export type BackgroundTaskRunRow = typeof backgroundTaskRuns.$inferSelect;
@@ -101,23 +102,6 @@ export interface BackgroundTaskRepository {
   ): Promise<BackgroundTaskRecord>;
   requeueTask(input: RequeueExistingTaskInput): Promise<BackgroundTaskRecord>;
   requeueStaleClaims(staleBefore: string): Promise<BackgroundTaskRecord[]>;
-}
-
-export function toIsoString(value: string): string {
-  const normalized = value.includes("T") ? value : value.replace(" ", "T");
-  const tzMatch = normalized.match(/([+-]\d{2})(\d{2})?$/);
-  const hasExplicitTimeZone =
-    normalized.endsWith("Z") || /[+-]\d{2}:\d{2}$/.test(normalized) || tzMatch;
-  const parsedValue = tzMatch
-    ? normalized.replace(
-        /([+-]\d{2})(\d{2})?$/,
-        (_, hours: string, minutes?: string) => `${hours}:${minutes ?? "00"}`
-      )
-    : normalized;
-
-  return new Date(
-    hasExplicitTimeZone ? parsedValue : `${normalized}Z`
-  ).toISOString();
 }
 
 function parseJsonValue(value: unknown): unknown {
@@ -483,7 +467,11 @@ export function buildFinishedTaskClaim(
   requireActiveTaskStatus(
     claim.task,
     ["claimed", "running", "cancelling"],
-    status === "completed" ? "complete" : status === "failed" ? "fail" : "cancel"
+    status === "completed"
+      ? "complete"
+      : status === "failed"
+        ? "fail"
+        : "cancel"
   );
   const errorSummary =
     status === "failed" && "errorSummary" in input ? input.errorSummary : null;
@@ -560,7 +548,9 @@ export function buildRescheduledQueuedTask(
   requireActiveTaskStatus(task, ["queued"], "reschedule queued");
   return {
     ...task,
-    payload: structuredClone(input.payload ?? task.payload) as BackgroundTaskPayload,
+    payload: structuredClone(
+      input.payload ?? task.payload
+    ) as BackgroundTaskPayload,
     resultSummary: resolveStringOrNullPatch(
       input.resultSummary,
       task.resultSummary
@@ -590,7 +580,9 @@ export function buildRequeuedTask(
   return {
     ...task,
     status: "queued",
-    payload: structuredClone(input.payload ?? task.payload) as BackgroundTaskPayload,
+    payload: structuredClone(
+      input.payload ?? task.payload
+    ) as BackgroundTaskPayload,
     taskState: cloneTaskState(taskState),
     resultSummary: resolveTaskResultSummary({
       taskState,

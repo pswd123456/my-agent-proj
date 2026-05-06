@@ -1,15 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import {
-  and,
-  asc,
-  eq,
-  gte,
-  lt,
-  lte,
-  gt,
-  ne
-} from "drizzle-orm";
+import { and, asc, eq, gte, lt, lte, gt, ne } from "drizzle-orm";
 
 import {
   doIntervalsOverlap,
@@ -24,6 +15,7 @@ import {
 } from "@ai-app-template/domain";
 
 import type { ProductDatabaseClient } from "./client.js";
+import { toIsoString } from "./row-utils.js";
 import { routines } from "./schema.js";
 
 export interface CreateRoutineRecordInput {
@@ -54,47 +46,26 @@ export interface RoutineRepository {
   ): Promise<RoutineRecord | null>;
   remove(routineId: string): Promise<RoutineRecord | null>;
   resetAll(): Promise<number>;
-  listByDateRange(
-    startDate: string,
-    endDate: string
-  ): Promise<RoutineRecord[]>;
+  listByDateRange(startDate: string, endDate: string): Promise<RoutineRecord[]>;
   listByWeek(weekStartDate: string): Promise<RoutineRecord[]>;
-  searchByTime(
-    input: {
-      date: string;
-      time?: string;
-      timeRange?: {
-        start: string;
-        end: string;
-      };
-    }
-  ): Promise<RoutineRecord[]>;
-  findConflicts(
-    input: {
-      date: string;
-      startTime: string;
-      endTime?: string;
-      durationMinutes?: number;
-      excludeRoutineId?: string;
-    }
-  ): Promise<RoutineConflict[]>;
+  searchByTime(input: {
+    date: string;
+    time?: string;
+    timeRange?: {
+      start: string;
+      end: string;
+    };
+  }): Promise<RoutineRecord[]>;
+  findConflicts(input: {
+    date: string;
+    startTime: string;
+    endTime?: string;
+    durationMinutes?: number;
+    excludeRoutineId?: string;
+  }): Promise<RoutineConflict[]>;
 }
 
 type RoutineRow = typeof routines.$inferSelect;
-
-function toIsoString(value: string): string {
-  const normalized = value.includes("T") ? value : value.replace(" ", "T");
-  const tzMatch = normalized.match(/([+-]\d{2})(\d{2})?$/);
-  const hasExplicitTimeZone =
-    normalized.endsWith("Z") || /[+-]\d{2}:\d{2}$/.test(normalized) || tzMatch;
-  const parsedValue = tzMatch
-    ? normalized.replace(/([+-]\d{2})(\d{2})?$/, (_, hours: string, minutes?: string) =>
-        `${hours}:${minutes ?? "00"}`
-      )
-    : normalized;
-
-  return new Date(hasExplicitTimeZone ? parsedValue : `${normalized}Z`).toISOString();
-}
 
 export function mapRoutineRow(row: RoutineRow): RoutineRecord {
   return {
@@ -242,12 +213,7 @@ export class PostgresRoutineRepository implements RoutineRepository {
         status: "deleted",
         updatedAt: new Date().toISOString()
       })
-      .where(
-        and(
-          eq(routines.id, routineId),
-          eq(routines.status, "active")
-        )
-      )
+      .where(and(eq(routines.id, routineId), eq(routines.status, "active")))
       .returning();
 
     return rows[0] ? mapRoutineRow(rows[0]) : null;
@@ -304,13 +270,11 @@ export class PostgresRoutineRepository implements RoutineRepository {
     return sortRoutinesByStartAt(rows.map(mapRoutineRow));
   }
 
-  async searchByTime(
-    input: {
-      date: string;
-      time?: string;
-      timeRange?: { start: string; end: string };
-    }
-  ): Promise<RoutineRecord[]> {
+  async searchByTime(input: {
+    date: string;
+    time?: string;
+    timeRange?: { start: string; end: string };
+  }): Promise<RoutineRecord[]> {
     const startTime = input.timeRange?.start ?? input.time;
     const endTime = input.timeRange?.end ?? input.time;
 
@@ -341,15 +305,13 @@ export class PostgresRoutineRepository implements RoutineRepository {
     return sortRoutinesByStartAt(rows.map(mapRoutineRow));
   }
 
-  async findConflicts(
-    input: {
-      date: string;
-      startTime: string;
-      endTime?: string;
-      durationMinutes?: number;
-      excludeRoutineId?: string;
-    }
-  ): Promise<RoutineConflict[]> {
+  async findConflicts(input: {
+    date: string;
+    startTime: string;
+    endTime?: string;
+    durationMinutes?: number;
+    excludeRoutineId?: string;
+  }): Promise<RoutineConflict[]> {
     const timing = resolveRoutineTiming(toTimingInput(input));
 
     const conditions = [
@@ -503,13 +465,11 @@ export class MemoryRoutineRepository implements RoutineRepository {
     return this.listByDateRange(startDate, weekEnd.toISOString().slice(0, 10));
   }
 
-  async searchByTime(
-    input: {
-      date: string;
-      time?: string;
-      timeRange?: { start: string; end: string };
-    }
-  ): Promise<RoutineRecord[]> {
+  async searchByTime(input: {
+    date: string;
+    time?: string;
+    timeRange?: { start: string; end: string };
+  }): Promise<RoutineRecord[]> {
     const routines = await this.listByDateRange(input.date, input.date);
     if (!input.time && !input.timeRange) {
       return routines;
@@ -529,15 +489,13 @@ export class MemoryRoutineRepository implements RoutineRepository {
     return routines.filter((routine) => doIntervalsOverlap(routine, candidate));
   }
 
-  async findConflicts(
-    input: {
-      date: string;
-      startTime: string;
-      endTime?: string;
-      durationMinutes?: number;
-      excludeRoutineId?: string;
-    }
-  ): Promise<RoutineConflict[]> {
+  async findConflicts(input: {
+    date: string;
+    startTime: string;
+    endTime?: string;
+    durationMinutes?: number;
+    excludeRoutineId?: string;
+  }): Promise<RoutineConflict[]> {
     const timing = resolveRoutineTiming(toTimingInput(input));
     const candidate = {
       startAt: new Date(timing.startAt).toISOString(),

@@ -13,6 +13,7 @@ import {
 } from "@ai-app-template/domain";
 
 import type { ProductDatabaseClient } from "./client.js";
+import { toIsoString } from "./row-utils.js";
 import { inboxBindings } from "./schema.js";
 
 export interface CreateInboxBindingInput {
@@ -43,23 +44,6 @@ export interface InboxBindingRepository {
 
 type InboxBindingRow = typeof inboxBindings.$inferSelect;
 type InboxBindingInsert = typeof inboxBindings.$inferInsert;
-
-function toIsoString(value: string): string {
-  const normalized = value.includes("T") ? value : value.replace(" ", "T");
-  const tzMatch = normalized.match(/([+-]\d{2})(\d{2})?$/);
-  const hasExplicitTimeZone =
-    normalized.endsWith("Z") || /[+-]\d{2}:\d{2}$/.test(normalized) || tzMatch;
-  const parsedValue = tzMatch
-    ? normalized.replace(
-        /([+-]\d{2})(\d{2})?$/,
-        (_, hours: string, minutes?: string) => `${hours}:${minutes ?? "00"}`
-      )
-    : normalized;
-
-  return new Date(
-    hasExplicitTimeZone ? parsedValue : `${normalized}Z`
-  ).toISOString();
-}
 
 function parseJsonValue(value: unknown): unknown {
   if (typeof value !== "string") {

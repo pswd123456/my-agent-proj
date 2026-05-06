@@ -16,6 +16,7 @@ import {
 } from "@ai-app-template/domain";
 
 import type { ProductDatabaseClient } from "./client.js";
+import { toIsoString } from "./row-utils.js";
 import { agentSessions, backgroundTasks, cronJobs } from "./schema.js";
 
 export type CreateCronJobRecordInput = CreateCronJobPayload;
@@ -36,23 +37,6 @@ export interface CronJobRepository {
 type CronJobRow = typeof cronJobs.$inferSelect;
 type CronJobInsert = typeof cronJobs.$inferInsert;
 type CronJobUpdateSet = Partial<Omit<CronJobInsert, "id" | "createdAt">>;
-
-function toIsoString(value: string): string {
-  const normalized = value.includes("T") ? value : value.replace(" ", "T");
-  const tzMatch = normalized.match(/([+-]\d{2})(\d{2})?$/);
-  const hasExplicitTimeZone =
-    normalized.endsWith("Z") || /[+-]\d{2}:\d{2}$/.test(normalized) || tzMatch;
-  const parsedValue = tzMatch
-    ? normalized.replace(
-        /([+-]\d{2})(\d{2})?$/,
-        (_, hours: string, minutes?: string) => `${hours}:${minutes ?? "00"}`
-      )
-    : normalized;
-
-  return new Date(
-    hasExplicitTimeZone ? parsedValue : `${normalized}Z`
-  ).toISOString();
-}
 
 function resolveRunnableStatus(
   status: CronJobStatus | undefined,
@@ -85,8 +69,7 @@ function buildInsertValues(input: CreateCronJobRecordInput): CronJobInsert {
           intervalValue:
             input.scheduleMode === "interval" ? input.intervalValue : null,
           weekday: input.scheduleMode === "weekly" ? input.weekday : null,
-          timeOfDay:
-            input.scheduleMode === "weekly" ? input.timeOfDay : null,
+          timeOfDay: input.scheduleMode === "weekly" ? input.timeOfDay : null,
           runCount: 0,
           maxRuns: input.maxRuns ?? null,
           status
@@ -98,8 +81,7 @@ function buildInsertValues(input: CreateCronJobRecordInput): CronJobInsert {
     prompt: input.prompt,
     workingDirectory: input.workingDirectory,
     scheduleMode: input.scheduleMode,
-    intervalUnit:
-      input.scheduleMode === "interval" ? input.intervalUnit : null,
+    intervalUnit: input.scheduleMode === "interval" ? input.intervalUnit : null,
     intervalValue:
       input.scheduleMode === "interval" ? input.intervalValue : null,
     weekday: input.scheduleMode === "weekly" ? input.weekday : null,
