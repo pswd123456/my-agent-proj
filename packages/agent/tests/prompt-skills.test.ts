@@ -66,6 +66,20 @@ function createSessionSnapshot(): SessionSnapshot {
 }
 
 describe("PromptBuilder skill context", () => {
+  test("adds memory usage guidance to the system prompt and runtime state", () => {
+    const promptBuilder = createPromptBuilder();
+    const session = createSessionSnapshot();
+    const envelope = promptBuilder.build(session, new ToolRegistry(), {
+      memoryEnabled: true
+    });
+
+    expect(envelope.system).toContain("## Memory");
+    expect(envelope.system).toContain("memory_search");
+    expect(JSON.stringify(envelope.runtimeContextMessages)).toContain(
+      "Memory background summaries: enabled"
+    );
+  });
+
   test("serializes assistant thinking before the matching tool call", () => {
     const messages = toAnthropicMessages([
       {

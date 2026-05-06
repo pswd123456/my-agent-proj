@@ -14,6 +14,8 @@ import type {
   DelegateTaskState,
   HookSubagentBackgroundTaskResultEnvelope,
   HookSubagentTaskState,
+  MemorySummaryResultEnvelope,
+  MemorySummaryTaskState,
   PendingPermissionRequest,
   ShellCommandResultEnvelope,
   ShellCommandTaskState
@@ -26,6 +28,7 @@ import {
 import type { TraceManager } from "../trace.js";
 import type { SessionManager } from "../session/contracts.js";
 import type { RunSessionResult } from "../types.js";
+import { runMemorySummaryTask } from "../memory/session-summary.js";
 
 import type {
   BackgroundTaskManager,
@@ -118,6 +121,20 @@ function updateHookSubagentTaskState(
   latestResult: HookSubagentBackgroundTaskResultEnvelope | null
 ): HookSubagentTaskState | null {
   if (!claim.task.taskState || claim.task.taskState.kind !== "hook_subagent") {
+    return null;
+  }
+
+  return {
+    ...claim.task.taskState,
+    latestResult
+  };
+}
+
+function updateMemorySummaryTaskState(
+  claim: BackgroundTaskClaim,
+  latestResult: MemorySummaryResultEnvelope
+): MemorySummaryTaskState | null {
+  if (!claim.task.taskState || claim.task.taskState.kind !== "memory_summary") {
     return null;
   }
 
@@ -528,6 +545,86 @@ async function runShellCommandTask(
   }
 }
 
+async function runMemorySummaryBackgroundTask(
+  input: RunBackgroundTaskInput
+): Promise<void> {
+  const { claim, workerId } = input;
+  if (claim.task.payload.executor !== "memory_summary") {
+    throw new Error("Expected memory_summary payload.");
+  }
+
+  const payload = claim.task.payload;
+  await input.taskManager.markTaskRunning({
+    taskId: claim.task.taskId,
+    runId: claim.run.runId,
+    workerId
+  });
+
+  try {
+    const session = await input.sessionManager.getSession(
+      payload.sourceSessionId
+    );
+    if (!session) {
+      await input.taskManager.failTask({
+        taskId: claim.task.taskId,
+        runId: claim.run.runId,
+        workerId,
+        errorSummary: `Source session not found: ${payload.sourceSessionId}`
+      });
+      return;
+    }
+
+    if (
+      (await input.sessionManager.isExecutionActive(session.sessionId)) ||
+      session.context.status === "waiting_for_permission" ||
+      session.context.status === "waiting_for_conflict_confirmation" ||
+      session.context.status === "waiting_for_user_question"
+    ) {
+      const latestResult: MemorySummaryResultEnvelope = {
+        type: "memory_summary",
+        sourceSessionId: session.sessionId,
+        stageKey: payload.stageKey,
+        memoryPath: null,
+        outcome: "skipped",
+        summary:
+          "Memory summary skipped while the source session is active or waiting on user input."
+      };
+      const taskState = updateMemorySummaryTaskState(claim, latestResult);
+      await input.taskManager.completeTask({
+        taskId: claim.task.taskId,
+        runId: claim.run.runId,
+        workerId,
+        resultSummary: latestResult.summary,
+        ...(taskState ? { taskState } : {})
+      });
+      return;
+    }
+
+    const latestResult = await runMemorySummaryTask({
+      session,
+      runId: claim.run.runId,
+      taskId: claim.task.taskId,
+      stageKey: payload.stageKey,
+      memoryDirectory: payload.memoryDirectory ?? null
+    });
+    const taskState = updateMemorySummaryTaskState(claim, latestResult);
+    await input.taskManager.completeTask({
+      taskId: claim.task.taskId,
+      runId: claim.run.runId,
+      workerId,
+      resultSummary: latestResult.summary,
+      ...(taskState ? { taskState } : {})
+    });
+  } catch (error) {
+    await input.taskManager.failTask({
+      taskId: claim.task.taskId,
+      runId: claim.run.runId,
+      workerId,
+      errorSummary: error instanceof Error ? error.message : String(error)
+    });
+  }
+}
+
 export async function runBackgroundTask(
   input: RunBackgroundTaskInput
 ): Promise<void> {
@@ -538,6 +635,11 @@ export async function runBackgroundTask(
 
   if (claim.task.kind === "shell_command") {
     await runShellCommandTask(input);
+    return;
+  }
+
+  if (claim.task.kind === "memory_summary") {
+    await runMemorySummaryBackgroundTask(input);
     return;
   }
 

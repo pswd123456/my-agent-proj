@@ -69,6 +69,7 @@ export interface AgentRuntimeOptions {
   userContextHooks?: UserContextHookRecord[];
   workspaceSkillSettings?: WorkspaceSkillSettingRecord[];
   userCustomPrompt?: string;
+  memoryEnabled?: boolean;
   maxTurns?: number;
   maxTokens?: number;
   toolChoice?: AnthropicToolChoice;
@@ -720,6 +721,7 @@ export class AgentRuntime {
         ...(typeof this.options.userCustomPrompt === "string"
           ? { userCustomPrompt: this.options.userCustomPrompt }
           : {}),
+        memoryEnabled: this.options.memoryEnabled === true,
         ...(input.skipSubagentHooks === true
           ? { resumeBlockedBySubagentHook: true }
           : {}),

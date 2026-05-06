@@ -20,6 +20,7 @@ export * from "./manage-telegram-chat.js";
 export * from "./manage-task-brief.js";
 export * from "./manage-todo-list.js";
 export * from "./make-http-request.js";
+export * from "./memory-search.js";
 export * from "./query-routines.js";
 export * from "./read-file.js";
 export * from "./registry.js";

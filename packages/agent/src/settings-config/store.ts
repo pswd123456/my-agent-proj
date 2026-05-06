@@ -147,6 +147,9 @@ function normalizeTomlSettings(
     ...(typeof settingsFields.debugConversationView === "boolean"
       ? { debugConversationView: settingsFields.debugConversationView }
       : {}),
+    ...(typeof settingsFields.memoryEnabled === "boolean"
+      ? { memoryEnabled: settingsFields.memoryEnabled }
+      : {}),
     ...(typeof settingsFields.userCustomPrompt === "string"
       ? {
           userCustomPrompt: sanitizeUserCustomPrompt(
@@ -450,6 +453,9 @@ export function createSettingsConfigStore(input?: {
             : normalizeUserContextHooks(patch.userContextHooks),
         ...(typeof patch.debugConversationView === "boolean"
           ? { debugConversationView: patch.debugConversationView }
+          : {}),
+        ...(typeof patch.memoryEnabled === "boolean"
+          ? { memoryEnabled: patch.memoryEnabled }
           : {}),
         ...(typeof patch.userCustomPrompt === "string"
           ? {

@@ -142,6 +142,7 @@ export function createRuntimeHandleFactory(input: {
           userContextHooks: settings.userContextHooks,
           workspaceSkillSettings: settings.workspaceSkillSettings,
           userCustomPrompt: settings.userCustomPrompt,
+          memoryEnabled: settings.memoryEnabled,
           maxTurns: DEFAULT_SESSION_MAX_TURNS,
           maxTokens: environment.maxTokens,
           ...(environment.toolChoice

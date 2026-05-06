@@ -32,6 +32,9 @@ export interface EnqueueBackgroundTaskInput {
   taskState?: BackgroundTaskState | null;
   command?: string;
   timeoutMs?: number;
+  sourceSessionId?: string;
+  stageKey?: string;
+  memoryDirectory?: string | null;
   waitMode?: BackgroundTaskWaitMode;
   sessionSeed?: Partial<CreateSessionInput>;
   availableAt?: string | null;

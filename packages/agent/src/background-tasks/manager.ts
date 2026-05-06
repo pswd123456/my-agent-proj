@@ -1,4 +1,7 @@
-import type { BackgroundTaskManager, EnqueueBackgroundTaskInput } from "./contracts.js";
+import type {
+  BackgroundTaskManager,
+  EnqueueBackgroundTaskInput
+} from "./contracts.js";
 
 import {
   type BackgroundTaskExecutor,
@@ -112,20 +115,41 @@ export class DefaultBackgroundTaskManager implements BackgroundTaskManager {
             ...sharedPayload,
             command: input.command?.trim() ?? "",
             timeoutMs:
-              typeof input.timeoutMs === "number" && Number.isFinite(input.timeoutMs)
+              typeof input.timeoutMs === "number" &&
+              Number.isFinite(input.timeoutMs)
                 ? Math.max(1, Math.floor(input.timeoutMs))
                 : 120_000
           }
-        : {
-            executor,
-            ...sharedPayload,
-            ...(typeof input.permissionReply === "boolean"
-              ? { permissionReply: input.permissionReply }
-              : {})
-          };
+        : executor === "memory_summary"
+          ? {
+              executor,
+              ...sharedPayload,
+              sourceSessionId: input.sourceSessionId?.trim() ?? "",
+              stageKey: input.stageKey?.trim() ?? "",
+              memoryDirectory:
+                typeof input.memoryDirectory === "string" ||
+                input.memoryDirectory === null
+                  ? input.memoryDirectory
+                  : null
+            }
+          : {
+              executor,
+              ...sharedPayload,
+              ...(typeof input.permissionReply === "boolean"
+                ? { permissionReply: input.permissionReply }
+                : {})
+            };
 
     if (payload.executor === "shell_command" && payload.command.length === 0) {
       throw new Error("shell_command background tasks require a command.");
+    }
+    if (
+      payload.executor === "memory_summary" &&
+      (payload.sourceSessionId.length === 0 || payload.stageKey.length === 0)
+    ) {
+      throw new Error(
+        "memory_summary background tasks require sourceSessionId and stageKey."
+      );
     }
 
     try {
@@ -136,7 +160,8 @@ export class DefaultBackgroundTaskManager implements BackgroundTaskManager {
         payload,
         taskState: input.taskState ?? null,
         availableAt: input.availableAt ?? null,
-        deadlineAt: input.deadlineAt ?? resolveDefaultDeadline({ kind: input.kind }),
+        deadlineAt:
+          input.deadlineAt ?? resolveDefaultDeadline({ kind: input.kind }),
         maxAttempts: Math.max(1, Math.floor(input.maxAttempts ?? 1))
       });
     } catch (error) {
@@ -155,11 +180,10 @@ export class DefaultBackgroundTaskManager implements BackgroundTaskManager {
     return this.options.repository.getTask(taskId);
   };
 
-  getWakeupTaskBySessionId: BackgroundTaskRepository["getWakeupTaskBySessionId"] = (
-    sessionId
-  ) => {
-    return this.options.repository.getWakeupTaskBySessionId(sessionId);
-  };
+  getWakeupTaskBySessionId: BackgroundTaskRepository["getWakeupTaskBySessionId"] =
+    (sessionId) => {
+      return this.options.repository.getWakeupTaskBySessionId(sessionId);
+    };
 
   rescheduleQueuedTask: BackgroundTaskRepository["rescheduleQueuedTask"] = (
     input
@@ -175,17 +199,15 @@ export class DefaultBackgroundTaskManager implements BackgroundTaskManager {
     return this.options.repository.markTaskRunning(input);
   };
 
-  markTaskWaitingForInput: BackgroundTaskRepository["markTaskWaitingForInput"] = (
-    input
-  ) => {
-    return this.options.repository.markTaskWaitingForInput(input);
-  };
+  markTaskWaitingForInput: BackgroundTaskRepository["markTaskWaitingForInput"] =
+    (input) => {
+      return this.options.repository.markTaskWaitingForInput(input);
+    };
 
-  markTaskWaitingForMainAgent: BackgroundTaskRepository["markTaskWaitingForMainAgent"] = (
-    input
-  ) => {
-    return this.options.repository.markTaskWaitingForMainAgent(input);
-  };
+  markTaskWaitingForMainAgent: BackgroundTaskRepository["markTaskWaitingForMainAgent"] =
+    (input) => {
+      return this.options.repository.markTaskWaitingForMainAgent(input);
+    };
 
   completeTask: BackgroundTaskRepository["completeTask"] = (input) => {
     return this.options.repository.completeTask(input);

@@ -43,12 +43,14 @@ describe("settings config store", () => {
     expect(settings.maxTurns).toBe(DEFAULT_SESSION_MAX_TURNS);
     expect(settings.userContextHooks).toEqual([]);
     expect(settings.workspaceSkillSettings).toEqual([]);
+    expect(settings.memoryEnabled).toBe(false);
 
     const rawConfig = await readFile(store.getGlobalPath(), "utf8");
     expect(rawConfig).toContain(
       `working_directory = "${DEFAULT_SESSION_WORKING_DIRECTORY}"`
     );
     expect(rawConfig).toContain("workspace_skill_settings = []");
+    expect(rawConfig).toContain("memory_enabled = false");
   });
 
   test("applies field-level workspace overrides on top of global config", async () => {
@@ -63,6 +65,7 @@ describe("settings config store", () => {
       yoloMode: true,
       contextWindow: 123_456,
       maxTurns: 44,
+      memoryEnabled: true,
       workspaceSkillSettings: [{ skillName: "planner", enabled: true }],
       userContextHooks: [
         {
@@ -97,6 +100,7 @@ describe("settings config store", () => {
     expect(effective.model).toBe("deepseek-v4-pro");
     expect(effective.thinkingEffort).toBe("max");
     expect(effective.yoloMode).toBe(true);
+    expect(effective.memoryEnabled).toBe(true);
     expect(effective.maxTurns).toBe(44);
     expect(effective.workspaceSkillSettings).toEqual([
       { skillName: "repo_reader", enabled: false }

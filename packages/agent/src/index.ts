@@ -5,6 +5,7 @@ export * from "./contracts/workspace-api.js";
 export * from "./delegation/index.js";
 export * from "./events.js";
 export * from "./mcp/index.js";
+export * from "./memory/index.js";
 export { DEFAULT_SESSION_MAX_TURNS } from "@ai-app-template/domain";
 export * from "./model.js";
 export {

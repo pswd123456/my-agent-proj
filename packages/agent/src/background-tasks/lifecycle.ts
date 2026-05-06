@@ -37,6 +37,7 @@ export interface StaleBackgroundTaskLifecycleNotification {
 const DEFAULT_NOTIFICATION_TITLES: Record<BackgroundTaskKind, string> = {
   cron_job: "计划任务",
   hook_subagent: "预运行 Hook",
+  memory_summary: "Memory 总结",
   session_wakeup: "主会话后台续跑",
   shell_command: "后台任务",
   subagent: "后台子任务"
@@ -45,6 +46,7 @@ const DEFAULT_NOTIFICATION_TITLES: Record<BackgroundTaskKind, string> = {
 const DEFAULT_TIMEOUT_SUMMARIES: Record<BackgroundTaskKind, string> = {
   cron_job: "计划任务超时。",
   hook_subagent: "预运行 Hook 超时。",
+  memory_summary: "Memory 总结超时。",
   session_wakeup: "主会话后台续跑超时。",
   shell_command: "后台任务超时。",
   subagent: "后台子任务超时。"
@@ -133,6 +135,21 @@ export function buildBackgroundTaskLifecycleNotificationEnvelope(
         typeof input.result !== "undefined"
           ? input.result
           : input.task.taskState?.kind === "hook_subagent"
+            ? input.task.taskState.latestResult
+            : null
+    };
+  }
+
+  if (input.task.kind === "memory_summary") {
+    return {
+      title,
+      summary: input.fallbackSummary,
+      content: input.fallbackContent,
+      expectedParentReply: "none",
+      result:
+        typeof input.result !== "undefined"
+          ? input.result
+          : input.task.taskState?.kind === "memory_summary"
             ? input.task.taskState.latestResult
             : null
     };

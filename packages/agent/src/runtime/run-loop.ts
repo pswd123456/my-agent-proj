@@ -228,6 +228,7 @@ export async function runSessionLoop(input: {
   userContextHooks: UserContextHookRecord[];
   workspaceSkillSettings: WorkspaceSkillSettingRecord[];
   userCustomPrompt?: string;
+  memoryEnabled?: boolean;
   session: SessionSnapshot;
   message: string | undefined;
   messageBlock?: UserConversationBlock;
@@ -1102,6 +1103,7 @@ export async function runSessionLoop(input: {
             ...(typeof input.userCustomPrompt === "string"
               ? { userCustomPrompt: input.userCustomPrompt }
               : {}),
+            memoryEnabled: input.memoryEnabled === true,
             contextHooks: resolvedContextHooks,
             hookContextEntries: injectedHookContextEntries,
             workspaceInstructions: workspaceInstructions.instructions

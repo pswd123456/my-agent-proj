@@ -33,6 +33,7 @@ import { createManageTaskBriefTool } from "./manage-task-brief.js";
 import { createManageTodoListTool } from "./manage-todo-list.js";
 import { createManagePathTool } from "./manage-path.js";
 import { createMakeHttpRequestTool } from "./make-http-request.js";
+import { createMemorySearchTool } from "./memory-search.js";
 import { createQueryRoutinesTool } from "./query-routines.js";
 import { createReadFileTool } from "./read-file.js";
 import { createRunShellCommandTool } from "./run-shell-command.js";
@@ -164,6 +165,7 @@ export function createWorkspaceToolRegistry(options: {
     createGitDiffTool(),
     createRunShellCommandTool(),
     createMakeHttpRequestTool(),
+    createMemorySearchTool(),
     createSearchSkillTool(
       options.workingDirectory,
       options.workspaceSkillSettings

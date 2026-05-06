@@ -72,6 +72,7 @@ export interface PromptRuntimeContext {
   currentTurnCount?: number;
   maxTurns?: number;
   userCustomPrompt?: string;
+  memoryEnabled?: boolean;
   contextHooks?: ResolvedUserContextHookSection[];
   hookContextEntries?: HookContextEntry[];
   workspaceInstructions?: WorkspaceInstructionsDescriptor | null;
@@ -103,6 +104,12 @@ const DEFAULT_SYSTEM_PROMPT = [
   "When the user message contains an explicit file reference like @relative/path, treat it as a concrete workspace path. If the path is already precise, do not call find_files just to rediscover the same target.",
   "When the user message contains an explicit skill reference like #skill_name, treat it as a concrete workspace skill name. If load_skill is available, you may load that exact skill directly.",
   "When a structured todo list is available, use it to stay aligned with the current task and keep item status updated as you make progress.",
+  "",
+  "## Memory",
+  "When memory_search is available, use it as a lightweight way to find prior reusable engineering conclusions for repeated repo issues, old trace diagnoses, or decisions that may save exploration.",
+  "Treat memory_search results as retrieval hints, not authoritative current facts. Verify against current source code, config, traces, or live state before relying on them for implementation decisions.",
+  "Do not load broad groups of memory by date or topic. Prefer a focused query with cwd, keywords, and paths, then inspect details only when a result may materially affect the current task.",
+  "Background memory summaries, when enabled in settings, are maintained outside the main run and must not be confused with task brief, conversation transcript, or the current workspace truth.",
   "",
   "## Repository and Document Retrieval",
   "For repository or document inspection, follow this retrieval protocol unless the user explicitly asks for a full-file read: (1) use search_text or find_files to narrow the target, (2) read only a narrow window with read_file, (3) expand with the next adjacent window only if needed.",
@@ -427,6 +434,7 @@ function createRuntimeContextMessages(
     `Task brief path: ${session.context.taskBriefPath ?? "none"}`,
     `Task brief binding: ${taskBriefBinding.state}`,
     `Task brief next write: ${createTaskBriefWriteRule(taskBriefBinding)}`,
+    `Memory background summaries: ${runtimeContext.memoryEnabled ? "enabled" : "disabled"}`,
     `Active background task count: ${session.context.activeBackgroundTaskCount}`,
     `Pending background notifications: ${backgroundNotificationText}`,
     `Pending confirmation payload: ${pendingText}`,

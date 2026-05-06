@@ -28,6 +28,7 @@ describe("ToolRegistry stage4 metadata contract", () => {
       "load_skill",
       "make_http_request",
       "manage_path",
+      "memory_search",
       "read_file",
       "run_shell_command",
       "search_skill",
