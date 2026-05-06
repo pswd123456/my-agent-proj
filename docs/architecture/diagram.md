@@ -7,6 +7,7 @@
 ```mermaid
 flowchart LR
   user["用户"]
+  telegram["Telegram / external chat"]
 
   subgraph apps["apps"]
     web["apps/web
@@ -23,11 +24,11 @@ flowchart LR
     sdk["packages/sdk
     API client + shared types"]
     agent["packages/agent
-    runtime + prompt + tools + session + models + skills + MCP + background tasks + delegation + trace"]
+    runtime + prompt + tools + session + models + skills + MCP + LSP + channels + background tasks + delegation + trace"]
     db["packages/db
-    schema + migrations + settings/routine repository + db client"]
+    schema + migrations + sessions + routines + cron jobs + inbox + background task repositories + db client"]
     domain["packages/domain
-    routine + session settings + session context + background task + delegate types"]
+    routine + session settings + session context + permission rules + cron job + inbox + background task + delegate types"]
     ui["packages/ui
     base UI components"]
     patterns["packages/ui-patterns
@@ -45,6 +46,7 @@ flowchart LR
   logs["tmp/agent-sessions/logs/system.log.jsonl*"]
 
   user --> web
+  telegram --> gateway
   web --> ui
   web --> patterns
   web --> tokens
@@ -86,16 +88,17 @@ sequenceDiagram
 
   User->>Web: 输入自然语言请求
   Web->>SDK: createSession / executeSession / streamSessionExecution
-  SDK->>API: POST /sessions or /execute/stream
+  SDK->>API: POST /sessions or /sessions/:sessionId/execute(/stream)
   API->>Settings: read / update global and workspace settings
   Settings-->>API: effective session defaults
   API->>Session: 读取或创建 session
+  API->>Trace: 记录 mcp_loaded pre-run event
   API->>Runtime: runtime.run(sessionId, message)
   Runtime->>Skills: discover .agents/skills/ from session.workingDirectory
   Skills-->>Runtime: skill metadata + diagnostics
   Runtime->>Prompt: build(system + prefix + runtime context + skills)
   Prompt-->>Runtime: prompt envelope
-  Runtime->>Trace: 记录 skills_loaded / turn_start / prompt
+  Runtime->>Trace: 记录 skills_loaded / context_hooks_loaded / workspace_instructions_loaded / turn_start / prompt
   Runtime->>Model: 发送 system + prefix + messages + tools
   Model-->>Runtime: text / thinking / tool_use
   Runtime->>Trace: 记录 response / thinking / assistant_text / tool_call
@@ -123,11 +126,15 @@ sequenceDiagram
 sequenceDiagram
   participant API as apps/api
   participant Worker as apps/worker
+  participant Cron as cron_jobs
   participant Task as background_tasks
   participant Session as child session
   participant Runtime as AgentRuntime
   participant Delegate as delegation service
 
+  Worker->>Cron: dispatchNextDueCronJob
+  Cron->>Session: create cron session
+  Cron->>Task: enqueue cron_job task
   API->>Task: enqueue subagent task
   Worker->>Task: claimNextTask / heartbeatTask
   Worker->>Session: load child session
@@ -140,10 +147,10 @@ sequenceDiagram
 ## 读图提示
 
 - `apps/api` 是当前运行主入口，负责把各层装配起来
-- `apps/worker` 负责 detached background task 的轮询、认领和执行
-- `apps/gateway` 负责 Telegram polling 这类常驻外部接入，再把 update 转发给 API
-- `packages/agent` 是执行核心，既包含 runtime loop，也包含 prompt、session、skills、tools 和 trace
+- `apps/worker` 负责 cron job dispatch，以及 detached background task 的轮询、认领和执行
+- `apps/gateway` 负责 Telegram polling 这类常驻外部接入，再把 update 转发给 API webhook
+- `packages/agent` 是执行核心，既包含 runtime loop，也包含 prompt、session、skills、MCP、LSP、channels、tools 和 trace
 - `packages/ui-patterns`、`packages/ui` 和 `packages/tokens` 是 `apps/web` 的共享视觉与布局层
 - tool 执行前还有独立的 permission checker；待批准请求和业务确认流是分开建模的
-- `PostgreSQL` 保存 session、routine 与 background task 数据，`tmp/` 主要保存 trace 与 system logs
+- `PostgreSQL` 保存 session、routine、cron job、inbox binding 与 background task 数据，`tmp/` 主要保存 trace 与 system logs
 - `SettingsConfigStore` 统一读取 `~/.agents/config.toml` 与 workspace `.agents/config.toml`，提供单租户 session settings
