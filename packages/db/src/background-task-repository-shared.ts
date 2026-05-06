@@ -152,6 +152,21 @@ function normalizeTaskState(value: unknown): BackgroundTaskState | null {
   }
 
   if (
+    "sourceSessionId" in parsed &&
+    typeof parsed.sourceSessionId === "string" &&
+    "stageKey" in parsed &&
+    typeof parsed.stageKey === "string"
+  ) {
+    return {
+      kind: "memory_summary",
+      ...(parsed as Omit<
+        Extract<BackgroundTaskState, { kind: "memory_summary" }>,
+        "kind"
+      >)
+    };
+  }
+
+  if (
     "hookId" in parsed &&
     typeof parsed.hookId === "string" &&
     "configHash" in parsed &&
@@ -653,6 +668,10 @@ export function resolveTaskResultSummary(input: {
 
   if (input.taskState?.kind === "hook_subagent") {
     return input.taskState.latestResult?.title ?? input.fallback ?? null;
+  }
+
+  if (input.taskState?.kind === "memory_summary") {
+    return input.taskState.latestResult?.summary ?? input.fallback ?? null;
   }
 
   return input.fallback ?? null;
