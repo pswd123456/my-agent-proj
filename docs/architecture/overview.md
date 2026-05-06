@@ -49,6 +49,7 @@
   - `workspaceSkillSettings`
   - `userContextHooks`
   - `debugConversationView`
+  - `memoryEnabled`
   - `userCustomPrompt`
 
 legacy workspace hooks 仍可写在 `.agents/config.toml` 的 `[hooks.<id>]` section；runtime 创建时它们会先并入统一 settings，再排在全局 hooks 前面统一归一化。
