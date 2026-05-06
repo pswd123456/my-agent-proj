@@ -101,6 +101,11 @@ import {
 } from "./session-workbench-ui";
 import { SessionWorkbenchSettings } from "./session-workbench-settings";
 import {
+  useDebouncedTrimmedValue,
+  useResponsiveStoredCollapseState,
+  useSyncedRef
+} from "./session-workbench-effects";
+import {
   SESSION_RAIL_COLLAPSE_MEDIA_QUERY,
   resolveSessionRailCollapsedState
 } from "./session-workbench-rail";
@@ -543,60 +548,24 @@ export function SessionWorkbench() {
     );
   }
 
-  useEffect(() => {
-    selectedSessionIdRef.current = selectedSessionId;
-  }, [selectedSessionId]);
+  useSyncedRef(selectedSessionIdRef, selectedSessionId);
+  useSyncedRef(sessionLocalStateMapRef, sessionLocalStateMap);
+  useSyncedRef(currentCronJobIdRef, currentCronJobId);
+  useSyncedRef(appliedSessionSearchQueryRef, appliedSessionSearchQuery);
 
-  useEffect(() => {
-    sessionLocalStateMapRef.current = sessionLocalStateMap;
-  }, [sessionLocalStateMap]);
+  useDebouncedTrimmedValue({
+    value: sessionSearchQuery,
+    delayMs: SESSION_SEARCH_DEBOUNCE_MS,
+    onChange: setAppliedSessionSearchQuery
+  });
 
-  useEffect(() => {
-    currentCronJobIdRef.current = currentCronJobId;
-  }, [currentCronJobId]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      setAppliedSessionSearchQuery(sessionSearchQuery.trim());
-      return;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      setAppliedSessionSearchQuery(sessionSearchQuery.trim());
-    }, SESSION_SEARCH_DEBOUNCE_MS);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [sessionSearchQuery]);
-
-  useEffect(() => {
-    appliedSessionSearchQueryRef.current = appliedSessionSearchQuery;
-  }, [appliedSessionSearchQuery]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    const mediaQuery = window.matchMedia(SESSION_RAIL_COLLAPSE_MEDIA_QUERY);
-    const syncSessionRailState = () => {
-      setIsSessionRailNarrowViewport(mediaQuery.matches);
-      const storedValue = window.localStorage.getItem(
-        SESSION_RAIL_COLLAPSED_STORAGE_KEY
-      );
-      setIsSessionRailCollapsed(
-        resolveSessionRailCollapsedState(storedValue, mediaQuery.matches)
-      );
-    };
-
-    syncSessionRailState();
-    mediaQuery.addEventListener("change", syncSessionRailState);
-
-    return () => {
-      mediaQuery.removeEventListener("change", syncSessionRailState);
-    };
-  }, []);
+  useResponsiveStoredCollapseState({
+    mediaQueryText: SESSION_RAIL_COLLAPSE_MEDIA_QUERY,
+    storageKey: SESSION_RAIL_COLLAPSED_STORAGE_KEY,
+    resolveCollapsedState: resolveSessionRailCollapsedState,
+    onNarrowChange: setIsSessionRailNarrowViewport,
+    onCollapsedChange: setIsSessionRailCollapsed
+  });
 
   useEffect(() => {
     if (!currentSession) {
@@ -838,7 +807,10 @@ export function SessionWorkbench() {
           setRoutines(routinesResult.value.routines);
         }
         if (settingsResult.status === "fulfilled") {
-          applyUserSettingsPayload(settingsResult.value, settingsControllerSync);
+          applyUserSettingsPayload(
+            settingsResult.value,
+            settingsControllerSync
+          );
         }
 
         const firstRejectedResult = [
@@ -2284,7 +2256,9 @@ export function SessionWorkbench() {
     }));
   }
 
-  async function refreshCronJobsAfterMutation(selectedCronJobId: string | null) {
+  async function refreshCronJobsAfterMutation(
+    selectedCronJobId: string | null
+  ) {
     const jobs = await apiClient.listCronJobs();
     setCronJobs(jobs);
     if (!selectedCronJobId) {
@@ -2450,9 +2424,9 @@ export function SessionWorkbench() {
           );
           hydrateCurrentSession(updatedSession);
 
-          const settingsPayload = await apiClient.updateUserSettingsPayload(
-            { model }
-          );
+          const settingsPayload = await apiClient.updateUserSettingsPayload({
+            model
+          });
           applyUserSettingsPayload(settingsPayload, settingsControllerSync);
           return true;
         } catch (error) {
@@ -2482,9 +2456,9 @@ export function SessionWorkbench() {
           );
           hydrateCurrentSession(updatedSession);
 
-          const settingsPayload = await apiClient.updateUserSettingsPayload(
-            { thinkingEffort: normalizedThinkingEffort }
-          );
+          const settingsPayload = await apiClient.updateUserSettingsPayload({
+            thinkingEffort: normalizedThinkingEffort
+          });
           applyUserSettingsPayload(settingsPayload, settingsControllerSync);
           return true;
         } catch (error) {
