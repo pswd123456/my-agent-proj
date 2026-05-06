@@ -2532,6 +2532,14 @@ export function SessionWorkbench() {
     await handleSaveUserSettings(nextForm);
   }
 
+  async function handleSettingsMemoryEnabledChange(checked: boolean) {
+    const nextForm = patchSettingsForm(settingsForm, {
+      memoryEnabled: checked
+    });
+    setSettingsForm(nextForm);
+    await handleSaveUserSettings(nextForm);
+  }
+
   async function handleSettingsCapabilityPackToggle(packName: string) {
     if (savingSettings) {
       return;
@@ -2862,6 +2870,9 @@ export function SessionWorkbench() {
               }
               onSettingsDebugConversationViewChange={(checked) =>
                 void handleSettingsDebugConversationViewChange(checked)
+              }
+              onSettingsMemoryEnabledChange={(checked) =>
+                void handleSettingsMemoryEnabledChange(checked)
               }
               onSettingsPermissionToolToggle={(toolName, target) =>
                 void handleSettingsPermissionToolToggle(toolName, target)

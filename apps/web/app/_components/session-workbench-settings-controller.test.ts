@@ -36,6 +36,7 @@ function createSessionSettingsRecord(): SessionSettingsRecord {
     workspaceSkillSettings: [],
     userContextHooks: [],
     debugConversationView: false,
+    memoryEnabled: false,
     userCustomPrompt: "",
     createdAt: "2026-05-05T00:00:00.000Z",
     updatedAt: "2026-05-05T00:00:00.000Z"
@@ -59,6 +60,7 @@ function createSettingsFormState(): SettingsFormState {
     workspaceSkillSettings: [],
     userContextHooks: [],
     debugConversationView: false,
+    memoryEnabled: false,
     userCustomPrompt: ""
   };
 }

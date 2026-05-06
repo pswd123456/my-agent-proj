@@ -145,6 +145,7 @@ export interface SettingsFormState extends SettingsFormPayloadFields {
   workspaceSkillSettings: WorkspaceSkillSettingRecord[];
   userContextHooks: UserContextHookRecord[];
   debugConversationView: boolean;
+  memoryEnabled: boolean;
   userCustomPrompt: string;
 }
 

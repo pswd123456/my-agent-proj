@@ -362,6 +362,7 @@ interface SessionWorkbenchSettingsProps {
   onResetAllRoutines: () => void;
   onSettingsYoloModeChange: (checked: boolean) => void;
   onSettingsDebugConversationViewChange: (checked: boolean) => void;
+  onSettingsMemoryEnabledChange: (checked: boolean) => void;
   onSettingsPermissionToolToggle: (
     toolName: string,
     target: "allow" | "ask" | "deny"
@@ -450,6 +451,7 @@ export function SessionWorkbenchSettings({
   onResetAllRoutines,
   onSettingsYoloModeChange,
   onSettingsDebugConversationViewChange,
+  onSettingsMemoryEnabledChange,
   onSettingsPermissionToolToggle,
   onSettingsCapabilityPackToggle,
   onSettingsShellAllowPatternRemove,
@@ -659,6 +661,24 @@ export function SessionWorkbenchSettings({
                 checked={settingsForm.debugConversationView}
                 ariaLabel="切换调试对话视图默认设置"
                 onChange={onSettingsDebugConversationViewChange}
+              />
+            </label>
+
+            <label
+              className={`flex items-center justify-between gap-3 px-4 py-3 text-sm text-[var(--app-text-secondary)] ${insetSurfaceClassName}`}
+            >
+              <div>
+                <div className="text-sm text-[var(--app-text-primary)]">
+                  记忆
+                </div>
+                <div className="mt-1 text-xs leading-5 text-[var(--app-text-muted)]">
+                  空闲时总结可复用结论；搜索历史记忆不受影响。
+                </div>
+              </div>
+              <WorkbenchSwitch
+                checked={settingsForm.memoryEnabled}
+                ariaLabel="切换记忆后台总结"
+                onChange={onSettingsMemoryEnabledChange}
               />
             </label>
           </SettingsField>

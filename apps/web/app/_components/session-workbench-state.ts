@@ -917,6 +917,7 @@ export function toSettingsFormState(
     workspaceSkillSettings: [...(settings?.workspaceSkillSettings ?? [])],
     userContextHooks: [...(settings?.userContextHooks ?? [])],
     debugConversationView: settings?.debugConversationView ?? false,
+    memoryEnabled: settings?.memoryEnabled ?? false,
     userCustomPrompt: settings?.userCustomPrompt ?? ""
   };
 }
@@ -1312,6 +1313,7 @@ export function normalizeSettingsFormState(
         .filter((hook) => hook.id.length > 0 && hook.content.length > 0)
     ),
     debugConversationView: form.debugConversationView,
+    memoryEnabled: form.memoryEnabled,
     userCustomPrompt: form.userCustomPrompt.trim()
   };
 }

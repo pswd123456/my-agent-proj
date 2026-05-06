@@ -80,6 +80,7 @@ function createSettingsFormState(): SettingsFormState {
     workspaceSkillSettings: [],
     userContextHooks: [],
     debugConversationView: false,
+    memoryEnabled: false,
     userCustomPrompt: ""
   };
 }
