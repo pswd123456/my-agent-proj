@@ -194,6 +194,7 @@ describe("createApiApp settings bootstrap", () => {
           }
         ],
         debugConversationView: true,
+        memoryEnabled: true,
         userCustomPrompt: "先确认用户上下文，再回答。"
       })
     });
@@ -202,12 +203,14 @@ describe("createApiApp settings bootstrap", () => {
     const updatePayload = (await updateResponse.json()) as {
       settings: {
         debugConversationView: boolean;
+        memoryEnabled: boolean;
         userCustomPrompt: string;
         userContextHooks: Array<{ id: string; maxTurns?: number }>;
       };
       permissionTools: Array<{ name: string }>;
     };
     expect(updatePayload.settings.debugConversationView).toBe(true);
+    expect(updatePayload.settings.memoryEnabled).toBe(true);
     expect(updatePayload.settings.userCustomPrompt).toBe(
       "先确认用户上下文，再回答。"
     );
