@@ -2,7 +2,8 @@ import { z } from "zod";
 
 import {
   normalizeWorkspaceMcpServerConfigs,
-  replaceWorkspaceMcpConfigServers,
+  type WorkspaceMcpServerConfig,
+  type WorkspaceMcpServerConfigInput,
   updateUserSettingsChannelsPayloadSchema,
   updateUserSettingsMcpPayloadSchema
 } from "@ai-app-template/agent";
@@ -79,9 +80,9 @@ export function registerSettingsRoutes(input: {
       return c.json({ error: "MCP server names must be unique." }, 400);
     }
 
-    const servers: Parameters<typeof replaceWorkspaceMcpConfigServers>[1] =
+    const servers: WorkspaceMcpServerConfig[] =
       normalizeWorkspaceMcpServerConfigs(
-        body.servers as Parameters<typeof normalizeWorkspaceMcpServerConfigs>[0]
+        body.servers as WorkspaceMcpServerConfigInput[]
       );
     await dependencies.settingsConfigStore.updateWorkspaceMcpServers(
       settings.workingDirectory,
