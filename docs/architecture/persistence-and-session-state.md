@@ -91,6 +91,7 @@
 - `workspaceSkillSettings`
 - `userContextHooks`
 - `debugConversationView`
+- `memoryEnabled`
 - `userCustomPrompt`
 - `channels.*`
 - `mcpServers.*`

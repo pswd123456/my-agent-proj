@@ -13,6 +13,7 @@
 - [Stage 5 session settings 与工作区默认值](./stage5.md)
 - [Task Brief：planmode / full compaction 共用任务骨架](./task_brief.md)
 - [Full Compaction：长任务第二阶段 checkpoint 设计](./full-compaction.md)
+- [Memory System v0：全局文件型记忆设计草稿](./memory.md)
 - [Product 1 日程管理能力](./product1.md)
 
 ## 阅读建议
@@ -27,4 +28,5 @@
 - `stage2.md` 到 `stage5.md`：保留已经落地过的阶段规格，适合核对设计意图和验收边界
 - `task_brief.md`：说明当前已落地的 `task brief` artifact 行为，以及它与 `full compaction` 的解耦边界
 - `full-compaction.md`：说明当前已落地的 runtime 第二阶段上下文压缩机制
+- `memory.md`：保留全局文件型 memory store、同步检索工具和闲置后后台总结的 v0 设计草稿
 - `product1.md`：保留日程管理能力的专项设计与约束
