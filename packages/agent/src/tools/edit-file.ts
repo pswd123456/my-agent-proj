@@ -18,6 +18,7 @@ import {
   buildUnifiedFilePatchFromContents
 } from "./unified-patch.js";
 import {
+  createInvalidToolInputResult,
   createToolResult,
   failureResult,
   successResult
@@ -26,6 +27,10 @@ import {
   buildToolDescription,
   describeObjectProperty
 } from "./tool-description.js";
+import {
+  getWorkspacePathSandboxTargets,
+  validateRequiredWorkspacePath
+} from "./workspace-tool-input.js";
 
 function normalizeEditableText(value: string): string {
   return value.replace(/\r\n/g, "\n");
@@ -228,11 +233,7 @@ export function createEditFileTool(workingDirectory: string): RuntimeTool {
       additionalProperties: false
     },
     getSandboxTargets(input) {
-      return [
-        typeof input.path === "string" && input.path.length > 0
-          ? input.path
-          : "."
-      ];
+      return getWorkspacePathSandboxTargets(input);
     },
     async getPermissionRequest(input, context) {
       const rawPath = typeof input.path === "string" ? input.path : "";
@@ -259,10 +260,9 @@ export function createEditFileTool(workingDirectory: string): RuntimeTool {
       };
     },
     validate(input) {
-      const issues: Array<{ field: string; issue: string }> = [];
-      if (typeof input.path !== "string" || input.path.trim().length === 0) {
-        issues.push({ field: "path", issue: "path is required." });
-      }
+      const issues: Array<{ field: string; issue: string }> = [
+        ...validateRequiredWorkspacePath(input)
+      ];
       if (typeof input.oldString !== "string" || input.oldString.length === 0) {
         issues.push({
           field: "oldString",
@@ -306,16 +306,10 @@ export function createEditFileTool(workingDirectory: string): RuntimeTool {
     async execute(input, context) {
       const validation = this.validate(input);
       if (!validation.ok) {
-        return failureResult(
-          createToolResult({
-            ok: false,
-            code: "INVALID_TOOL_INPUT",
-            message: "Invalid edit_file input.",
-            validationErrors: validation.issues ?? []
-          }),
-          `[edit_file] invalid input\n${(validation.issues ?? [])
-            .map((issue) => `- ${issue.field}: ${issue.issue}`)
-            .join("\n")}`
+        return createInvalidToolInputResult(
+          "edit_file",
+          validation.issues ?? [],
+          "Invalid edit_file input."
         );
       }
 

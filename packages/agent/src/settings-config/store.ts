@@ -26,6 +26,8 @@ import {
 import { parse, stringify } from "smol-toml";
 
 import type { WorkspaceMcpServerConfig } from "../mcp/config-types.js";
+import { replaceWorkspaceChannelConfig } from "../channels/config-manager.js";
+import { replaceWorkspaceMcpConfigServers } from "../mcp/config-manager.js";
 import {
   loadWorkspaceHookConfig,
   mergeWorkspaceAndSettingsUserContextHooks
@@ -466,61 +468,18 @@ export function createSettingsConfigStore(input?: {
       return next;
     },
     async updateWorkspaceChannels(workingDirectory, telegram) {
-      const configPath = toWorkspaceAgentConfigPath(workingDirectory);
-      const root = await readTomlRoot(configPath);
-      const channels = isRecord(root.channels) ? root.channels : {};
-      const next = {
-        ...root,
-        channels: {
-          ...channels,
-          telegram: {
-            enabled: telegram.enabled,
-            mode: telegram.mode,
-            bot_token: telegram.botToken,
-            ...(telegram.webhookSecret
-              ? { webhook_secret: telegram.webhookSecret }
-              : {}),
-            ...(telegram.webhookUrl ? { webhook_url: telegram.webhookUrl } : {})
-          }
-        }
-      };
-      await fs.mkdir(path.dirname(configPath), { recursive: true });
-      await fs.writeFile(configPath, `${stringify(next)}\n`, "utf8");
+      await replaceWorkspaceChannelConfig(workingDirectory, {
+        channel: "telegram",
+        configuredInFile: true,
+        enabled: telegram.enabled,
+        mode: telegram.mode,
+        botToken: telegram.botToken,
+        webhookSecret: telegram.webhookSecret,
+        webhookUrl: telegram.webhookUrl
+      });
     },
     async updateWorkspaceMcpServers(workingDirectory, servers) {
-      const configPath = toWorkspaceAgentConfigPath(workingDirectory);
-      const root = await readTomlRoot(configPath);
-      const mcpServers: Record<string, unknown> = {};
-      for (const server of servers) {
-        if (server.transport === "stdio") {
-          mcpServers[server.name] = {
-            ...(server.enabled === false ? { enabled: false } : {}),
-            command: server.command,
-            ...(server.args.length > 0 ? { args: server.args } : {}),
-            ...(Object.keys(server.env).length > 0 ? { env: server.env } : {}),
-            ...(server.disabledTools.length > 0
-              ? { disabled_tools: server.disabledTools }
-              : {})
-          };
-          continue;
-        }
-        mcpServers[server.name] = {
-          ...(server.enabled === false ? { enabled: false } : {}),
-          url: server.url,
-          ...(Object.keys(server.headers).length > 0
-            ? { headers: server.headers }
-            : {}),
-          ...(server.disabledTools.length > 0
-            ? { disabled_tools: server.disabledTools }
-            : {})
-        };
-      }
-      await fs.mkdir(path.dirname(configPath), { recursive: true });
-      await fs.writeFile(
-        configPath,
-        `${stringify({ ...root, mcp_servers: mcpServers })}\n`,
-        "utf8"
-      );
+      await replaceWorkspaceMcpConfigServers(workingDirectory, servers);
     }
   };
 }

@@ -6,11 +6,20 @@ import {
   normalizeWorkspacePath,
   toRelativeWorkspacePath
 } from "./workspace.js";
-import { createToolResult, failureResult, successResult } from "./tool-result.js";
+import {
+  createInvalidToolInputResult,
+  createToolResult,
+  failureResult,
+  successResult
+} from "./tool-result.js";
 import {
   buildToolDescription,
   describeObjectProperty
 } from "./tool-description.js";
+import {
+  getWorkspacePathSandboxTargets,
+  validateRequiredWorkspacePath
+} from "./workspace-tool-input.js";
 
 export function createDeletePathTool(workingDirectory: string): RuntimeTool {
   return {
@@ -33,7 +42,10 @@ export function createDeletePathTool(workingDirectory: string): RuntimeTool {
         "Use delete_file instead when you know the targets are files and want undoable diffs.",
         "Fails if the target path does not exist."
       ],
-      examples: ['{"path":"tmp/old-output"}', '{"path":"artifacts/report.json"}']
+      examples: [
+        '{"path":"tmp/old-output"}',
+        '{"path":"artifacts/report.json"}'
+      ]
     }),
     family: "workspace-file",
     isReadOnly: false,
@@ -52,7 +64,7 @@ export function createDeletePathTool(workingDirectory: string): RuntimeTool {
       additionalProperties: false
     },
     getSandboxTargets(input) {
-      return [typeof input.path === "string" && input.path.length > 0 ? input.path : "."];
+      return getWorkspacePathSandboxTargets(input);
     },
     async getPermissionRequest(input, context) {
       const rawPath = typeof input.path === "string" ? input.path : "";
@@ -74,28 +86,21 @@ export function createDeletePathTool(workingDirectory: string): RuntimeTool {
       };
     },
     validate(input) {
-      if (typeof input.path === "string" && input.path.length > 0) {
-        return { ok: true, value: input };
-      }
-
-      return {
-        ok: false,
-        issues: [{ field: "path", issue: "path is required." }]
-      };
+      const issues = validateRequiredWorkspacePath(input);
+      return issues.length > 0
+        ? { ok: false, issues }
+        : { ok: true, value: input };
     },
     async execute(input, context) {
-      const rawPath = typeof input.path === "string" ? input.path : "";
-      if (!rawPath) {
-        return failureResult(
-          createToolResult({
-            ok: false,
-            code: "INVALID_TOOL_INPUT",
-            message: "Missing path.",
-            validationErrors: [{ field: "path", issue: "path is required." }]
-          }),
-          "[delete_path] invalid input"
+      const validation = this.validate(input);
+      if (!validation.ok) {
+        return createInvalidToolInputResult(
+          "delete_path",
+          validation.issues ?? [],
+          "Missing path."
         );
       }
+      const rawPath = input.path as string;
 
       try {
         const absolutePath = normalizeWorkspacePath(

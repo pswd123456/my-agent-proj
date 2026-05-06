@@ -6,11 +6,20 @@ import {
   normalizeWorkspacePath,
   toRelativeWorkspacePath
 } from "./workspace.js";
-import { createToolResult, failureResult, successResult } from "./tool-result.js";
+import {
+  createInvalidToolInputResult,
+  createToolResult,
+  failureResult,
+  successResult
+} from "./tool-result.js";
 import {
   buildToolDescription,
   describeObjectProperty
 } from "./tool-description.js";
+import {
+  getWorkspacePathSandboxTargets,
+  validateRequiredWorkspacePath
+} from "./workspace-tool-input.js";
 
 export function createCreateDirectoryTool(
   workingDirectory: string
@@ -35,7 +44,10 @@ export function createCreateDirectoryTool(
         "If the target already exists as a directory, the call succeeds without changing it.",
         "Fails when the target path already exists as a file."
       ],
-      examples: ['{"path":"artifacts/reports"}', '{"path":"packages/agent/tmp"}']
+      examples: [
+        '{"path":"artifacts/reports"}',
+        '{"path":"packages/agent/tmp"}'
+      ]
     }),
     family: "workspace-file",
     isReadOnly: false,
@@ -54,31 +66,24 @@ export function createCreateDirectoryTool(
       additionalProperties: false
     },
     getSandboxTargets(input) {
-      return [typeof input.path === "string" && input.path.length > 0 ? input.path : "."];
+      return getWorkspacePathSandboxTargets(input);
     },
     validate(input) {
-      if (typeof input.path === "string" && input.path.length > 0) {
-        return { ok: true, value: input };
-      }
-
-      return {
-        ok: false,
-        issues: [{ field: "path", issue: "path is required." }]
-      };
+      const issues = validateRequiredWorkspacePath(input);
+      return issues.length > 0
+        ? { ok: false, issues }
+        : { ok: true, value: input };
     },
     async execute(input, context) {
-      const rawPath = typeof input.path === "string" ? input.path : "";
-      if (!rawPath) {
-        return failureResult(
-          createToolResult({
-            ok: false,
-            code: "INVALID_TOOL_INPUT",
-            message: "Missing directory path.",
-            validationErrors: [{ field: "path", issue: "path is required." }]
-          }),
-          "[create_directory] invalid input"
+      const validation = this.validate(input);
+      if (!validation.ok) {
+        return createInvalidToolInputResult(
+          "create_directory",
+          validation.issues ?? [],
+          "Missing directory path."
         );
       }
+      const rawPath = input.path as string;
 
       try {
         const absolutePath = normalizeWorkspacePath(

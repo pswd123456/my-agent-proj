@@ -22,6 +22,7 @@ import {
   buildToolDescription,
   describeObjectProperty
 } from "./tool-description.js";
+import { normalizeLineWindowRequest, readLineWindow } from "./line-window.js";
 import type { RuntimeTool } from "./runtime-tool.js";
 
 const MAX_SKILL_CHARACTERS = 25_000;
@@ -56,74 +57,6 @@ const schema = z
       });
     }
   });
-
-interface ReadWindowRequest {
-  startLine: number;
-  endLine: number | null;
-}
-
-function normalizeReadWindowRequest(
-  input: z.infer<typeof schema>
-): ReadWindowRequest {
-  if (typeof input.offset === "number" || typeof input.limit === "number") {
-    const offset = input.offset ?? 0;
-    const limit = input.limit ?? null;
-    return {
-      startLine: offset + 1,
-      endLine: limit === null ? null : offset + limit
-    };
-  }
-
-  return {
-    startLine: input.startLine ?? 1,
-    endLine: input.endLine ?? null
-  };
-}
-
-function splitLines(content: string): string[] {
-  if (content.length === 0) {
-    return [];
-  }
-
-  return content.replace(/\r\n/g, "\n").replace(/\n$/, "").split("\n");
-}
-
-function readLineRange(input: {
-  content: string;
-  startLine: number;
-  endLine: number | null;
-  maxCharacters: number;
-}): {
-  content: string;
-  startLine: number;
-  endLine: number;
-  totalLines: number;
-  truncated: boolean;
-} {
-  const lines = splitLines(input.content);
-  const totalLines = lines.length;
-  const normalizedEndLine = input.endLine ?? totalLines;
-  const selectedLines = lines.slice(input.startLine - 1, normalizedEndLine);
-  const selectedContent = selectedLines.join("\n");
-
-  if (selectedContent.length <= input.maxCharacters) {
-    return {
-      content: selectedContent,
-      startLine: input.startLine,
-      endLine: Math.min(normalizedEndLine, totalLines),
-      totalLines,
-      truncated: false
-    };
-  }
-
-  return {
-    content: selectedContent.slice(0, input.maxCharacters),
-    startLine: input.startLine,
-    endLine: Math.min(normalizedEndLine, totalLines),
-    totalLines,
-    truncated: true
-  };
-}
 
 function resolveRequestedSkill(
   skills: SkillDescriptor[],
@@ -303,10 +236,11 @@ export function createLoadSkillTool(
           context.allowWorkspaceEscape
         );
         const content = await fs.readFile(absolutePath, "utf8");
-        const range = readLineRange({
+        const window = normalizeLineWindowRequest(parsed);
+        const range = readLineWindow({
           content,
-          startLine: normalizeReadWindowRequest(parsed).startLine,
-          endLine: normalizeReadWindowRequest(parsed).endLine,
+          startLine: window.startLine,
+          endLine: window.endLine,
           maxCharacters: MAX_SKILL_CHARACTERS
         });
 

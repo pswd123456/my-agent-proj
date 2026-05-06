@@ -25,6 +25,11 @@ import {
   buildToolDescription,
   describeObjectProperty
 } from "./tool-description.js";
+import {
+  normalizeLineWindowRequest,
+  readLineWindow,
+  splitContentLines
+} from "./line-window.js";
 
 const MAX_TASK_BRIEF_CHARACTERS = 20_000;
 const DEFAULT_MAX_RESULTS = 20;
@@ -99,74 +104,6 @@ const schema = z.discriminatedUnion("action", [
 
 type ManageTaskBriefInput = z.infer<typeof schema>;
 
-interface ReadWindowRequest {
-  startLine: number;
-  endLine: number | null;
-}
-
-function normalizeReadWindowRequest(
-  input: Extract<ManageTaskBriefInput, { action: "read" }>
-): ReadWindowRequest {
-  if (typeof input.offset === "number" || typeof input.limit === "number") {
-    const offset = input.offset ?? 0;
-    const limit = input.limit ?? null;
-    return {
-      startLine: offset + 1,
-      endLine: limit === null ? null : offset + limit
-    };
-  }
-
-  return {
-    startLine: input.startLine ?? 1,
-    endLine: input.endLine ?? null
-  };
-}
-
-function splitLines(content: string): string[] {
-  if (content.length === 0) {
-    return [];
-  }
-
-  return content.replace(/\r\n/g, "\n").replace(/\n$/, "").split("\n");
-}
-
-function readLineRange(input: {
-  content: string;
-  startLine: number;
-  endLine: number | null;
-  maxCharacters: number;
-}): {
-  content: string;
-  startLine: number;
-  endLine: number;
-  totalLines: number;
-  truncated: boolean;
-} {
-  const lines = splitLines(input.content);
-  const totalLines = lines.length;
-  const normalizedEndLine = input.endLine ?? totalLines;
-  const selectedLines = lines.slice(input.startLine - 1, normalizedEndLine);
-  const selectedContent = selectedLines.join("\n");
-
-  if (selectedContent.length <= input.maxCharacters) {
-    return {
-      content: selectedContent,
-      startLine: input.startLine,
-      endLine: Math.min(normalizedEndLine, totalLines),
-      totalLines,
-      truncated: false
-    };
-  }
-
-  return {
-    content: selectedContent.slice(0, input.maxCharacters),
-    startLine: input.startLine,
-    endLine: Math.min(normalizedEndLine, totalLines),
-    totalLines,
-    truncated: true
-  };
-}
-
 function formatReadDisplayText(input: {
   path: string | null;
   exists: boolean;
@@ -195,11 +132,11 @@ function detectNewline(content: string): "\r\n" | "\n" {
 }
 
 function splitEditableLines(content: string): string[] {
-  return splitLines(content);
+  return splitContentLines(content);
 }
 
 function splitReplacementLines(content: string): string[] {
-  return splitLines(content);
+  return splitContentLines(content);
 }
 
 function hasFinalNewline(content: string): boolean {
@@ -367,7 +304,7 @@ function executeRead(
   const normalizedPath = normalizeTaskBriefPath(
     context.sessionContext.taskBriefPath
   );
-  const window = normalizeReadWindowRequest(input);
+  const window = normalizeLineWindowRequest(input);
 
   if (!normalizedPath) {
     return successResult(
@@ -398,7 +335,7 @@ function executeRead(
 
   try {
     const content = readFileSync(normalizedPath, "utf8");
-    const range = readLineRange({
+    const range = readLineWindow({
       content,
       startLine: window.startLine,
       endLine: window.endLine,
@@ -544,7 +481,7 @@ function executeSearch(
   }
 
   const maxResults = input.maxResults ?? DEFAULT_MAX_RESULTS;
-  const lines = splitLines(content);
+  const lines = splitContentLines(content);
   const matches: Array<{ line: number; snippet: string }> = [];
   for (const [index, line] of lines.entries()) {
     if (!matcher.test(line)) {

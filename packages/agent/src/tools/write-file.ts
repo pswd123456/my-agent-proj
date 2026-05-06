@@ -17,6 +17,7 @@ import {
   writeTextFileAtomic
 } from "./workspace.js";
 import {
+  createInvalidToolInputResult,
   createToolResult,
   failureResult,
   successResult
@@ -26,6 +27,10 @@ import {
   buildToolDescription,
   describeObjectProperty
 } from "./tool-description.js";
+import {
+  getWorkspacePathSandboxTargets,
+  validateRequiredWorkspacePath
+} from "./workspace-tool-input.js";
 
 function normalizeDiffLines(content: string): string[] {
   if (content.length === 0) {
@@ -141,11 +146,7 @@ export function createWriteFileTool(workingDirectory: string): RuntimeTool {
       additionalProperties: false
     },
     getSandboxTargets(input) {
-      return [
-        typeof input.path === "string" && input.path.length > 0
-          ? input.path
-          : "."
-      ];
+      return getWorkspacePathSandboxTargets(input);
     },
     async getPermissionRequest(input, context) {
       const rawPath = typeof input.path === "string" ? input.path : "";
@@ -172,10 +173,9 @@ export function createWriteFileTool(workingDirectory: string): RuntimeTool {
       };
     },
     validate(input) {
-      const issues: Array<{ field: string; issue: string }> = [];
-      if (typeof input.path !== "string" || input.path.length === 0) {
-        issues.push({ field: "path", issue: "path is required." });
-      }
+      const issues: Array<{ field: string; issue: string }> = [
+        ...validateRequiredWorkspacePath(input)
+      ];
       if (typeof input.content !== "string") {
         issues.push({ field: "content", issue: "content must be a string." });
       }
@@ -200,16 +200,10 @@ export function createWriteFileTool(workingDirectory: string): RuntimeTool {
     async execute(input, context) {
       const validation = this.validate(input);
       if (!validation.ok) {
-        return failureResult(
-          createToolResult({
-            ok: false,
-            code: "INVALID_TOOL_INPUT",
-            message: "Invalid write_file input.",
-            validationErrors: validation.issues ?? []
-          }),
-          `[write_file] invalid input\n${(validation.issues ?? [])
-            .map((issue) => `- ${issue.field}: ${issue.issue}`)
-            .join("\n")}`
+        return createInvalidToolInputResult(
+          "write_file",
+          validation.issues ?? [],
+          "Invalid write_file input."
         );
       }
 
