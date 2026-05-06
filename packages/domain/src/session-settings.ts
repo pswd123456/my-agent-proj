@@ -55,6 +55,7 @@ export interface SessionSettingsRecord {
   workspaceSkillSettings: WorkspaceSkillSettingRecord[];
   userContextHooks: UserContextHookRecord[];
   debugConversationView: boolean;
+  memoryEnabled: boolean;
   userCustomPrompt: string;
   createdAt: string;
   updatedAt: string;
@@ -87,6 +88,7 @@ export function resolveSessionSettingsDefaults(options?: {
     workspaceSkillSettings: [],
     userContextHooks: [],
     debugConversationView: false,
+    memoryEnabled: false,
     userCustomPrompt: "",
     createdAt: timestamp,
     updatedAt: timestamp

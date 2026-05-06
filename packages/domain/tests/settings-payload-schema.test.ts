@@ -77,6 +77,7 @@ describe("settings payload schema", () => {
         workspaceSkillSettings: [],
         userContextHooks: [],
         debugConversationView: true,
+        memoryEnabled: false,
         userCustomPrompt: "先确认上下文。",
         createdAt: "2026-04-24T00:00:00.000Z",
         updatedAt: "2026-04-24T00:00:00.000Z"

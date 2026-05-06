@@ -31,7 +31,9 @@ export function mergeSettingsConfigRecords(input: {
         ? workspace.workingDirectory
         : input.global.workingDirectory,
     model:
-      typeof workspace.model === "string" ? workspace.model : input.global.model,
+      typeof workspace.model === "string"
+        ? workspace.model
+        : input.global.model,
     thinkingEffort: workspace.thinkingEffort ?? input.global.thinkingEffort,
     yoloMode:
       typeof workspace.yoloMode === "boolean"
@@ -62,17 +64,24 @@ export function mergeSettingsConfigRecords(input: {
       input.global.enabledCapabilityPacks,
     workspaceSkillSettings:
       (pickDefinedArray(
-        workspace.workspaceSkillSettings as WorkspaceSkillSettingRecord[] | undefined
+        workspace.workspaceSkillSettings as
+          | WorkspaceSkillSettingRecord[]
+          | undefined
       ) as WorkspaceSkillSettingRecord[] | undefined) ??
       input.global.workspaceSkillSettings,
     userContextHooks:
       (pickDefinedArray(
         workspace.userContextHooks as UserContextHookRecord[] | undefined
-      ) as UserContextHookRecord[] | undefined) ?? input.global.userContextHooks,
+      ) as UserContextHookRecord[] | undefined) ??
+      input.global.userContextHooks,
     debugConversationView:
       typeof workspace.debugConversationView === "boolean"
         ? workspace.debugConversationView
         : input.global.debugConversationView,
+    memoryEnabled:
+      typeof workspace.memoryEnabled === "boolean"
+        ? workspace.memoryEnabled
+        : input.global.memoryEnabled,
     userCustomPrompt:
       typeof workspace.userCustomPrompt === "string"
         ? workspace.userCustomPrompt

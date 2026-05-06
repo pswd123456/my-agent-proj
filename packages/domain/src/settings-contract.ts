@@ -129,6 +129,12 @@ export const settingsFieldContracts = [
     targets: ["user"] as const
   },
   {
+    name: "memoryEnabled",
+    tomlKey: "memory_enabled",
+    schema: z.boolean().optional(),
+    targets: ["user"] as const
+  },
+  {
     name: "userCustomPrompt",
     tomlKey: "user_custom_prompt",
     schema: z.string().optional(),

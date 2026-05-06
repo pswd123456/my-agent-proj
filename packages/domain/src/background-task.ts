@@ -10,7 +10,8 @@ export const BACKGROUND_TASK_KIND_OPTIONS = [
   "subagent",
   "hook_subagent",
   "session_wakeup",
-  "shell_command"
+  "shell_command",
+  "memory_summary"
 ] as const;
 export type BackgroundTaskKind =
   (typeof BACKGROUND_TASK_KIND_OPTIONS)[number];
@@ -31,7 +32,8 @@ export type BackgroundTaskStatus =
 
 export const BACKGROUND_TASK_EXECUTOR_OPTIONS = [
   "agent_session",
-  "shell_command"
+  "shell_command",
+  "memory_summary"
 ] as const;
 export type BackgroundTaskExecutor =
   (typeof BACKGROUND_TASK_EXECUTOR_OPTIONS)[number];
@@ -120,6 +122,13 @@ export interface ShellCommandTaskState {
   latestResult: ShellCommandResultEnvelope | null;
 }
 
+export interface MemorySummaryTaskState {
+  kind: "memory_summary";
+  sourceSessionId: string;
+  stageKey: string;
+  latestResult: MemorySummaryResultEnvelope | null;
+}
+
 export interface HookSubagentBackgroundTaskResultEnvelope {
   type: "hook_subagent";
   hookId: string;
@@ -143,7 +152,8 @@ export interface HookSubagentTaskState {
 export type BackgroundTaskState =
   | DelegateTaskState
   | ShellCommandTaskState
-  | HookSubagentTaskState;
+  | HookSubagentTaskState
+  | MemorySummaryTaskState;
 
 export type DelegatePermissionDecision = "approve" | "reject";
 
@@ -170,9 +180,23 @@ export interface ShellCommandBackgroundTaskPayload {
   timeoutMs: number;
 }
 
+export interface MemorySummaryBackgroundTaskPayload {
+  executor: "memory_summary";
+  message: string;
+  workingDirectory: string;
+  model: string;
+  maxTurns: number;
+  enabledCapabilityPacks: CapabilityPackName[];
+  metadata: Record<string, DomainJsonValue>;
+  sourceSessionId: string;
+  stageKey: string;
+  memoryDirectory?: string | null;
+}
+
 export type BackgroundTaskPayload =
   | AgentSessionBackgroundTaskPayload
-  | ShellCommandBackgroundTaskPayload;
+  | ShellCommandBackgroundTaskPayload
+  | MemorySummaryBackgroundTaskPayload;
 
 export interface DelegateBackgroundTaskResultEnvelope {
   type: "delegate";
@@ -183,10 +207,20 @@ export interface DelegateBackgroundTaskResultEnvelope {
   request?: DelegateRequestEnvelope | null;
 }
 
+export interface MemorySummaryResultEnvelope {
+  type: "memory_summary";
+  sourceSessionId: string;
+  stageKey: string;
+  memoryPath: string | null;
+  outcome: "written" | "skipped";
+  summary: string;
+}
+
 export type BackgroundTaskResultEnvelope =
   | DelegateBackgroundTaskResultEnvelope
   | ShellCommandResultEnvelope
-  | HookSubagentBackgroundTaskResultEnvelope;
+  | HookSubagentBackgroundTaskResultEnvelope
+  | MemorySummaryResultEnvelope;
 
 export interface BackgroundTaskHandle {
   taskId: string;
