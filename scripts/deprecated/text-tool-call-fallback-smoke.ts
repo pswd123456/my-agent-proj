@@ -6,9 +6,9 @@ import {
   createWorkspaceToolRegistry,
   type AnthropicCompatibleClient,
   type RunStreamEvent
-} from "../packages/agent/src/index.ts";
-import { createMemoryRoutineRepository } from "../packages/db/src/index.ts";
-import { createScriptPostgresSessionManager } from "./postgres-session.ts";
+} from "../../packages/agent/src/index.ts";
+import { createMemoryRoutineRepository } from "../../packages/db/src/index.ts";
+import { createScriptPostgresSessionManager } from "../postgres-session.ts";
 
 const emittedEvents: RunStreamEvent[] = [];
 const { sessionManager } = await createScriptPostgresSessionManager();
@@ -77,8 +77,7 @@ assert.equal(result.toolResultCount, 1);
 assert.ok(
   emittedEvents.some(
     (event) =>
-      event.kind === "fallback" &&
-      event.reason === "provider_text_tool_call"
+      event.kind === "fallback" && event.reason === "provider_text_tool_call"
   )
 );
 assert.ok(

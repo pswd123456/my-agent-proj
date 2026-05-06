@@ -4,13 +4,13 @@ import { fileURLToPath } from "node:url";
 
 import { asc, eq, sql } from "drizzle-orm";
 
-import type { TraceRecord } from "../packages/agent/src/trace.js";
+import type { TraceRecord } from "../../packages/agent/src/trace.js";
 import {
   createPostgresDatabase,
   resolveDatabaseUrl,
   sessionMessages,
   agentSessions
-} from "../packages/db/src/index.js";
+} from "../../packages/db/src/index.js";
 
 const MIN_REPAIR_DELTA_MS = 60_000;
 const REPAIR_GRANULARITY_MS = 60 * 60 * 1000;
@@ -157,7 +157,7 @@ async function main(): Promise<void> {
     throw new Error("DATABASE_URL is required.");
   }
 
-  const workspaceRoot = fileURLToPath(new URL("../", import.meta.url));
+  const workspaceRoot = fileURLToPath(new URL("../../", import.meta.url));
   const tracesDirectory = path.join(
     workspaceRoot,
     "tmp",
