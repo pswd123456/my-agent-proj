@@ -4,6 +4,7 @@ import {
   buildStaleBackgroundTaskLifecycleNotification,
   createLogger,
   enqueueBackgroundTaskLifecycleNotification,
+  enqueueIdleMemorySummaries,
   runBackgroundTask
 } from "@ai-app-template/agent";
 import {
@@ -28,6 +29,12 @@ const heartbeatIntervalMs = Number(
   process.env.WORKER_TASK_HEARTBEAT_MS ?? 1_000
 );
 const staleTaskMs = Number(process.env.WORKER_TASK_STALE_MS ?? 30_000);
+const memoryIdleSummaryMs = Number(
+  process.env.MEMORY_IDLE_SUMMARY_MS ?? 10 * 60_000
+);
+const memoryIdleSummaryDisabled =
+  process.env.MEMORY_IDLE_SUMMARY_DISABLED === "1" ||
+  process.env.MEMORY_IDLE_SUMMARY_DISABLED === "true";
 const workerId = process.env.WORKER_ID?.trim() || `worker-${process.pid}`;
 const createRuntimeHandle = createRuntimeHandleFactory({
   environment: runtimeEnvironment
@@ -93,6 +100,27 @@ async function drainDueCronJobs(): Promise<void> {
 async function drainQueuedTasks(): Promise<void> {
   await drainDueCronJobs();
   await reconcileStaleTasks();
+  if (!memoryIdleSummaryDisabled) {
+    const result = await enqueueIdleMemorySummaries({
+      sessionManager: runtimeEnvironment.sessionManager,
+      taskManager: runtimeEnvironment.backgroundTaskManager,
+      listTasks: () => runtimeEnvironment.backgroundTaskRepository.listTasks(),
+      isMemoryEnabled: async (workingDirectory) =>
+        (
+          await runtimeEnvironment.settingsConfigStore.getEffectiveSettings(
+            workingDirectory
+          )
+        ).memoryEnabled,
+      idleMs: memoryIdleSummaryMs,
+      memoryDirectory: process.env.AGENTS_MEMORY_DIR ?? null
+    });
+    if (result.enqueuedTaskIds.length > 0) {
+      await workerLogger.info("memory_summary_tasks_enqueued", {
+        taskIds: result.enqueuedTaskIds,
+        scannedSessionCount: result.scannedSessionCount
+      });
+    }
+  }
 
   while (true) {
     const claim =
