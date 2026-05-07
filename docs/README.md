@@ -6,6 +6,7 @@
 
 - [设计契约入口](../DESIGN.md)
 - [模板初始化](./template/README.md)
+- [开发与调试](./development.md)
 - [技术栈总览](./tech-stack.md)
 - [架构文档目录](./architecture/README.md)
 - [API 与 SDK 边界](./architecture/api-and-sdk-boundary.md)
@@ -31,6 +32,7 @@
 
 - 做 UI、视觉统一、AI 生成页面相关工作时，先看根目录 `DESIGN.md`，再进入 `docs/design-system/`
 - 刚复制模板时，先看 `docs/template/`
+- 做本地启动、环境变量、smoke 命令或 runtime 调试时，先看 `docs/development.md`
 - 做技术栈、工程结构、架构边界相关工作时，从 `docs/architecture/` 开始
 - 做 API 契约、runtime 装配点或 Web 调用边界相关工作时，优先看 `docs/architecture/api-and-sdk-boundary.md` 和 `docs/architecture/firecrawl-web.md`
 - 做 cron job 管理接口、调度触发或它与后台任务的关系时，优先看 `docs/architecture/api-and-sdk-boundary.md`、`docs/architecture/background-tasks-and-delegation.md` 和 `docs/architecture/persistence-and-session-state.md`
